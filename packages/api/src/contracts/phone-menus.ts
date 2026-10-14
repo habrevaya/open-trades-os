@@ -42,6 +42,8 @@ const MenuOption = z.object({
   key: z.string().min(1).max(1),
   label: z.string().min(1).max(60),
   to: Destination,
+  /** What a caller may say for it besides its label, when the menu listens for speech. */
+  words: z.array(z.string().max(40)).max(8).optional(),
 });
 
 const MenuInput = {
@@ -51,16 +53,19 @@ const MenuInput = {
   noInputTo: Destination,
   afterHoursTo: Destination.nullable().optional(),
   timeoutSeconds: z.number().int().min(3).max(15).optional(),
+  /** Callers may say an option as well as press its key. Left out: unchanged on a menu being changed, off on a new one. */
+  speech: z.boolean().optional(),
 };
 
 const Menu = z.object({
   id: Uuid,
   name: z.string(),
   greeting: z.string(),
-  options: z.array(MenuOption),
+  options: z.array(MenuOption.extend({ words: z.array(z.string()) })),
   noInputTo: Destination,
   afterHoursTo: Destination.nullable(),
   timeoutSeconds: z.number().int(),
+  speech: z.boolean(),
   /** Exactly what the caller hears: the greeting, then every option. */
   prompt: z.string(),
   numbers: z.array(z.object({ id: Uuid, e164: z.string(), label: z.string().nullable() })),
@@ -91,7 +96,7 @@ export const createPhoneMenu = defineRoute({
   path: "/v1/phone-menus",
   summary: "Build a phone menu",
   description:
-    "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour.",
+    "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour. With speech on, a caller may also say an option (its label, or one of its words, or its key's number); words no option matches, or that match two as well as each other, read the menu once more and then go where noInputTo says. A phrase two options listen for, or a key's name as a word, is refused.",
   module: "M18",
   permissions: ["settings:write"],
   idempotent: true,

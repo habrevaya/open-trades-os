@@ -195,6 +195,24 @@ read out from its own label ("For Billing, press 2"), each ringing a person, a
 ring group, voicemail, another menu, whoever is on call, a number outside
 the company, a waiting line, or the phone assistant. A caller who presses a wrong key is told so and hears it again;
 one who presses nothing hears it three times and then goes where the menu says.
+
+With "Callers can say an option instead of pressing a key" on (`speech` on
+`POST /v1/phone-menus` and `PUT /v1/phone-menus/{id}`, off for a new menu
+unless asked for), the menu says "For Billing, press 2 or say Billing" and
+the carrier listens for words as well as keys, told every option's label and
+the words listed beside it ("Callers can also say": "bill, invoice"; `words`
+on each option, up to eight). A caller's words go to the option whose label or
+word they said in full, a key's number said on its own ("two", "press two")
+is that key, and failing those a significant word of a longer label counts
+("billing" for "Billing questions"). Words that match nothing, or two options
+as well as each other, are answered: the caller hears "Sorry, I did not
+understand that" and the menu once more, and a second miss goes where a
+caller who presses nothing goes. A key pressed always wins over words, and
+keys work at every step. What the caller said is written on the call, short
+and with card numbers masked as a transcript's are: "What they pressed or
+said" on the call screen, and every miss under "Where it went". A phrase two
+options listen for, or a key's name used as a word, is refused when the menu
+is saved.
 Outside the business hours online booking keeps, calls go where the menu's
 after hours setting says, usually whoever is on call. A number can answer for
 one branch ("Answers for" beside how it rings on `/settings`, `businessUnitId`
@@ -354,8 +372,10 @@ person called to press 1 before anything is recorded, the same question a
 caller is asked on the way in, and recording starts only on their yes.
 
 **Hold and passing a caller on.** While somebody has a caller they picked up
-in the browser (or that was passed to them), `/phone` shows "Your call" with
-"Put on hold" and "Pass the caller on". On hold, the caller hears "Please
+in the browser (or that was passed to them), or is on a call they placed from
+the browser once the person called has picked up, `/phone` shows "Your call"
+with "Put on hold" and "Pass the caller on". Everything below works the same
+for the person called on a call the office placed as for a caller. On hold, the caller hears "Please
 hold." and music, and the person's own call ends; "Take them back" on the
 phone rings the caller's hold from the browser and picks them up again. A
 caller can be passed to a colleague (rung in the browser when they are taking
@@ -380,7 +400,11 @@ groups and waiting lines by name), `POST /v1/calls/{id}/hold`,
 `POST /v1/call-transfers/{id}/cancel`, all `call:place`. On the carrier, the
 caller's leg is moved with Twilio's REST API: to a queue of its own for hold,
 or to where they are passed; "Hand over" moves the colleague's leg to the
-caller's queue.
+caller's queue. On a call placed from the browser the person called is on the
+dial's child leg, so the dial asks the carrier to report that leg's start,
+pick up and end to a step of its own, which keeps its id on the call; that is
+the leg moved. Once it has been moved, the browser's own leg ending is not the
+call ending: the person called's leg ending is, with its length.
 
 An owner sets it up once on `/settings/phone`: an API key made in the Twilio
 console (its SID, and the name of the secret in this installation's secret
@@ -532,8 +556,13 @@ gate as everything else.
 Calls: none of the waiting line, the phone assistant or the browser phone has
 been tried on a live phone line. Each is built from Twilio's documentation and
 tested against a fake carrier: signed webhooks, a WebSocket client playing
-ConversationRelay's part, and a fake REST API. A menu takes key presses only,
-not spoken answers. A number keeping its own hours keeps one week, the same
+ConversationRelay's part, and a fake REST API. A menu that listens for words
+matches them by the words themselves, not their meaning, in English only: a
+caller who says "my furnace is out" reaches Service only if "furnace" or
+"out" is listed beside it, and otherwise hears the menu again and then goes
+where a silent caller goes. What the carrier heard is taken as it is written,
+whatever its confidence, and the carrier's speech recognition, its timing
+and its charge per answer have not been tried on a live line. A number keeping its own hours keeps one week, the same
 every week of the year, and a phone menu answering it goes by that week as a
 whole: a menu cannot keep hours of its own apart from the number's. A number
 has one branch, so a line shared by two branches goes by one of them or by
@@ -555,15 +584,24 @@ their place, said once as they join, and it is not said at all from fewer than
 five answered callers in the last three hours.
 
 Browser phone: a call lasts only as long as the `/phone` page stays open, so
-somebody taking calls keeps it in a tab of its own. Hold and passing a caller
-on work only for calls that came in: on a call placed from the browser the
-person called is on a leg the carrier names only when the call ends, so it
-cannot be moved, and the screen does not offer it. Hold and passing on move
+somebody taking calls keeps it in a tab of its own. Hold and passing on move
 the caller's leg with Twilio's REST API, built from its documentation and
 tested against a fake carrier, not a live line: in particular, that moving the
 caller out of a ring group's dial does not also run what the dial does when it
 ends is Twilio's documented behaviour, and the step here ignores that result
-while a caller is held, but has not been seen on a real call. Talking to a
+while a caller is held, but has not been seen on a real call. On a call placed
+from the browser, the person called can be held or passed on only once the
+carrier has reported their leg picking up; the screen is read again a few
+seconds after they answer for that reason, so the buttons can take that long
+to appear. That the leg keeps reporting to the same address after it has been
+moved out of the dial, so its end is the call's end, is likewise from Twilio's
+documentation and not yet seen on a live line; a call whose end report never
+came stays open on the screen for up to its busy limit. The person called,
+once passed on, is treated like a caller: a colleague's phone shows the
+company's number, and if nobody picks up they reach the company's voicemail,
+with no missed call announced because the office placed the call. Left on
+hold fifteen minutes they also go to voicemail, and the task to call them back
+names the number called. Talking to a
 colleague first is to one colleague, never a ring group or a waiting line,
 and that call to the colleague is not on the call log. There is no conference
 of three and no second call while on one (a second call to the browser is

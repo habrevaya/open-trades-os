@@ -1,6 +1,6 @@
-import { and, asc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, can, voice, holidays as holidayRules, time, type Actor, type telephony as tel } from "@opentradesos/core";
+import { SYSTEM_USER_ID, can, voice, holidays as holidayRules, time, transcript, type Actor, type telephony as tel } from "@opentradesos/core";
 import {
   audit, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -338,8 +338,12 @@ export const STEPS = [
    */
   "hold", "hold-wait", "hold-done", "hold-pickup",
   "transfer", "transfer-answered", "transfer-consult-done", "transfer-bridge",
-  /** A call somebody placed from the browser, the question put to the person called, and how it ended. */
-  "softphone", "softphone-consent", "softphone-dialed",
+  /**
+   * A call somebody placed from the browser, the question put to the person
+   * called, how the dial ended, and the person called's own leg starting,
+   * picking up and ending.
+   */
+  "softphone", "softphone-consent", "softphone-dialed", "softphone-leg",
 ] as const;
 export type Step = (typeof STEPS)[number];
 
@@ -420,7 +424,7 @@ export async function handle(
 }
 
 /** The steps after which somebody may be free to make a callback, or one is newly waiting. */
-const KICKS = new Set<Step>(["status", "dialed", "queue-done", "queue-leg", "callback-dialed", "softphone-dialed"]);
+const KICKS = new Set<Step>(["status", "dialed", "queue-done", "queue-leg", "callback-dialed", "softphone-dialed", "softphone-leg"]);
 
 async function answerStep(
   db: Database, ctx: ServiceContext, step: Step, form: Record<string, string>, query: URLSearchParams, wire: Wire,
@@ -455,6 +459,7 @@ async function answerStep(
     case "softphone": return softphoneCall(db, ctx, form, wire);
     case "softphone-consent": return softphoneConsent(ctx, form, query, wire);
     case "softphone-dialed": return softphoneDialed(ctx, form, now);
+    case "softphone-leg": return softphoneLeg(ctx, form, query, now);
     default: return empty;
   }
 }
@@ -472,11 +477,23 @@ const count = (value: string | null, max: number): number => {
   return Number.isInteger(parsed) && parsed >= 0 ? Math.min(parsed, max) : 0;
 };
 
+/**
+ * The call a carrier request is about, by the leg it came from: the call's
+ * own leg, or on a call placed from the browser, the person called's leg,
+ * which is the one that goes on once it has been held or passed on.
+ */
 async function callBySid(tx: Database, sid: string | undefined) {
   if (!sid) return null;
   const [row] = await tx.select().from(schema.call)
-    .where(eq(schema.call.providerCallId, `twilio:${sid}`)).limit(1);
+    .where(or(eq(schema.call.providerCallId, `twilio:${sid}`), eq(schema.call.calleeLegSid, sid))).limit(1);
   return row ?? null;
+}
+
+/** Whether the call has ever been held or passed on from the browser. */
+async function everMoved(tx: Database, callId: string): Promise<boolean> {
+  const [row] = await tx.select({ id: schema.callTransfer.id }).from(schema.callTransfer)
+    .where(eq(schema.callTransfer.callId, callId)).limit(1);
+  return Boolean(row);
 }
 
 async function numberOf(tx: Database, call: { phoneNumberId: string | null; receivedOnE164: string | null }) {
@@ -586,14 +603,22 @@ function dialVerb(leg: Leg, numbers: readonly string[], timeoutSeconds: number, 
   };
 }
 
-/** A menu, read and waited on. A key press and silence both come back to `menu`. */
-function menuVerbs(leg: Leg, menu: voice.PhoneMenu, attempt: number, hops: number, say: string | null): voice.Verb[] {
-  const query = { m: menu.id, t: attempt, ...(hops > 0 ? { h: hops } : {}) };
+/**
+ * A menu, read and waited on. A key press, words and silence all come back
+ * to `menu`. A menu that listens asks the carrier for speech as well as keys,
+ * and `s` carries how many spoken answers have missed so far, so the one
+ * repeat a miss earns is given once however the caller mixes words and keys.
+ */
+function menuVerbs(
+  leg: Leg, menu: voice.PhoneMenu, attempt: number, hops: number, say: string | null, misses = 0,
+): voice.Verb[] {
+  const query = { m: menu.id, t: attempt, ...(hops > 0 ? { h: hops } : {}), ...(misses > 0 ? { s: misses } : {}) };
   return [
     ...(say ? [{ verb: "say" as const, text: say }] : []),
     {
       verb: "gather", action: leg.url("menu", query), numDigits: 1,
       timeoutSeconds: menu.timeoutSeconds, say: voice.menuPrompt(menu),
+      ...(menu.speech ? { speechHints: voice.speechHints(menu) } : {}),
     },
     { verb: "redirect", url: leg.url("menu", query) },
   ];
@@ -873,13 +898,33 @@ async function menuStep(
     }
 
     const attempt = Math.max(1, count(query.get("t"), voice.MENU_ATTEMPTS));
-    const choice = voice.chooseOption(menu, form["Digits"], attempt);
-    if (choice.kind === "again") return reply(menuVerbs(leg, menu, choice.attempt, hops, choice.say));
+    const misses = count(query.get("s"), voice.SPEECH_RETRIES);
+    /**
+     * A key wins over words: a caller who pressed something meant it. Words
+     * are read only from a menu that listens, so a menu with listening
+     * switched off since the call began goes by keys alone.
+     */
+    const digits = form["Digits"]?.trim() ?? "";
+    /**
+     * What the caller said is written on the call, so it goes through the
+     * same masking as a transcript first: a card number read out to a menu
+     * is not kept.
+     */
+    const said = menu.speech && digits === "" ? transcript.redactText((form["SpeechResult"] ?? "").trim()).text.trim() : "";
+    const choice = said !== ""
+      ? voice.chooseSpoken(menu, said, attempt, misses)
+      : voice.chooseOption(menu, form["Digits"], attempt);
+    if (choice.kind === "again") {
+      /** A word not understood is written on the call, so the owner can see what callers say. */
+      if (said !== "") await note(tx, call, choice.why);
+      return reply(menuVerbs(leg, menu, choice.attempt, hops, choice.say, choice.misses ?? misses));
+    }
 
-    const pressed = choice.kind === "option" ? choice.option.key : (form["Digits"]?.trim() || null);
+    const pressed = choice.kind === "option" ? choice.option.key : (digits || null);
     const label = choice.kind === "option" ? choice.option.label : "No choice";
     const choices = [...(call.menuChoices ?? []), {
       menuId: menu.id, menu: menu.name, key: pressed, label, at: now.toISOString(),
+      ...(said !== "" ? { said: voice.heardAs(said) } : {}),
     }].slice(-20);
     await tx.update(schema.call).set({ menuChoices: choices, updatedAt: now }).where(eq(schema.call.id, call.id));
     call.menuChoices = choices;
@@ -901,9 +946,13 @@ async function whisper(ctx: ServiceContext, form: Record<string, string>): Promi
      */
     const answeredBy = await whoAnswered(tx, ctx.actor.organizationId, form["To"] ?? "");
     if (answeredBy) {
-      /** The first to answer stays the first; whoever picked up this leg has the caller now. */
+      /**
+       * The first to answer stays the first; whoever picked up this leg has
+       * the caller now. On a call the office placed, nobody here answered it:
+       * a colleague it was passed to only has it.
+       */
       await tx.update(schema.call).set({
-        ...(call.answeredByUserId ? {} : { answeredByUserId: answeredBy }),
+        ...(call.answeredByUserId || call.direction === "outbound" ? {} : { answeredByUserId: answeredBy }),
         handledByUserId: answeredBy, updatedAt: new Date(),
       }).where(eq(schema.call.id, call.id));
     }
@@ -1005,6 +1054,14 @@ async function status(ctx: ServiceContext, form: Record<string, string>, now: Da
     if (!call) return empty;
     const reported = voice.providerCallStatus(form["CallStatus"]);
     if (!reported || reported === "ringing" || reported === "in_progress") return empty;
+    /**
+     * The browser's own leg of a call it placed ends when the person called
+     * is put on hold or passed on, and the call goes on without it: once
+     * moved, only the person called's leg says when the call ended.
+     */
+    if (call.direction === "outbound" && call.providerCallId === `twilio:${form["CallSid"] ?? ""}` && await everMoved(tx, call.id)) {
+      return empty;
+    }
     /**
      * A call the office placed is never a missed call: nobody rang the
      * company. Its own dial result says whether the person called picked up.
@@ -1685,6 +1742,8 @@ async function softphoneCall(
     }
     return reply([{
       verb: "dial", to: target.e164, action: wire.url("softphone-dialed"), timeoutSeconds: 30, callerId: number.e164,
+      /** The person called's leg names itself here, so it can be held and passed on like a caller's. */
+      statusCallback: wire.url("softphone-leg", { c: call.id }),
       ...(number.recordCalls ? { whisperUrl: wire.url("softphone-consent", { c: call.id, a: "ask" }) } : {}),
     }]);
   });
@@ -1742,6 +1801,12 @@ async function softphoneDialed(ctx: ServiceContext, form: Record<string, string>
   return inTenant(ctx, async (tx) => {
     const call = await callBySid(tx, form["CallSid"]);
     if (!call) return reply([{ verb: "hangup" }]);
+    /**
+     * The person called was put on hold or passed on, which moved their leg
+     * out of this dial and ended it. The call goes on where they were moved,
+     * so the browser's side ending says nothing about it.
+     */
+    if (await everMoved(tx, call.id)) return reply([{ verb: "hangup" }]);
     const outcome = voice.dialOutcome(form["DialCallStatus"]);
     const talked = Number(form["DialCallDuration"] ?? 0);
     await tx.update(schema.call).set({
@@ -1753,6 +1818,52 @@ async function softphoneDialed(ctx: ServiceContext, form: Record<string, string>
       updatedAt: now,
     }).where(eq(schema.call.id, call.id));
     return reply([{ verb: "hangup" }]);
+  });
+}
+
+/**
+ * The person called's own leg, from the status callback on the dial's
+ * number: its id when it starts, the moment they pick up, and how and when it
+ * ended. That leg outlives the browser's once the person called is held or
+ * passed on, so its end is the call's end. Only the first leg the dial rang
+ * is kept; a request naming another call, or a leg of a call that is not
+ * this one's child, changes nothing.
+ */
+async function softphoneLeg(ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, now: Date): Promise<VoiceReply> {
+  const callId = query.get("c") ?? "";
+  const sid = form["CallSid"] ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(callId) || !sid) return empty;
+  return inTenant(ctx, async (tx) => {
+    const [call] = await tx.select().from(schema.call)
+      .where(and(eq(schema.call.organizationId, ctx.actor.organizationId), eq(schema.call.id, callId))).limit(1);
+    if (!call || call.direction !== "outbound") return empty;
+    if (call.calleeLegSid ? call.calleeLegSid !== sid : call.providerCallId !== `twilio:${form["ParentCallSid"] ?? ""}`) {
+      return empty;
+    }
+    const reported = voice.providerCallStatus(form["CallStatus"]);
+    const ended = reported !== null && reported !== "ringing" && reported !== "in_progress";
+    const seconds = Number(form["CallDuration"]);
+    await tx.update(schema.call).set({
+      calleeLegSid: sid,
+      /**
+       * Picked up: the person who placed it has them now, written as a
+       * caller's answerer is, so a hold or a pass keeps them theirs.
+       */
+      ...(reported === "in_progress" ? {
+        status: voice.laterStatus(call.status, "in_progress"),
+        ...(call.answeredAt ? {} : { answeredAt: now }),
+        ...(call.handledByUserId || !call.placedByUserId ? {} : { handledByUserId: call.placedByUserId }),
+      } : {}),
+      ...(ended ? {
+        status: voice.laterStatus(call.status, reported),
+        ...(Number.isFinite(seconds) && seconds >= 0 ? {
+          durationSeconds: seconds,
+          endedAt: new Date((call.answeredAt ?? call.startedAt ?? now).getTime() + seconds * 1000),
+        } : { endedAt: now }),
+      } : {}),
+      updatedAt: now,
+    }).where(eq(schema.call.id, call.id));
+    return empty;
   });
 }
 
@@ -1772,7 +1883,8 @@ async function heldCall(tx: Database, organizationId: string, query: URLSearchPa
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const [call] = await tx.select().from(schema.call)
     .where(and(eq(schema.call.organizationId, organizationId), eq(schema.call.id, id))).limit(1);
-  if (!call || call.providerCallId !== `twilio:${form["CallSid"] ?? ""}`) return null;
+  const sid = form["CallSid"] ?? "";
+  if (!call || !sid || (call.providerCallId !== `twilio:${sid}` && call.calleeLegSid !== sid)) return null;
   return call;
 }
 
@@ -1837,7 +1949,7 @@ async function holdDone(ctx: ServiceContext, form: Record<string, string>, query
     await note(tx, call, `Was left on hold for ${Math.round(waited / 60)} minutes, so it went to voicemail.`);
     await tx.insert(schema.task).values({
       organizationId: ctx.actor.organizationId,
-      title: `Call back ${call.fromE164}`.slice(0, 200),
+      title: `Call back ${transfers.otherParty(call)}`.slice(0, 200),
       body: "They were left on hold and nobody came back to them, so they were sent to voicemail.",
       priority: "high",
       entityType: call.customerId ? "customer" : "call",
@@ -1931,7 +2043,11 @@ async function transferAnswered(ctx: ServiceContext, form: Record<string, string
     const by = row.fromUserId ? directory.people.get(row.fromUserId)?.name ?? "A colleague" : "A colleague";
     return reply([{
       verb: "say",
-      text: `${by} would like to pass you a caller${call ? ` from ${voice.spokenNumber(call.fromE164)}` : ""}. They are on hold while you talk.`,
+      text: !call
+        ? `${by} would like to pass you a caller. They are on hold while you talk.`
+        : call.direction === "outbound"
+          ? `${by} would like to pass you a call with ${voice.spokenNumber(call.toE164)}. They are on hold while you talk.`
+          : `${by} would like to pass you a caller from ${voice.spokenNumber(call.fromE164)}. They are on hold while you talk.`,
     }]);
   });
 }

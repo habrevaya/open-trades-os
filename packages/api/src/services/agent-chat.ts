@@ -105,6 +105,7 @@ async function transcript(tx: Database, session: typeof schema.aiChatSession.$in
   return {
     status: session.status,
     bookingTaken: session.bookingRequestId !== null,
+    writing: session.status === "open" && session.writing ? session.writing : null,
     messages: rows.map((row) => ({
       id: row.id,
       from: row.direction === "inbound" ? "visitor" as const : row.sentByUserId ? "person" as const : "assistant" as const,
@@ -279,6 +280,8 @@ const HANDOFF_TEXT = "Thanks. I have passed this to someone in the office, and t
  */
 async function turn(
   db: Database, organizationId: string, sessionId: string, deps: AiDeps,
+  /** Handed the reply so far, whole sentences that passed the price rule, as the model writes it. */
+  show?: (text: string) => void,
 ): Promise<{ reply: Reply; session: typeof schema.aiChatSession.$inferSelect } | null> {
   const acting = await base.actingAs(db, organizationId, "chat");
   const [session] = await inTenant(reader(db, organizationId), (tx) =>
@@ -353,16 +356,34 @@ async function turn(
       ? { signedIn: { name: context.signedIn.name, addresses: context.signedIn.addresses.map((p) => p.text) } }
       : {}),
   });
-  const result = await base.ask(acting, "chat", prompt, `chat:${session.channel}`, deps);
-  if (!result.ok) {
-    return { session, reply: { kind: "handoff", reason: `The assistant could not answer: ${result.reason}`, text: HANDOFF_TEXT } };
-  }
-
   /** Every amount it would say is one the company published, or it says nothing and a person answers. */
   const allowed = [
     ...context.facts.services.flatMap((s) => (s.price ? [s.price] : [])),
     ...context.facts.publicPrices.map((p) => p.price),
   ];
+  /**
+   * SHOWN AS IT IS WRITTEN, a reply only: whole sentences, each held to the
+   * price rule before it is shown, so an amount nobody published is never on
+   * the visitor's screen (core's `showAsWritten`). What goes with a booking
+   * or a hand over is shown once it has been done. Whatever was shown, the
+   * whole answer is checked below exactly as before, and only it is kept.
+   */
+  let shown = a.SHOWN_START;
+  const writing = show
+    ? (action: string, partialJson: string) => {
+        if (action !== "reply") return;
+        const written = a.partialString(partialJson, "text");
+        if (written === null) return;
+        const next = a.showAsWritten(shown, written, allowed);
+        shown = next.state;
+        if (next.changed) show(a.shownText(shown));
+      }
+    : undefined;
+  const result = await base.ask(acting, "chat", prompt, `chat:${session.channel}`, deps, writing);
+  if (!result.ok) {
+    return { session, reply: { kind: "handoff", reason: `The assistant could not answer: ${result.reason}`, text: HANDOFF_TEXT } };
+  }
+
   const said = String(result.input["text"] ?? "");
   const unlisted = a.unlistedPrices(said, allowed);
   if (unlisted.length > 0) {
@@ -461,10 +482,38 @@ async function turn(
   return { session, reply: { kind: "reply", text: said } };
 }
 
-/** Write the agent's turn to a website chat. */
+/**
+ * Write the agent's turn to a website chat.
+ *
+ * While the model writes a reply, what may be shown of it so far goes on the
+ * session for the widget to read, one write per finished sentence, in order.
+ * It is cleared in the same transaction that writes the checked reply, so the
+ * visitor sees the one replace the other; and cleared whatever happens, so a
+ * turn that fails leaves no reply half written on the screen.
+ */
 async function answer(db: Database, organizationId: string, sessionId: string, deps: AiDeps): Promise<void> {
-  const outcome = await turn(db, organizationId, sessionId, deps);
-  if (!outcome) return;
+  let writes: Promise<unknown> = Promise.resolve();
+  const show = (text: string) => {
+    writes = writes.then(() => inTenant(reader(db, organizationId), (tx) => tx.update(schema.aiChatSession)
+      .set({ writing: text, lastActivityAt: new Date() })
+      .where(and(eq(schema.aiChatSession.id, sessionId), eq(schema.aiChatSession.status, "open")))))
+      .catch((error: unknown) => {
+        console.error(`[chat] showing a reply as it is written failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  };
+  let outcome: Awaited<ReturnType<typeof turn>>;
+  try {
+    outcome = await turn(db, organizationId, sessionId, deps, show);
+  } catch (error) {
+    await writes;
+    await clearWriting(db, organizationId, sessionId).catch(() => {});
+    throw error;
+  }
+  await writes;
+  if (!outcome) {
+    await clearWriting(db, organizationId, sessionId);
+    return;
+  }
   const { session, reply } = outcome;
   await inTenant(reader(db, organizationId), async (tx) => {
     const [conversation] = await tx.select().from(schema.conversation)
@@ -476,7 +525,7 @@ async function answer(db: Database, organizationId: string, sessionId: string, d
       body: reply.text, status: "sent",
     });
     await tx.update(schema.aiChatSession).set({
-      agentTurns: sql`${schema.aiChatSession.agentTurns} + 1`, lastActivityAt: new Date(), updatedAt: new Date(),
+      agentTurns: sql`${schema.aiChatSession.agentTurns} + 1`, writing: null, lastActivityAt: new Date(), updatedAt: new Date(),
     }).where(eq(schema.aiChatSession.id, session.id));
     await tx.update(schema.conversation).set({
       lastMessageAt: new Date(), lastMessagePreview: reply.text.slice(0, 200), updatedAt: new Date(),
@@ -489,6 +538,12 @@ async function answer(db: Database, organizationId: string, sessionId: string, d
       });
     }
   });
+}
+
+/** Nothing is being written any more. */
+async function clearWriting(db: Database, organizationId: string, sessionId: string): Promise<void> {
+  await inTenant(reader(db, organizationId), (tx) => tx.update(schema.aiChatSession)
+    .set({ writing: null }).where(eq(schema.aiChatSession.id, sessionId)));
 }
 
 /**

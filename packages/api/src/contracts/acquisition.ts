@@ -398,7 +398,11 @@ export const getMarketingCall = defineRoute({
     /** Why nothing was recorded, when recording was asked for and refused. */
     recordingRefusal: z.string().nullable(),
     /** What the caller pressed in each phone menu on the way, in order. */
-    menuChoices: z.array(z.object({ menu: z.string(), key: z.string().nullable(), label: z.string(), at: z.string() })),
+    menuChoices: z.array(z.object({
+      menu: z.string(), key: z.string().nullable(), label: z.string(), at: z.string(),
+      /** What the caller said, when they answered by speaking. */
+      said: z.string().nullable(),
+    })),
     /**
      * The words of the recording or voicemail, already redacted, one line
      * per stretch of speech with its time into the audio. Empty when there

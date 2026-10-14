@@ -156,3 +156,47 @@ test("the person on a call puts the caller on hold and passes them to a ring gro
     await twilio.close();
   }
 });
+
+test("the person who placed a call from the browser puts the person called on hold from the phone screen", async ({ owner }) => {
+  const twilio = await fake();
+  const setup = await setUp(twilio.baseUrl);
+  const called = `+1737${String(Date.now() + 9).slice(-7)}`;
+  const parent = `CAe2eout${randomBytes(6).toString("hex")}`;
+  const child = `CAe2ecallee${randomBytes(6).toString("hex")}`;
+  const db = createClient();
+  let outbound = "";
+  try {
+    // The caller from the other test is over, and the owner has rung a number from the browser, which picked up.
+    await db.update(schema.call).set({ status: "completed", endedAt: new Date() }).where(eq(schema.call.id, setup.callId));
+    const [number] = await db.select({ id: schema.phoneNumber.id }).from(schema.phoneNumber)
+      .where(and(eq(schema.phoneNumber.organizationId, setup.org), eq(schema.phoneNumber.e164, NUMBER))).limit(1);
+    const [call] = await db.insert(schema.call).values({
+      organizationId: setup.org, direction: "outbound", phoneNumberId: number!.id, fromE164: NUMBER, toE164: called,
+      status: "in_progress", startedAt: new Date(), answeredAt: new Date(), placedByUserId: setup.ownerId,
+      handledByUserId: setup.ownerId, providerCallId: `twilio:${parent}`, calleeLegSid: child,
+    }).returning({ id: schema.call.id });
+    outbound = call!.id;
+
+    await owner.goto("/phone");
+    const region = owner.getByRole("region", { name: "Your call" });
+    await expect(region.getByText(`On a call with ${called}.`)).toBeVisible();
+
+    // On hold: the person called is on the dial's own leg, and that is the leg moved.
+    await region.getByRole("button", { name: "Put on hold" }).click();
+    await expect(region.getByText(`${called} is on hold.`, { exact: false })).toBeVisible();
+    expect(twilio.moved.map((m) => m.sid)).toEqual([child]);
+    expect(twilio.moved[0]!.body.get("Url")).toBe(`${BASE}/api/webhooks/voice/${setup.token}/hold?c=${outbound}`);
+    const held = await carrier(setup.token, "hold", { CallSid: child }, `?c=${outbound}`);
+    expect(held).toContain(`>ots-hold-${outbound}</Enqueue>`);
+
+    // The browser's own leg ending does not end the call: the person called is still on hold.
+    await carrier(setup.token, "status", { CallSid: parent, CallStatus: "completed", CallDuration: "30" }, "");
+    await owner.reload();
+    await expect(owner.getByRole("region", { name: "Your call" }).getByText(`${called} is on hold.`, { exact: false })).toBeVisible();
+  } finally {
+    if (outbound) await db.update(schema.call).set({ status: "completed", endedAt: new Date() }).where(eq(schema.call.id, outbound));
+    await db.$close();
+    await tearDown(setup);
+    await twilio.close();
+  }
+});

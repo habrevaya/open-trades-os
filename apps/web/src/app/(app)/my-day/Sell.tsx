@@ -662,11 +662,14 @@ export function TasksPanel({ tasks, zone, onClaim, onTick, onDone }: {
  * Needs a signal: it asks a model, and nothing about it is queued.
  */
 export function Ask({ onAsk }: {
-  onAsk: (question: string) => Promise<{ ok: true; answered: boolean; text: string; sources: Array<{ kind: string; title: string }> } | { ok: false; message: string }>;
+  /** Asks, handing `onWriting` the answer so far while it is written, and settles with the whole answer. */
+  onAsk: (question: string, onWriting: (text: string) => void) => Promise<
+    { ok: true; answered: boolean; text: string; sources: Array<{ kind: string; title: string }> } | { ok: false; message: string }
+  >;
 }) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
-  const [reply, setReply] = useState<{ text: string; from: string | null; problem: boolean } | null>(null);
+  const [reply, setReply] = useState<{ text: string; from: string | null; problem: boolean; writing?: boolean } | null>(null);
   return (
     <section aria-label="Ask about this job" className="space-y-2">
       <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Ask about this job</p>
@@ -674,8 +677,10 @@ export function Ask({ onAsk }: {
                 placeholder="When was this unit last serviced?" className="w-full rounded border border-steel-300 p-3 text-base" />
       <button type="button" className={button} disabled={busy || question.trim().length < 3} onClick={async () => {
         setBusy(true);
+        setReply(null);
         try {
-          const answer = await onAsk(question.trim());
+          /** The answer so far, while it is written; the whole answer below takes its place. */
+          const answer = await onAsk(question.trim(), (text) => setReply({ text, from: null, problem: false, writing: true }));
           setReply(answer.ok
             ? { text: answer.text, from: answer.sources.length > 0 ? answer.sources.map((s) => s.title).join("; ") : null, problem: false }
             : { text: answer.message, from: null, problem: true });
@@ -688,6 +693,7 @@ export function Ask({ onAsk }: {
       {reply && (
         <div role="status" className={`rounded px-3 py-2 text-sm ${reply.problem ? "bg-red-tint text-red-600" : "bg-steel-100 text-ink-900"}`}>
           <p>{reply.text}</p>
+          {reply.writing && <p className="mt-1 text-ink-500">Still writing...</p>}
           {reply.from && <p className="mt-1 text-ink-500">From: {reply.from}</p>}
         </div>
       )}

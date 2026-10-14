@@ -22,12 +22,16 @@
  *   site and sends it in a request body, never in an address, so a chat
  *   survives moving between pages and a reload, and a person's reply from the
  *   inbox appears while the visitor is still there.
+ *
+ * While a message is waiting for its answer it reads the chat once a second
+ * and shows the reply as far as it has been written (`writing`), which the
+ * answer itself replaces when it arrives.
  */
 export function chatWidgetSource(input: { apiBase: string; companyKey: string }): string {
   const config = JSON.stringify({ api: input.apiBase, key: input.companyKey });
   return `/* OpenTradesOS website chat. Served by your own installation. */
 (function(){"use strict";var C=${config};if(window.__otChat)return;window.__otChat=true;
-var STORE="ot_chat_"+C.key,token=null,last=null,timer=null,open=false,seen={};
+var STORE="ot_chat_"+C.key,token=null,last=null,timer=null,open=false,seen={},sending=false,fast=null,writingEl=null;
 try{token=localStorage.getItem(STORE);}catch(e){}
 function rid(){var a=new Uint8Array(12);(window.crypto||window.msCrypto).getRandomValues(a);var s="";for(var i=0;i<a.length;i++){s+=("0"+a[i].toString(16)).slice(-2);}return s;}
 function cookie(name){var m=document.cookie.match(new RegExp("(?:^|; )"+name+"=([^;]*)"));return m?decodeURIComponent(m[1]):null;}
@@ -55,8 +59,10 @@ var send=document.createElement("button");send.type="submit";send.textContent="S
 panel.appendChild(head);panel.appendChild(list);panel.appendChild(status);panel.appendChild(form);root.appendChild(button);root.appendChild(panel);
 function add(m){if(seen[m.id])return;seen[m.id]=true;var d=document.createElement("div");d.className="m "+(m.from==="visitor"?"v":m.from==="person"?"n":"a");d.setAttribute("data-ot-chat","message");d.setAttribute("data-from",m.from);
 if(m.from!=="visitor"){var w=document.createElement("div");w.className="w";w.textContent=m.from==="person"?"From the office":"Automated assistant";d.appendChild(w);}
-var t=document.createElement("div");t.textContent=m.text;d.appendChild(t);list.appendChild(d);list.scrollTop=list.scrollHeight;if(!last||m.at>last){last=m.at;}}
-function show(d){if(!d)return;for(var i=0;i<(d.messages||[]).length;i++){add(d.messages[i]);}
+var t=document.createElement("div");t.textContent=m.text;d.appendChild(t);list.insertBefore(d,writingEl);list.scrollTop=list.scrollHeight;if(!last||m.at>last){last=m.at;}}
+function writing(text){if(text&&sending){if(!writingEl){writingEl=document.createElement("div");writingEl.className="m a";writingEl.setAttribute("data-ot-chat","writing");var w=document.createElement("div");w.className="w";w.textContent="Automated assistant, writing";writingEl.appendChild(w);writingEl.appendChild(document.createElement("div"));list.appendChild(writingEl);}
+writingEl.lastChild.textContent=text;list.scrollTop=list.scrollHeight;}else if(writingEl){list.removeChild(writingEl);writingEl=null;}}
+function show(d){if(!d)return;writing(d.writing);for(var i=0;i<(d.messages||[]).length;i++){add(d.messages[i]);}
 status.textContent=d.status==="handed_off"?"A person in the office has this conversation now and will reply here.":d.status==="closed"?"This chat has ended.":"";}
 function startChat(done){var body={companyKey:C.key};var v=cookie("ot_vid");if(v&&/^[A-Za-z0-9_-]{12,64}$/.test(v)){body.visitorId=v;}
 req("POST","/v1/public/chat/sessions",body,null,function(code,d){if(code===201&&d){token=d.token;try{localStorage.setItem(STORE,token);}catch(e){}show(d);done(true);}else{status.textContent=(d&&d.error)||"Chat is not available right now.";done(false);}});}
@@ -67,7 +73,7 @@ if(!timer){timer=setInterval(function(){if(open&&!document.hidden)poll();},5000)
 function closePanel(){open=false;panel.className="p";button.setAttribute("aria-expanded","false");}
 button.addEventListener("click",function(){if(open){closePanel();}else{openPanel();}});close.addEventListener("click",closePanel);
 form.addEventListener("submit",function(e){e.preventDefault();var text=input.value.replace(/^\\s+|\\s+$/g,"");if(!text)return;
-var go=function(){send.disabled=true;var key=rid();req("POST","/v1/public/chat/messages",{companyKey:C.key,token:token,text:text},key,function(code,d){send.disabled=false;
+var go=function(){send.disabled=true;sending=true;if(!fast){fast=setInterval(poll,1000);}var key=rid();req("POST","/v1/public/chat/messages",{companyKey:C.key,token:token,text:text},key,function(code,d){send.disabled=false;sending=false;if(fast){clearInterval(fast);fast=null;}writing(null);
 if(code===201||code===200){input.value="";show(d);}else if(code===404){token=null;try{localStorage.removeItem(STORE);}catch(e){}startChat(function(ok){if(ok)go();});}else{status.textContent=(d&&d.error)||"That did not send. Try again.";}});};
 if(token){go();}else{startChat(function(ok){if(ok)go();});}});
 req("GET","/v1/public/chat?companyKey="+encodeURIComponent(C.key),null,null,function(code,d){if(code!==200||!d||!d.enabled)return;title.textContent=d.companyName;document.body.appendChild(host);});

@@ -164,6 +164,18 @@ phone and email on the record and only for one of their addresses; any other
 address gets "Which of your addresses on file is this for?". With it off, the
 message goes to a person.
 
+**Writing as it thinks.** On a connection that streams (Anthropic and OpenAI), the
+visitor sees a reply while the model is still writing it, in a bubble marked
+"Automated assistant, writing": each sentence once it is finished, and a sentence
+naming a price the company has not published is never shown, nor anything after it.
+The reply so far is kept on the chat while it is written (`writing` on
+`POST /v1/public/chat/transcript`, which the widget reads once a second while a
+message waits for its answer) and cleared when the turn ends. The whole answer is
+then checked exactly as before, and only it is kept: the reply that becomes the
+message, or a person being asked to answer, takes the bubble's place. Only a reply is
+shown this way; what goes with a booking or a hand over is shown once it has been
+done. Texts are sent whole, and a Google connection answers whole.
+
 ### Phone assistant
 
 A call a phone menu, after hours, a ring group nobody answered or a waiting line sends to
@@ -276,6 +288,16 @@ the same spend ceiling and runs a day as every agent, and the log says that
 it answered and from how many records, never what was asked.
 `POST /v1/ai/field-assistant` is the same, and a retry with the same
 idempotency key answers from the record rather than asking twice.
+
+On `/my-day` the answer is shown as it is written, on a connection that streams
+(Anthropic and OpenAI): each finished sentence appears under "Still writing...",
+and a sentence naming an amount that is not in the records it was given is never
+shown, nor anything after it. The screen asks through `/my-day/ask`, which sends
+the answer so far line by line and then the whole answer after its checks: whether
+it cites only records it was given and states only their prices. The whole answer
+takes the place of what was shown, and may be that the answer cannot be shown.
+Only the whole answer is kept. The phone app (M11) and `POST /v1/ai/field-assistant`
+get the whole answer at once.
 
 The how-to notes are written on `/settings/agents/notes`
 (`knowledge:write`, which the office manager preset holds), each a job with
@@ -400,9 +422,18 @@ takes one booking request a call. There is no LiveKit path. The field assistant 
 model by matching the words of the question against the records and notes, not by
 meaning, so a question in words no note uses finds nothing and says so; it reads the
 equipment and notes of one address and the price book, not the photographs, the
-manufacturer's literature or another customer's history, and it needs a signal. Only the phone
-assistant streams: every other agent's model call is one request and one response, so the
-chat answers a message at a time. The intake agent books through online booking's services and
+manufacturer's literature or another customer's history, and it needs a signal. The
+phone assistant, the website chat and the field assistant on `/my-day` show an answer as
+it is written, on Anthropic and OpenAI connections only; on a Google connection they
+answer whole. A sentence is shown only once it is finished, so a reply of one long
+sentence appears all at once. The website chat's reply so far reaches the visitor by the
+widget reading the chat once a second, not by a stream of its own, so it grows a second or
+so behind the model, and a visitor may read the start of a reply that the whole answer's
+check then replaces with a hand over to a person (never a sentence with an unpublished
+price). The field assistant streams only on `/my-day`: the phone app and the API answer
+whole, and a part of an answer shown there may likewise be replaced by "it was not shown"
+when the whole answer cites a record it was not given. Texts are sent whole. Every other
+agent's model call is one request and one response. The intake agent books through online booking's services and
 windows only; a company with none set up gets the summary and books by hand, and an
 intake booking's visit goes on the board unassigned rather than onto a technician's
 day. The chat widget is reached through the website snippet or its own script tag,

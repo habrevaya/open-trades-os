@@ -35,9 +35,13 @@ import type { VoiceProvider } from "../voice/provider";
  * who picked them up, or the one they were last passed to. Nobody else can
  * take over somebody's call from here, whatever their role.
  *
- * WHICH CALLS. Calls that came in. A call placed from the browser has the
- * person called on a leg the carrier names only when the call ends, so it
- * cannot be moved, and is not offered.
+ * WHICH CALLS. Calls that came in, and calls placed from the browser once
+ * the person called has picked up. On a call that came in the caller's own
+ * leg is the call, and that is what moves. On a call placed from the browser
+ * the person called is on the dial's child leg, which names itself through
+ * the status callback on the dial (`softphone-leg` in `voice.ts`); that leg
+ * is what moves, and the browser's leg ends as it does on a call that came
+ * in. From there the two are the same: a hold queue, a pass, a hand over.
  */
 
 export type TransferRow = typeof schema.callTransfer.$inferSelect;
@@ -60,7 +64,9 @@ export const HOLD_MAX_SECONDS = 15 * 60;
 
 export interface CurrentCall {
   id: string;
-  /** The caller's number. */
+  /** Whether it came in, or was placed from the browser. */
+  direction: "inbound" | "outbound";
+  /** The other person's number: the caller's, or the number called on a call placed from the browser. */
   from: string;
   customerId: string | null;
   customerName: string | null;
@@ -72,26 +78,35 @@ export interface CurrentCall {
   consultAnswered: boolean;
 }
 
+/** The other person on the call: the caller, or the person called from the browser. */
+export const otherParty = (call: Pick<CallRow, "direction" | "fromE164" | "toE164">): string =>
+  call.direction === "outbound" ? call.toE164 : call.fromE164;
+
 /**
- * The call this person has: one that came in, is not over, and was picked up
- * by them or passed to them, and not since passed on by them. The newest, if
- * there were somehow two.
+ * The call this person has: one that is not over, and that they picked up,
+ * placed from the browser, or were passed, and have not since passed on.
+ * A call placed from the browser counts once the person called has picked up
+ * on a leg the carrier has named, because before that there is nobody to
+ * hold. The newest, if there were somehow two.
  */
 async function callOf(tx: Database, organizationId: string, userId: string, now: Date): Promise<CallRow | null> {
   const since = new Date(now.getTime() - BUSY_FOR_AT_MOST_HOURS * 3600_000);
   const [row] = await tx.select().from(schema.call).where(and(
     eq(schema.call.organizationId, organizationId),
-    eq(schema.call.direction, "inbound"),
+    sql`(${schema.call.direction} = 'inbound' or (
+      ${schema.call.direction} = 'outbound' and ${schema.call.calleeLegSid} is not null and ${schema.call.answeredAt} is not null
+    ))`,
     sql`${schema.call.status} in ('ringing', 'in_progress')`,
     sql`${schema.call.endedAt} is null`,
     gt(schema.call.createdAt, since),
     /**
      * Once a call has been held or passed on, who has it is only ever what
-     * was written when somebody took it; before that, whoever answered.
+     * was written when somebody took it; before that, whoever answered it
+     * or placed it. The same reading as who a waiting line counts as busy.
      */
     sql`coalesce(${schema.call.handledByUserId}, case when exists (
       select 1 from public.call_transfer t where t.call_id = ${schema.call.id}
-    ) then null else ${schema.call.answeredByUserId} end) = ${userId}::uuid`,
+    ) then null else coalesce(${schema.call.answeredByUserId}, ${schema.call.placedByUserId}) end) = ${userId}::uuid`,
   )).orderBy(desc(schema.call.createdAt)).limit(1);
   return row ?? null;
 }
@@ -114,7 +129,8 @@ export async function current(ctx: ServiceContext, now: Date = new Date()): Prom
     const directory = open?.toUserId ? await phoneMenus.directoryFor(tx, ctx.actor.organizationId) : null;
     return {
       id: call.id,
-      from: call.fromE164,
+      direction: call.direction === "outbound" ? "outbound" : "inbound",
+      from: otherParty(call),
       customerId: call.customerId,
       customerName: customer?.name ?? null,
       state: open ? open.status as CurrentCall["state"] : "talking",
@@ -152,13 +168,21 @@ export async function targets(ctx: ServiceContext, now: Date = new Date()): Prom
   });
 }
 
-/** The call, checked: theirs, still going, and one that came in. */
+/** The call, checked: theirs, still going, and on a leg the carrier can move. */
 async function theirCall(tx: Database, ctx: ServiceContext, callId: string, now: Date): Promise<CallRow> {
   const call = await callOf(tx, ctx.actor.organizationId, ctx.actor.userId, now);
   if (!call || call.id !== callId) {
-    const [any] = await tx.select({ id: schema.call.id }).from(schema.call)
+    const [any] = await tx.select({
+      direction: schema.call.direction, placedBy: schema.call.placedByUserId, endedAt: schema.call.endedAt,
+      answeredAt: schema.call.answeredAt,
+      /** Named in full, as in `busyUsers`: unqualified, it would be the transfer's own id. */
+      moved: sql<boolean>`exists (select 1 from public.call_transfer t where t.call_id = "call"."id")`,
+    }).from(schema.call)
       .where(and(eq(schema.call.organizationId, ctx.actor.organizationId), eq(schema.call.id, callId))).limit(1);
     if (!any) throw new NotFoundError("Call");
+    if (any.direction === "outbound" && any.placedBy === ctx.actor.userId && !any.endedAt && !any.answeredAt && !any.moved) {
+      throw new ConflictError("They have not picked up yet. You can put them on hold or pass them on once they answer.");
+    }
     throw new ConflictError("That call is not yours to move: only the person who has the caller now can put them on hold or pass them on.");
   }
   if (!call.providerCallId?.startsWith("twilio:")) {
@@ -167,7 +191,13 @@ async function theirCall(tx: Database, ctx: ServiceContext, callId: string, now:
   return call;
 }
 
-const sidOf = (call: CallRow): string => call.providerCallId!.slice("twilio:".length);
+/**
+ * The leg that moves: the caller's own on a call that came in, the person
+ * called's on a call placed from the browser (`callOf` only finds one of
+ * those once that leg is named).
+ */
+const sidOf = (call: CallRow): string =>
+  call.direction === "outbound" && call.calleeLegSid ? call.calleeLegSid : call.providerCallId!.slice("twilio:".length);
 
 async function stepUrl(tx: Database, organizationId: string, deps: VoiceDeps, step: string, query: Record<string, string>) {
   const carrier = await carrierFor(tx, organizationId, deps);

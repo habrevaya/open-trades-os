@@ -217,7 +217,8 @@ run("a call placed from the browser", () => {
     const sid = `CA${randomBytes(8).toString("hex")}`;
     const placed = await webhook("softphone", { CallSid: sid, From: from, To: "(512) 555-6199" });
     expect(placed.twiml).toContain(`callerId="${MAIN}"`);
-    expect(placed.twiml).toContain("<Number>+15125556199</Number>");
+    /** The number names the status address its own leg reports to, which hold and passing on need. */
+    expect(placed.twiml).toMatch(/<Number statusCallback="[^"]+\/softphone-leg\?c=[0-9a-f-]{36}"[^>]*>\+15125556199<\/Number>/);
     expect(placed.twiml).not.toContain("softphone-consent");
     const [call] = await raw<{ direction: string; placed_by_user_id: string; from_e164: string; to_e164: string; customer_id: string | null }[]>`
       select direction, placed_by_user_id, from_e164, to_e164, customer_id from public.call where provider_call_id = ${`twilio:${sid}`}`;

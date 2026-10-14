@@ -149,7 +149,9 @@ export const setSoftphonePresence = defineRoute({
 
 const CurrentCall = z.object({
   id: Uuid,
-  /** The caller's number. */
+  /** Whether it came in, or was placed from the browser phone. */
+  direction: z.enum(["inbound", "outbound"]),
+  /** The other person's number: the caller's, or the number called on a call placed from the browser. */
   from: z.string(),
   customerId: Uuid.nullable(),
   customerName: z.string().nullable(),
@@ -166,7 +168,7 @@ export const getSoftphoneCall = defineRoute({
   path: "/v1/softphone/call",
   summary: "The call you have now",
   description:
-    "A call that came in and that you picked up, or that was passed to you, while it lasts: whether you are talking, have the caller on hold, or are talking to a colleague first. Null when you have none.",
+    "A call that came in and that you picked up, one you placed from the browser phone once the person called has picked up, or one that was passed to you, while it lasts: whether you are talking, have the other person on hold, or are talking to a colleague first. Null when you have none.",
   module: "M18",
   permissions: ["call:place"],
   input: z.object({}),
@@ -194,7 +196,7 @@ export const holdCall = defineRoute({
   path: "/v1/calls/{id}/hold",
   summary: "Put the caller on hold",
   description:
-    "Only for the person who has the caller now, on a call that came in. The caller's leg is moved to a queue of its own with music, which ends the browser's call to them; ringing hold:{id} from the browser phone takes them back. Asking again while they are on hold answers with the same hold. A caller left on hold fifteen minutes goes to voicemail and the office gets a task to call them.",
+    "Only for the person who has the caller now: on a call that came in, or one they placed from the browser phone once the person called has picked up. The other person's leg is moved to a queue of its own with music, which ends the browser's call to them; ringing hold:{id} from the browser phone takes them back. Asking again while they are on hold answers with the same hold. A caller left on hold fifteen minutes goes to voicemail and the office gets a task to call them.",
   module: "M18",
   permissions: ["call:place"],
   idempotent: true,

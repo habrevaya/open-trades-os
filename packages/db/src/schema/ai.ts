@@ -361,6 +361,13 @@ export const aiChatSession = pgTable("ai_chat_session", {
   handedOffAt: timestamp("handed_off_at", { withTimezone: true }),
   handoffReason: text("handoff_reason"),
   lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * A website reply while the model is still writing it: whole sentences
+   * that passed the price rule, shown to the visitor as it grows and cleared
+   * when the turn ends. Never the reply itself, which is the message written
+   * after the whole answer has been checked.
+   */
+  writing: text("writing"),
   ...timestamps,
 }, (t) => ({
   tokenIdx: uniqueIndex("ai_chat_session_token_idx").on(t.tokenHash)

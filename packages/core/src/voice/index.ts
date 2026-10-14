@@ -40,6 +40,12 @@ export type Verb =
        * any moment of it rather than only while the offer is being read.
        */
       play?: string | undefined;
+      /**
+       * Listen for speech as well as keys, with these phrases (comma
+       * separated) as the carrier's hints: a phone menu that takes spoken
+       * answers. Without it the gather takes keys only, as it always has.
+       */
+      speechHints?: string | undefined;
     }
   | {
       verb: "dial";
@@ -57,6 +63,13 @@ export type Verb =
       /** Set only when the recording check said yes. Never defaulted. */
       recordingCallback?: string | undefined;
       callerId?: string | undefined;
+      /**
+       * Where the carrier says how each leg the dial rings started, was
+       * answered and ended, naming that leg's own id. A call placed from the
+       * browser phone sets it, because the person called is on that leg, and
+       * it is the leg hold and passing on have to move.
+       */
+      statusCallback?: string | undefined;
     }
   | { verb: "record"; action: string; recordingCallback: string; maxSeconds: number }
   | { verb: "redirect"; url: string }
@@ -96,7 +109,10 @@ function verbXml(v: Verb): string {
     case "pause": return `<Pause${attr("length", v.seconds)}/>`;
     case "gather":
       return `<Gather${attr("action", v.action)}${attr("method", "POST")}${attr("numDigits", v.numDigits)}`
-        + `${attr("timeout", v.timeoutSeconds)}><Say>${escapeXml(v.say)}</Say>`
+        + `${attr("timeout", v.timeoutSeconds)}`
+        + `${v.speechHints !== undefined
+          ? `${attr("input", "dtmf speech")}${attr("hints", v.speechHints)}${attr("speechTimeout", "auto")}${attr("language", "en-US")}`
+          : ""}><Say>${escapeXml(v.say)}</Say>`
         + `${v.play ? `<Play>${escapeXml(v.play)}</Play>` : ""}</Gather>`;
     case "dial": {
       const recording = v.recordingCallback
@@ -107,7 +123,11 @@ function verbXml(v: Verb): string {
       const numbers = (typeof v.to === "string" ? [v.to] : v.to).map((to) => {
         const noun = isClientAddress(to) ? "Client" : "Number";
         const name = isClientAddress(to) ? to.slice("client:".length) : to;
-        return `<${noun}${v.whisperUrl ? attr("url", v.whisperUrl) : ""}>${escapeXml(name)}</${noun}>`;
+        const status = v.statusCallback
+          ? `${attr("statusCallback", v.statusCallback)}${attr("statusCallbackMethod", "POST")}`
+            + `${attr("statusCallbackEvent", "initiated answered completed")}`
+          : "";
+        return `<${noun}${v.whisperUrl ? attr("url", v.whisperUrl) : ""}${status}>${escapeXml(name)}</${noun}>`;
       }).join("");
       return `<Dial${attr("action", v.action)}${attr("method", "POST")}${attr("timeout", v.timeoutSeconds)}`
         + `${attr("answerOnBridge", "true")}${v.callerId ? attr("callerId", v.callerId) : ""}${recording}>`

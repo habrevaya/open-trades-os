@@ -88,16 +88,20 @@ export function Softphone({ callerId, takingCalls: initiallyTaking, getToken, se
     device.current = null;
   }, []);
 
-  function follow(active: Call, other: string) {
+  function follow(active: Call, other: string, outgoing = false) {
     call.current = active;
     setMuted(false);
     /**
      * The page is read again when a call is picked up or ends, because what
-     * can be done with the caller (hold, pass on) is the server's to say.
+     * can be done with the caller (hold, pass on) is the server's to say. On
+     * a call placed from here, the carrier names the person called's leg in
+     * a callback of its own that can land just after they pick up, so the
+     * page is read once more a few seconds later.
      */
     active.on("accept", () => {
       setLine({ state: "talking", with: other, since: Date.now() });
       router.refresh();
+      if (outgoing) setTimeout(() => router.refresh(), 3000);
     });
     const done = () => {
       call.current = null;
@@ -172,7 +176,7 @@ export function Softphone({ callerId, takingCalls: initiallyTaking, getToken, se
     setProblem(null);
     const placed = await phone.connect({ params: { To: to } });
     setLine({ state: "calling", to: label ?? to });
-    follow(placed, label ?? to);
+    follow(placed, label ?? to, !/^(hold|transfer):/.test(to));
   }
 
   const talkedFor = line.state === "talking" ? Math.max(0, Math.floor((now - line.since) / 1000)) : 0;

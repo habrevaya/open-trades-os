@@ -367,6 +367,99 @@ run("after hours, to whoever is on call", () => {
   });
 });
 
+/**
+ * A menu that listens. The caller may say an option as well as press its
+ * key; words it cannot match read the menu once more, saying so, and then
+ * go where silence goes; keys keep working throughout.
+ */
+run("a menu that takes spoken answers", () => {
+  let spokenId = "";
+  const options = () => [
+    { key: "1", label: "Service", to: { kind: "ring_group" as const, id: groupId }, words: ["repair", " no heat ", "repair"] },
+    { key: "2", label: "Billing", to: { kind: "person" as const, userId: USER }, words: ["pay my bill", "invoice"] },
+  ];
+
+  it("keeps each option's words, offers saying them, and keeps listening on when a change leaves it out", async () => {
+    const menu = await phoneMenus.saveMenu(owner(), {
+      name: "Spoken", greeting: "Thanks for calling.", options: options(),
+      noInputTo: { kind: "voicemail", box: "main" }, speech: true,
+    });
+    spokenId = menu.id;
+    expect(menu.speech).toBe(true);
+    expect(menu.options[0]!.words).toEqual(["repair", "no heat"]);
+    expect(menu.prompt).toBe("Thanks for calling. For Service, press 1 or say Service. For Billing, press 2 or say Billing.");
+    const changed = await phoneMenus.saveMenu(owner(), {
+      id: spokenId, name: "Spoken", greeting: "Thanks for calling us.", options: options(), noInputTo: { kind: "voicemail", box: "main" },
+    });
+    expect(changed.speech).toBe(true);
+    await phoneNumbers.update(owner(), { id: numberId, menuId: spokenId });
+  });
+
+  it("refuses a phrase two options listen for", async () => {
+    await expect(phoneMenus.saveMenu(owner(), {
+      id: spokenId, name: "Spoken", greeting: "Hi.", speech: true, noInputTo: { kind: "voicemail", box: "main" },
+      options: [options()[0]!, { ...options()[1]!, words: ["repair"] }],
+    })).rejects.toThrow(/Options 1 and 2 both listen for "repair"/);
+  });
+
+  it("asks the carrier for speech and keys, and goes where the words say", async () => {
+    const SID = `CA${randomBytes(8).toString("hex")}`;
+    const reply = await webhook("incoming", { CallSid: SID, From: "+15125550121", To: MAIN }, "", OPEN);
+    expect(reply.twiml).toContain('input="dtmf speech" hints="Service, repair, no heat, Billing, pay my bill, invoice" speechTimeout="auto"');
+    const said = await webhook("menu", { CallSid: SID, SpeechResult: "I'd like to pay my bill please", Confidence: "0.82" }, `?m=${spokenId}&t=1`, OPEN);
+    expect(said.twiml).toContain(`>${OWNER_PHONE}</Number>`);
+    const [call] = await raw<{ menu_choices: { key: string; label: string; said: string }[] }[]>`
+      select menu_choices from public.call where provider_call_id = ${`twilio:${SID}`}`;
+    expect(call!.menu_choices).toMatchObject([{ key: "2", label: "Billing", said: "I'd like to pay my bill please" }]);
+    expect((await webhook("whisper", { CallSid: "CA-spoken", ParentCallSid: SID })).twiml).toContain("Billing call.");
+  });
+
+  it("reads the menu once more after words it cannot match, then sends the caller where silence goes, writing down what they said", async () => {
+    const SID = `CA${randomBytes(8).toString("hex")}`;
+    await webhook("incoming", { CallSid: SID, From: "+15125550122", To: MAIN }, "", OPEN);
+    const again = await webhook("menu", { CallSid: SID, SpeechResult: "Is it going to rain?" }, `?m=${spokenId}&t=1`, OPEN);
+    expect(again.twiml).toContain("<Say>Sorry, I did not understand that. Here are the options again.</Say><Gather");
+    expect(actionOf(again.twiml!, "Gather")).toBe(`?m=${spokenId}&t=2&s=1`);
+    const gone = await webhook("menu", { CallSid: SID, SpeechResult: "My card is 4111 1111 1111 1111" }, `?m=${spokenId}&t=2&s=1`, OPEN);
+    expect(gone.twiml).toContain("<Record");
+    const [call] = await raw<{ routed_because: string; menu_choices: { key: string | null; said: string }[] }[]>`
+      select routed_because, menu_choices from public.call where provider_call_id = ${`twilio:${SID}`}`;
+    expect(call!.routed_because).toContain('Said "Is it going to rain?", which is not one of the options.');
+    expect(call!.routed_because).toContain("after hearing the Spoken menu 2 times.");
+    expect(call!.menu_choices[0]!.key).toBeNull();
+    expect(JSON.stringify(call)).not.toContain("4111 1111");
+  });
+
+  it("still goes by keys alone, and by a number said on its own", async () => {
+    const SID = `CA${randomBytes(8).toString("hex")}`;
+    await webhook("incoming", { CallSid: SID, From: "+15125550123", To: MAIN }, "", OPEN);
+    const missed = await webhook("menu", { CallSid: SID, SpeechResult: "hmm" }, `?m=${spokenId}&t=1`, OPEN);
+    expect(actionOf(missed.twiml!, "Gather")).toBe(`?m=${spokenId}&t=2&s=1`);
+    const pressed = await webhook("menu", { CallSid: SID, Digits: "2", SpeechResult: "service" }, `?m=${spokenId}&t=2&s=1`, OPEN);
+    expect(pressed.twiml).toContain(`>${OWNER_PHONE}</Number>`);
+
+    const OTHER = `CA${randomBytes(8).toString("hex")}`;
+    await webhook("incoming", { CallSid: OTHER, From: "+15125550124", To: MAIN }, "", OPEN);
+    const two = await webhook("menu", { CallSid: OTHER, SpeechResult: "Two." }, `?m=${spokenId}&t=1`, OPEN);
+    expect(two.twiml).toContain(`>${OWNER_PHONE}</Number>`);
+  });
+
+  it("ignores words once listening is switched off, and asks for keys only", async () => {
+    await phoneMenus.saveMenu(owner(), {
+      id: spokenId, name: "Spoken", greeting: "Thanks for calling.", options: options(),
+      noInputTo: { kind: "voicemail", box: "main" }, speech: false,
+    });
+    const SID = `CA${randomBytes(8).toString("hex")}`;
+    const reply = await webhook("incoming", { CallSid: SID, From: "+15125550125", To: MAIN }, "", OPEN);
+    expect(reply.twiml).not.toContain("input=");
+    expect(reply.twiml).toContain("For Billing, press 2.");
+    const said = await webhook("menu", { CallSid: SID, SpeechResult: "billing" }, `?m=${spokenId}&t=1`, OPEN);
+    expect(said.twiml).toContain("<Gather");
+    expect(said.twiml).not.toContain("Sorry");
+    await phoneNumbers.update(owner(), { id: numberId, menuId });
+  });
+});
+
 run("giving the number back", () => {
   it("never releases a number the company brought with it at the carrier: its calls go back where they were", async () => {
     await phoneNumbers.update(owner(), { id: numberId, menuId: null });

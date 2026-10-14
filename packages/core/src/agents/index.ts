@@ -13,3 +13,4 @@ export * from "./prompts.js";
 export * from "./widget.js";
 export { check as checkAgainstSchema, unsupportedKeywords, type JsonSchema, type Checked } from "./schema.js";
 export * from "./voice.js";
+export * from "./writing.js";

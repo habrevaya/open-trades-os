@@ -148,6 +148,12 @@ export interface MenuOption {
   /** What the option is for, in the owner's words. Read to the caller and whispered to whoever answers. */
   label: string;
   to: RoutingDestination;
+  /**
+   * Other words or phrases a caller may say for this option when the menu
+   * listens for speech: "bill", "payment" for Billing. The label is always
+   * listened for; these are on top of it.
+   */
+  words?: readonly string[] | undefined;
 }
 
 export interface PhoneMenu {
@@ -166,6 +172,12 @@ export interface PhoneMenu {
   afterHoursTo: RoutingDestination | null;
   /** How long the caller is given to press something. */
   timeoutSeconds: number;
+  /**
+   * Whether a caller may say an option as well as press its key. Off unless
+   * the owner turns it on: the carrier turns what the caller says into text
+   * and charges for it, and a menu with it off works exactly as before.
+   */
+  speech?: boolean | undefined;
 }
 
 /**
@@ -182,6 +194,16 @@ export const MENU_ATTEMPTS = 3;
 export const MIN_TIMEOUT_SECONDS = 3;
 export const MAX_TIMEOUT_SECONDS = 15;
 export const MAX_OPTIONS = MENU_KEYS.length;
+/** Words listened for per option, beyond its label. A list longer than this is a sign the option is two options. */
+export const MAX_OPTION_WORDS = 8;
+export const MAX_WORD_LENGTH = 40;
+/**
+ * How many times a caller who said something no option matches hears the
+ * menu again before they go where a caller who presses nothing goes. Once:
+ * a caller misheard twice is not going to be understood a third time, and
+ * the menu keeps the key presses working all the while.
+ */
+export const SPEECH_RETRIES = 1;
 
 /**
  * Whether a menu can be saved.
@@ -235,6 +257,42 @@ export function checkMenu(menu: PhoneMenu, directory: Directory): Check {
     }
     const bad = destinationProblem(option.to, directory, `option ${spokenKey(option.key)} (${label})`);
     if (bad) return { ok: false, reason: bad };
+    const words = option.words ?? [];
+    if (words.length > MAX_OPTION_WORDS) {
+      return { ok: false, reason: `Option ${spokenKey(option.key)} listens for ${words.length} words. Keep it to ${MAX_OPTION_WORDS} or fewer.` };
+    }
+    for (const word of words) {
+      const trimmed = word.trim();
+      if (trimmed === "" || trimmed.length > MAX_WORD_LENGTH || !/^[\p{L}\p{N}' -]+$/u.test(trimmed)) {
+        return {
+          ok: false,
+          reason: `"${trimmed}" on option ${spokenKey(option.key)} is not a word a caller can say. Use letters and spaces, up to ${MAX_WORD_LENGTH} characters.`,
+        };
+      }
+      if (keyOfWords(normalSpeech(trimmed))) {
+        return {
+          ok: false,
+          reason: `"${trimmed}" on option ${spokenKey(option.key)} is the name of a key. Saying a number already picks the option on that key.`,
+        };
+      }
+    }
+  }
+
+  /** With speech on, a phrase listened for by two options could only ever reach one of them. */
+  if (menu.speech) {
+    const owner = new Map<string, MenuOption>();
+    for (const option of menu.options) {
+      for (const phrase of new Set(phrasesOf(option))) {
+        const other = owner.get(phrase);
+        if (other && other !== option) {
+          return {
+            ok: false,
+            reason: `Options ${spokenKey(other.key)} and ${spokenKey(option.key)} both listen for "${phrase}". A caller saying it could only reach one of them.`,
+          };
+        }
+        owner.set(phrase, option);
+      }
+    }
   }
 
   const noInput = destinationProblem(menu.noInputTo, directory, "a caller who presses nothing");
@@ -275,18 +333,155 @@ export function spokenKey(key: string): string {
  * 1 to billing has a menu that lies; reading the options from the options
  * makes that impossible.
  */
-export function menuPrompt(menu: Pick<PhoneMenu, "greeting" | "options">): string {
+export function menuPrompt(menu: Pick<PhoneMenu, "greeting" | "options" | "speech">): string {
   const ordered = [...menu.options].sort((a, b) =>
     (MENU_KEYS as readonly string[]).indexOf(a.key) - (MENU_KEYS as readonly string[]).indexOf(b.key));
-  const options = ordered.map((option) => `For ${option.label.trim()}, press ${spokenKey(option.key)}.`);
+  const options = ordered.map((option) => menu.speech
+    ? `For ${option.label.trim()}, press ${spokenKey(option.key)} or say ${option.label.trim()}.`
+    : `For ${option.label.trim()}, press ${spokenKey(option.key)}.`);
   return [menu.greeting.trim(), ...options].join(" ");
 }
 
 export type MenuChoice =
   | { kind: "option"; option: MenuOption; why: string }
-  /** Read the menu again, after `say` when there is something to say first. */
-  | { kind: "again"; attempt: number; say: string | null; why: string }
+  /**
+   * Read the menu again, after `say` when there is something to say first.
+   * `misses` is how many spoken answers have not matched so far.
+   */
+  | { kind: "again"; attempt: number; say: string | null; why: string; misses?: number | undefined }
   | { kind: "gave_up"; to: RoutingDestination; why: string };
+
+/* ----------------------------------------------------------- spoken answers */
+
+/** Lower case words only: what the carrier wrote, without its punctuation. */
+export function normalSpeech(text: string): string {
+  return text.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+}
+
+/** "Bills" and "bill" are the same answer; "glass" keeps its s. */
+const stem = (word: string): string => word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
+const stemmed = (text: string): string => text.split(" ").filter(Boolean).map(stem).join(" ");
+
+/** A key, said: "one", "press two", "option 3", "star". */
+const KEY_WORDS: Readonly<Record<string, string>> = {
+  zero: "0", oh: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8",
+  nine: "9", star: "*", pound: "#", hash: "#",
+  "0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9",
+};
+/** Said around a number without changing it. */
+const KEY_FILLER = new Set(["press", "pressing", "option", "number", "please", "um", "uh", "the", "key", "button", "i", "want", "like", "d"]);
+
+/**
+ * The key a whole answer names, or null. Only the whole answer: "I have two
+ * units" is not a press of 2, while "two" or "press two" is.
+ */
+function keyOfWords(normal: string): string | null {
+  const words = normal.split(" ").filter((w) => w !== "" && !KEY_FILLER.has(w));
+  return words.length === 1 ? KEY_WORDS[words[0]!] ?? null : null;
+}
+
+/** Common words that say nothing about which option: never matched alone. */
+const STOPWORDS = new Set([
+  "the", "and", "for", "with", "about", "your", "our", "you", "are", "new", "other", "all", "any", "questions", "question",
+  "help", "need", "please", "line", "department", "team", "office",
+]);
+
+/** Everything an option listens for, normalised: its label, then its own words. */
+function phrasesOf(option: MenuOption): string[] {
+  return [option.label, ...(option.words ?? [])].map((p) => stemmed(normalSpeech(p))).filter((p) => p !== "");
+}
+
+/** What a spoken answer comes to. */
+export type SpokenMatch =
+  | { kind: "option"; option: MenuOption }
+  /** Words of more than one option, as strongly as each other. */
+  | { kind: "unclear"; options: MenuOption[] }
+  | { kind: "none" };
+
+/**
+ * Which option a caller's words name.
+ *
+ * A whole answer that is a key ("two", "press star") is that key. Otherwise
+ * each option scores by the longest of its phrases (its label, or one of its
+ * words) said in full, word for word; failing any, by a single significant
+ * word of its label ("billing" for "Billing questions"), which counts for
+ * less. The best score wins when one option has it alone. Two options as
+ * likely as each other is not a guess this makes: it asks again.
+ */
+export function matchSpoken(menu: Pick<PhoneMenu, "options">, said: string): SpokenMatch {
+  const normal = normalSpeech(said);
+  if (normal === "") return { kind: "none" };
+  const key = keyOfWords(normal);
+  if (key) {
+    const option = menu.options.find((o) => o.key === key);
+    return option ? { kind: "option", option } : { kind: "none" };
+  }
+  const heard = ` ${stemmed(normal)} `;
+  const scored = menu.options.map((option) => {
+    let score = 0;
+    for (const phrase of phrasesOf(option)) {
+      if (heard.includes(` ${phrase} `)) score = Math.max(score, 10 * phrase.split(" ").length);
+    }
+    if (score === 0) {
+      const significant = stemmed(normalSpeech(option.label)).split(" ")
+        .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+      if (significant.some((w) => heard.includes(` ${w} `))) score = 1;
+    }
+    return { option, score };
+  }).filter((s) => s.score > 0);
+  if (scored.length === 0) return { kind: "none" };
+  const best = Math.max(...scored.map((s) => s.score));
+  const top = scored.filter((s) => s.score === best);
+  return top.length === 1 ? { kind: "option", option: top[0]!.option } : { kind: "unclear", options: top.map((s) => s.option) };
+}
+
+/** What the carrier is told to listen for: every option's label and words, as phrases. */
+export function speechHints(menu: Pick<PhoneMenu, "options">): string {
+  const phrases = menu.options.flatMap((o) => [o.label, ...(o.words ?? [])].map((p) => p.trim()).filter(Boolean));
+  return [...new Set(phrases)].join(", ").slice(0, 2000);
+}
+
+/** A caller's words as they are written down: short, and in quotes on the call. */
+export const heardAs = (said: string): string => {
+  const text = said.trim().replace(/\s+/g, " ");
+  return text.length > 80 ? `${text.slice(0, 79)}...` : text;
+};
+
+/**
+ * What a spoken answer means.
+ *
+ * Matched: that option, as a key press would. Not matched, or as likely one
+ * option as another: the menu once more, saying so, and after `SPEECH_RETRIES`
+ * misses (or the menu's last reading) where a caller who presses nothing
+ * goes. Nothing a caller says is dropped without an answer, and keys work at
+ * every step.
+ */
+export function chooseSpoken(menu: PhoneMenu, said: string, attempt: number, misses: number): MenuChoice {
+  const heard = heardAs(said);
+  const match = matchSpoken(menu, said);
+  if (match.kind === "option") {
+    return {
+      kind: "option", option: match.option,
+      why: `Said "${heard}" for ${match.option.label.trim()} in the ${menu.name.trim()} menu.`,
+    };
+  }
+  const missed = match.kind === "unclear"
+    ? `Said "${heard}", which could be ${match.options.map((o) => o.label.trim()).join(" or ")}.`
+    : `Said "${heard}", which is not one of the options.`;
+  if (misses < SPEECH_RETRIES && attempt < MENU_ATTEMPTS) {
+    return {
+      kind: "again", attempt: attempt + 1, misses: misses + 1, why: missed,
+      say: match.kind === "unclear"
+        ? "Sorry, I did not catch which one you want. Here are the options again."
+        : "Sorry, I did not understand that. Here are the options again.",
+    };
+  }
+  return {
+    kind: "gave_up", to: menu.noInputTo,
+    why: `${missed.replace(/\.$/, "")}, after hearing the ${menu.name.trim()} menu ${attempt} times.`,
+  };
+}
 
 /**
  * What a keypress means.

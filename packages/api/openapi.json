@@ -4838,7 +4838,8 @@
                 "voice",
                 "estimate",
                 "collections",
-                "dispatch"
+                "dispatch",
+                "field"
               ]
             }
           },
@@ -5063,7 +5064,8 @@
                 "voice",
                 "estimate",
                 "collections",
-                "dispatch"
+                "dispatch",
+                "field"
               ]
             }
           },
@@ -19515,7 +19517,7 @@
       "post": {
         "operationId": "holdCall",
         "summary": "Put the caller on hold",
-        "description": "Only for the person who has the caller now, on a call that came in. The caller's leg is moved to a queue of its own with music, which ends the browser's call to them; ringing hold:{id} from the browser phone takes them back. Asking again while they are on hold answers with the same hold. A caller left on hold fifteen minutes goes to voicemail and the office gets a task to call them.\n\nRequires a session holding: call:place.",
+        "description": "Only for the person who has the caller now: on a call that came in, or one they placed from the browser phone once the person called has picked up. The other person's leg is moved to a queue of its own with music, which ends the browser's call to them; ringing hold:{id} from the browser phone takes them back. Asking again while they are on hold answers with the same hold. A caller left on hold fifteen minutes goes to voicemail and the office gets a task to call them.\n\nRequires a session holding: call:place.",
         "tags": [
           "M18"
         ],
@@ -86421,7 +86423,7 @@
       "post": {
         "operationId": "createPhoneMenu",
         "summary": "Build a phone menu",
-        "description": "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour.\n\nRequires a session holding: settings:write.",
+        "description": "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour. With speech on, a caller may also say an option (its label, or one of its words, or its key's number); words no option matches, or that match two as well as each other, read the menu once more and then go where noInputTo says. A phrase two options listen for, or a key's name as a word, is refused.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M18"
         ],
@@ -102658,7 +102660,7 @@
       "post": {
         "operationId": "readChat",
         "summary": "Read a website chat",
-        "description": "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox. While the assistant is answering, `writing` holds its reply so far, which the widget reads about once a second until the answer arrives.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
         "tags": [
           "M27"
         ],
@@ -122804,7 +122806,7 @@
       "get": {
         "operationId": "getSoftphoneCall",
         "summary": "The call you have now",
-        "description": "A call that came in and that you picked up, or that was passed to you, while it lasts: whether you are talking, have the caller on hold, or are talking to a colleague first. Null when you have none.\n\nRequires a session holding: call:place.",
+        "description": "A call that came in and that you picked up, one you placed from the browser phone once the person called has picked up, or one that was passed to you, while it lasts: whether you are talking, have the other person on hold, or are talking to a colleague first. Null when you have none.\n\nRequires a session holding: call:place.",
         "tags": [
           "M18"
         ],
@@ -141114,7 +141116,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -145138,7 +145141,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -147217,7 +147221,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -151670,7 +151675,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "settings": {
@@ -156746,7 +156752,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -157753,7 +157760,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -158136,7 +158144,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -160488,6 +160497,14 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "maxItems": 8
                 }
               },
               "required": [
@@ -160810,6 +160827,9 @@
             "type": "integer",
             "minimum": 3,
             "maximum": 15
+          },
+          "speech": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -160998,12 +161018,19 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
                 "key",
                 "label",
-                "to"
+                "to",
+                "words"
               ]
             }
           },
@@ -161317,6 +161344,9 @@
           "timeoutSeconds": {
             "type": "integer"
           },
+          "speech": {
+            "type": "boolean"
+          },
           "prompt": {
             "type": "string"
           },
@@ -161355,6 +161385,7 @@
           "noInputTo",
           "afterHoursTo",
           "timeoutSeconds",
+          "speech",
           "prompt",
           "numbers"
         ]
@@ -170108,7 +170139,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -170272,7 +170304,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -170391,7 +170424,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -170510,7 +170544,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -189508,13 +189543,20 @@
                 },
                 "at": {
                   "type": "string"
+                },
+                "said": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "menu",
                 "key",
                 "label",
-                "at"
+                "at",
+                "said"
               ]
             }
           },
@@ -194240,12 +194282,19 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
                 "key",
                 "label",
-                "to"
+                "to",
+                "words"
               ]
             }
           },
@@ -194559,6 +194608,9 @@
           "timeoutSeconds": {
             "type": "integer"
           },
+          "speech": {
+            "type": "boolean"
+          },
           "prompt": {
             "type": "string"
           },
@@ -194597,6 +194649,7 @@
           "noInputTo",
           "afterHoursTo",
           "timeoutSeconds",
+          "speech",
           "prompt",
           "numbers"
         ]
@@ -201513,6 +201566,13 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ]
+              },
               "from": {
                 "type": "string"
               },
@@ -201557,6 +201617,7 @@
             },
             "required": [
               "id",
+              "direction",
               "from",
               "customerId",
               "customerName",
@@ -206164,7 +206225,8 @@
                     "voice",
                     "estimate",
                     "collections",
-                    "dispatch"
+                    "dispatch",
+                    "field"
                   ]
                 },
                 "kind": {
@@ -206260,7 +206322,8 @@
                     "voice",
                     "estimate",
                     "collections",
-                    "dispatch"
+                    "dispatch",
+                    "field"
                   ]
                 },
                 "label": {
@@ -210239,7 +210302,8 @@
                     "voice",
                     "estimate",
                     "collections",
-                    "dispatch"
+                    "dispatch",
+                    "field"
                   ]
                 },
                 "action": {
@@ -214411,7 +214475,8 @@
                     "voice",
                     "estimate",
                     "collections",
-                    "dispatch"
+                    "dispatch",
+                    "field"
                   ]
                 },
                 "action": {
@@ -215224,7 +215289,8 @@
                     "voice",
                     "estimate",
                     "collections",
-                    "dispatch"
+                    "dispatch",
+                    "field"
                   ]
                 },
                 "action": {
@@ -216980,7 +217046,8 @@
                     "voice",
                     "estimate",
                     "collections",
-                    "dispatch"
+                    "dispatch",
+                    "field"
                   ]
                 },
                 "action": {
@@ -221876,12 +221943,19 @@
                             ]
                           }
                         ]
+                      },
+                      "words": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
                       }
                     },
                     "required": [
                       "key",
                       "label",
-                      "to"
+                      "to",
+                      "words"
                     ]
                   }
                 },
@@ -222195,6 +222269,9 @@
                 "timeoutSeconds": {
                   "type": "integer"
                 },
+                "speech": {
+                  "type": "boolean"
+                },
                 "prompt": {
                   "type": "string"
                 },
@@ -222233,6 +222310,7 @@
                 "noInputTo",
                 "afterHoursTo",
                 "timeoutSeconds",
+                "speech",
                 "prompt",
                 "numbers"
               ]
@@ -241106,12 +241184,19 @@
                 "at"
               ]
             }
+          },
+          "writing": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "status",
           "bookingTaken",
-          "messages"
+          "messages",
+          "writing"
         ]
       },
       "ReadMyNoticesInput": {
@@ -255160,12 +255245,19 @@
                 "at"
               ]
             }
+          },
+          "writing": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "status",
           "bookingTaken",
-          "messages"
+          "messages",
+          "writing"
         ]
       },
       "SayInPortalChatInput": {
@@ -256142,7 +256234,8 @@
               "voice",
               "estimate",
               "collections",
-              "dispatch"
+              "dispatch",
+              "field"
             ]
           },
           "action": {
@@ -266464,6 +266557,12 @@
               ]
             }
           },
+          "writing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "token": {
             "type": "string"
           }
@@ -266472,6 +266571,7 @@
           "status",
           "bookingTaken",
           "messages",
+          "writing",
           "token"
         ]
       },
@@ -276096,6 +276196,14 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "maxItems": 8
                 }
               },
               "required": [
@@ -276418,6 +276526,9 @@
             "type": "integer",
             "minimum": 3,
             "maximum": 15
+          },
+          "speech": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -276606,12 +276717,19 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
                 "key",
                 "label",
-                "to"
+                "to",
+                "words"
               ]
             }
           },
@@ -276925,6 +277043,9 @@
           "timeoutSeconds": {
             "type": "integer"
           },
+          "speech": {
+            "type": "boolean"
+          },
           "prompt": {
             "type": "string"
           },
@@ -276963,6 +277084,7 @@
           "noInputTo",
           "afterHoursTo",
           "timeoutSeconds",
+          "speech",
           "prompt",
           "numbers"
         ]

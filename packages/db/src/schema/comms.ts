@@ -166,10 +166,17 @@ export const phoneMenu = pgTable("phone_menu", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   greeting: text("greeting").notNull(),
-  options: jsonb("options").$type<{ key: string; label: string; to: StoredDestination }[]>().notNull().default([]),
+  /** `words` are what a caller may say for the option besides its label, when the menu listens. */
+  options: jsonb("options").$type<{ key: string; label: string; to: StoredDestination; words?: string[] }[]>().notNull().default([]),
   noInputTo: jsonb("no_input_to").$type<StoredDestination>().notNull(),
   afterHoursTo: jsonb("after_hours_to").$type<StoredDestination | null>(),
   timeoutSeconds: integer("timeout_seconds").notNull().default(6),
+  /**
+   * Whether a caller may say an option as well as press its key. Off until
+   * the owner turns it on, because the carrier writes down and charges for
+   * what each caller says.
+   */
+  speech: boolean("speech").notNull().default(false),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("phone_menu_org_idx").on(t.organizationId),
@@ -887,7 +894,11 @@ export const call = pgTable("call", {
    * route; this says the path, which is what an owner reads when a billing
    * question rang the service team.
    */
-  menuChoices: jsonb("menu_choices").$type<{ menuId: string; menu: string; key: string | null; label: string; at: string }[]>()
+  menuChoices: jsonb("menu_choices").$type<{
+    menuId: string; menu: string; key: string | null; label: string; at: string;
+    /** What the caller said, in short, when they answered by speaking rather than a key. */
+    said?: string;
+  }[]>()
     .notNull().default([]),
   /**
    * A call placed from the office app's browser phone: who pressed Call. Kept
@@ -901,6 +912,13 @@ export const call = pgTable("call", {
    * which stays the first person to answer.
    */
   handledByUserId: uuid("handled_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * On a call placed from the browser phone, the carrier's id for the leg of
+   * the person called: the dial's child call, named by its own status
+   * callbacks. Kept because that leg is the one hold and passing on move,
+   * as the caller's own leg is on a call that came in.
+   */
+  calleeLegSid: text("callee_leg_sid"),
   /**
    * The waiting line the caller was held in, when one was: when they joined
    * it, when its group was last rung for them and how many times, and how
@@ -940,6 +958,8 @@ export const call = pgTable("call", {
   orgIdx: index("call_org_idx").on(t.organizationId, t.startedAt),
   customerIdx: index("call_customer_idx").on(t.customerId),
   numberIdx: index("call_number_idx").on(t.organizationId, t.receivedOnE164),
+  /** A carrier request from the person called's leg finds its call by this. */
+  calleeLegIdx: index("call_callee_leg_idx").on(t.calleeLegSid).where(sql`${t.calleeLegSid} is not null`),
   /** Full text over the redacted words, for searching the call log. */
   transcriptSearchIdx: index("call_transcript_search_idx")
     .using("gin", sql`to_tsvector('english', coalesce(${t.transcriptText}, ''))`),

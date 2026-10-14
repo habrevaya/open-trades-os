@@ -20,7 +20,8 @@ import { Uuid } from "./common";
  * model as a tool: an agent cannot drive an agent.
  */
 
-const AgentKind = z.enum(["intake", "chat", "voice", "estimate", "collections", "dispatch"]);
+/** Every agent core knows, the field assistant included: without it the settings screen could not turn that one on. */
+const AgentKind = z.enum(["intake", "chat", "voice", "estimate", "collections", "dispatch", "field"]);
 const Status = z.enum(["proposed", "applied", "dismissed", "failed", "superseded"]);
 
 const Draft = z.object({
@@ -396,6 +397,13 @@ const ChatTranscript = z.object({
     text: z.string(),
     at: z.string(),
   })),
+  /**
+   * The assistant's reply while it is still being written: whole sentences,
+   * held to the published price rule, growing until the reply is done. Null
+   * when nothing is being written. Replaced by the reply itself, or by a
+   * person being asked to answer, once the whole answer has been checked.
+   */
+  writing: z.string().nullable(),
 });
 
 const CompanyKey = z.string().min(1).max(100);
@@ -451,7 +459,7 @@ export const readChat = defineRoute({
   path: "/v1/public/chat/transcript",
   summary: "Read a website chat",
   description:
-    "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox.",
+    "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox. While the assistant is answering, `writing` holds its reply so far, which the widget reads about once a second until the answer arrives.",
   module: "M27",
   permissions: [],
   authorization: "public",
