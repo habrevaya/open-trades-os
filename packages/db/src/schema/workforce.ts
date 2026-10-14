@@ -334,6 +334,14 @@ export const commissionEvent = pgTable("commission_event", {
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
   explanation: text("explanation").notNull(),
   /**
+   * Why the office shared it the way it did, when it was settled from the
+   * split screen with shares other than the even split it proposed. Null for
+   * a split as proposed, and for one settled over the API without a reason.
+   * Also written into each part's explanation, which is what the person paid
+   * reads on their statement.
+   */
+  splitNote: text("split_note"),
+  /**
    * Null only when the commission computed to zero, which posts nothing,
    * because a posting with no entries is not a posting.
    */

@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, boolean, date, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, boolean, date, jsonb, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user, location, memberRole, role } from "./tenancy";
@@ -134,6 +134,19 @@ export const vendorItem = pgTable("vendor_item", {
    * break table is one fact, not a list of separate ones.
    */
   priceBreaks: jsonb("price_breaks").$type<{ minimum: string; cost: string }[]>().notNull().default([]),
+  /**
+   * A SECOND WAY THEY SELL IT. A supply house sells wire nuts by the each and
+   * by the box of 25 under one part number, at two prices, and a link that
+   * held one pack made the company pick: the box won and thirty nuts could
+   * not be ordered. The second pack sits beside the first, with its own
+   * price and breaks, and a purchase order offers whichever is cheaper per
+   * one of ours first. Null quantity is a part sold one way.
+   */
+  secondPackQuantity: quantity("second_pack_quantity"),
+  secondPurchaseUnit: text("second_purchase_unit"),
+  /** Their price for one of the second pack. */
+  secondCost: money("second_cost"),
+  secondPriceBreaks: jsonb("second_price_breaks").$type<{ minimum: string; cost: string }[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -148,6 +161,9 @@ export const vendorItem = pgTable("vendor_item", {
   partNumberIdx: uniqueIndex("vendor_item_part_number_idx")
     .on(t.organizationId, t.vendorId, sql`lower(${t.partNumber})`),
   itemIdx: index("vendor_item_item_idx").on(t.organizationId, t.itemId),
+  /** Two ways to buy it are two different packs, or they are one way written twice. */
+  twoPacksCheck: check("vendor_item_two_packs",
+    sql`${t.secondPackQuantity} is null or ${t.secondPackQuantity} <> ${t.packQuantity}`),
 }));
 
 /**

@@ -148,6 +148,16 @@ given, is refused in words. On `/purchasing`, "Order by part number" offers the
 chosen vendor's known numbers as you type, and an order built from the reorder
 suggestions takes the vendor's price for a line left blank.
 
+When the vendor sells the part two ways (by the each and by the box), the line
+takes the one it names (`packQuantity`, how many of ours in one of theirs), or,
+named nowhere, the cheaper per one of ours at the break the order reaches among
+the ways this many is whole packs of: fifty wire nuts are two boxes when the box
+is cheaper per nut, thirty are thirty each. A line is one way: thirty as a box
+and five each is two lines. The rule is core's `catalogue.choosePack` and
+`catalogue.cheaperFirst`, with unit tests. "Order by part number" shows a "Buy it"
+choice for such a part, cheaper per unit first, starting on "The cheaper way that
+fits".
+
 ### Know what each vendor calls a part
 
 Each price book item's screen lists the vendors who sell it to us with their
@@ -191,6 +201,37 @@ pack, and the price book is costed and priced for one: a box of 25 at 112.50
 sets an item's own cost to 4.50 and prices a new item from 4.50, never from the
 box. A file with no pack column leaves a link's pack as it was. A pack or break
 that is not a number skips the row with the reason.
+
+**A part bought two ways.** A supplier often sells one part by the each and by
+the box at two prices under one part number, and a link holds both: its first
+pack and a second one beside it, each with its own price and breaks. In a file
+with a pack column, a part named twice for one vendor with two different packs
+is the link's two ways to buy it: a row whose pack the link already holds states
+that one, otherwise the first row is the first pack, as a single row always was,
+and the second row is the second ("Second way to buy it" on the preview, "with
+line 2" when it goes with a link that line makes). A third pack or the same pack
+twice is skipped with the reason, and a second row whose first line was skipped
+has nothing to go with and is skipped too. A part the file names once leaves the
+other pack the link holds as it was. The item's own cost follows the first pack
+only. On an item's page, "A second way they sell it" sets one by hand
+(`PUT /v1/vendor-items` takes `secondPack`, replaced whole, `null` to take it
+away, refused when it is the same pack as the first), the vendor's price shows
+"or a box of 25 at $10.00, $0.40 each", and "Stop buying it the second way"
+takes it off. `GET /v1/vendor-items` returns `secondPack` and `packs`, both
+ways cheaper per one of ours first.
+
+**Vendors the file names.** A vendor the file names that is not set up is
+skipped, unless the person importing ticks "Add the vendors this file names that
+are not set up yet" (`createVendors`, off by default). Then the preview lists the
+vendors it would add (`newVendors`) and marks their rows "(new vendor)"; applying
+adds each once, under the spelling of the first line that names it (later lines
+match it without capitals, as an existing vendor is matched), audited as created
+by the import, with nothing but its name: account number and email are added
+under Purchasing afterwards. A vendor whose every row was skipped or unticked is
+not added. **A judgement the product owner has not made, and the conservative
+reading taken:** it is off unless ticked, because a misspelt name in a
+supplier's file would otherwise become a second supplier that splits the spend on
+every report, and the import never merges a near spelling into an existing vendor.
 
 ### Track a part by serial number or lot
 
@@ -512,10 +553,13 @@ question about it is what to bill.
 ## What is not built
 
 A catalogue import reads a CSV, not a spreadsheet file or a supplier's API or
-EDI feed, and at most five thousand rows at a time. It does not create vendors:
-one the file names that nobody has added is skipped. Packs are whole packs of
-one unit of measure; a supplier selling the same part by the each and by the
-box is two links, which one item per vendor cannot hold, so the box wins.
+EDI feed, and at most five thousand rows at a time. It adds the vendors a file
+names only when asked, and then with their name alone; it never matches a near
+spelling to a vendor already set up. A link keeps two ways to buy a part at most,
+both under one part number: a supplier that numbers its box differently from its
+each cannot have both numbers on one link, because one item has one link per
+vendor. An order line is one way to buy it; a quantity that is boxes and some
+over is two lines, written by the person.
 
 Stock received outside an order carries whatever total cost was typed, and a
 late freight bill can only be spread onto a delivery received against an order.

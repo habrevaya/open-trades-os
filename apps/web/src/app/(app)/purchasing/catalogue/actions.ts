@@ -23,6 +23,7 @@ function options(form: FormData) {
     ending: field(form, "ending") ?? null,
     updateItemCost: form.get("updateItemCost") === "on",
     categoryId: field(form, "categoryId") ?? null,
+    createVendors: form.get("createVendors") === "on",
   };
 }
 

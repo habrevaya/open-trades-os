@@ -41,6 +41,36 @@ import { work, type reporting } from "@opentradesos/core";
 /** The company's own zone, for a day in its calendar, with the fallback the session resolver uses. */
 const COMPANY_ZONE = "coalesce((select o.timezone from public.organization o where o.id = job.organization_id), 'America/Chicago')";
 
+/**
+ * Overhead on the job by the bases named: the overhead rows on the latest day
+ * on or before the job's own, those bases only, each charged its way.
+ */
+function overheadSql(bases: readonly ("per_hour" | "per_job" | "percent_of_revenue")[]): string {
+  return `(case when job.status = 'cancelled' then 0 else coalesce((
+    select sum(case cr.basis
+      when 'per_job' then cr.rate
+      when 'per_hour' then cr.rate * (
+        select coalesce(sum(tc.minutes), 0)::numeric / 60
+        from public.timeclock_entry tc
+        where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
+      )
+      when 'percent_of_revenue' then cr.rate / 100 * (
+        select coalesce(sum(case when le.direction = 'credit' then le.amount else -le.amount end), 0)
+        from public.ledger_entry le
+        where le.job_id = job.id and le.account_code in ('4000', '4100', '4900')
+      )
+      else 0 end)
+    from public.costing_rate cr
+    where cr.organization_id = job.organization_id and cr.component = 'overhead'
+      and cr.basis in (${bases.map((b) => `'${b}'`).join(", ")})
+      and cr.effective_from = (
+        select max(c2.effective_from) from public.costing_rate c2
+        where c2.organization_id = job.organization_id and c2.component = 'overhead'
+          and c2.effective_from <= (coalesce(job.completed_at, job.created_at) at time zone ${COMPANY_ZONE})::date
+      )
+  ), 0) end)`;
+}
+
 export const JOB_COSTING_SQL = {
   /**
    * REVENUE RECOGNISED ON THE JOB, net of discount and excluding tax.
@@ -310,31 +340,22 @@ export const JOB_COSTING_SQL = {
   )`,
 
   /**
-   * OVERHEAD CHARGED TO THE JOB, at the overhead rate in effect on the job's
-   * day (finished, or started while it runs), by whichever basis the company
-   * chose: per paid hour on it, a flat amount per job, or a share of its
-   * revenue. None on a cancelled job. Zero with no rate set.
+   * OVERHEAD CHARGED TO THE JOB, at the overhead in effect on the job's day
+   * (finished, or started while it runs): the sum of the three parts below.
+   * None on a cancelled job. Zero with no rate set.
    */
-  overhead: `(case when job.status = 'cancelled' then 0 else coalesce((
-    select case cr.basis
-      when 'per_job' then cr.rate
-      when 'per_hour' then cr.rate * (
-        select coalesce(sum(tc.minutes), 0)::numeric / 60
-        from public.timeclock_entry tc
-        where tc.job_id = job.id and tc.ended_at is not null and tc.kind <> 'unpaid_break'
-      )
-      when 'percent_of_revenue' then cr.rate / 100 * (
-        select coalesce(sum(case when le.direction = 'credit' then le.amount else -le.amount end), 0)
-        from public.ledger_entry le
-        where le.job_id = job.id and le.account_code in ('4000', '4100', '4900')
-      )
-      else 0 end
-    from public.costing_rate cr
-    where cr.organization_id = job.organization_id and cr.component = 'overhead'
-      and cr.effective_from <= (coalesce(job.completed_at, job.created_at) at time zone ${COMPANY_ZONE})::date
-    order by cr.effective_from desc
-    limit 1
-  ), 0) end)`,
+  overhead: overheadSql(["per_hour", "per_job", "percent_of_revenue"]),
+  /**
+   * THE THREE PARTS OF THE MIX, each reported on its own: per paid hour on
+   * the job, a flat amount per job, and a share of its revenue. A company that
+   * charges one basis has two of them at zero. The mix on a day is every
+   * overhead rate on the latest date on or before it, which is
+   * `costing.overheadMixOn` in core, and an integration test holds the two to
+   * each other.
+   */
+  overheadPerHour: overheadSql(["per_hour"]),
+  overheadPerJob: overheadSql(["per_job"]),
+  overheadRevenueShare: overheadSql(["percent_of_revenue"]),
 
   labourNotRecorded: `(case when not exists (
     select 1 from public.timeclock_entry tc
@@ -634,6 +655,18 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
     {
       key: "overhead", label: "Overhead", kind: "sum", type: "money",
       permission: "job.cost:read", sql: JOB_COSTING_SQL.overhead,
+    },
+    {
+      key: "overhead_per_hour", label: "Overhead per paid hour", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overheadPerHour,
+    },
+    {
+      key: "overhead_per_job", label: "Overhead per job", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overheadPerJob,
+    },
+    {
+      key: "overhead_revenue_share", label: "Overhead as a share of revenue", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overheadRevenueShare,
     },
     {
       key: "fully_loaded_margin", label: "Fully loaded margin", kind: "sum", type: "money",

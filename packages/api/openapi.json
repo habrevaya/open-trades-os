@@ -15844,7 +15844,7 @@
       "get": {
         "operationId": "getBudgetReport",
         "summary": "The year's budget against the ledger, by line and month, with variance",
-        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; the whole company's report is the lines with no branch, and branch lines are not added into it.\n\nRequires a session holding: report.financial:read.",
+        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over; `forecast.assumption` says which, and it is an estimate, never a promise.\n\nRequires a session holding: report.financial:read.",
         "tags": [
           "M15"
         ],
@@ -15861,6 +15861,15 @@
           },
           {
             "name": "businessUnitId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "jobTypeId",
             "in": "query",
             "required": false,
             "schema": {
@@ -15952,6 +15961,136 @@
         "x-authorization": "session",
         "x-permissions": [
           "report.financial:read"
+        ]
+      }
+    },
+    "/v1/budgets/{year}/forecast": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setBudgetForecastMethod",
+        "summary": "Choose how the year end forecast takes the months to come",
+        "description": "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over. One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.\n\nRequires a session holding: finance:configure.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "year",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBudgetForecastMethodInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Choose how the year end forecast takes the months to come",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetBudgetForecastMethodOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "finance:configure"
         ]
       }
     },
@@ -16102,7 +16241,7 @@
       "put": {
         "operationId": "setBudgetLine",
         "summary": "Set one budget line's twelve months",
-        "description": "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month.\n\nRequires a session holding: finance:configure.",
+        "description": "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's; not both.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -23334,6 +23473,360 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReverseCommissionOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:configure"
+        ]
+      }
+    },
+    "/v1/commissions/shared": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listSharedCommissions",
+        "summary": "Commissions several people share: waiting to be settled, and the last ones settled",
+        "description": "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the even split.\n\nRequires a session holding: commission:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "Commissions several people share: waiting to be settled, and the last ones settled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSharedCommissionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:read"
+        ]
+      }
+    },
+    "/v1/commissions/split-proposal": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getCommissionSplit",
+        "summary": "How an invoice's commission would be shared, worked out before it is settled",
+        "description": "The even split between the people on the job's visits is proposed, and core works out each person's part under the plan. With `shares` (`technicianId:weight` pairs separated by commas, weights not percentages: \"2\" and \"1\" is two thirds and one third), the split given instead, worked out the same way. What settling would refuse comes back as `refusal`, in the same words. `changed` says the split is not the even one, which settling from the split screen needs a reason for. Writes nothing.\n\nRequires a session holding: commission:read.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "planId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "shares",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How an invoice's commission would be shared, worked out before it is settled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCommissionSplitOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:read"
+        ]
+      }
+    },
+    "/v1/commissions/splits": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "settleCommissionSplit",
+        "summary": "Settle a commission several people share, from the split screen",
+        "description": "The same settling as `POST /v1/commissions`, with one more rule: a split other than the even one between the people on the job needs `reason`, which is kept on the earning and written into each part's explanation, the sentence the person paid reads on their statement. A share of 0 leaves that person out. The plan's total is never changed here, only how it is divided. The audit records the split proposed beside the one settled. Sent again with the same split it answers with what was settled; a different split for an invoice that has already earned is refused.\n\nRequires a session holding: commission:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleCommissionSplitInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Settle a commission several people share, from the split screen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettleCommissionSplitOutput"
                 }
               }
             }
@@ -30792,6 +31285,135 @@
         ]
       }
     },
+    "/v1/costing/overhead": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setOverheadMix",
+        "summary": "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+        "description": "Each part is optional and at least one is given; a 0 stops charging overhead from the day. The parts set on a day are the whole of the overhead from that day until a later day, so a mix is replaced whole rather than added to, and jobs before the day keep the overhead of their own day. A day that already has overhead is refused unless the same mix is sent again, which returns it. Each part is reported on its own on a job's costing and in the profitability measures.\n\nRequires a session holding: finance:configure.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetOverheadMixInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetOverheadMixOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "finance:configure"
+        ]
+      }
+    },
     "/v1/costing/rates": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -30893,7 +31515,7 @@
       "post": {
         "operationId": "setCostingRate",
         "summary": "Set a burden or overhead rate from a date",
-        "description": "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one component on one day is refused. Sending the same rate again returns it.\n\nRequires a session holding: finance:configure.",
+        "description": "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -91027,7 +91649,7 @@
       "get": {
         "operationId": "getJobProfitability",
         "summary": "What one job earned, and the rows behind every number",
-        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because using stock does not post to cost of goods sold; the exceptions are cost of goods sold posted to the job in the ledger, which is added to material cost (`costEntries`): freight billed after a delivery on parts the job used, and any cost an accountant journalled to the job (M14). A manual journal line on a job is read once, from the ledger, and `journalLines` lists every one, including those the margin does not count. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
+        "description": "Revenue and processing fees come from the ledger. Material and labour cost come from the job lines and the timeclock, because using stock does not post to cost of goods sold; the exceptions are cost of goods sold posted to the job in the ledger, which is added to material cost (`costEntries`): freight billed after a delivery on parts the job used, and any cost an accountant journalled to the job (M14). A manual journal line on a job is read once, from the ledger, and `journalLines` lists every one, including those the margin does not count. Labour is hours at the loaded rate frozen onto each punch, which excludes the overtime premium: overtime belongs to a person's week, not to a job. The gross margin has no overhead in it; the fully loaded margin beside it takes off labour burden and overhead at the rates the company set (`GET /v1/costing/rates`), overhead being a mix whose parts are in `overheadParts`, and equals the gross margin until any are set. A job with a punch still running, hours with no wage scale, or a line nobody has billed or written off comes back with `settled` false and a sentence per reason, because its margin is not finished being wrong.\n\nRequires a session holding: report.financial:read, job.cost:read.",
         "tags": [
           "M15"
         ],
@@ -129780,7 +130402,7 @@
       "post": {
         "operationId": "previewVendorCatalogue",
         "summary": "What a supplier's catalogue file would do, with nothing written",
-        "description": "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor, a cost that is not an amount, a part number twice, a new part with no margin to price it. A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.\n\nRequires a session holding: vendor:write, pricebook:write.",
+        "description": "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.\n\nRequires a session holding: vendor:write, pricebook:write.",
         "tags": [
           "M16"
         ],
@@ -130023,7 +130645,7 @@
       "put": {
         "operationId": "setVendorItem",
         "summary": "Say what a vendor calls one of our items, and what they charge",
-        "description": "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record.\n\nRequires a session holding: vendor:write.",
+        "description": "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks: replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.\n\nRequires a session holding: vendor:write.",
         "tags": [
           "M16"
         ],
@@ -140834,6 +141456,10 @@
             ],
             "format": "uuid"
           },
+          "createVendors": {
+            "type": "boolean",
+            "default": false
+          },
           "skipLines": {
             "type": "array",
             "items": {
@@ -140879,6 +141505,7 @@
                     "create",
                     "link",
                     "update",
+                    "pack",
                     "unchanged",
                     "skip"
                   ]
@@ -140890,14 +141517,43 @@
                   "type": "string"
                 },
                 "vendorId": {
-                  "type": "string",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "uuid"
                 },
                 "vendorName": {
                   "type": "string"
                 },
-                "itemId": {
+                "newVendor": {
+                  "type": "boolean"
+                },
+                "slot": {
                   "type": "string",
+                  "enum": [
+                    "first",
+                    "second"
+                  ]
+                },
+                "pairsWith": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "packBefore": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "itemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "uuid"
                 },
                 "itemCode": {
@@ -141019,6 +141675,24 @@
               "skip"
             ]
           },
+          "newVendors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "line"
+              ]
+            }
+          },
           "created": {
             "type": "integer"
           },
@@ -141030,16 +141704,21 @@
           },
           "itemCostsRevised": {
             "type": "integer"
+          },
+          "vendorsAdded": {
+            "type": "integer"
           }
         },
         "required": [
           "problems",
           "rows",
           "counts",
+          "newVendors",
           "created",
           "linked",
           "updated",
-          "itemCostsRevised"
+          "itemCostsRevised",
+          "vendorsAdded"
         ]
       },
       "ApproveAppRequestInput": {
@@ -156650,6 +157329,10 @@
                 "unitPrice": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "packQuantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 }
               },
               "required": [
@@ -165354,6 +166037,10 @@
                 "unitPrice": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "packQuantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 }
               },
               "required": [
@@ -168779,6 +169466,51 @@
                   "required": [
                     "budget"
                   ]
+                },
+                "forecast": {
+                  "type": "object",
+                  "properties": {
+                    "closedActual": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "toCome": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "forecast": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "variance": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "percent": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "favourable": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "unbudgetedMonths": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "closedActual",
+                    "toCome",
+                    "forecast",
+                    "variance",
+                    "percent",
+                    "favourable",
+                    "unbudgetedMonths"
+                  ]
                 }
               },
               "required": [
@@ -168786,7 +169518,8 @@
                 "label",
                 "months",
                 "toDate",
-                "year"
+                "year",
+                "forecast"
               ]
             }
           },
@@ -168840,6 +169573,90 @@
               "entriesWithoutBranch",
               "withoutBranchDebits"
             ]
+          },
+          "jobType": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "entriesWithoutJob": {
+                "type": "integer"
+              },
+              "withoutJobDebits": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "entriesWithoutJob",
+              "withoutJobDebits"
+            ]
+          },
+          "forecast": {
+            "type": "object",
+            "properties": {
+              "chosen": {
+                "type": "string",
+                "enum": [
+                  "budget",
+                  "run_rate"
+                ]
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "budget",
+                  "run_rate"
+                ]
+              },
+              "closed": {
+                "type": "integer"
+              },
+              "fellBack": {
+                "type": "boolean"
+              },
+              "assumption": {
+                "type": "string"
+              },
+              "net": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "forecast": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  },
+                  "budget": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  }
+                },
+                "required": [
+                  "forecast",
+                  "budget"
+                ]
+              }
+            },
+            "required": [
+              "chosen",
+              "method",
+              "closed",
+              "fellBack",
+              "assumption",
+              "net"
+            ]
           }
         },
         "required": [
@@ -168848,7 +169665,9 @@
           "lines",
           "net",
           "caveat",
-          "branch"
+          "branch",
+          "jobType",
+          "forecast"
         ]
       },
       "GetCallOutput": {
@@ -170010,6 +170829,257 @@
           "decidedAt",
           "paidAt",
           "decisionNote"
+        ]
+      },
+      "GetCommissionSplitOutput": {
+        "type": "object",
+        "properties": {
+          "invoice": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "customerName": {
+                "type": "string"
+              },
+              "jobId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "jobNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "status",
+              "customerName",
+              "jobId",
+              "jobNumber"
+            ]
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          },
+          "others": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "technicianId",
+                "name"
+              ]
+            }
+          },
+          "planId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "planLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revenue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "total": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "explanation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "onJob": {
+                  "type": "boolean"
+                },
+                "proposedWeight": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "weight": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "amount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "explanation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "technicianId",
+                "name",
+                "onJob",
+                "proposedWeight",
+                "weight",
+                "amount",
+                "explanation"
+              ]
+            }
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "refusal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settled": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "eventId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "splitNote": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "technicianId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "weight": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "technicianId",
+                    "name",
+                    "weight",
+                    "amount"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "eventId",
+              "total",
+              "occurredAt",
+              "splitNote",
+              "parts"
+            ]
+          }
+        },
+        "required": [
+          "invoice",
+          "plans",
+          "others",
+          "planId",
+          "planLabel",
+          "revenue",
+          "total",
+          "explanation",
+          "people",
+          "changed",
+          "refusal",
+          "settled"
         ]
       },
       "GetCompanyDetailsOutput": {
@@ -180093,6 +181163,28 @@
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "overheadParts": {
+            "type": "object",
+            "properties": {
+              "perHour": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "perJob": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "revenueShare": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "perHour",
+              "perJob",
+              "revenueShare"
+            ]
+          },
           "fullyLoadedMargin": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -180510,6 +181602,7 @@
           "grossMarginPercent",
           "labourBurden",
           "overhead",
+          "overheadParts",
           "fullyLoadedMargin",
           "fullyLoadedMarginPercent",
           "scheduledHours",
@@ -195322,6 +196415,10 @@
           "businessUnitId": {
             "type": "string",
             "format": "uuid"
+          },
+          "jobTypeId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -202891,11 +203988,55 @@
                 "createdAt"
               ]
             }
+          },
+          "overheadNow": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "effectiveFrom": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "basis": {
+                      "type": "string",
+                      "enum": [
+                        "per_hour",
+                        "per_job",
+                        "percent_of_revenue"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "rate": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "basis",
+                    "label",
+                    "rate"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "effectiveFrom",
+              "parts"
+            ]
           }
         },
         "required": [
           "today",
-          "rates"
+          "rates",
+          "overheadNow"
         ]
       },
       "ListCreditNotesOutput": {
@@ -218107,6 +219248,145 @@
           "hasMore"
         ]
       },
+      "ListSharedCommissionsOutput": {
+        "type": "object",
+        "properties": {
+          "waiting": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "jobNumber": {
+                  "type": "string"
+                },
+                "revenue": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "issuedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "people": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "name"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "status",
+                "customerName",
+                "jobNumber",
+                "revenue",
+                "issuedAt",
+                "people"
+              ]
+            }
+          },
+          "settled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "splitNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "weight": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "name",
+                      "weight",
+                      "amount"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "total",
+                "occurredAt",
+                "splitNote",
+                "parts"
+              ]
+            }
+          }
+        },
+        "required": [
+          "waiting",
+          "settled"
+        ]
+      },
       "ListSpendOutput": {
         "type": "object",
         "properties": {
@@ -221028,6 +222308,107 @@
                     "null"
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "secondPack": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "packQuantity": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "purchaseUnit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "cost": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "priceBreaks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "minimum": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          },
+                          "cost": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          }
+                        },
+                        "required": [
+                          "minimum",
+                          "cost"
+                        ]
+                      }
+                    },
+                    "eachCost": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "packQuantity",
+                    "purchaseUnit",
+                    "cost",
+                    "priceBreaks",
+                    "eachCost"
+                  ]
+                },
+                "packs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "packQuantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "purchaseUnit": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "cost": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "eachCost": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "second": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "packQuantity",
+                      "purchaseUnit",
+                      "cost",
+                      "eachCost",
+                      "second"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -221044,7 +222425,9 @@
                 "packQuantity",
                 "purchaseUnit",
                 "priceBreaks",
-                "eachCost"
+                "eachCost",
+                "secondPack",
+                "packs"
               ]
             }
           }
@@ -229295,6 +230678,10 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "createVendors": {
+            "type": "boolean",
+            "default": false
           }
         },
         "required": [
@@ -229333,6 +230720,7 @@
                     "create",
                     "link",
                     "update",
+                    "pack",
                     "unchanged",
                     "skip"
                   ]
@@ -229344,14 +230732,43 @@
                   "type": "string"
                 },
                 "vendorId": {
-                  "type": "string",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "uuid"
                 },
                 "vendorName": {
                   "type": "string"
                 },
-                "itemId": {
+                "newVendor": {
+                  "type": "boolean"
+                },
+                "slot": {
                   "type": "string",
+                  "enum": [
+                    "first",
+                    "second"
+                  ]
+                },
+                "pairsWith": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "packBefore": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "itemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "uuid"
                 },
                 "itemCode": {
@@ -229472,12 +230889,31 @@
               "unchanged",
               "skip"
             ]
+          },
+          "newVendors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "line"
+              ]
+            }
           }
         },
         "required": [
           "problems",
           "rows",
-          "counts"
+          "counts",
+          "newVendors"
         ]
       },
       "ProposeVisitChangeTimeInput": {
@@ -237031,6 +238467,10 @@
         "type": "object",
         "properties": {
           "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobTypeId": {
             "type": "string",
             "format": "uuid"
           }
@@ -247721,6 +249161,40 @@
           "unusableCodes"
         ]
       },
+      "SetBudgetForecastMethodInput": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "budget",
+              "run_rate"
+            ]
+          }
+        },
+        "required": [
+          "method"
+        ]
+      },
+      "SetBudgetForecastMethodOutput": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "budget",
+              "run_rate"
+            ]
+          }
+        },
+        "required": [
+          "year",
+          "method"
+        ]
+      },
       "SetBudgetLineInput": {
         "type": "object",
         "properties": {
@@ -247740,6 +249214,10 @@
             }
           },
           "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobTypeId": {
             "type": "string",
             "format": "uuid"
           }
@@ -247767,13 +249245,21 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "jobTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
           "year",
           "line",
           "months",
-          "businessUnitId"
+          "businessUnitId",
+          "jobTypeId"
         ]
       },
       "SetBusinessHoursInput": {
@@ -250867,6 +252353,115 @@
           "progress"
         ]
       },
+      "SetOverheadMixInput": {
+        "type": "object",
+        "properties": {
+          "effectiveFrom": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "perHour": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "perJob": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "percentOfRevenue": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "effectiveFrom"
+        ]
+      },
+      "SetOverheadMixOutput": {
+        "type": "object",
+        "properties": {
+          "effectiveFrom": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "component": {
+                  "type": "string",
+                  "enum": [
+                    "payroll_taxes",
+                    "benefits",
+                    "workers_comp",
+                    "overhead"
+                  ]
+                },
+                "componentLabel": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "percent_of_wages",
+                    "per_hour",
+                    "per_job",
+                    "percent_of_revenue"
+                  ]
+                },
+                "basisLabel": {
+                  "type": "string"
+                },
+                "rate": {
+                  "type": "string"
+                },
+                "effectiveFrom": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "component",
+                "componentLabel",
+                "basis",
+                "basisLabel",
+                "rate",
+                "effectiveFrom",
+                "note",
+                "current",
+                "createdAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "effectiveFrom",
+          "rates"
+        ]
+      },
       "SetPayExtrasInput": {
         "type": "object",
         "properties": {
@@ -253927,6 +255522,59 @@
               ]
             },
             "maxItems": 10
+          },
+          "secondPack": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "packQuantity": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "purchaseUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 40
+              },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 20
+              },
+              "priceBreaks": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "minimum": {
+                      "type": "string",
+                      "maxLength": 20
+                    },
+                    "cost": {
+                      "type": "string",
+                      "maxLength": 20
+                    }
+                  },
+                  "required": [
+                    "minimum",
+                    "cost"
+                  ]
+                },
+                "maxItems": 10
+              }
+            },
+            "required": [
+              "packQuantity"
+            ]
           }
         },
         "required": [
@@ -254021,6 +255669,107 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "secondPack": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "packQuantity": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "purchaseUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "priceBreaks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "minimum": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "cost": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "minimum",
+                    "cost"
+                  ]
+                }
+              },
+              "eachCost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "packQuantity",
+              "purchaseUnit",
+              "cost",
+              "priceBreaks",
+              "eachCost"
+            ]
+          },
+          "packs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "packQuantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "purchaseUnit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "cost": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "eachCost": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "second": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "packQuantity",
+                "purchaseUnit",
+                "cost",
+                "eachCost",
+                "second"
+              ]
+            }
           }
         },
         "required": [
@@ -254037,7 +255786,9 @@
           "packQuantity",
           "purchaseUnit",
           "priceBreaks",
-          "eachCost"
+          "eachCost",
+          "secondPack",
+          "packs"
         ]
       },
       "SetVisitCustomFieldsInput": {
@@ -254407,6 +256158,82 @@
           "occurredAt",
           "ledgerTransactionId",
           "parts"
+        ]
+      },
+      "SettleCommissionSplitInput": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "planId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shares": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "weight": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                }
+              },
+              "required": [
+                "technicianId",
+                "weight"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "invoiceId",
+          "shares"
+        ]
+      },
+      "SettleCommissionSplitOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "splitNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "invoiceId",
+          "total",
+          "splitNote",
+          "replayed"
         ]
       },
       "SettleReferralRewardInput": {

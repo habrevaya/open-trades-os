@@ -1280,6 +1280,84 @@ export function splitCommission(
   }));
 }
 
+/* ------------------------------------------------- a split the office settles */
+
+/**
+ * THE SPLIT, AS THE OFFICE SETTLES IT
+ *
+ * A commission several people share is proposed evenly between the people on
+ * the job's visits, which is what `computeCommission` already does with equal
+ * weights, and the office can change the shares before it is settled. Within
+ * a rule, which is here so the API and the screen hold the same one:
+ *
+ *   A share is a weight, a decimal of at most six places: "2" and "1" is two
+ *   thirds and one third. A zero is somebody named and paid nothing.
+ *   Nobody appears twice, because two shares for one person still add up to
+ *   the whole and one person's half of it is wrong with nothing showing it.
+ *   At least one share is more than zero, or there is nothing to divide.
+ *
+ * The TOTAL is never the office's to change: it is the plan's, worked out by
+ * `computeCommission`, and the shares only divide it. A split that is not the
+ * proposal is recorded with the reason somebody gave, which is what the person
+ * paid less reads on their statement.
+ */
+export const SHARE_WEIGHT = /^\d+(\.\d{1,6})?$/;
+
+/** Equal shares for the people given, in their order: the split proposed before anybody changes it. */
+export function evenShares(personIds: readonly string[]): CommissionShare[] {
+  return personIds.map((personId) => ({ personId, weight: "1" }));
+}
+
+export type SharesCheck = { ok: true } | { ok: false; reason: string };
+
+/** Whether a split is one that can be settled, with the reason in words when it is not. */
+export function checkShares(shares: readonly CommissionShare[]): SharesCheck {
+  if (shares.length === 0) return { ok: false, reason: "Name at least one person to pay." };
+  const seen = new Set<string>();
+  for (const share of shares) {
+    if (seen.has(share.personId)) return { ok: false, reason: "The same technician appears twice in that split." };
+    seen.add(share.personId);
+    if (!SHARE_WEIGHT.test(share.weight)) {
+      return { ok: false, reason: `"${share.weight}" is not a share weight. Weights are positive decimals, such as "2" and "1".` };
+    }
+  }
+  if (shares.every((share) => weightOf(share.weight) === 0n)) {
+    return {
+      ok: false,
+      reason: "Every share in that split is zero, so there is nothing to divide. Leave the commission unsettled instead.",
+    };
+  }
+  return { ok: true };
+}
+
+/** A weight as millionths, exactly, so two splits can be compared without a float. */
+function weightOf(weight: string): bigint {
+  const [whole, fraction = ""] = weight.split(".");
+  return BigInt(whole ?? "0") * 1_000_000n + BigInt(fraction.padEnd(6, "0") || "0");
+}
+
+/**
+ * Whether two splits divide a commission the same way: the same people paid
+ * something, each the same fraction of the whole. "2 and 2" is "1 and 1"; a
+ * person at zero is a person not paid, so naming them or leaving them out is
+ * the same split.
+ */
+export function sameSplit(a: readonly CommissionShare[], b: readonly CommissionShare[]): boolean {
+  const paid = (shares: readonly CommissionShare[]) => new Map(shares
+    .map((s) => [s.personId, weightOf(s.weight)] as const)
+    .filter(([, w]) => w > 0n));
+  const left = paid(a);
+  const right = paid(b);
+  if (left.size !== right.size || left.size === 0) return false;
+  const sumLeft = [...left.values()].reduce((x, y) => x + y, 0n);
+  const sumRight = [...right.values()].reduce((x, y) => x + y, 0n);
+  for (const [person, weight] of left) {
+    const other = right.get(person);
+    if (other === undefined || weight * sumRight !== other * sumLeft) return false;
+  }
+  return true;
+}
+
 /* ------------------------------------------------------------- clawback */
 
 export type CreditReason = "refund" | "credit_note" | "write_off" | "callback";

@@ -177,7 +177,53 @@ export function Advance({ id, status }: { id: string; status: string }) {
   );
 }
 
-export interface VendorPart { vendorId: string; partNumber: string; itemCode: string; itemName: string | null; cost: string | null }
+export interface VendorPart {
+  vendorId: string; partNumber: string; itemCode: string; itemName: string | null; cost: string | null;
+  /** Every way the vendor sells it, cheaper per one of ours first. */
+  packs: { packQuantity: string; purchaseUnit: string | null; eachCost: string | null }[];
+}
+
+/** One way to buy a part in words: "by the box of 25, 0.40 each". */
+const packWords = (p: VendorPart["packs"][number]) =>
+  `${Number(p.packQuantity) === 1 && !p.purchaseUnit ? "by the each" : `by the ${p.purchaseUnit ?? "pack"} of ${Number(p.packQuantity)}`}`
+  + (p.eachCost ? `, ${Number(p.eachCost).toFixed(2)} each` : "");
+
+/**
+ * One line of an order by part number. When the vendor sells the part two
+ * ways, "Buy it" offers them cheaper per one of ours first, and left on its
+ * first choice the order takes the cheaper way this many is whole packs of.
+ */
+function PartRow({ row, known }: { row: number; known: VendorPart[] }) {
+  const [typed, setTyped] = useState("");
+  const part = known.find((p) => p.partNumber.toLowerCase() === typed.trim().toLowerCase());
+  const twoWays = (part?.packs.length ?? 0) > 1;
+  return (
+    <tr>
+      <td className="pr-3 pt-2">
+        <input name="partNumber" list="vendor-parts" aria-label={`Part, line ${row + 1}`} value={typed}
+               onChange={(event) => setTyped(event.target.value)}
+               className="h-9 w-64 rounded border border-steel-300 px-2 font-mono text-sm" />
+      </td>
+      <td className="pr-3 pt-2">
+        <input name="partQuantity" inputMode="decimal" aria-label={`Quantity, line ${row + 1}`}
+               className="h-9 w-20 rounded border border-steel-300 px-2 text-right text-sm" />
+      </td>
+      <td className="pr-3 pt-2">
+        <input name="partPrice" inputMode="decimal" aria-label={`Price, line ${row + 1}`}
+               className="h-9 w-24 rounded border border-steel-300 px-2 text-right text-sm" />
+      </td>
+      <td className="pt-2">
+        {twoWays ? (
+          <select name="partPack" aria-label={`Buy it, line ${row + 1}`} defaultValue=""
+                  className="h-9 w-72 rounded border border-steel-300 px-2 text-sm">
+            <option value="">The cheaper way that fits ({packWords(part!.packs[0]!)})</option>
+            {part!.packs.map((p) => <option key={p.packQuantity} value={p.packQuantity}>{packWords(p)}</option>)}
+          </select>
+        ) : <input type="hidden" name="partPack" value="" />}
+      </td>
+    </tr>
+  );
+}
 
 const ROWS = [0, 1, 2, 3, 4, 5];
 
@@ -221,7 +267,9 @@ export function PartOrder({ vendors, locations, parts }: {
       </div>
       <datalist id="vendor-parts">
         {known.map((p) => (
-          <option key={p.partNumber} value={p.partNumber}>{`${p.itemCode} ${p.itemName ?? ""}${p.cost ? `, ${Number(p.cost).toFixed(2)}` : ""}`}</option>
+          <option key={p.partNumber} value={p.partNumber}>
+            {`${p.itemCode} ${p.itemName ?? ""}${p.packs.length > 1 ? `, ${p.packs.map(packWords).join(" or ")}` : p.cost ? `, ${Number(p.cost).toFixed(2)}` : ""}`}
+          </option>
         ))}
       </datalist>
       <table className="text-sm">
@@ -229,26 +277,12 @@ export function PartOrder({ vendors, locations, parts }: {
           <tr className="text-left">
             <th className="pr-3 font-medium text-ink-700">Their part number, or our code</th>
             <th className="pr-3 font-medium text-ink-700">Quantity</th>
-            <th className="font-medium text-ink-700">Price (empty for theirs)</th>
+            <th className="pr-3 font-medium text-ink-700">Price (empty for theirs)</th>
+            <th className="font-medium text-ink-700">Buy it</th>
           </tr>
         </thead>
         <tbody>
-          {ROWS.map((row) => (
-            <tr key={row}>
-              <td className="pr-3 pt-2">
-                <input name="partNumber" list="vendor-parts" aria-label={`Part, line ${row + 1}`}
-                       className="h-9 w-64 rounded border border-steel-300 px-2 font-mono text-sm" />
-              </td>
-              <td className="pr-3 pt-2">
-                <input name="partQuantity" inputMode="decimal" aria-label={`Quantity, line ${row + 1}`}
-                       className="h-9 w-20 rounded border border-steel-300 px-2 text-right text-sm" />
-              </td>
-              <td className="pt-2">
-                <input name="partPrice" inputMode="decimal" aria-label={`Price, line ${row + 1}`}
-                       className="h-9 w-24 rounded border border-steel-300 px-2 text-right text-sm" />
-              </td>
-            </tr>
-          ))}
+          {ROWS.map((row) => <PartRow key={row} row={row} known={known} />)}
         </tbody>
       </table>
       <button type="submit" disabled={pending}

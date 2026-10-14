@@ -4,6 +4,7 @@ import { pk, money, currency } from "./_shared";
 import { organization, user, businessUnit } from "./tenancy";
 import { customer } from "./crm";
 import { estimate, invoice, payment } from "./billing";
+import { jobType } from "./work";
 import { integrationConnection } from "./integrations";
 
 /**
@@ -103,6 +104,10 @@ export const costingBasis = pgEnum("costing_basis", [
  * A history rather than a setting: the rate in effect for a component on a
  * day is the latest row on or before it, so raising workers' compensation in
  * July does not reprice March. A zero switches a component off from a date.
+ *
+ * Overhead can be a mix: several rows on one day, one per basis, are the
+ * parts charged from that day (see `costing.overheadMixOn` in core). A burden
+ * component has one rate a day, which the service holds to.
  */
 export const costingRate = pgTable("costing_rate", {
   id: pk(),
@@ -117,11 +122,18 @@ export const costingRate = pgTable("costing_rate", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  /** One rate per component per day, or "which rate applied on the 1st" has two answers. */
-  dayIdx: uniqueIndex("costing_rate_day_idx").on(t.organizationId, t.component, t.effectiveFrom),
+  /**
+   * One rate per component and basis per day, or "which rate applied on the
+   * 1st" has two answers. The basis is in it for overhead's mix; that a burden
+   * has one basis a day is checked by the service, in words.
+   */
+  partDayIdx: uniqueIndex("costing_rate_part_day_idx").on(t.organizationId, t.component, t.basis, t.effectiveFrom),
 }));
 
 /* -------------------------------------------------------------- budget */
+
+/** Mirrors `budget.FORECAST_METHODS` in core, which says what each does. */
+export const budgetForecastMethod = pgEnum("budget_forecast_method", ["budget", "run_rate"]);
 
 /** A company's budget for one calendar year. */
 export const budget = pgTable("budget", {
@@ -129,6 +141,13 @@ export const budget = pgTable("budget", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   year: integer("year").notNull(),
   note: text("note"),
+  /**
+   * How the year end forecast takes the months still to come: at their
+   * budget, the default, or at the run rate of the months already over. One
+   * choice for the year, so everybody reading the report reads the same
+   * forecast, and it applies to a branch's and a job type's report too.
+   */
+  forecastMethod: budgetForecastMethod("forecast_method").notNull().default("budget"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -157,6 +176,13 @@ export const budgetLine = pgTable("budget_line", {
    * company's, and nothing old is moved.
    */
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
+  /**
+   * The job type this figure is for, or null. A line is the company's, one
+   * branch's or one job type's, never a branch's and a job type's at once,
+   * for the reason the branch's are kept apart from the company's: each is its
+   * own statement, and nothing adds them together.
+   */
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "cascade" }),
   line: text("line").notNull(),
   month: integer("month").notNull(),
   amount: money("amount").notNull(),
@@ -165,11 +191,16 @@ export const budgetLine = pgTable("budget_line", {
 }, (t) => ({
   /** One figure per line per month for the whole company... */
   cellIdx: uniqueIndex("budget_line_cell_idx").on(t.budgetId, t.line, t.month)
-    .where(sql`${t.businessUnitId} is null`),
-  /** ...and one per line per month for each branch. Two indexes, because a null branch is not equal to itself. */
+    .where(sql`${t.businessUnitId} is null and ${t.jobTypeId} is null`),
+  /** ...one per line per month for each branch. Separate indexes, because a null branch is not equal to itself... */
   branchCellIdx: uniqueIndex("budget_line_branch_cell_idx").on(t.budgetId, t.businessUnitId, t.line, t.month)
     .where(sql`${t.businessUnitId} is not null`),
+  /** ...and one per line per month for each job type. */
+  jobTypeCellIdx: uniqueIndex("budget_line_job_type_cell_idx").on(t.budgetId, t.jobTypeId, t.line, t.month)
+    .where(sql`${t.jobTypeId} is not null`),
   monthCheck: check("budget_line_month", sql`${t.month} between 1 and 12`),
+  /** A branch's line or a job type's, not both. */
+  oneScopeCheck: check("budget_line_one_scope", sql`${t.businessUnitId} is null or ${t.jobTypeId} is null`),
 }));
 
 /* ------------------------------------------------------------ journals */

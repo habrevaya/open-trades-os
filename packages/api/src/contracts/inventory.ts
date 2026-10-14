@@ -463,6 +463,8 @@ export const createPurchaseOrder = defineRoute({
       quantity: QuantityString,
       /** What the vendor charges for one. Their price on record when left out; refused when there is none. */
       unitPrice: MoneyString.optional(),
+      /** Which way to buy it when the vendor sells it two ways: how many of ours in one of theirs. Left out, the cheaper per unit that fits. */
+      packQuantity: QuantityString.optional(),
     }).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
       message: "Name the part: our item, or the vendor's part number",
     })).min(1),
@@ -480,6 +482,8 @@ const OrderLineInput = z.object({
   quantity: QuantityString,
   /** What the vendor charges for one of ours. Their price on record, at the break reached, when left out. */
   unitPrice: MoneyString.optional(),
+  /** Which way to buy it when the vendor sells it two ways: how many of ours in one of theirs. Left out, the cheaper per unit that fits. */
+  packQuantity: QuantityString.optional(),
 }).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
   message: "Name the part: our item, or the vendor's part number",
 });
@@ -650,6 +654,16 @@ export const VendorItem = z.object({
   priceBreaks: z.array(z.object({ minimum: QuantityString, cost: MoneyString })),
   /** What one of OUR units comes to at their base price: the cost over the pack. */
   eachCost: MoneyString.nullable(),
+  /** The second way they sell it, by the box as well as the each, or null for a part sold one way. */
+  secondPack: z.object({
+    packQuantity: QuantityString, purchaseUnit: z.string().nullable(), cost: MoneyString.nullable(),
+    priceBreaks: z.array(z.object({ minimum: QuantityString, cost: MoneyString })), eachCost: MoneyString.nullable(),
+  }).nullable(),
+  /** Every way to buy it, cheaper per one of ours first: the order a purchase order offers them in. */
+  packs: z.array(z.object({
+    packQuantity: QuantityString, purchaseUnit: z.string().nullable(), cost: MoneyString.nullable(),
+    eachCost: MoneyString.nullable(), second: z.boolean(),
+  })),
 });
 
 export const listVendorItems = defineRoute({
@@ -667,7 +681,7 @@ export const setVendorItem = defineRoute({
   method: "put",
   path: "/v1/vendor-items",
   summary: "Say what a vendor calls one of our items, and what they charge",
-  description: "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record.",
+  description: "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks: replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.",
   module: "M16",
   permissions: ["vendor:write"],
   idempotent: true,
@@ -682,6 +696,12 @@ export const setVendorItem = defineRoute({
     purchaseUnit: z.string().max(40).nullable().optional(),
     /** Replaces their break table whole. Each minimum is in their units. */
     priceBreaks: z.array(z.object({ minimum: z.string().max(20), cost: z.string().max(20) })).max(10).nullable().optional(),
+    secondPack: z.object({
+      packQuantity: z.string().max(20),
+      purchaseUnit: z.string().max(40).nullable().optional(),
+      cost: z.string().max(20).nullable().optional(),
+      priceBreaks: z.array(z.object({ minimum: z.string().max(20), cost: z.string().max(20) })).max(10).nullable().optional(),
+    }).nullable().optional(),
   }),
   output: VendorItem,
 });
@@ -711,15 +731,26 @@ const CatalogueOptions = {
   updateItemCost: z.boolean().default(false),
   /** The category new items are put in. */
   categoryId: Uuid.nullable().optional(),
+  /** Whether a vendor the file names that is not set up yet is added. Off unless asked: otherwise its rows are skipped. */
+  createVendors: z.boolean().default(false),
 };
 
 const CatalogueRow = z.object({
-  action: z.enum(["create", "link", "update", "unchanged", "skip"]),
+  action: z.enum(["create", "link", "update", "pack", "unchanged", "skip"]),
   line: z.number().int(),
   sku: z.string(),
-  vendorId: Uuid.optional(),
+  /** Null for a vendor this import adds, named by `vendorName`. */
+  vendorId: Uuid.nullable().optional(),
   vendorName: z.string().optional(),
-  itemId: Uuid.optional(),
+  /** The vendor is not set up yet, and applying the file adds it. */
+  newVendor: z.boolean().optional(),
+  /** Which of the link's two ways to buy the part the row states. */
+  slot: z.enum(["first", "second"]).optional(),
+  /** For a second way to buy it: the line of this file that makes or states its link, or null for a link that already holds it. */
+  pairsWith: z.number().int().nullable().optional(),
+  /** For a second way to buy it: the pack it had before, or null when it is new. */
+  packBefore: QuantityString.nullable().optional(),
+  itemId: Uuid.nullable().optional(),
   itemCode: z.string().optional(),
   itemName: z.string().optional(),
   /** For a new item: its code, name and the price the margin gives it. */
@@ -750,10 +781,13 @@ const CatalogueResult = z.object({
   /** Lines the file could not be read at, with why. */
   problems: z.array(z.object({ line: z.number().int(), message: z.string() })),
   rows: z.array(CatalogueRow),
+  /** A second way to buy a part is a change to a link, and counted with the updates. */
   counts: z.object({
     create: z.number().int(), link: z.number().int(), update: z.number().int(),
     unchanged: z.number().int(), skip: z.number().int(),
   }),
+  /** The vendors applying the file adds, by the name the file gives, with the first line that names each. */
+  newVendors: z.array(z.object({ name: z.string(), line: z.number().int() })),
 });
 
 export const previewVendorCatalogue = defineRoute({
@@ -761,7 +795,7 @@ export const previewVendorCatalogue = defineRoute({
   path: "/v1/vendor-catalogue/preview",
   summary: "What a supplier's catalogue file would do, with nothing written",
   description:
-    "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor, a cost that is not an amount, a part number twice, a new part with no margin to price it. A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.",
+    "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.",
   module: "M16",
   permissions: ["vendor:write", "pricebook:write"],
   idempotent: true,
@@ -789,6 +823,8 @@ export const applyVendorCatalogue = defineRoute({
     linked: z.number().int(),
     updated: z.number().int(),
     itemCostsRevised: z.number().int(),
+    /** Vendors added because the file named them and `createVendors` was asked for. */
+    vendorsAdded: z.number().int(),
   }),
 });
 

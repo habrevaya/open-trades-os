@@ -78,6 +78,7 @@ export default async function PurchasingPage() {
         locations={locations.map((l) => ({ id: l.id, name: l.name }))}
         parts={parts.map((p) => ({
           vendorId: p.vendorId, partNumber: p.partNumber, itemCode: p.itemCode, itemName: p.itemName, cost: p.cost,
+          packs: p.packs.map((x) => ({ packQuantity: x.packQuantity, purchaseUnit: x.purchaseUnit, eachCost: x.eachCost })),
         }))}
       />
 

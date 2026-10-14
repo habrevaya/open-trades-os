@@ -48,7 +48,8 @@ export const CAVEATS = {
   overhead:
     "Gross margin. No overhead is allocated in it: not the truck, the dispatcher, the building, or the employer's payroll taxes and workers' compensation. "
     + "Where a fully loaded margin is shown beside it, on a job and on the job costing reports, it takes off labour burden and overhead at the rates your company set under Settings, Costing, each at the rate in effect on the day; with none set the two are equal. "
-    + "An allocation is a choice, not a measurement: overhead by revenue leaves every job's margin percentage where it was, and overhead by the hour charges a job that ran long twice for the same overrun.",
+    + "Overhead can be a mix, part per paid hour, part per job and part as a share of revenue, and each part is shown on its own. "
+    + "An allocation is a choice, not a measurement: overhead by revenue leaves every job's margin percentage where it was, overhead by the hour charges a job that ran long twice for the same overrun, and overhead per job charges a quick call as much as an install.",
   overtime:
     "Labour is hours at the loaded rate frozen onto each punch, which is base plus fringe. "
     + "The overtime premium is NOT included, because overtime is a property of a person's week rather than of a job: "
@@ -140,6 +141,8 @@ export interface JobProfitability {
   labourBurden: string;
   /** Overhead at the company's rate for the job's day. Zero with none set. */
   overhead: string;
+  /** The overhead, part by part: per paid hour, per job and as a share of revenue. They add up to `overhead`. */
+  overheadParts: { perHour: string; perJob: string; revenueShare: string };
   /** Gross margin less burden and overhead. Equal to gross margin until rates are set. */
   fullyLoadedMargin: string;
   fullyLoadedMarginPercent: number | null;
@@ -209,6 +212,9 @@ type StatementRow = {
   gross_margin: string;
   labour_burden: string;
   overhead: string;
+  overhead_per_hour: string;
+  overhead_per_job: string;
+  overhead_revenue_share: string;
   fully_loaded_margin: string;
   unbilled_cost: string;
   scheduled_hours: string;
@@ -260,6 +266,9 @@ export async function statement(
         ${money(GROSS_MARGIN_SQL, "gross_margin")},
         ${money(JOB_COSTING_SQL.labourBurden, "labour_burden")},
         ${money(JOB_COSTING_SQL.overhead, "overhead")},
+        ${money(JOB_COSTING_SQL.overheadPerHour, "overhead_per_hour")},
+        ${money(JOB_COSTING_SQL.overheadPerJob, "overhead_per_job")},
+        ${money(JOB_COSTING_SQL.overheadRevenueShare, "overhead_revenue_share")},
         ${money(FULLY_LOADED_MARGIN_SQL, "fully_loaded_margin")},
         ${money(JOB_COSTING_SQL.unbilledCost, "unbilled_cost")},
         ${hours(JOB_COSTING_SQL.scheduledHours, "scheduled_hours")},
@@ -496,6 +505,9 @@ export async function statement(
         : Math.round((Number(row.gross_margin) / revenue) * 1000) / 10,
       labourBurden: row.labour_burden,
       overhead: row.overhead,
+      overheadParts: {
+        perHour: row.overhead_per_hour, perJob: row.overhead_per_job, revenueShare: row.overhead_revenue_share,
+      },
       fullyLoadedMargin: row.fully_loaded_margin,
       fullyLoadedMarginPercent: revenue === 0
         ? null
@@ -590,8 +602,8 @@ export async function summary(
     dimensions: [input.by],
     measures: [
       "revenue", "material_cost", "labour_cost", "processing_fees", "gross_margin",
-      "labour_burden", "overhead", "fully_loaded_margin",
-      "scheduled_hours", "actual_hours", "hours_over", "count",
+      "labour_burden", "overhead", "overhead_per_hour", "overhead_per_job", "overhead_revenue_share",
+      "fully_loaded_margin", "scheduled_hours", "actual_hours", "hours_over", "count",
     ],
     ...(input.includeInProgress
       ? {}

@@ -121,8 +121,20 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
           cost: field(form, "vendorCost") ?? null, description: field(form, "vendorDescription") ?? null,
           ...(field(form, "packQuantity") ? { packQuantity: field(form, "packQuantity") } : {}),
           ...(field(form, "purchaseUnit") ? { purchaseUnit: field(form, "purchaseUnit") } : {}),
+          ...(field(form, "secondPackQuantity") ? {
+            secondPack: {
+              packQuantity: field(form, "secondPackQuantity"),
+              purchaseUnit: field(form, "secondPurchaseUnit") ?? null,
+              cost: field(form, "secondCost") ?? null,
+            },
+          } : {}),
         }));
         return { message: "Saved. Purchase orders to this vendor will carry their number." };
+      case "nosecond":
+        await vendorCatalogue.setLink(ctx, parsed(setVendorItem.input, {
+          itemId: id, vendorId: field(form, "vendorId"), partNumber: field(form, "partNumber"), secondPack: null,
+        }));
+        return { message: "Orders to this vendor now buy it one way." };
       case "unvendor":
         await vendorCatalogue.removeLink(ctx, { id: field(form, "linkId") ?? "" });
         return undefined;

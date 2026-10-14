@@ -64,7 +64,7 @@ type Refused =
 
 const REFUSED: Record<string, Refused> = {
   /** A second burden or overhead rate for one component on one day: "which rate applied" would have two answers. */
-  costing_rate_day_idx: { file: "costing.ts", how: "check", says: "already has a rate from" },
+  costing_rate_part_day_idx: { file: "costing.ts", how: "check", says: "already has a rate from" },
   /** A journal reversed twice, which would take the same money back twice. */
   journal_entry_reverses_idx: { file: "journals.ts", how: "check", says: "was already reversed by journal" },
   /** A second sales tax rate in use under one name: two rows on a filing report that mean the same thing. */
@@ -180,6 +180,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   budget_year_idx: "Made on the first write to a year with on conflict do nothing, so a second write finds it rather than colliding.",
   budget_line_cell_idx: "Written with on conflict do update: setting a month again replaces the figure, which is what the screen means.",
   budget_line_branch_cell_idx: "A branch's month, written with on conflict do update like the company's: setting it again replaces the figure.",
+  budget_line_job_type_cell_idx: "A job type's month, written with on conflict do update like the company's: setting it again replaces the figure.",
   /* --- numbers and sequences this product generates --- */
   invoice_number_idx: "The invoice number is allocated by the numbering service under a lock.",
   estimate_number_idx: "Allocated by the numbering service.",

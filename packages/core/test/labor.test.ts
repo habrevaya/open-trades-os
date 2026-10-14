@@ -1253,3 +1253,42 @@ describe("changing a wage scale from a date", () => {
     expect(labor.scaleRevision({ effectiveFrom: null, effectiveTo: null }, "next month").ok).toBe(false);
   });
 });
+
+describe("a split the office settles", () => {
+  it("is proposed evenly between the people on the job", () => {
+    expect(labor.evenShares(["a", "b", "c"])).toEqual([
+      { personId: "a", weight: "1" }, { personId: "b", weight: "1" }, { personId: "c", weight: "1" },
+    ]);
+  });
+
+  it("is refused with the reason when it breaks the rule", () => {
+    expect(labor.checkShares([])).toMatchObject({ ok: false });
+    expect(labor.checkShares([{ personId: "a", weight: "1" }, { personId: "a", weight: "2" }]))
+      .toEqual({ ok: false, reason: "The same technician appears twice in that split." });
+    expect(labor.checkShares([{ personId: "a", weight: "-1" }])).toMatchObject({ ok: false });
+    expect(labor.checkShares([{ personId: "a", weight: "1.1234567" }])).toMatchObject({ ok: false });
+    expect(labor.checkShares([{ personId: "a", weight: "0" }, { personId: "b", weight: "0.000" }]))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("Every share in that split is zero") });
+    expect(labor.checkShares([{ personId: "a", weight: "2.5" }, { personId: "b", weight: "0" }])).toEqual({ ok: true });
+  });
+
+  it("is the same split when each person has the same fraction, whatever the weights are written as", () => {
+    const even = labor.evenShares(["a", "b"]);
+    expect(labor.sameSplit(even, [{ personId: "b", weight: "2" }, { personId: "a", weight: "2.000000" }])).toBe(true);
+    expect(labor.sameSplit(even, [{ personId: "a", weight: "2" }, { personId: "b", weight: "1" }])).toBe(false);
+    // Somebody at zero is somebody not paid, so naming them changes nothing...
+    expect(labor.sameSplit([{ personId: "a", weight: "1" }], [{ personId: "a", weight: "3" }, { personId: "b", weight: "0" }])).toBe(true);
+    // ...and leaving somebody out of an even split is a different split.
+    expect(labor.sameSplit(even, [{ personId: "a", weight: "1" }])).toBe(false);
+    expect(labor.sameSplit(even, [{ personId: "a", weight: "1" }, { personId: "c", weight: "1" }])).toBe(false);
+    // A third each, written two ways, without a float anywhere.
+    expect(labor.sameSplit(labor.evenShares(["a", "b", "c"]),
+      [{ personId: "a", weight: "0.5" }, { personId: "b", weight: "0.5" }, { personId: "c", weight: "0.5" }])).toBe(true);
+  });
+
+  it("divides the plan's total, which the shares cannot change, and adds back to it exactly", () => {
+    const parts = labor.splitCommission(money("100.00", "USD"), [{ personId: "a", weight: "2" }, { personId: "b", weight: "1" }]);
+    expect(parts.map((p) => m(p.amount))).toEqual(["66.6700", "33.3300"]);
+    expect(m(sum(parts.map((p) => p.amount), "USD"))).toBe("100.0000");
+  });
+});
