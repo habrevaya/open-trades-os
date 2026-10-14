@@ -7722,6 +7722,10 @@ export interface GetEquipmentOutput {
     soonestExpiry: string | null;
     daysUntilSoonest: number | null;
   };
+  externalRef: {
+    source: string;
+    id: string;
+  } | null;
   moves: Array<{
     id: string;
     reason: "relocated" | "swapped_under_warranty" | "replaced" | "removed" | "returned";
@@ -11668,6 +11672,10 @@ export interface GetWarrantyWatchOutput {
       soonestExpiry: string | null;
       daysUntilSoonest: number | null;
     };
+    externalRef: {
+      source: string;
+      id: string;
+    } | null;
     address: string;
     customer: {
       id: string;
@@ -13905,6 +13913,10 @@ export interface ListEquipmentOutput {
       soonestExpiry: string | null;
       daysUntilSoonest: number | null;
     };
+    externalRef: {
+      source: string;
+      id: string;
+    } | null;
     depth: number;
   }>;
 }
@@ -29286,8 +29298,10 @@ export interface ListEmailSuppressionsInput {
 }
 
 export interface ListEquipmentInput {
-  propertyId: string;
+  propertyId?: string;
   on?: string;
+  externalSource?: string;
+  externalId?: string;
 }
 
 export interface ListEquipmentSerialMatchesInput {
@@ -32862,7 +32876,7 @@ export const OPERATIONS = {
   listDueRequests: { method: "GET", path: "/v1/reviews/requests/due", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listEmailSuppressions: { method: "GET", path: "/v1/email/suppressions", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
-  listEquipment: { method: "GET", path: "/v1/equipment", pathParams: [], queryParams: ["propertyId","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
+  listEquipment: { method: "GET", path: "/v1/equipment", pathParams: [], queryParams: ["propertyId","on","externalSource","externalId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
@@ -38103,11 +38117,11 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The equipment at one address.
+   * The equipment at one address, or the units brought in from another system.
    *
    * GET /v1/equipment. Needs equipment:read.
    */
-  listEquipment(input: ListEquipmentInput, options?: CallOptions): Promise<ListEquipmentOutput> {
+  listEquipment(input: ListEquipmentInput = {} as ListEquipmentInput, options?: CallOptions): Promise<ListEquipmentOutput> {
     return this.call("listEquipment", input, options);
   }
 

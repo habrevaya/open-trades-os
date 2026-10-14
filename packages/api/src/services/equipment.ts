@@ -2,9 +2,9 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { field, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext, type ExternalRef, scopeOf,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, UnprocessableError, timezoneOf, type ServiceContext, type ExternalRef, scopeOf,
 } from "./context";
-import { assertUnclaimed, provenance } from "./provenance";
+import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { enforceWithin } from "./custom-fields";
 import { propertyVisibility } from "./scope";
 import { textFilter } from "./text-search";
@@ -551,6 +551,40 @@ export async function atProperty(
   });
 }
 
+/**
+ * THE UNITS ANOTHER SYSTEM'S RECORDS BECAME, wherever they are now.
+ *
+ * What a migration asks before it loads a unit, and afterwards to map its own
+ * ids to these: `externalSource` alone is everything from that system, both
+ * is one unit, and an address beside them narrows to it. Across addresses, so narrowed by the work the caller can see
+ * the way the search box narrows units (`propertyVisibility`), and retired
+ * units included, because a unit loaded and since retired is still the one
+ * that record became, and leaving it out would have a second run load it
+ * again and be refused.
+ */
+export async function fromElsewhere(
+  ctx: ServiceContext,
+  input: {
+    externalSource?: string | undefined; externalId?: string | undefined;
+    /** Only the units at this address, when one is named as well. */
+    propertyId?: string | undefined; on?: string | undefined;
+  },
+) {
+  return guardedRead(ctx, "equipment:read", async (tx) => {
+    const today = input.on ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+    const rows = await tx.select().from(schema.equipment)
+      .where(and(
+        eq(schema.equipment.organizationId, ctx.actor.organizationId),
+        byExternal(schema.equipment, input),
+        input.propertyId !== undefined ? eq(schema.equipment.propertyId, input.propertyId) : undefined,
+        propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.equipment.propertyId}`),
+      ))
+      .orderBy(asc(schema.equipment.sourceId), asc(schema.equipment.id))
+      .limit(1000);
+    return rows.map((row) => ({ ...shape(row, today), depth: 0 }));
+  });
+}
+
 export interface EquipmentView extends ReturnType<typeof shape> {
   children?: EquipmentView[];
 }
@@ -952,6 +986,7 @@ function shape(row: typeof schema.equipment.$inferSelect, today: string) {
     retired: row.deletedAt !== null,
     /** Whole years, floor. Nobody says a furnace is eleven and a half. */
     ageYears: row.installedOn ? yearsBetween(row.installedOn, today) : null,
+    externalRef: row.sourceSystem && row.sourceId ? { source: row.sourceSystem, id: row.sourceId } : null,
     warranty: {
       partsExpiresOn: parts,
       labourExpiresOn: labour,
@@ -1003,12 +1038,32 @@ export const handlers = {
    * unit caught in a cycle at the top rather than dropping it, has already
    * happened by the time this runs.
    */
-  listEquipment: async (ctx: ServiceContext, input: { propertyId: string; on?: string | undefined }) => ({
-    equipment: flatten(await atProperty(ctx, {
-      propertyId: input.propertyId,
-      ...(input.on ? { on: input.on } : {}),
-    })),
-  }),
+  listEquipment: async (
+    ctx: ServiceContext,
+    input: {
+      propertyId?: string | undefined; on?: string | undefined;
+      externalSource?: string | undefined; externalId?: string | undefined;
+    },
+  ) => {
+    const on = input.on ? { on: input.on } : {};
+    if (input.externalSource !== undefined || input.externalId !== undefined) {
+      return {
+        equipment: await fromElsewhere(ctx, {
+          externalSource: input.externalSource, externalId: input.externalId, propertyId: input.propertyId, ...on,
+        }),
+      };
+    }
+    if (input.propertyId === undefined) {
+      /** Asked behind the guard, so a caller without the permission is told that first. */
+      return guardedRead(ctx, "equipment:read", async () => {
+        throw new UnprocessableError("Say which units", [{
+          path: "propertyId",
+          message: "Send propertyId for the units at an address, or externalSource and externalId for units brought in from another system.",
+        }]);
+      });
+    }
+    return { equipment: flatten(await atProperty(ctx, { propertyId: input.propertyId, ...on })) };
+  },
 
   getEquipment: (ctx: ServiceContext, input: { id: string; on?: string | undefined }) =>
     get(ctx, { id: input.id, ...(input.on ? { on: input.on } : {}) }),

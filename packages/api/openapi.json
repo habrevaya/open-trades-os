@@ -46315,8 +46315,8 @@
       ],
       "get": {
         "operationId": "listEquipment",
-        "summary": "The equipment at one address",
-        "description": "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now.\n\nRequires a session holding: equipment:read.",
+        "summary": "The equipment at one address, or the units brought in from another system",
+        "description": "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address. One of `propertyId`, `externalSource` or `externalId` is needed.\n\nRequires a session holding: equipment:read.",
         "tags": [
           "M04"
         ],
@@ -46324,7 +46324,7 @@
           {
             "name": "propertyId",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -46338,11 +46338,29 @@
               "type": "string",
               "format": "date"
             }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "The equipment at one address",
+            "description": "The equipment at one address, or the units brought in from another system",
             "content": {
               "application/json": {
                 "schema": {
@@ -178000,6 +178018,27 @@
               "daysUntilSoonest"
             ]
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "moves": {
             "type": "array",
             "items": {
@@ -178146,6 +178185,7 @@
           "retired",
           "ageYears",
           "warranty",
+          "externalRef",
           "moves",
           "address",
           "customer",
@@ -199275,6 +199315,27 @@
                     "daysUntilSoonest"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "address": {
                   "type": "string"
                 },
@@ -199315,6 +199376,7 @@
                 "retired",
                 "ageYears",
                 "warranty",
+                "externalRef",
                 "address",
                 "customer"
               ]
@@ -210957,6 +211019,27 @@
                     "daysUntilSoonest"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "depth": {
                   "type": "integer",
                   "minimum": 0
@@ -210979,6 +211062,7 @@
                 "retired",
                 "ageYears",
                 "warranty",
+                "externalRef",
                 "depth"
               ]
             }

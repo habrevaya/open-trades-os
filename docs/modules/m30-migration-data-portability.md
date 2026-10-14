@@ -166,8 +166,11 @@ names. `GET /v1/job-types` gives job type ids.
 
 Every list route for an importable record takes `externalSource` and
 `externalId`: `/v1/customers`, `/v1/properties`, `/v1/pricebook/items`,
-`/v1/jobs`, `/v1/estimates`, `/v1/invoices`, `/v1/payments`. Visits come back
-with their `externalRef` on `GET /v1/jobs/{id}`.
+`/v1/jobs`, `/v1/estimates`, `/v1/invoices`, `/v1/payments`, and
+`/v1/equipment`, which with either of them needs no address and finds the
+units across every address, retired ones included. Visits come back with
+their `externalRef` on `GET /v1/jobs/{id}`, units on every read of the
+register, and a customer's notes on `GET /v1/customers/{id}/notes`.
 
 ### Attach photographs and documents
 
@@ -668,9 +671,7 @@ own events would start, and nothing else: webhooks still receive those events,
 each naming the file, and an automation on a clock or on a record waiting (an unpaid invoice
 past due, M29) can still reach a record brought in, because it starts from the
 record rather than from the file's event. Through the API, a create has no
-switch: pause automations for the length of a migration. Equipment takes
-`externalRef` on create and refuses a second unit for it, but the register's
-reads do not yet return it or filter by it.
+switch: pause automations for the length of a migration.
 
 An estimate's history carries its outcome and the day it was sent, but not the
 day it was converted.
