@@ -52,7 +52,7 @@ export const drillReport = defineRoute({
   path: "/v1/reports/drill",
   summary: "The records behind one row of a report",
   description:
-    "Takes a report definition and the values on the row that was clicked, one per grouped dimension (null for a group the report showed as Not set), and returns the records that row is made of: the definition's own scope, filters and date range, with each pinned dimension matched and the grouping taken off. Each record carries what it added to every measure, and the totals are over every record behind the row, which is the number that was clicked. Refused exactly where the report would be, in the report's words. Up to a thousand records are listed; the totals always cover all of them.",
+    "Takes a report definition and the values on the row that was clicked, one per grouped dimension (null for a group the report showed as Not set), and returns the records that row is made of: the definition's own scope, filters and date range, with each pinned dimension matched and the grouping taken off. Each record carries what it added to every measure, and the totals are over every record behind the row, which is the number that was clicked. Refused exactly where the report would be, in the report's words. The records are listed a thousand to a page, newest first, and `page` picks which (a page past the last is the last); the count and the totals are over every record on every page.",
   module: "M21",
   permissions: ["report:read"],
   /** A question, asked twice, with the same answer. Nothing is written. */
@@ -60,6 +60,8 @@ export const drillReport = defineRoute({
   input: z.object({
     definition: ReportDefinition,
     match: z.record(z.string().nullable()),
+    /** Which thousand of the records, from one. Left out, the first. */
+    page: z.number().int().min(1).optional(),
   }),
   output: z.object({
     noun: z.string(),
@@ -80,7 +82,11 @@ export const drillReport = defineRoute({
     })),
     totals: z.record(z.string().nullable()),
     count: z.number().int(),
+    /** True when the records fill more than one page. */
     truncated: z.boolean(),
+    page: z.number().int(),
+    pages: z.number().int(),
+    perPage: z.number().int(),
   }),
 });
 

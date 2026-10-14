@@ -5777,6 +5777,7 @@ export interface DrillReportInput {
     branchId?: string;
   };
   match: Record<string, string | null>;
+  page?: number;
 }
 
 export interface DrillReportOutput {
@@ -5805,6 +5806,9 @@ export interface DrillReportOutput {
   totals: Record<string, string | null>;
   count: number;
   truncated: boolean;
+  page: number;
+  pages: number;
+  perPage: number;
 }
 
 export interface DropJobSkillInput {
@@ -8951,6 +8955,9 @@ export interface GetKpiRecordsOutput {
   count: number;
   total: string;
   truncated: boolean;
+  page: number;
+  pages: number;
+  perPage: number;
   money: boolean;
 }
 
@@ -28345,6 +28352,7 @@ export interface GetKpiRecordsInput {
   half: "numerator" | "denominator" | "excluded" | "unknown";
   from: string;
   to: string;
+  page?: number;
 }
 
 export interface GetKpiScorecardInput {
@@ -32437,7 +32445,7 @@ export const OPERATIONS = {
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobStages: { method: "GET", path: "/v1/jobs/{id}/stages", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
-  getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to","page"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getLeadInbox: { method: "GET", path: "/v1/lead-inbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getLeadOffer: { method: "GET", path: "/v1/lead-offers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },

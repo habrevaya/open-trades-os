@@ -3,11 +3,12 @@ import { Money } from "@opentradesos/ui";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { reports, branches, ConflictError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, reporting } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Empty, PageHeader, Table, Th, Td } from "@/components/Table";
+import { Pager } from "@/components/Pager";
 import { definitionFrom, type Params } from "@/lib/report-params";
-import { pinsFrom, safeBack } from "@/lib/drill";
+import { pinsFrom, safeBack, pageHref } from "@/lib/drill";
 import { formatDay } from "@/lib/dates";
 import { enumText } from "@/lib/labels";
 import { describeDefinition, said } from "@/lib/report-words";
@@ -55,7 +56,7 @@ export default async function DrillPage({ searchParams }: { searchParams: Promis
   let result: reports.DrillResult | null = null;
   let refusal: string | null = null;
   try {
-    result = await reports.drill(ctx, { definition, match });
+    result = await reports.drill(ctx, { definition, match, page: reporting.askedPage(params.page) });
   } catch (error) {
     if (!(error instanceof ConflictError)) throw error;
     refusal = error.message;
@@ -139,8 +140,8 @@ export default async function DrillPage({ searchParams }: { searchParams: Promis
               The totals, as the last row of the table rather than a sentence
               under it, so each one sits under the column it adds up. They are
               over EVERY record behind the number, which is the number that was
-              clicked; when the list is cut short they still are, and the line
-              below says so.
+              clicked; on a list of several pages they still are, on every
+              page, and the line under the list says so.
             */}
             {measures.length > 0 && (
               <tr className="bg-steel-100 font-medium" aria-label="Total">
@@ -155,12 +156,10 @@ export default async function DrillPage({ searchParams }: { searchParams: Promis
               </tr>
             )}
           </Table>
-          {result.truncated && (
-            <p className="mt-3 text-sm text-red-600">
-              This is the first {result.rows.length} of {result.count} {result.plural}. The totals are for all
-              {" "}{result.count}. Narrow the dates on the report to see every one.
-            </p>
-          )}
+          <Pager
+            page={result.page} pages={result.pages} perPage={result.perPage} count={result.count}
+            noun={result.plural} href={(page) => pageHref("/reports/drill", params, page)}
+          />
         </>
       ) : null}
     </div>

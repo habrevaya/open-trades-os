@@ -324,14 +324,15 @@ export interface KpiDrill {
   count: number;
   /** The sum of every record's value, which is the half the scorecard shows. */
   total: string;
-  /** True when more records exist than are listed. The total still covers all of them. */
+  /** True when the records fill more than one page. The total still covers all of them. */
   truncated: boolean;
+  /** Which page of the records this is, from one, of how many, and how many to a page: a thousand, as the report drill lists. */
+  page: number;
+  pages: number;
+  perPage: number;
   /** Every record's value is dollars, so the list and its total are shown as money. */
   money: boolean;
 }
-
-/** A thousand, as the report drill lists. Nobody reads more on a screen. */
-const DRILL_LIMIT = 1000;
 
 /**
  * What reading each kind of record needs. A KPI is one number for the whole
@@ -374,7 +375,7 @@ const KIND_WORDS: Record<string, string> = {
  * list of revenue per job is a financial report.
  */
 export function drill(
-  ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string },
+  ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string; page?: number | undefined },
 ) {
   return guardedRead(ctx, "report:read", async (tx): Promise<KpiDrill> => {
     if (input.to < input.from) {
@@ -425,18 +426,43 @@ export function drill(
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const records = half.records(input.from, input.to, zone);
-    const rows = await tx.execute<{
-      kind: string; id: string; label: string | null; on_day: string | null; value: string; href: string;
+    /**
+     * ONE PAGE, AND THE TOTAL OVER EVERY RECORD. The count, the total and the
+     * kinds of record are one row over the whole half, with the page joined
+     * onto it, so they are the same on every page and come back on a page
+     * with nothing on it. The kinds are the whole half's rather than the
+     * page's, so a record kind the reader may not read is refused on page one
+     * and not first met on page three. The order ends on the record itself,
+     * so a record is on exactly one page however many share a day.
+     */
+    const read = (offset: number) => tx.execute<{
+      count: string; total: string; kinds: string[] | null;
+      kind: string | null; id: string | null; label: string | null; on_day: string | null; value: string | null; href: string | null;
     }>(sql`
-      select r.kind, r.id, r.label, r.on_day, r.value::text as value, r.href,
-             count(*) over () as count, coalesce(sum(r.value) over (), 0)::text as total
-      from (${records}) as r
-      order by r.on_day desc nulls last, r.label
-      limit ${DRILL_LIMIT + 1}
+      with r as (${records}),
+      t as (
+        select count(*)::text as count, coalesce(sum(r.value), 0)::text as total,
+               array_remove(array_agg(distinct r.kind), null) as kinds
+        from r
+      )
+      select t.count, t.total, t.kinds, p.kind, p.id, p.label, p.on_day, p.value, p.href
+      from t
+      left join lateral (
+        select r.kind, r.id, r.label, r.on_day, r.value::text as value, r.href
+        from r
+        order by r.on_day desc nulls last, r.label, r.kind, r.id
+        limit ${reporting.DRILL_PAGE_SIZE} offset ${offset}
+      ) as p on true
     `);
 
-    const kinds = [...new Set(rows.map((row) => row.kind))];
-    for (const kind of kinds) {
+    const asked = reporting.askedPage(input.page);
+    let rows = await read((asked - 1) * reporting.DRILL_PAGE_SIZE);
+    const count = Number(rows[0]?.count ?? 0);
+    const paged = reporting.drillPage(count, asked);
+    // A page past the end (the window's records changed since the link was made) is the last page.
+    if (paged.page !== asked) rows = await read(paged.offset);
+
+    for (const kind of rows[0]?.kinds ?? []) {
       const needs = KIND_NEEDS[kind];
       if (!needs || !can(ctx.actor, needs)) {
         throw new ConflictError(
@@ -446,12 +472,10 @@ export function drill(
       }
     }
 
-    const first = rows[0] as (typeof rows)[number] & { count?: string; total?: string } | undefined;
-    const count = Number(first?.count ?? 0);
-    const sum = first?.total ?? "0";
+    const sum = rows[0]?.total ?? "0";
 
     await audit(tx, ctx, "kpi.drill", "organization", ctx.actor.organizationId, null, {
-      key: input.key, half: input.half, from: input.from, to: input.to, count,
+      key: input.key, half: input.half, from: input.from, to: input.to, count, page: paged.page,
     });
 
     return {
@@ -463,17 +487,20 @@ export function drill(
       halfLabel: half.label,
       from: input.from,
       to: input.to,
-      records: rows.slice(0, DRILL_LIMIT).map((row) => ({
-        kind: row.kind,
-        id: row.id,
+      records: rows.filter((row) => row.id !== null).map((row) => ({
+        kind: row.kind ?? "",
+        id: row.id ?? "",
         label: row.label ?? "Not named",
         onDay: row.on_day,
-        value: row.value,
-        href: row.href,
+        value: row.value ?? "0",
+        href: row.href ?? "",
       })),
       count,
       total: sum,
-      truncated: count > DRILL_LIMIT,
+      truncated: paged.pages > 1,
+      page: paged.page,
+      pages: paged.pages,
+      perPage: paged.perPage,
       money: moneyHalf,
     };
   });
@@ -483,6 +510,6 @@ export const handlers = {
   getKpiScorecard: (ctx: ServiceContext, input: { from: string; to: string }) =>
     scorecard(ctx, input),
   listKpiCatalogue: (ctx: ServiceContext, input: Record<string, never>) => catalogue(ctx, input),
-  getKpiRecords: (ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string }) =>
+  getKpiRecords: (ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string; page?: number | undefined }) =>
     drill(ctx, input),
 } as const;

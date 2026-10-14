@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveDrill, matchFor, drillTotals, sumDecimals, normalizeDecimal, compareDecimals, sameAt, roundDecimal,
   checkCadence, nextDelivery, describeCadence, periodFor, deliveryDay, statementMonth, defaultPeriod,
-  toCsv, csvValue, resolveReport,
+  toCsv, csvValue, resolveReport, drillPage, askedPage,
   type Dataset, type ReportDefinition,
 } from "../src/reporting/index.js";
 import type { Permission } from "../src/access/permissions.js";
@@ -277,5 +277,30 @@ describe("filtering on a dimension somebody may not group by", () => {
     expect(resolveReport(definition, [INVOICES], held))
       .toMatchObject({ ok: false, reason: "missing_permission", permissions: ["job.cost:read"] });
     expect(resolveReport(definition, [INVOICES], OWNER)).toMatchObject({ ok: true });
+  });
+});
+
+describe("the records behind a number, a thousand to a page", () => {
+  it("is one page for none at all, so there is always a page to be on", () => {
+    expect(drillPage(0, 1)).toEqual({ page: 1, pages: 1, perPage: 1000, offset: 0 });
+  });
+
+  it("fills pages of a thousand and skips to the one asked for", () => {
+    expect(drillPage(1000, 1).pages).toBe(1);
+    expect(drillPage(1001, 2)).toEqual({ page: 2, pages: 2, perPage: 1000, offset: 1000 });
+    expect(drillPage(2500, 3)).toEqual({ page: 3, pages: 3, perPage: 1000, offset: 2000 });
+  });
+
+  it("shows the last page for a page past the end, rather than an empty list", () => {
+    // A link to page four of a list that has since shrunk to three.
+    expect(drillPage(2500, 9)).toEqual({ page: 3, pages: 3, perPage: 1000, offset: 2000 });
+  });
+
+  it("reads anything that is not a whole page number as the first", () => {
+    for (const value of [undefined, "", "0", "-2", "1.5", "two", Number.NaN, 0]) {
+      expect(askedPage(value), String(value)).toBe(1);
+    }
+    expect(askedPage("3")).toBe(3);
+    expect(askedPage(4)).toBe(4);
   });
 });

@@ -99,7 +99,7 @@ export const getKpiRecords = defineRoute({
   path: "/v1/kpi-records",
   summary: "The records behind one half of one KPI",
   description:
-    "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The total is the half the scorecard shows, over every record even when the list stops at a thousand. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.",
+    "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The records are listed a thousand to a page, the latest day first, and `page` picks which (a page past the last is the last); the count and the total are the half the scorecard shows, over every record on every page. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.",
   module: "M21",
   permissions: ["report:read"],
   input: z.object({
@@ -107,6 +107,8 @@ export const getKpiRecords = defineRoute({
     half: z.enum(["numerator", "denominator", "excluded", "unknown"]),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    /** Which thousand of the records, from one. Left out, the first. */
+    page: z.coerce.number().int().min(1).optional(),
   }),
   output: z.object({
     key: z.string(),
@@ -127,7 +129,11 @@ export const getKpiRecords = defineRoute({
     })),
     count: z.number().int(),
     total: z.string(),
+    /** True when the records fill more than one page. */
     truncated: z.boolean(),
+    page: z.number().int(),
+    pages: z.number().int(),
+    perPage: z.number().int(),
     /** Every record's value is dollars, so the list and its total are shown as money. */
     money: z.boolean(),
   }),

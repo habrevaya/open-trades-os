@@ -71,6 +71,20 @@ export function AddTile({ id, tiles, reports }: {
       </label>
 
       <label className="text-sm">
+        <span className="block text-ink-700">Broken down</span>
+        <select name="breakdown" defaultValue="" className="mt-1 h-9 rounded border border-steel-300 px-2">
+          {/*
+            For a report grouped by two things: its first grouping is drawn
+            and each bar is cut by its second. Said in the option, because
+            which grouping is which is not guessable from the word.
+          */}
+          <option value="">No</option>
+          <option value="stacked">Stacked, by the report&apos;s second grouping</option>
+          <option value="grouped">Side by side, by the report&apos;s second grouping</option>
+        </select>
+      </label>
+
+      <label className="text-sm">
         <span className="block text-ink-700">Width</span>
         <select name="width" defaultValue="6" className="mt-1 h-9 rounded border border-steel-300 px-2">
           <option value="3">Quarter</option>

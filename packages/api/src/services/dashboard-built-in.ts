@@ -28,6 +28,9 @@ export interface BuiltInDashboard extends dashboard.DashboardDefinition {
   slug: string;
 }
 
+/** A job not yet finished or called off: the job statuses before `completed`, and on hold. */
+const OPEN_JOB_STATUSES = ["lead", "estimating", "scheduled", "in_progress", "on_hold"];
+
 export const BUILT_IN_DASHBOARDS: BuiltInDashboard[] = [
   {
     slug: "operations",
@@ -45,7 +48,12 @@ export const BUILT_IN_DASHBOARDS: BuiltInDashboard[] = [
           dataset: "jobs",
           dimensions: [],
           measures: ["count"],
-          filters: [{ dimension: "status", op: "in", value: ["draft", "scheduled", "in_progress"] }],
+          /**
+           * Every status short of finished or called off. This said `draft`,
+           * which no job has ever been, and left out leads, estimates and jobs
+           * on hold, so the number was smaller than its own caption.
+           */
+          filters: [{ dimension: "status", op: "in", value: OPEN_JOB_STATUSES }],
         },
       },
       {
@@ -82,6 +90,27 @@ export const BUILT_IN_DASHBOARDS: BuiltInDashboard[] = [
         width: 6,
         definition: {
           dataset: "jobs", dimensions: ["status"], measures: ["count"], orderBy: "count",
+        },
+      },
+      {
+        key: "open-jobs-by-type",
+        title: "Open jobs by type",
+        caption: "Each kind of work, cut by where it stands.",
+        kind: "bars",
+        width: 6,
+        /**
+         * Broken down by the report's second grouping: one bar for each kind of
+         * work, stacked by status, so a pile of installs waiting to be
+         * scheduled shows as a bar mostly one colour. A count adds up, so the
+         * parts stack to the bar.
+         */
+        breakdown: "stacked",
+        definition: {
+          dataset: "jobs",
+          dimensions: ["job_type", "status"],
+          measures: ["count"],
+          filters: [{ dimension: "status", op: "in", value: OPEN_JOB_STATUSES }],
+          orderBy: "count",
         },
       },
       {

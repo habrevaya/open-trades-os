@@ -452,17 +452,19 @@ export interface DrillResult {
   columns: DrillColumn[];
   rows: DrillRow[];
   /**
-   * Each measure over EVERY record behind the number, not only the ones shown,
-   * so a list cut off at a thousand still totals to what was clicked.
+   * Each measure over EVERY record behind the number, not only the page shown,
+   * so every page of a long list totals to what was clicked.
    */
   totals: Record<string, string | null>;
   /** How many records there are, which can be more than `rows` holds. */
   count: number;
+  /** True when the records fill more than one page, so `rows` is not every one of them. */
   truncated: boolean;
+  /** Which page of the records `rows` is, from one, of how many, and how many to a page. */
+  page: number;
+  pages: number;
+  perPage: number;
 }
-
-/** A thousand, for the same reason a report stops there. */
-const MAX_DRILL_ROWS = 1_000;
 
 /**
  * THE RECORDS BEHIND ONE ROW OF A REPORT.
@@ -497,8 +499,8 @@ export async function drill(
     }
 
     /**
-     * Inside, every value is selected in its own type, so the window totals
-     * below are numeric arithmetic and not string concatenation. Outside, the
+     * Inside, every value is selected in its own type, so the totals below
+     * are numeric arithmetic and not string concatenation. Outside, the
      * money and the hours come back as TEXT, for the same reason the report
      * selects money as text: a float would lose the cents the totals are
      * meant to agree to.
@@ -518,36 +520,54 @@ export async function drill(
       inner.push(sql.raw(`${value} as "m_${measure.key}"`));
     }
 
-    const outer: string[] = [`"__id"`, `"__link"`, `"__label"`, `count(*) over () as "__count"`];
+    const outer: string[] = [`"__id"`, `"__link"`, `"__label"`];
     for (const column of record.columns) {
       outer.push(`"c_${column.key}"`);
       if (column.link) outer.push(`"l_${column.key}"`);
     }
+    const totals: string[] = [`count(*) as "__count"`];
     for (const measure of measures) {
       outer.push(`"m_${measure.key}"::text as "m_${measure.key}"`);
       const over = measure.kind === "count"
-        ? `count(*) over ()`
+        ? `count(*)`
         : measure.kind === "sum"
-          ? `coalesce(sum("m_${measure.key}") over (), 0)`
-          : `${measure.kind}("m_${measure.key}") over ()`;
-      outer.push(`(${over})::text as "t_${measure.key}"`);
+          ? `coalesce(sum("m_${measure.key}"), 0)`
+          : `${measure.kind}("m_${measure.key}")`;
+      totals.push(`(${over})::text as "t_${measure.key}"`);
     }
 
-    const rows = await tx.execute<Record<string, string | number | null>>(sql`
+    /**
+     * ONE PAGE, AND THE TOTALS OVER EVERY RECORD. The totals are one row over
+     * the whole of `drilled`, and the page is joined onto it, so the count and
+     * the totals come back even on a page with nothing on it and are the same
+     * on every page. The order ends on the record's id, so a record is on
+     * exactly one page however many share a date.
+     */
+    const read = (offset: number) => tx.execute<Record<string, string | number | null>>(sql`
       with drilled as (
         select ${sql.join(inner, sql.raw(", "))}
         from ${sql.raw(dataset.from)}
         ${conditions.length > 0 ? sql` where ${and(...conditions)!}` : sql``}
-      )
-      select ${sql.raw(outer.join(", "))}
-      from drilled
-      order by "__sort" desc nulls last, "__id"
-      limit ${MAX_DRILL_ROWS + 1}
+      ),
+      totals as (select ${sql.raw(totals.join(", "))} from drilled)
+      select totals.*, page.*
+      from totals
+      left join lateral (
+        select ${sql.raw(outer.join(", "))}
+        from drilled
+        order by "__sort" desc nulls last, "__id"
+        limit ${reporting.DRILL_PAGE_SIZE} offset ${offset}
+      ) as page on true
     `);
 
-    const truncated = rows.length > MAX_DRILL_ROWS;
-    const kept = truncated ? rows.slice(0, MAX_DRILL_ROWS) : rows;
+    const asked = reporting.askedPage(request.page);
+    let rows = await read((asked - 1) * reporting.DRILL_PAGE_SIZE);
+    const count = Number(rows[0]?.["__count"] ?? 0);
+    const paged = reporting.drillPage(count, asked);
+    // A page past the end (the list shrank since the link was made) is the last page.
+    if (paged.page !== asked) rows = await read(paged.offset);
     const first = rows[0];
+    const kept = rows.filter((row) => row["__id"] !== null && row["__id"] !== undefined);
 
     const href = (pattern: string, id: string | number | null | undefined) =>
       pattern.includes("{id}") ? pattern.replace("{id}", String(id ?? "")) : pattern;
@@ -587,8 +607,11 @@ export async function drill(
         m.key,
         first ? (first[`t_${m.key}`] as string | null) ?? null : m.kind === "count" || m.kind === "sum" ? "0" : null,
       ])),
-      count: first ? Number(first["__count"]) : 0,
-      truncated,
+      count,
+      truncated: paged.pages > 1,
+      page: paged.page,
+      pages: paged.pages,
+      perPage: paged.perPage,
     };
   });
 }
@@ -776,5 +799,9 @@ export const handlers = {
   drillReport: (ctx: ServiceContext, input: {
     definition: Parameters<typeof definitionFromWire>[0];
     match: Record<string, string | null>;
-  }): Promise<DrillResult> => drill(ctx, { definition: definitionFromWire(input.definition), match: input.match }),
+    page?: number | undefined;
+  }): Promise<DrillResult> => drill(ctx, {
+    definition: definitionFromWire(input.definition), match: input.match,
+    ...(input.page ? { page: input.page } : {}),
+  }),
 } as const;
