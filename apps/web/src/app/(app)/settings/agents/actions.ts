@@ -69,6 +69,7 @@ export async function saveAgent(_previous: FormState, form: FormData): Promise<F
       publicPriceItemIds: form.getAll("publicPriceItemIds").map(String).filter(Boolean),
       web: kind === "chat" ? ticked("web") : base.chat.web,
       text: kind === "chat" ? ticked("text") : base.chat.text,
+      portal: kind === "chat" ? ticked("portal") : base.chat.portal,
     },
     intake: kind === "intake"
       ? { texts: ticked("texts"), emails: ticked("emails"), calls: ticked("calls"), forms: ticked("forms") }

@@ -21,7 +21,7 @@ import {
   laborSettings,
   voice, websiteTracking, referrals,
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
-  portalAccess, portalBlocks, portalBooking, portalFiles, cardOnFile, portalLayout,
+  portalAccess, portalBlocks, portalBooking, portalFiles, portalChat, cardOnFile, portalLayout,
   setup, team, branches, tradePacks,
   phoneMenus, transcription, callQueues, softphone, voiceAgent, callTransfers,
   ads, marketplaceLeads, leadEmails, directMail,
@@ -1086,6 +1086,8 @@ export const handlers = {
   listPortalFiles: portalFiles.handlers.listPortalFiles,
   addPortalFile: portalFiles.handlers.addPortalFile,
   removePortalFile: portalFiles.handlers.removePortalFile,
+  getPortalChat: portalChat.handlers.getPortalChat,
+  sayInPortalChat: portalChat.handlers.sayInPortalChat,
   payTips: payroll.handlers.payTips,
   getMyPayStatements: payroll.handlers.getMyPayStatements,
 

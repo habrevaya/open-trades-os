@@ -93,6 +93,8 @@ async function sessionFor(db: Database, companyKey: string, token: string): Prom
 }
 
 /** The chat as the visitor sees it: their words, the assistant's and a person's, and nothing internal. */
+export { reader as chatReader, transcript as chatTranscript, answer as answerChat };
+
 async function transcript(tx: Database, session: typeof schema.aiChatSession.$inferSelect, after?: string | undefined) {
   const rows = await tx.select().from(schema.message)
     .where(and(
@@ -206,7 +208,7 @@ export async function say(
   return inTenant(reader(db, organizationId), (tx) => transcript(tx, fresh!));
 }
 
-async function inbound(tx: Database, organizationId: string, session: typeof schema.aiChatSession.$inferSelect, text: string) {
+export async function inbound(tx: Database, organizationId: string, session: typeof schema.aiChatSession.$inferSelect, text: string) {
   const [conversation] = await tx.select().from(schema.conversation)
     .where(eq(schema.conversation.id, session.conversationId)).limit(1);
   await tx.insert(schema.message).values({
@@ -223,6 +225,40 @@ async function inbound(tx: Database, organizationId: string, session: typeof sch
   }).where(eq(schema.conversation.id, session.conversationId));
   await tx.update(schema.aiChatSession).set({ lastActivityAt: new Date(), updatedAt: new Date() })
     .where(eq(schema.aiChatSession.id, session.id));
+}
+
+/**
+ * The customer a chat from their account is with, from their record: the name
+ * the sign in is (the contact's, when a contact signed in as them), their phone
+ * and email, and the addresses on their record.
+ */
+async function signedInCustomer(tx: Database, customerId: string, contactId: string | null) {
+  const [customer] = await tx.select({
+    name: schema.customer.name, phone: schema.customer.phone, email: schema.customer.email,
+  }).from(schema.customer).where(eq(schema.customer.id, customerId)).limit(1);
+  if (!customer) return null;
+  const [contact] = contactId
+    ? await tx.select({ name: schema.contact.name }).from(schema.contact).where(eq(schema.contact.id, contactId)).limit(1)
+    : [];
+  const places = await tx.select({
+    line1: schema.property.addressLine1, line2: schema.property.addressLine2, city: schema.property.city,
+    state: schema.property.state, postalCode: schema.property.postalCode,
+  }).from(schema.customerProperty)
+    .innerJoin(schema.property, eq(schema.property.id, schema.customerProperty.propertyId))
+    .where(eq(schema.customerProperty.customerId, customerId))
+    .limit(20);
+  return {
+    customerId,
+    name: contact?.name ?? customer.name,
+    phone: customer.phone,
+    email: customer.email,
+    addresses: places.flatMap((p) => (p.line1 && p.city && p.state && p.postalCode
+      ? [{
+        line1: p.line1, line2: p.line2, city: p.city, state: p.state, postalCode: p.postalCode,
+        text: [p.line1, p.line2, p.city, p.state, p.postalCode].filter(Boolean).join(", "),
+      }]
+      : [])),
+  };
 }
 
 /* ------------------------------------------------------------- answering */
@@ -269,17 +305,27 @@ async function turn(
      */
     const [conversation] = await tx.select({
       address: schema.conversation.externalAddress, customerId: schema.conversation.customerId,
+      contactId: schema.conversation.contactId,
     }).from(schema.conversation).where(eq(schema.conversation.id, session.conversationId)).limit(1);
     const given = contactsIn(turns.filter((t) => t.from === "customer").map((t) => t.text));
+    /**
+     * In a customer's account the customer is the sign in, so membership is
+     * read off their record, never off a number typed into the chat.
+     */
+    const signedIn = session.channel === "portal" && conversation?.customerId
+      ? await signedInCustomer(tx, conversation.customerId, conversation.contactId)
+      : null;
     const member = session.channel === "text"
       ? await memberByContact(tx, organizationId, { phone: conversation?.address ?? null, customerId: conversation?.customerId ?? null })
-      : await memberByContact(tx, organizationId, given);
+      : signedIn
+        ? await memberByContact(tx, organizationId, { customerId: signedIn.customerId })
+        : await memberByContact(tx, organizationId, given);
     const { services, windows } = await servicesAndWindows(tx, organizationId, company.timezone, company.today, {
       perService: 4, member,
     });
     const published = await bookItems(tx, organizationId, { ids: settings.chat.publicPriceItemIds, limit: 200 });
     return {
-      turns, company, windows, services, member,
+      turns, company, windows, services, member, signedIn,
       facts: {
         hours: await hoursOf(tx, organizationId),
         serviceArea: await serviceAreaOf(tx, organizationId),
@@ -300,8 +346,12 @@ async function turn(
   }
 
   const prompt = a.chatPrompt({
-    company: context.company, tone: settings.tone, channel: session.channel === "text" ? "text" : "web",
+    company: context.company, tone: settings.tone,
+    channel: session.channel === "text" ? "text" : context.signedIn ? "portal" : "web",
     facts: context.facts, turns: context.turns, bookingTaken: session.bookingRequestId !== null,
+    ...(context.signedIn
+      ? { signedIn: { name: context.signedIn.name, addresses: context.signedIn.addresses.map((p) => p.text) } }
+      : {}),
   });
   const result = await base.ask(acting, "chat", prompt, `chat:${session.channel}`, deps);
   if (!result.ok) {
@@ -339,6 +389,29 @@ async function turn(
       phone?: string; email?: string; notes?: string; text: string;
       address: { line1: string; line2?: string; city: string; state: string; postalCode: string };
     };
+    /**
+     * From a customer's account the request is theirs, by their sign in: the
+     * name, phone and email come from their record whatever the model wrote,
+     * and the address must be one on their record.
+     */
+    if (context.signedIn) {
+      const known = context.signedIn;
+      const wanted = (text: string) => text.trim().toLowerCase().replace(/\s+/g, " ");
+      const place = known.addresses.find((p) => wanted(p.line1) === wanted(input.address.line1)
+        && p.postalCode.trim() === input.address.postalCode.trim());
+      if (!place) {
+        return { session, reply: { kind: "reply", text: "Which of your addresses on file is this for?" } };
+      }
+      input.contactName = known.name;
+      delete input.phone;
+      delete input.email;
+      if (known.phone) input.phone = known.phone;
+      if (known.email) input.email = known.email;
+      input.address = {
+        line1: place.line1, city: place.city, state: place.state, postalCode: place.postalCode,
+        ...(place.line2 ? { line2: place.line2 } : {}),
+      };
+    }
     const open = a.openOnly([{ date: input.date, arrivalWindowId: input.arrivalWindowId }], input.bookableServiceId, context.windows);
     const email = input.email && /.+@.+\..+/.test(input.email) ? input.email : undefined;
     if (open.length === 0) {
@@ -399,7 +472,7 @@ async function answer(db: Database, organizationId: string, sessionId: string, d
     await tx.insert(schema.message).values({
       organizationId, conversationId: session.conversationId,
       direction: "outbound", channel: "webchat", purpose: "transactional",
-      fromAddress: "website", toAddress: conversation!.externalAddress,
+      fromAddress: session.channel === "portal" ? "portal" : "website", toAddress: conversation!.externalAddress,
       body: reply.text, status: "sent",
     });
     await tx.update(schema.aiChatSession).set({
@@ -410,7 +483,10 @@ async function answer(db: Database, organizationId: string, sessionId: string, d
     }).where(eq(schema.conversation.id, session.conversationId));
     if (reply.kind === "handoff") await handOff(tx, organizationId, session, reply.reason);
     else {
-      await base.note(tx, reader(db, organizationId), { agent: "chat", kind: "answered", detail: "Answered a website chat." });
+      await base.note(tx, reader(db, organizationId), {
+        agent: "chat", kind: "answered",
+        detail: session.channel === "portal" ? "Answered a chat from a customer's account." : "Answered a website chat.",
+      });
     }
   });
 }
@@ -422,7 +498,7 @@ async function answer(db: Database, organizationId: string, sessionId: string, d
  * office's queue, because a handover nobody notices is a customer told
  * somebody will get back to them, and nobody does.
  */
-async function handOff(tx: Database, organizationId: string, session: typeof schema.aiChatSession.$inferSelect, reason: string) {
+export async function handOff(tx: Database, organizationId: string, session: typeof schema.aiChatSession.$inferSelect, reason: string) {
   await tx.update(schema.aiChatSession).set({
     status: "handed_off", handedOffAt: new Date(), handoffReason: reason.slice(0, 500), updatedAt: new Date(),
   }).where(eq(schema.aiChatSession.id, session.id));
@@ -431,7 +507,8 @@ async function handOff(tx: Database, organizationId: string, session: typeof sch
   }).where(eq(schema.conversation.id, session.conversationId));
   await tx.insert(schema.task).values({
     organizationId,
-    title: session.channel === "web" ? "A website chat needs a person" : "A text conversation needs a person",
+    title: session.channel === "web" ? "A website chat needs a person"
+      : session.channel === "portal" ? "A chat from a customer's account needs a person" : "A text conversation needs a person",
     body: `${reason} Open the conversation in the inbox to answer.`,
     priority: "high",
     entityType: "conversation",

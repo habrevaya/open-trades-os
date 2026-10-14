@@ -75,6 +75,8 @@ const Settings = z.object({
     publicPriceItemIds: z.array(Uuid).max(200),
     web: z.boolean(),
     text: z.boolean(),
+    /** In the chat inside the customer portal. Off unless turned on; absent on an older caller means off. */
+    portal: z.boolean().default(false),
   }),
   intake: z.object({ texts: z.boolean(), emails: z.boolean(), calls: z.boolean(), forms: z.boolean() }),
   collections: z.object({

@@ -253,6 +253,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                     <div className="mt-1 flex flex-wrap gap-4">
                       <label className={CHECK}><input type="checkbox" name="web" value="yes" defaultChecked={agent.settings.chat.web} />Your website</label>
                       <label className={CHECK}><input type="checkbox" name="text" value="yes" defaultChecked={agent.settings.chat.text} />Texts to your number</label>
+                      <label className={CHECK}><input type="checkbox" name="portal" value="yes" defaultChecked={agent.settings.chat.portal} />Customers signed in to their account</label>
                     </div>
                   </fieldset>
                   <TextField label="What it says first" name="greeting" defaultValue={agent.settings.chat.greeting} maxLength={300} />

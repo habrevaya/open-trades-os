@@ -353,7 +353,8 @@ async function replyInChat(
     direction: "outbound",
     channel: "webchat",
     purpose: "transactional",
-    fromAddress: "website",
+    /** A chat from a customer's account is answered from the account, the website's from the website. */
+    fromAddress: conversation.internalAddress === "portal" ? "portal" : "website",
     toAddress: conversation.externalAddress,
     body,
     status: "sent",

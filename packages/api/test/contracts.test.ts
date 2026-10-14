@@ -172,6 +172,14 @@ describe("permissions", () => {
       "POST /v1/portal/files",
       "POST /v1/portal/files/{id}/remove",
       /**
+       * A signed in customer's chat with the company, read and written. Sign
+       * in only, never an account link: the conversation is made on the
+       * customer the sign in names, so nobody types who they are, and the
+       * messages are counted per customer per minute and per hour.
+       */
+      "GET /v1/portal/chat",
+      "POST /v1/portal/chat/messages",
+      /**
        * The same sign in with a code instead of a password. Asking for a code
        * answers one sentence whether or not the address belongs to anybody,
        * so it is not a way to learn who works where; it is limited per
