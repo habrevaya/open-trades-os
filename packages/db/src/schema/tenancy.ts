@@ -123,6 +123,15 @@ export const organization = pgTable("organization", {
    */
   demoUserId: uuid("demo_user_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
   /**
+   * WHO KEEPS THE RENEWALS LIST, when the company says somebody does: told,
+   * as well as the holder and their manager, when a certification or a skill
+   * is about to run out and on the day. Null, the default, tells nobody
+   * extra, because a notice to everybody who can read the list about every
+   * card is how notices get switched off. One person, chosen on
+   * `/certifications`, who can read the list (`compliance:read`).
+   */
+  renewalsKeeperUserId: uuid("renewals_keeper_user_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
+  /**
    * A SANDBOX: a practice copy of a company's configuration, set on the copy
    * and naming the company it was copied from.
    *

@@ -630,8 +630,13 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
     const zone = await timezoneOf(tx, organizationId);
     const today = time.dateIn(now, zone);
     const from = time.addDays(today, -rules.EXPIRY_LATE_DAYS);
-    const to = time.addDays(today, rules.EXPIRY_NOTICE_DAYS);
+    /** The furthest any renewal period reaches; each record is held to its own below. */
+    const to = time.addDays(today, rules.MAX_EXPIRY_NOTICE_DAYS);
     let raised = 0;
+    /** Whoever keeps the renewals list, when the company named somebody (off unless it did). */
+    const [company] = await tx.select({ keeper: schema.organization.renewalsKeeperUserId })
+      .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+    const keeper = company?.keeper ?? null;
 
     const people = new Map((await tx.select({
       technicianId: schema.technician.id,
@@ -651,6 +656,8 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
       technicianId: schema.personCertification.technicianId,
       expiresOn: schema.personCertification.expiresOn,
       name: schema.certificationType.name,
+      /** The type's renewal period: what puts it on the renewals list, and now what starts the notice. */
+      leadDays: schema.certificationType.renewalLeadDays,
     }).from(schema.personCertification)
       .innerJoin(schema.certificationType, eq(schema.certificationType.id, schema.personCertification.certificationTypeId))
       .where(and(
@@ -671,6 +678,8 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
       technicianId: schema.technicianSkill.technicianId,
       expiresOn: schema.technicianSkill.expiresOn,
       name: schema.technicianSkill.skill,
+      /** A skill has no type, so the record's own number of days. */
+      leadDays: schema.technicianSkill.renewalLeadDays,
     }).from(schema.technicianSkill)
       .where(and(
         isNull(schema.technicianSkill.endedOn),
@@ -684,7 +693,7 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
     ];
     for (const record of records) {
       if (!record.expiresOn) continue;
-      const due = rules.expiryNoticeDue(record.expiresOn, today);
+      const due = rules.expiryNoticeDue(record.expiresOn, today, record.leadDays);
       if (!due) continue;
       const holder = people.get(record.technicianId);
       if (!holder) continue;
@@ -707,6 +716,22 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
           body: rules.expirySentence(`${holder.name}'s ${record.name}`, record.expiresOn, today),
         });
         if (manager.told) raised += 1;
+      }
+
+      /**
+       * The renewals list's keeper, when the company named one, on the same
+       * key: somebody who is also the holder or the manager has had it, and
+       * is not told twice. `raiseWithin` tells them only when they may open
+       * the record it is about.
+       */
+      if (keeper && keeper !== holder.userId && keeper !== holder.reportsTo) {
+        const kept = await raiseWithin(tx, {
+          organizationId, userId: keeper, kind: "qualification_expiry", key, about,
+          title: `${holder.name}'s ${record.name} ${when}`,
+          body: `${rules.expirySentence(`${holder.name}'s ${record.name}`, record.expiresOn, today)} `
+            + "You are told because you keep the renewals list.",
+        });
+        if (kept.told) raised += 1;
       }
     }
 
@@ -1033,7 +1058,74 @@ async function skip(tx: Database, ids: string[], reason: string): Promise<void> 
 
 /* --------------------------------------------------------------- the API */
 
+/* ------------------------------------------------- the renewals list's keeper */
+
+/**
+ * Who is told about licences and skills running out besides the holder and
+ * their manager: one person the company names, or nobody, which is how it
+ * starts. Read with `compliance:read`, the renewals list's own permission;
+ * named with `compliance:write`, the permission that records certifications,
+ * and only somebody active here who can read the list. Audited.
+ */
+export function renewalsKeeper(ctx: ServiceContext) {
+  return guardedRead(ctx, "compliance:read", async (tx) => keeperOf(tx, ctx.actor.organizationId));
+}
+
+async function keeperOf(tx: Database, organizationId: string) {
+  const [row] = await tx.select({ userId: schema.organization.renewalsKeeperUserId })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  if (!row?.userId) return { userId: null, name: null, active: false };
+  const actor = await memberActor(tx, organizationId, row.userId);
+  const [person] = await tx.select({ name: schema.user.name, email: schema.user.email })
+    .from(schema.user).where(eq(schema.user.id, row.userId)).limit(1);
+  return {
+    userId: row.userId,
+    name: person?.name || person?.email || null,
+    /** Still here and still able to read the list. When not, nobody extra is told until somebody chooses again. */
+    active: actor !== null && !actor.readOnly && can(actor, "compliance:read"),
+  };
+}
+
+/** Who may be named: everybody active here who can read the renewals list, by name. */
+export function renewalsKeeperChoices(ctx: ServiceContext) {
+  return guardedRead(ctx, "compliance:write", async (tx) => {
+    const members = await tx.select({ userId: schema.membership.userId, name: schema.user.name, email: schema.user.email })
+      .from(schema.membership)
+      .innerJoin(schema.user, eq(schema.user.id, schema.membership.userId))
+      .where(and(eq(schema.membership.organizationId, ctx.actor.organizationId), eq(schema.membership.active, true)));
+    const choices: { userId: string; name: string }[] = [];
+    for (const member of members) {
+      const actor = await memberActor(tx, ctx.actor.organizationId, member.userId);
+      if (actor && !actor.readOnly && can(actor, "compliance:read")) {
+        choices.push({ userId: member.userId, name: member.name || member.email });
+      }
+    }
+    return choices.sort((a, b) => a.name.localeCompare(b.name));
+  });
+}
+
+export function setRenewalsKeeper(ctx: ServiceContext, input: { userId: string | null }) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const organizationId = ctx.actor.organizationId;
+    if (input.userId !== null) {
+      const actor = await memberActor(tx, organizationId, input.userId);
+      if (!actor || actor.readOnly) throw new ConflictError("That person does not work here now. Choose somebody who does.");
+      if (!can(actor, "compliance:read")) {
+        throw new ConflictError("That person cannot see the renewals list, so a notice would point them at nothing. Choose somebody who can.");
+      }
+    }
+    const before = await keeperOf(tx, organizationId);
+    await tx.update(schema.organization).set({ renewalsKeeperUserId: input.userId, updatedAt: new Date() })
+      .where(eq(schema.organization.id, organizationId));
+    await audit(tx, ctx, "organization.renewals_keeper_set", "organization", organizationId,
+      { renewalsKeeperUserId: before.userId }, { renewalsKeeperUserId: input.userId });
+    return keeperOf(tx, organizationId);
+  });
+}
+
 export const handlers = {
+  getRenewalsKeeper: (ctx: ServiceContext) => renewalsKeeper(ctx),
+  setRenewalsKeeper: (ctx: ServiceContext, input: { userId: string | null }) => setRenewalsKeeper(ctx, input),
   listMyNotices: (ctx: ServiceContext, input: { limit?: number | undefined; unread?: boolean | undefined }) =>
     list(ctx, input),
   readMyNotices: (ctx: ServiceContext, input: { ids?: string[] | undefined; all?: boolean | undefined }) =>

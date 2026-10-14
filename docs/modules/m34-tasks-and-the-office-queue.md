@@ -273,11 +273,13 @@ What raises one, each in the same transaction as the thing it is about:
   (M23). It opens `/my-day`, where they sign.
 - **Your expense answered**, approved or refused with the reason (M17). It
   opens `/me/expenses`.
-- **A licence or a skill running out**, thirty days before its last day and
-  on the day, raised by the worker once each, to the person who holds it (on
-  `/me`) and to the person they report to (on the holder's own page at
-  `/people/{membershipId}`), when that manager may read the holder's record
-  (M24). A renewal recorded since stops it.
+- **A licence or a skill running out**, when its renewal period starts (the
+  certification type's number of days, or the skill record's own) and on the
+  day, raised by the worker once each, to the person who holds it (on `/me`),
+  to the person they report to (on the holder's own page at
+  `/people/{membershipId}`) when that manager may read the holder's record,
+  and to whoever the company names as keeping the renewals list, which is
+  nobody until it names somebody (M24). A renewal recorded since stops it.
 
 NEVER ABOUT A RECORD THEY CANNOT OPEN. Before anything is written, the person
 is resolved the way their own session would be, and the record is opened with

@@ -1,10 +1,12 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { people, peopleRecords } from "@opentradesos/api/services";
+import { people, peopleRecords, staffNotices } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm } from "./ActionForm";
+import { ActionForm as SaveForm, Select } from "@/components/ActionForm";
+import { setKeeper } from "./keeper-actions";
 import { ExpiringList, HoldingsByPerson } from "./Holdings";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +48,9 @@ export default async function CertificationsPage() {
     /** Skills are the roster's records (`user:read`), so somebody who reads only certifications sees none. */
     can(user.actor, "user:read") ? peopleRecords.expiringSkills(ctx, {}) : Promise.resolve([]),
   ]);
+  /** Who is told what is running out besides the holder and their manager, and who could be. */
+  const keeper = await staffNotices.renewalsKeeper(ctx);
+  const keeperChoices = writes ? await staffNotices.renewalsKeeperChoices(ctx) : [];
   const technicians = writes && can(user.actor, "user:read")
     ? (await people.handlers.listPeople(ctx, {})).people.filter((p) => p.technicianId && p.active)
     : [];
@@ -56,6 +61,26 @@ export default async function CertificationsPage() {
 
       <h2 className="mt-6 text-base font-semibold">Due for renewal</h2>
       <ExpiringList rows={expiring} />
+
+      <section className="mt-6 rounded-md border border-steel-200 p-4" aria-label="Who keeps this list">
+        <h2 className="text-sm font-semibold">Who keeps this list</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          The person who holds a licence or skill, and the person they answer to, are told when it reaches its renewal
+          period (each type&apos;s own number of days, or the skill&apos;s) and again on its last day.
+          {" "}{keeper.userId === null
+            ? "Nobody else is told."
+            : keeper.active
+              ? `${keeper.name ?? "The person you chose"} is told as well, because they keep this list.`
+              : `${keeper.name ?? "The person you chose"} was chosen but no longer works here or cannot see this list, so nobody else is told until you choose again.`}
+        </p>
+        {writes ? (
+          <SaveForm action={setKeeper} submit="Save" tone="quiet" className="mt-3 flex flex-wrap items-end gap-3">
+            <Select label="Also tell" name="userId" className="block w-72"
+                    options={[{ value: "", label: "Nobody else" }, ...keeperChoices.map((c) => ({ value: c.userId, label: c.name }))]}
+                    defaultValue={keeper.active && keeper.userId ? keeper.userId : ""} />
+          </SaveForm>
+        ) : null}
+      </section>
 
       {skillsDue.length > 0 && (
         <section className="mt-8" aria-label="Skills due for renewal">
