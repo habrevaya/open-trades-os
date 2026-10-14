@@ -288,3 +288,65 @@ describe("the disposal facility is a place", () => {
     expect(a.proposed.facilityRuns).toEqual(b.proposed.facilityRuns);
   });
 });
+
+describe("a kind that carries a different number of each size", () => {
+  /** A hook lift: two 10 yard cans at once, or one 30 yard. */
+  const hook: routing.Deckload = { capacity: 1, perSize: [{ size: 10, carried: 2 }, { size: 30, carried: 1 }] };
+  const sized = (id: string, work: routing.TruckWork, size: number | null): routing.TruckStop => ({ ...stop(id, work), size });
+  const hookPlan = (stops: routing.TruckStop[]): routing.TruckPlan =>
+    ({ ...plan(stops, 1), sizes: [10, 30], perSize: hook.perSize });
+
+  it("fits two 10 yard cans, or one 30 yard, and not a 10 beside a 30", () => {
+    expect(routing.deckFits([10, 10], hook)).toBe(true);
+    expect(routing.deckFits([30], hook)).toBe(true);
+    expect(routing.deckFits([10, 10, 10], hook)).toBe(false);
+    expect(routing.deckFits([10, 30], hook)).toBe(false);
+    /** A can of no known size takes the kind's one figure's share: here the whole deck. */
+    expect(routing.deckFits([null], hook)).toBe(true);
+    expect(routing.deckFits([null, 10], hook)).toBe(false);
+  });
+
+  it("collects a second 10 yard with one already on the hook, and not a 30", () => {
+    const deck: routing.Deck = { empties: [], fulls: [10] };
+    expect(routing.canServeDeck("pickup", 10, deck, hook)).toBe(true);
+    expect(routing.canServeDeck("pickup", 30, deck, hook)).toBe(false);
+  });
+
+  it("drops only a can of the stop's own size, or one of no known size", () => {
+    expect(routing.canServeDeck("drop", 10, { empties: [30], fulls: [] }, hook)).toBe(false);
+    expect(routing.canServeDeck("drop", 10, { empties: [10], fulls: [] }, hook)).toBe(true);
+    expect(routing.canServeDeck("drop", 10, { empties: [null], fulls: [] }, hook)).toBe(true);
+    expect(routing.canServeDeck("drop", null, { empties: [30], fulls: [] }, hook)).toBe(true);
+  });
+
+  it("loads two 10 yard empties for two 10 yard drops, and one for a 10 then a 30", () => {
+    expect(routing.loadDeckFor([{ work: "drop", size: 10 }, { work: "drop", size: 10 }], hook)).toEqual([10, 10]);
+    expect(routing.loadDeckFor([{ work: "drop", size: 10 }, { work: "drop", size: 30 }], hook)).toEqual([10]);
+    /** One figure and no sizes is the old counting. */
+    expect(routing.loadDeckFor([{ work: "drop", size: null }, { work: "pickup", size: null }], { capacity: 1 })).toEqual([null]);
+  });
+
+  it("drives two 10 yard drops in one trip and goes back to the yard between a 10 and a 30", () => {
+    const smalls = routing.evaluateTruck(hookPlan([sized("d1", "drop", 10), sized("d2", "drop", 10)]), ["d1", "d2"]);
+    expect(smalls.yardRuns).toEqual([]);
+    expect(smalls.startLoad).toEqual({ empties: 2, fulls: 0 });
+    expect(smalls.startDeck).toEqual({ empties: [10, 10], fulls: [] });
+    const mixed = routing.evaluateTruck(hookPlan([sized("d1", "drop", 10), sized("d2", "drop", 30)]), ["d1", "d2"]);
+    expect(mixed.yardRuns.filter((r) => r.beforeId === "d2")).toHaveLength(1);
+  });
+
+  it("does not drop a 30 yard it tipped at the facility as a 10 yard", () => {
+    const stops = [sized("p1", "pickup", 30), sized("d1", "drop", 10)];
+    const day = routing.evaluateTruck({ ...hookPlan(stops), facility: { key: "x", minutes: 15, hours: null } }, ["p1", "d1"]);
+    expect(day.facilityRuns).toHaveLength(1);
+    /** Tipped, it is an empty 30 on the truck, not the 10 the next stop needs: so to the yard as well. */
+    expect(day.yardRuns.filter((r) => r.beforeId === "d1")).toHaveLength(1);
+  });
+
+  it("is said by the kind's figures, and a kind with one figure has none", () => {
+    expect(routing.truckFigures({ containersPerTruck: 1, yardMinutes: 20 }, {
+      containers: 1, yardMinutes: 30, sizes: [], perSize: [{ size: 30, carried: 1 }, { size: 10, carried: 7 }],
+    })).toEqual({ containers: 1, yardMinutes: 30, sizes: [10, 30], perSize: [{ size: 10, carried: 4 }, { size: 30, carried: 1 }], source: "truck" });
+    expect(routing.truckFigures({ containersPerTruck: 1, yardMinutes: 20 }, { containers: 2, yardMinutes: 30, sizes: [] }).perSize).toBeUndefined();
+  });
+});

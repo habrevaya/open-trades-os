@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { assignVisit, reorderDay, proposeRoute, suggestAssignments, lockVisit, livePositions } from "./actions";
+import { assignVisit, reorderDay, proposeRoute, suggestAssignments, lockVisit, livePositions, sendToCrew } from "./actions";
 import type { dispatch } from "@opentradesos/api/services";
 import type { TileSource } from "@/lib/map-tiles";
 import { DispatchMap, type MapData } from "./DispatchMap";
@@ -151,6 +151,22 @@ export function Board({
       const ordered = [...without.slice(0, at), id, ...without.slice(at)];
 
       const result = await reorderDay({ technicianId, date, visitIds: ordered });
+      if (!result.ok) setError(result.message);
+    });
+  }
+
+  /**
+   * A card dropped on a crew's lane goes to the crew, through the check the
+   * crews screen makes. Dropped back on its own crew, nothing changes.
+   */
+  function dropOnCrew(crewId: string) {
+    if (!dragging) return;
+    const { id, from } = dragging;
+    setDragging(null);
+    clearMessages();
+    if (from === `crew:${crewId}`) return;
+    start(async () => {
+      const result = await sendToCrew({ visitId: id, crewId });
       if (!result.ok) setError(result.message);
     });
   }
@@ -412,8 +428,9 @@ export function Board({
             />
           ))}
           {board.crews.map((c) => (
-            <CrewColumn key={c.id} crew={c} time={time} draggable={canDispatch}
-                        onDragStart={(id) => setDragging({ id, from: `crew:${c.id}` })} />
+            <CrewColumn key={c.id} crew={c} time={time} draggable={canDispatch} dragging={dragging !== null}
+                        onDragStart={(id) => setDragging({ id, from: `crew:${c.id}` })}
+                        onDrop={() => dropOnCrew(c.id)} />
           ))}
           {board.technicians.length === 0 && (
             <p className="p-6 text-ink-500">
@@ -593,14 +610,24 @@ function DayStrip({ board, time, timezone }: { board: BoardData; time: TimeForma
  * A crew's day, beside the people's. A card can be dragged onto a person,
  * which hands the visit to them: it leaves the crew's lane, goes on their
  * day with their skills and time off checked like any drop, and the crew's
- * members are told it is no longer theirs. Sending work TO a crew is on the
- * crews screen, where the crew's equipment and lead are checked.
+ * members are told it is no longer theirs. A person's card, or one from the
+ * unassigned pile, dropped here goes to the crew through the same check the
+ * crews screen makes (its kit, its people, their leave at the visit's
+ * hours), and a crew that cannot take it is refused in words.
  */
-function CrewColumn({ crew, time, draggable, onDragStart }: {
-  crew: CrewLane; time: TimeFormatter; draggable: boolean; onDragStart: (visitId: string) => void;
+function CrewColumn({ crew, time, draggable, dragging, onDragStart, onDrop }: {
+  crew: CrewLane; time: TimeFormatter; draggable: boolean; dragging: boolean;
+  onDragStart: (visitId: string) => void; onDrop: () => void;
 }) {
+  const [over, setOver] = useState(false);
   return (
-    <section aria-label={`Crew ${crew.name}`} className="flex w-72 shrink-0 flex-col rounded-md border border-steel-200 bg-canvas">
+    <section
+      aria-label={`Crew ${crew.name}`}
+      className={`flex w-72 shrink-0 flex-col rounded-md border bg-canvas ${over ? "border-ink-900 ring-1 ring-ink-900" : "border-steel-200"}`}
+      onDragOver={(e) => { if (draggable && dragging) { e.preventDefault(); setOver(true); } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={() => { setOver(false); onDrop(); }}
+    >
       <header className="border-b border-steel-200 px-3 py-2.5">
         <div className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: crew.color ?? "#7C3AED" }} aria-hidden />

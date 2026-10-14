@@ -140,6 +140,14 @@ export const truckKind = pgTable("truck_kind", {
    * can whose size nobody wrote down.
    */
   containerSizes: jsonb("container_sizes").$type<number[]>().notNull().default([]),
+  /**
+   * How many of each size it carries at once, when that is not the one
+   * figure above: `[{ size: 10, carried: 2 }, { size: 30, carried: 1 }]` is
+   * "two 10 yard or one 30 yard". Each can takes its share of the deck, and a
+   * load fits while the shares make the whole deck or less. Empty is one
+   * figure for every size, as before; a size listed here is a size it lifts.
+   */
+  capacityBySize: jsonb("capacity_by_size").$type<{ size: number; carried: number }[]>().notNull().default([]),
   /** Minutes at the yard to tip what is full and load what is needed. */
   yardMinutes: integer("yard_minutes").notNull(),
   notes: text("notes"),

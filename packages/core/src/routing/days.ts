@@ -27,6 +27,13 @@
  * the same limit a customer moving their own visit meets, so a rebalance
  * cannot fill a Thursday morning past what the company said it takes.
  *
+ * A VISIT WITH SEVERAL PEOPLE ON IT moves with all of them. It is on every
+ * member's day, counted there, and goes to another day only where every one
+ * of them is working, may take it at the hours it would have there (skills,
+ * part of a day off), and fits it inside their own day: the window, their
+ * hours and overtime limit, and lunch. Its cost is the sum over all of them,
+ * so the bar to move it is met by the team, not by one person's day.
+ *
  * HOW. Each day is first rebalanced on its own. Then each visit that may
  * move is tried on every other day it may go to, at the cheapest place on
  * each person's day there, and the best move that is worth it is taken.
@@ -83,15 +90,23 @@ export interface DaysVisit {
   options: DayOption[];
   /** A member whose plan promised priority, placed first in an unassigned pile. */
   priority?: boolean | undefined;
+  /**
+   * Everybody on it, lead first, when several people are. It is in each of
+   * their orders on its day and moves only with all of them, to a day where
+   * every one is planned and none is refused in that day's option.
+   */
+  team?: readonly string[] | undefined;
 }
 
 export interface DayMove {
   visitId: string;
   fromDate: string;
   toDate: string;
-  /** Null when it had nobody. */
+  /** Null when it had nobody. The lead, for a visit with several people on it. */
   fromTechnicianId: string | null;
   toTechnicianId: string;
+  /** Everybody it goes with, lead first, when several people are on it. They are the same people it had. */
+  team?: string[] | undefined;
 }
 
 export interface DayOutcome {
@@ -190,7 +205,7 @@ export function rebalanceDays(input: {
       })),
       visits: members.map((v) => {
         const option = optionOf(v.id, date)!;
-        return { stop: option.stop, locked: v.locked, refusals: option.refusals, priority: v.priority };
+        return { stop: option.stop, locked: v.locked, refusals: option.refusals, priority: v.priority, team: v.team };
       }),
       travel: day.travel,
       ...(input.minMoveSavingMinutes !== undefined ? { minMoveSavingMinutes: input.minMoveSavingMinutes } : {}),
@@ -249,6 +264,75 @@ export function rebalanceDays(input: {
   const heldBy = new Map<string, string>();
   const fitsHold = (option: DayOption) => !option.held || (heldUse.get(option.held.key) ?? 0) < option.held.room;
 
+  const gain = (c: Cost, w: Cost) => {
+    const d = zero();
+    for (const f of FIELDS) d[f] = c[f] - w[f];
+    return d;
+  };
+
+  /** The bookkeeping of a move taken: the hold for members and the online ceiling follow the visit. */
+  const commit = (v: DaysVisit, date: string) => {
+    const was = heldBy.get(v.id);
+    if (was !== undefined) {
+      heldUse.set(was, (heldUse.get(was) ?? 1) - 1);
+      heldBy.delete(v.id);
+    }
+    const takes = optionOf(v.id, date)?.held;
+    if (takes) {
+      heldUse.set(takes.key, (heldUse.get(takes.key) ?? 0) + 1);
+      heldBy.set(v.id, takes.key);
+    }
+    dayOf.set(v.id, date);
+    const ceiling = date === v.date ? undefined : optionOf(v.id, date)?.ceiling;
+    if (ceiling) usingCeiling.set(v.id, ceiling.key);
+    else usingCeiling.delete(v.id);
+  };
+
+  /**
+   * A team's visit tried on another day: lifted off every member's day here
+   * and put at the cheapest place on every member's day there. Only where all
+   * of them are planned that day and none is refused, so a move never leaves
+   * part of a team behind or sends somebody who is off for those hours.
+   */
+  const moveTeam = (v: DaysVisit, team: readonly string[], here: string, elsewhere: DayOption[]): boolean => {
+    const hereRoutes = routes.get(here)!;
+    if (!team.every((p) => hereRoutes.get(p)?.includes(v.id))) return false;
+    const fromOrders = new Map(team.map((p) => [p, hereRoutes.get(p)!.filter((id) => id !== v.id)]));
+    const fromWas = add(...team.map((p) => costOf(here, p, hereRoutes.get(p)!)));
+    const fromNow = add(...team.map((p) => costOf(here, p, fromOrders.get(p)!)));
+
+    let best: { date: string; orders: Map<string, string[]>; now: Cost; was: Cost } | null = null;
+    for (const option of elsewhere) {
+      if (option.date !== v.date && !fits(v.id, option)) continue;
+      const there = routes.get(option.date)!;
+      if (!team.every((p) => there.has(p) && p in option.refusals && option.refusals[p] === null)) continue;
+      const orders = new Map<string, string[]>();
+      let toWas = zero();
+      let toNow = zero();
+      for (const p of team) {
+        const current = there.get(p)!;
+        let cheapest: { order: string[]; cost: Cost } | null = null;
+        for (let position = 0; position <= current.length; position++) {
+          const order = [...current.slice(0, position), v.id, ...current.slice(position)];
+          const cost = costOf(option.date, p, order);
+          if (!cheapest || compare(cost, cheapest.cost) < 0) cheapest = { order, cost };
+        }
+        orders.set(p, cheapest!.order);
+        toWas = add(toWas, costOf(option.date, p, current));
+        toNow = add(toNow, cheapest!.cost);
+      }
+      const now = add(fromNow, toNow);
+      const was = add(fromWas, toWas);
+      if (!worthMovingDay(now, was, minDayMove)) continue;
+      if (!best || compare(gain(now, was), gain(best.now, best.was)) < 0) best = { date: option.date, orders, now, was };
+    }
+    if (!best) return false;
+    for (const [p, order] of fromOrders) hereRoutes.set(p, order);
+    for (const [p, order] of best.orders) routes.get(best.date)!.set(p, order);
+    commit(v, best.date);
+    return true;
+  };
+
   /* 2. Each visit that may move, tried on the other days it may go to. */
   for (let pass = 0; pass < maxPasses; pass++) {
     let moved = false;
@@ -258,6 +342,10 @@ export function rebalanceDays(input: {
       const elsewhere = v.options.filter((o) => o.date !== here && dayByDate.has(o.date) && fitsHold(o))
         .sort((a, b) => a.date.localeCompare(b.date));
       if (elsewhere.length === 0) continue;
+      if (v.team && v.team.length > 1) {
+        if (moveTeam(v, v.team, here, elsewhere)) moved = true;
+        continue;
+      }
 
       const hereRoutes = routes.get(here)!;
       const owner = [...hereRoutes.entries()].find(([, order]) => order.includes(v.id))?.[0] ?? null;
@@ -280,11 +368,6 @@ export function rebalanceDays(input: {
             const now = add(fromNow, costOf(option.date, technicianId, order));
             const was = add(fromWas, toWas);
             if (!worthMovingDay(now, was, minDayMove)) continue;
-            const gain = (c: Cost, w: Cost) => {
-              const d = zero();
-              for (const f of FIELDS) d[f] = c[f] - w[f];
-              return d;
-            };
             if (!best || compare(gain(now, was), gain(best.now, best.was)) < 0) {
               best = { date: option.date, technicianId, order, now, was };
             }
@@ -294,21 +377,8 @@ export function rebalanceDays(input: {
       if (!best) continue;
       if (owner) hereRoutes.set(owner, fromOrder);
       unplacedNow.delete(v.id);
-      const was = heldBy.get(v.id);
-      if (was !== undefined) {
-        heldUse.set(was, (heldUse.get(was) ?? 1) - 1);
-        heldBy.delete(v.id);
-      }
-      const takes = optionOf(v.id, best.date)?.held;
-      if (takes) {
-        heldUse.set(takes.key, (heldUse.get(takes.key) ?? 0) + 1);
-        heldBy.set(v.id, takes.key);
-      }
       routes.get(best.date)!.set(best.technicianId, best.order);
-      dayOf.set(v.id, best.date);
-      const ceiling = best.date === v.date ? undefined : optionOf(v.id, best.date)?.ceiling;
-      if (ceiling) usingCeiling.set(v.id, ceiling.key);
-      else usingCeiling.delete(v.id);
+      commit(v, best.date);
       moved = true;
     }
     if (!moved) break;
@@ -339,6 +409,15 @@ export function rebalanceDays(input: {
   const moves: DaysResult["moves"] = [];
   const dayMoves: DayMove[] = [];
   for (const v of visits) {
+    /** A team keeps its people: only its day can change, and it is named by its lead. */
+    if (v.team && v.team.length > 1) {
+      const toDate = dayOf.get(v.id)!;
+      if (toDate === v.date) continue;
+      const lead = v.team[0]!;
+      moves.push({ visitId: v.id, fromDate: v.date, toDate, from: lead, to: lead });
+      dayMoves.push({ visitId: v.id, fromDate: v.date, toDate, fromTechnicianId: lead, toTechnicianId: lead, team: [...v.team] });
+      continue;
+    }
     const to = finalTech.get(v.id);
     if (!to) continue;
     const from = originalTech.get(v.id) ?? null;

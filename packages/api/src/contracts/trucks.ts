@@ -8,6 +8,9 @@ import { Uuid } from "./common";
  * truck the driver has.
  */
 
+/** "Two 10 yard": how many of one size the truck carries at once. */
+const SizeCapacity = z.object({ size: z.number().int().min(1).max(100), carried: z.number().int().min(1).max(4) });
+
 const TruckKind = z.object({
   id: Uuid,
   name: z.string(),
@@ -15,6 +18,8 @@ const TruckKind = z.object({
   containersCarried: z.number().int().min(1).max(4),
   /** Cubic yards the truck can lift. Empty means any size. */
   containerSizes: z.array(z.number().int()),
+  /** How many of each size it carries at once ("two 10 yard or one 30 yard"). Empty when the one figure counts every size. */
+  capacityBySize: z.array(SizeCapacity),
   /** Minutes at the yard to tip what is full and load what is needed. */
   yardMinutes: z.number().int().min(0).max(120),
   notes: z.string().nullable(),
@@ -26,6 +31,12 @@ const KindFigures = {
   name: z.string().min(1).max(100),
   containersCarried: z.number().int().min(1).max(4),
   containerSizes: z.array(z.number().int().min(1).max(100)).max(12).optional(),
+  /**
+   * How many of each size it carries at once, when that differs by size: each can takes its share of the truck, and a
+   * load fits while the shares make the whole truck or less. A size listed here is one it lifts. A can of a size not
+   * listed, or of no known size, counts against `containersCarried`.
+   */
+  capacityBySize: z.array(SizeCapacity).max(12).optional(),
   yardMinutes: z.number().int().min(0).max(120),
   notes: z.string().max(1000).nullable().optional(),
 };
@@ -47,7 +58,7 @@ export const createTruckKind = defineRoute({
   path: "/v1/truck-kinds",
   summary: "Add a kind of truck",
   description:
-    "A name, how many containers it carries at once (one to four), the sizes in cubic yards it can lift (none listed means any) and the minutes the yard takes it. Two kinds with one name are refused.",
+    "A name, how many containers it carries at once (one to four), the sizes in cubic yards it can lift (none listed means any), how many of each size it carries when that differs by size (`capacityBySize`: two 10 yard or one 30 yard, so a 10 beside a 30 does not fit) and the minutes the yard takes it. Two kinds with one name are refused.",
   module: "M22",
   permissions: ["asset:write"],
   idempotent: true,

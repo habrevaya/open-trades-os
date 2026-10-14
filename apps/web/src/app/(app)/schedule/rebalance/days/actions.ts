@@ -16,7 +16,10 @@ export async function applyDays(input: {
   days: number;
   basis: string;
   key: string;
-  dayMoves: { visitId: string; toDate: string; technicianId?: string | undefined; crewId?: string | undefined }[];
+  dayMoves: {
+    visitId: string; toDate: string;
+    technicianId?: string | undefined; technicianIds?: string[] | undefined; crewId?: string | undefined;
+  }[];
   moves: { visitId: string; technicianId?: string | undefined; crewId?: string | undefined }[];
   orders: { date: string; technicianId: string; visitIds: string[] }[];
   crewOrders: { date: string; crewId: string; visitIds: string[] }[];

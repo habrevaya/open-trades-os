@@ -5,7 +5,7 @@ import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { inForceAt } from "./pricebook";
-import { loadHolidays } from "./holidays";
+import { holidaysForJob } from "./holidays";
 
 /**
  * AFTER HOURS AND HOLIDAY RATES
@@ -190,7 +190,8 @@ export async function offersWithin(
     .orderBy(asc(schema.visit.windowStart));
   const zone = await timezoneOf(tx, organizationId);
   const week = await weekOf(tx);
-  const holidays = await loadHolidays(tx, organizationId);
+  /** The job's branch's own holidays beside the company's. */
+  const holidays = await holidaysForJob(tx, organizationId, input.jobId);
 
   const found = { after_hours: [] as string[], holiday: [] as string[] };
   for (const visit of visits) {

@@ -15,14 +15,15 @@ export async function applyRebalance(input: {
   date: string;
   basis: string;
   key: string;
-  moves: { visitId: string; technicianId: string }[];
+  moves: { visitId: string; technicianId?: string | undefined; crewId?: string | undefined }[];
   orders: { technicianId: string; visitIds: string[] }[];
+  crewOrders: { crewId: string; visitIds: string[] }[];
 }): Promise<{ ok: true; moved: number } | { ok: false; message: string }> {
   const user = await requireSetupUser();
   try {
     const result = await dispatchMap.applyRebalance(
       { actor: user.actor, db: getDb(), idempotencyKey: `rebalance:${input.key}` },
-      { date: input.date, basis: input.basis, moves: input.moves, orders: input.orders },
+      { date: input.date, basis: input.basis, moves: input.moves, orders: input.orders, crewOrders: input.crewOrders },
     );
     revalidatePath("/schedule");
     return { ok: true, moved: result.moved };

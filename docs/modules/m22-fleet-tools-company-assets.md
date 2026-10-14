@@ -209,6 +209,17 @@ while a truck has it, naming the trucks) and
 has none. Only a vehicle that has not been retired can be a truck, and all of
 it needs `asset:write` (`asset:read` to look).
 
+A kind can also say how many of each size it carries at once, when that is
+not one number: "How many of each size" on the same screen, written "2 of 10,
+1 of 30" (`capacityBySize` on the API), is a hook lift that takes two 10 yard
+cans or one 30 yard. Each can then takes its share of the truck (a 10 yard
+half of it, a 30 yard all of it), and a load fits while the shares make the
+whole truck or less, so two 10s fit and a 10 beside a 30 does not. A size
+given its own figure is a size the kind lifts. A can of a size with no figure
+of its own, or of no known size, counts against the containers carried. Words
+that are not that shape are refused with how to write them. A kind with only
+the one figure plans exactly as before.
+
 The truck a driver has on a day is the vehicle with a kind that is checked out
 to them that day, which is the same custody record that already says who has
 the van (half open, so on the day a truck is handed back it is the next
@@ -217,7 +228,12 @@ handed most recently. "Optimise route" plans that day on the truck's own
 figures, and the company's one figure under "Collections and the truck" is the
 default for a driver with no truck of a kind, not a ceiling. The proposal says
 which it used (`GET /v1/dispatch/optimise` answers `source`, the truck's label
-and kind), and a stop about a container of a size the truck does not lift is
+and kind, and `capacityBySize`), and checks the load by size as the day goes:
+the empties loaded at the yard are the sizes of the drops that follow, a drop
+needs an empty of its own size on board (an empty of no known size will do),
+a collection needs room for its size beside what is already on the truck, and
+a can tipped at the facility is an empty of its own size, so a 30 yard tipped
+there is not dropped as a 10 yard. A stop about a container of a size the truck does not lift is
 named on the proposal and ordered as plain driving, rather than driven as if
 the truck could take it: it needs another truck. A can with no number in its
 size, or a drop booked before a can is chosen, is never refused for its size.
@@ -464,9 +480,11 @@ this product's own board first.
   by "Optimise route". A collection the customer moves after it is under way
   is the office's to rearrange by hand.
 - **Scale tickets come from a file.** A photograph of a ticket is not read.
-- **The truck has one capacity figure.** A kind says how many containers a
-  truck carries at once, whatever their size: a hook lift that takes two small
-  cans or one large one is two kinds. The disposal facility is one per day: a
+- **A truck's load is shares of one deck.** How many of each size a kind
+  carries is one figure per size, and a mixed load fits by shares: a truck
+  that can carry a 10 beside a 20 but not beside a 30, in a way shares do not
+  describe, is not said. A swap is assumed to bring back a can of the size it
+  left. The disposal facility is one per day: a
   day is planned through the default (or the one asked for), not choosing among
   several by which is nearest or open, and facilities' holidays are not known.
   The load in the morning is not recorded; for a day already under way it is

@@ -293,3 +293,63 @@ describe("crews planned beside people", () => {
     expect(result.moves.every((m) => m.to === "crew:x")).toBe(true);
   });
 });
+
+describe("a visit with several people on it, across days", () => {
+  /**
+   * Ray's Tuesday runs past the overtime allowed, and e is a two person job
+   * he does with Dana. The customer at e agreed to Thursday. It moves only
+   * with both of them, and only to a day both work and both may take it.
+   */
+  const days = (thursday: string[]) => [
+    { date: TUE, technicians: [person(TUE, "ray", ["a", "b", "c", "d", "e"]), person(TUE, "dana", ["e"])], travel },
+    { date: THU, technicians: thursday.map((p) => person(THU, p, [])), travel },
+  ];
+  const visits = (thursdayRefusals: Record<string, string | null>): routing.DaysVisit[] =>
+    ["a", "b", "c", "d", "e"].map((id) => ({
+      id, date: TUE, locked: false,
+      ...(id === "e" ? { team: ["ray", "dana"] } : {}),
+      options: [
+        /** Dana is not recorded as doing the one person jobs, so only e is hers. */
+        { date: TUE, stop: stop(id, 90), refusals: id === "e" ? anybody("ray", "dana") : { ray: null, dana: "Dana does not do these." } },
+        ...(id === "e" ? [{ date: THU, stop: stop(id, 90), refusals: thursdayRefusals }] : []),
+      ],
+    }));
+
+  it("moves it to a day every one of them can take, with all of them", () => {
+    const result = routing.rebalanceDays({ days: days(["ray", "dana"]), visits: visits(anybody("ray", "dana")) });
+    expect(result.dayMoves).toEqual([{
+      visitId: "e", fromDate: TUE, toDate: THU, fromTechnicianId: "ray", toTechnicianId: "ray", team: ["ray", "dana"],
+    }]);
+    const thursday = result.days.find((d) => d.date === THU)!;
+    expect(thursday.after.map((d) => d.evaluation.order)).toEqual([["e"], ["e"]]);
+    /** Counted once per day, as one visit, though it is on two people's days. */
+    expect(thursday.visitsAfter).toBe(1);
+    const tuesday = result.days.find((d) => d.date === TUE)!;
+    expect(tuesday.after.find((d) => d.technicianId === "dana")!.evaluation.order).toEqual([]);
+    expect(tuesday.after.find((d) => d.technicianId === "ray")!.evaluation.overLimitMinutes).toBe(0);
+  });
+
+  it("does not move it to a day one of them is off for its hours", () => {
+    const result = routing.rebalanceDays({
+      days: days(["ray", "dana"]),
+      visits: visits({ ray: null, dana: "Dana is on approved time off from 8:00 AM to 12:00 PM." }),
+    });
+    expect(result.dayMoves).toEqual([]);
+  });
+
+  it("does not move it to a day one of them is not working", () => {
+    const result = routing.rebalanceDays({ days: days(["ray"]), visits: visits({ ray: null }) });
+    expect(result.dayMoves).toEqual([]);
+    /** And never splits the team: nothing on Tuesday changes hands. */
+    expect(result.moves).toEqual([]);
+  });
+
+  it("does not move it to a day where it would put one of them past their own hours", () => {
+    /** Dana's Thursday ends at nine, an hour after it starts, with no overtime: e cannot fit her day. */
+    const short = [
+      days(["ray", "dana"])[0]!,
+      { date: THU, technicians: [person(THU, "ray", []), person(THU, "dana", [], 60, 0)], travel },
+    ];
+    expect(routing.rebalanceDays({ days: short, visits: visits(anybody("ray", "dana")) }).dayMoves).toEqual([]);
+  });
+});

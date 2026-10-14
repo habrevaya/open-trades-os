@@ -422,8 +422,11 @@ interface WhenAsked {
  */
 const DEFAULT_WEEK: holidayRules.WeekHours = Array.from({ length: 7 }, () => ({ openMinute: 8 * 60, closeMinute: 17 * 60 }));
 
-async function calendarOf(tx: Database, organizationId: string, zone: string): Promise<holidayRules.WorkingCalendar> {
-  return { week: (await weekOf(tx)) ?? DEFAULT_WEEK, holidays: await loadHolidays(tx, organizationId), timeZone: zone };
+/** The working calendar for a job: the company's week, and its holidays with the job's branch's own. */
+async function calendarOf(
+  tx: Database, organizationId: string, zone: string, branchId: string | null,
+): Promise<holidayRules.WorkingCalendar> {
+  return { week: (await weekOf(tx)) ?? DEFAULT_WEEK, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone };
 }
 
 /**
@@ -497,7 +500,7 @@ export async function canTake(
     const on = input.on ?? time.dateIn(new Date(), zone);
     const job = await loadJob(tx, ctx.actor.organizationId, input.jobId, ctx);
     const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
-    const when = { calendar: await calendarOf(tx, ctx.actor.organizationId, zone), window: await jobHoursOn(tx, job.id, on, zone) };
+    const when = { calendar: await calendarOf(tx, ctx.actor.organizationId, zone, job.businessUnitId), window: await jobHoursOn(tx, job.id, on, zone) };
     return verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register, when);
   });
 }
@@ -537,7 +540,7 @@ export async function crewsFor(
      * each.
      */
     const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
-    const when = { calendar: await calendarOf(tx, ctx.actor.organizationId, zone), window: await jobHoursOn(tx, job.id, on, zone) };
+    const when = { calendar: await calendarOf(tx, ctx.actor.organizationId, zone, job.businessUnitId), window: await jobHoursOn(tx, job.id, on, zone) };
 
     const out: CrewVerdict[] = [];
     for (const crew of crews) {
@@ -565,7 +568,11 @@ export async function crewRefusals(
   const answers = new Map<string, string | null>();
   if (input.crewIds.length === 0 || input.asks.length === 0) return () => null;
   const zone = await timezoneOf(tx, organizationId);
-  const calendar = await calendarOf(tx, organizationId, zone);
+  const calendars = new Map<string | null, holidayRules.WorkingCalendar>();
+  const calendarFor = async (branchId: string | null) => {
+    if (!calendars.has(branchId)) calendars.set(branchId, await calendarOf(tx, organizationId, zone, branchId));
+    return calendars.get(branchId)!;
+  };
   const crews = await tx.select().from(schema.crew)
     .where(and(eq(schema.crew.organizationId, organizationId), inArray(schema.crew.id, input.crewIds)));
   const jobs = new Map<string, JobFacts>();
@@ -579,6 +586,7 @@ export async function crewRefusals(
     if (!jobs.has(ask.jobId)) jobs.set(ask.jobId, await loadJob(tx, organizationId, ask.jobId));
     const job = jobs.get(ask.jobId)!;
     const register = await registerFor(tx, organizationId, job.requiredAssetIds, ask.date);
+    const calendar = await calendarFor(job.businessUnitId);
     for (const crew of crews) {
       const answer = await verdict(tx, organizationId, crew, job, ask.date, zone, register, { calendar, window: ask.window ?? null });
       answers.set(`${crew.id}|${key}`, answer.canTake ? null : answer.blockers.map((b) => b.explanation).join(" "));
@@ -1000,7 +1008,7 @@ export async function assign(
     const register = await registerFor(tx, ctx.actor.organizationId, job.requiredAssetIds, on);
     /** And at the hours the visit has, so a person off for the afternoon is not refused the morning's work. */
     const when = {
-      calendar: await calendarOf(tx, ctx.actor.organizationId, zone),
+      calendar: await calendarOf(tx, ctx.actor.organizationId, zone, job.businessUnitId),
       window: time.visitSpan(visit.windowStart, visit.windowEnd, visit.estimatedDurationMinutes),
     };
     const answer = await verdict(tx, ctx.actor.organizationId, crew, job, on, zone, register, when);

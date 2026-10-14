@@ -7,12 +7,13 @@ import {
   type ServiceContext,
 } from "./context";
 import { jobVisibility, technicianScopeFilter } from "./scope";
-import { dispatchPeople, technicianWithin } from "./people-scope";
+import { crews as crewsInView, dispatchPeople, technicianWithin } from "./people-scope";
 import { qualify, workSkills } from "./qualification";
 import { travelMatrix, describeSource, type TravelMatrix } from "./travel-times";
 import * as location from "./location";
 import * as files from "./files";
 import * as dispatch from "./dispatch";
+import { assign as assignCrew, crewRefusals } from "./crews";
 import { remember, replayed } from "./once";
 import { rentalDispatchOf } from "./rental-billing";
 import { truckOf } from "./trucks";
@@ -259,6 +260,8 @@ export interface DayVisit {
   preferredDays: number[];
   /** What the stop does to a roll off truck: a drop, a collection, a swap, or nothing. */
   truckWork: routing.TruckWork;
+  /** The job's branch, whose own holidays are read beside the company's. */
+  branchId: string | null;
 }
 
 interface Start {
@@ -387,6 +390,7 @@ export async function loadDay(tx: Database, organizationId: string, date: string
     jobNumber: schema.job.number,
     summary: schema.job.summary,
     jobTypeId: schema.job.jobTypeId,
+    branchId: schema.job.businessUnitId,
     jobTypeCode: schema.jobType.code,
     capacityModel: schema.jobType.capacityModel,
     requiredSkills: schema.jobType.requiredSkills,
@@ -506,6 +510,7 @@ export async function loadDay(tx: Database, organizationId: string, date: string
         : owedWindow.get(r.visit.jobId) ?? null,
       preferredDays: (r.preferredDays ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
       truckWork: truckWorkOf(r.visit.rentalEvent, r.capacityModel, r.jobTypeCode),
+      branchId: r.branchId,
     })),
   };
 }
@@ -761,7 +766,8 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     ? await guardedRead(ctx, "visit:read", (tx) => truckOf(tx, ctx.actor.organizationId, technician.id, day.date, company))
     : { figures: routing.truckFigures(company, null), truck: null };
   const truck = driven.figures;
-  const sizeOfStop = containers ? await containerSizes(ctx, placed.map((v) => v.id)) : new Map<string, number | null>();
+  /** Every stop's can, the ones done today too, so the truck's load after them is known by size. */
+  const sizeOfStop = containers ? await containerSizes(ctx, stops.map((v) => v.id)) : new Map<string, number | null>();
   /**
    * THE DISPOSAL FACILITY the day tips at: the one asked for, or the company's
    * default. A full can is tipped there and not at the yard, so the route goes
@@ -797,10 +803,13 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     capacity: truck.containers,
     yardMinutes: truck.yardMinutes,
     sizes: truck.sizes,
+    perSize: truck.perSize,
     facility: facility && facilityPlace ? {
       key: FACILITY, minutes: facility.tipMinutes, hours: facilityHours(day, facility.hours),
     } : null,
-    load: locked.length > 0 ? loadAfter(locked.map((v) => v.truckWork), truck.containers) : null,
+    load: locked.length > 0
+      ? loadAfter(locked.map((v) => ({ work: v.truckWork, size: sizeOfStop.get(v.id) ?? null })), { capacity: truck.containers, perSize: truck.perSize })
+      : null,
   } : null;
   const truckResult = truckPlan ? routing.optimiseTruck(truckPlan, placed.map((v) => v.id), { pinned }) : null;
   const result: routing.Proposal = truckResult ?? routing.optimise(plan, placed.map((v) => v.id), { pinned });
@@ -850,7 +859,7 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     truck: containers ? {
       byTruck,
       note: byTruck
-        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${truck.containers === 1 ? "one container" : `${truck.containers} containers`} at a time, ${truck.yardMinutes} minutes at the yard to ${truckPlan?.facility && facility ? `load empties, and full ones tipped at ${facility.name}` : "tip and load"}.${
+        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${carryWords(truck)} at a time, ${truck.yardMinutes} minutes at the yard to ${truckPlan?.facility && facility ? `load empties, and full ones tipped at ${facility.name}` : "tip and load"}.${
           truckResult && truckResult.notCarried.length > 0
             ? ` ${truckResult.notCarried.length === 1 ? "One stop is" : `${truckResult.notCarried.length} stops are`} for a container this truck does not lift, so ${truckResult.notCarried.length === 1 ? "it needs" : "they need"} another truck.`
             : ""}`
@@ -861,6 +870,8 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
       truckLabel: driven.truck?.label ?? null,
       kindName: driven.truck?.kindName ?? null,
       sizes: [...truck.sizes],
+      /** How many of each size at once, when the kind says; empty when one figure counts every size. */
+      capacityBySize: [...(truck.perSize ?? [])],
       notCarried: truckResult?.notCarried ?? [],
       /**
        * The facility the day tips at, with its address and hours, and whether the
@@ -944,18 +955,27 @@ async function containerSizes(ctx: ServiceContext, visitIds: string[]): Promise<
 
 /**
  * What is on the truck after the stops already done today, walked from an
- * empty truck at the yard: each drop took an empty, each collection a full
- * can, and a stop the truck could not have served means it went back to
- * the yard first. A guess at the morning is the best there is: the phone
- * does not record what was loaded.
+ * empty truck at the yard: each drop took an empty of its size, each
+ * collection a full can, and a stop the truck could not have served means it
+ * went back to the yard first. A guess at the morning is the best there is:
+ * the phone does not record what was loaded.
  */
-function loadAfter(works: routing.TruckWork[], capacity: number): routing.TruckLoad {
-  let load: routing.TruckLoad = { empties: routing.loadFor(works, capacity), fulls: 0 };
-  for (const [i, work] of works.entries()) {
-    if (!routing.canServe(work, load, capacity)) load = { empties: routing.loadFor(works.slice(i), capacity), fulls: 0 };
-    load = routing.afterStop(work, load);
+function loadAfter(steps: { work: routing.TruckWork; size: number | null }[], truck: routing.Deckload): routing.Deck {
+  let load: routing.Deck = { empties: routing.loadDeckFor(steps, truck), fulls: [] };
+  for (const [i, step] of steps.entries()) {
+    if (!routing.canServeDeck(step.work, step.size, load, truck)) load = { empties: routing.loadDeckFor(steps.slice(i), truck), fulls: [] };
+    load = routing.afterStopDeck(step.work, step.size, load);
   }
   return load;
+}
+
+/** What a truck carries at once, in words: "one container", "two 10 yard or one 30 yard". */
+export function carryWords(truck: { containers: number; perSize?: readonly { size: number; carried: number }[] | undefined }): string {
+  const count = ["none", "one", "two", "three", "four"];
+  if (truck.perSize && truck.perSize.length > 0) {
+    return truck.perSize.map((p) => `${count[p.carried] ?? p.carried} ${p.size} yard`).join(" or ");
+  }
+  return truck.containers === 1 ? "one container" : `${truck.containers} containers`;
 }
 
 /* ------------------------------------------------------------- suggestions */
@@ -1142,6 +1162,33 @@ export function plannable(day: Day, v: DayVisit): boolean {
     && v.status !== "no_show";
 }
 
+/**
+ * A visit with several people on it that the planners count: every one of
+ * them is planned on the day (`people`), and it is otherwise work a plan may
+ * hold. It is counted on each of their days and stays with all of them; only
+ * the several day rebalance moves it, to another day, with every one of them.
+ * One whose people are not all planned (one is another branch's, or left out)
+ * stays where it is, uncounted, as before.
+ */
+export function teamPlannable(day: Day, v: DayVisit, people: ReadonlySet<string>): boolean {
+  return v.technicianIds.length > 1
+    && v.technicianIds.every((id) => people.has(id))
+    && plannable(day, { ...v, technicianIds: [] });
+}
+
+/**
+ * The visits of one person's order a reorder may number. A visit has one
+ * route order however many people are on it, so a shared visit takes its
+ * place from its lead's day only, and the others' days are numbered around it.
+ */
+export const orderedFor = (visits: readonly DayVisit[], technicianId: string, ids: readonly string[]) => {
+  const byId = new Map(visits.map((v) => [v.id, v]));
+  return ids.filter((id) => {
+    const v = byId.get(id);
+    return !v || v.technicianIds.length <= 1 || v.technicianIds[0] === technicianId;
+  });
+};
+
 export const clockOf = (day: Day, minutes: number) => new Date(day.origin.getTime() + minutes * 60_000).toISOString();
 
 /**
@@ -1155,6 +1202,7 @@ export const clockOf = (day: Day, minutes: number) => new Date(day.origin.getTim
 export function rebalanceTechnicians(day: Day, planned: Day["technicians"], points: Points, prefix = "") {
   const techs: routing.RebalanceTechnician[] = [];
   const keepFirst = new Map<string, string[]>();
+  const people = new Set(planned.map((t) => t.id));
   for (const t of planned) {
     const theirs = routeOf(day, t.id);
     const stops = theirs.filter((v) => !(NOT_STOPS as readonly string[]).includes(v.status));
@@ -1177,11 +1225,123 @@ export function rebalanceTechnicians(day: Day, planned: Day["technicians"], poin
         /** A break whose window has already closed by the time the van leaves is not planned. */
         lunch: lunch && departAt <= lunch.latest ? lunch : null,
       },
-      /** A visit with several people on it counts on the lead's day only, and stays there. */
-      order: stops.filter((v) => plannable(day, v) && v.technicianIds[0] === t.id).map((v) => v.id),
+      /** A visit with several people on it is on every one of their days, and stays with them all. */
+      order: stops.filter((v) => (plannable(day, v) && v.technicianIds[0] === t.id) || teamPlannable(day, v, people))
+        .map((v) => v.id),
     });
   }
   return { techs, keepFirst };
+}
+
+/* ------------------------------------------------------------------ crews */
+
+/**
+ * A crew, planned across the days like a person. Its key in the planner is
+ * `crew:` and its id, so one plan holds people and crews and a visit can
+ * never be handed between the two: crew work is offered only to crews and
+ * one person's work only to people. Handing a crew's visit to a person is
+ * a drag on the board, where somebody decides it.
+ */
+export interface PlannedCrew {
+  id: string;
+  name: string;
+  color: string | null;
+  start: Place | null;
+}
+
+export const CREW = "crew:";
+export const crewKey = (id: string) => `${CREW}${id}`;
+export const holderOf = (key: string): { technicianId: string | null; crewId: string | null } =>
+  key.startsWith(CREW) ? { technicianId: null, crewId: key.slice(CREW.length) } : { technicianId: key, crewId: null };
+
+/** A crew's visit the planner may move: on the map, nobody on it by name, and not started. */
+export function crewPlannable(v: DayVisit): boolean {
+  return v.crewId !== null
+    && v.place !== null
+    && v.truckWork === "none"
+    && v.technicianIds.length === 0
+    && !(NOT_STOPS as readonly string[]).includes(v.status)
+    && !(UNDER_WAY as readonly string[]).includes(v.status)
+    && !(FINISHED as readonly string[]).includes(v.status)
+    && v.status !== "no_show";
+}
+
+/**
+ * The crews a multi day plan considers: every active crew with work in the
+ * range, and every active crew with somebody on it this person's board
+ * shows, so a branch manager plans their own branch's crews. A crew's day
+ * starts where it is based, or where its lead's does, or the company's
+ * first location, as the map draws it.
+ */
+export async function crewsOver(tx: Database, ctx: ServiceContext, days: Day[]): Promise<PlannedCrew[]> {
+  const organizationId = ctx.actor.organizationId;
+  /**
+   * Only this person's own crews are planned: another branch's crew on one
+   * of this branch's visits keeps that visit and is offered no more
+   * (`people-scope.ts`).
+   */
+  const crews = await tx.select().from(schema.crew)
+    .where(and(eq(schema.crew.organizationId, organizationId), eq(schema.crew.active, true), crewsInView(ctx)))
+    .orderBy(asc(schema.crew.name));
+  if (crews.length === 0) return [];
+  const members = await tx.select({
+    crewId: schema.crewMember.crewId, technicianId: schema.crewMember.technicianId, isLead: schema.crewMember.isLead,
+    home: schema.technician.homeLocationId,
+  }).from(schema.crewMember)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+    .where(inArray(schema.crewMember.crewId, crews.map((c) => c.id)));
+  const locations = await tx.select().from(schema.location)
+    .where(and(eq(schema.location.organizationId, organizationId), eq(schema.location.active, true)))
+    .orderBy(asc(schema.location.createdAt), asc(schema.location.id));
+  const placeOfLocation = (id: string | null): Place | null => {
+    const row = (id ? locations.find((l) => l.id === id) : undefined) ?? locations[0];
+    const at = row ? geo.parseLatLng(row.latitude, row.longitude) : null;
+    return at && row ? { ...at, precision: row.locationPrecision, source: row.locationSource } : null;
+  };
+  const seen = new Set(days.flatMap((d) => d.technicians.map((t) => t.id)));
+  const working = new Set(days.flatMap((d) => d.visits.map((v) => v.crewId).filter((id): id is string => id !== null)));
+  return crews
+    .filter((c) => working.has(c.id) || members.some((m) => m.crewId === c.id && seen.has(m.technicianId)))
+    .filter((c) => members.some((m) => m.crewId === c.id))
+    .map((c) => {
+      const lead = members.find((m) => m.crewId === c.id && m.isLead);
+      return { id: c.id, name: c.name, color: c.color, start: placeOfLocation(c.homeLocationId ?? lead?.home ?? null) };
+    });
+}
+
+/**
+ * A crew's day as the planner plans it, the way `rebalanceTechnicians`
+ * plans a person's: work under way or finished first and not planned, the
+ * company's working day and lunch around the rest.
+ */
+export function crewDay(day: Day, crew: PlannedCrew, points: Points, prefix: string) {
+  const stops = day.visits.filter((v) => v.crewId === crew.id && !(NOT_STOPS as readonly string[]).includes(v.status));
+  const locked = stops.filter((v) =>
+    (UNDER_WAY as readonly string[]).includes(v.status) || (FINISHED as readonly string[]).includes(v.status));
+  const lastLocked = [...locked].reverse().find((v) => v.place !== null);
+  let departAt = departureOf(day);
+  if (lastLocked && (UNDER_WAY as readonly string[]).includes(lastLocked.status)) {
+    departAt = Math.max(departAt, minutesFrom(day.origin, lastLocked.arrivedAt ?? new Date()) + lastLocked.estimatedDurationMinutes);
+  }
+  const key = crewKey(crew.id);
+  points.set(`start:${prefix}${key}`, lastLocked ? { place: lastLocked.place, routeId: lastLocked.routeId } : { place: crew.start, routeId: null });
+  points.set(`end:${prefix}${key}`, { place: crew.start ?? lastLocked?.place ?? null, routeId: null });
+  const lunch = day.workday.lunchMinutes > 0
+    ? { minutes: day.workday.lunchMinutes, earliest: atLocal(day, day.workday.lunchEarliest), latest: atLocal(day, day.workday.lunchLatest) }
+    : null;
+  const tech: routing.RebalanceTechnician = {
+    technicianId: key,
+    start: `start:${prefix}${key}`,
+    end: `end:${prefix}${key}`,
+    departAt,
+    shift: {
+      endsAt: atLocal(day, day.workday.dayEndsAt),
+      maxOvertimeMinutes: day.workday.maxOvertimeMinutes,
+      lunch: lunch && departAt <= lunch.latest ? lunch : null,
+    },
+    order: stops.filter(crewPlannable).map((v) => v.id),
+  };
+  return { tech, keep: locked.map((v) => v.id), stops };
 }
 
 /** The day's figures for one person, as a screen shows them before and after. */
@@ -1197,39 +1357,101 @@ export const rebalanceSummary = (day: Day, d: routing.RebalanceDay) => ({
   refused: d.refused,
 });
 
+/** The hours a visit has on its own day, for the crew check: null when it has no window to ask about. */
+const hoursOf = (v: DayVisit) => time.visitSpan(v.windowStart, v.windowEnd, v.estimatedDurationMinutes);
+
+/**
+ * A crew's day in a new order, written as its visits' route order in one go,
+ * the way `dispatch.reorder` writes a person's. Refused when any of the visits
+ * is not on that crew that day, so a stale payload cannot number somebody
+ * else's work.
+ */
+export async function setCrewOrder(tx: Database, zone: string, order: { date: string; crewId: string; visitIds: string[] }) {
+  const { start, end } = time.dayBoundsIn(order.date, zone);
+  const theirs = await tx.select({ id: schema.visit.id }).from(schema.visit)
+    .where(and(eq(schema.visit.crewId, order.crewId), gte(schema.visit.windowStart, start), lte(schema.visit.windowStart, end)));
+  const ids = new Set(theirs.map((t) => t.id));
+  if (order.visitIds.some((id) => !ids.has(id))) {
+    throw new ConflictError("Some of those visits are not on that crew's day.");
+  }
+  for (const [index, visitId] of order.visitIds.entries()) {
+    await tx.update(schema.visit).set({ routeOrder: index + 1, updatedAt: new Date() }).where(eq(schema.visit.id, visitId));
+  }
+}
+
+/** Who a planned visit goes to, as an apply call takes it: a person or a crew. */
+export const holderFor = (key: string): { technicianId: string } | { crewId: string } => {
+  const h = holderOf(key);
+  return h.crewId ? { crewId: h.crewId } : { technicianId: h.technicianId! };
+};
+
+/**
+ * THE WHOLE DAY, PEOPLE AND CREWS. Each crew with work today, or with
+ * somebody on it this person's board shows, is planned beside the people the
+ * way the several day rebalance plans it (`crewDay`): from where it is based,
+ * on the company's working day and lunch. Crew work goes only to a crew, and
+ * only one that passes the check a drag onto a crew makes (its kit, its
+ * people, their leave at the visit's hours); one person's work goes only to a
+ * person. A crew whose base is not on the map keeps its work where it is,
+ * and is said to.
+ */
 export async function rebalance(ctx: ServiceContext, input: { date: string }) {
-  const { day, verdictOf, members } = await guardedRead(ctx, "visit:read", async (tx) => {
+  const { day, verdictOf, members, crews, crewRefusal } = await guardedRead(ctx, "visit:read", async (tx) => {
     const day = await loadDay(tx, ctx.actor.organizationId, input.date, dayScopeOf(ctx));
-    const candidates = day.visits.filter((v) => plannable(day, v));
+    const everybody = new Set(day.technicians.map((t) => t.id));
+    const candidates = day.visits.filter((v) => plannable(day, v) || teamPlannable(day, v, everybody));
+    const crews = await crewsOver(tx, ctx, [day]);
+    const crewIds = crews.filter((c) => c.start !== null).map((c) => c.id);
+    /** The crew check, asked once per crew visit at its own hours. */
+    const asks = day.visits.filter((v) => v.crewId !== null && crewIds.includes(v.crewId) && crewPlannable(v))
+      .map((v) => ({ jobId: v.jobId, date: day.date, window: hoursOf(v) }));
     return {
       day,
       verdictOf: await verdictsFor(tx, ctx.actor.organizationId, day, candidates),
       members: await membersOn(tx, day, candidates.filter((v) => v.technicianIds.length === 0)),
+      crews,
+      crewRefusal: await crewRefusals(tx, ctx.actor.organizationId, { crewIds, asks }),
     };
   });
   const visitById = new Map(day.visits.map((v) => [v.id, v]));
-  const nameOf = new Map(day.technicians.map((t) => [t.id, t.displayName]));
+  const nameOf = new Map<string, string>([
+    ...day.technicians.map((t) => [t.id, t.displayName] as const),
+    ...crews.map((c) => [crewKey(c.id), c.name] as const),
+  ]);
 
   /** Who is left out, with their work where it is, and why: see `leftOutOf`. */
   const leftOut = leftOutOf(day);
   const planned = plannedOf(day).filter((t) => !leftOut.some((l) => l.technicianId === t.id));
+  const plannedCrews = crews.filter((c) => c.start !== null);
+  const crewSet = new Set(plannedCrews.map((c) => c.id));
+  const crewsLeftOut = crews.filter((c) => c.start === null && day.visits.some((v) => v.crewId === c.id))
+    .map((c) => ({ crewId: c.id, name: c.name, reason: `Where ${c.name} is based is not on the map, so its work stays where it is.` }));
 
   const points: Points = new Map();
   const { techs, keepFirst } = rebalanceTechnicians(day, planned, points);
+  const crewDays = plannedCrews.map((c) => ({ crew: c, ...crewDay(day, c, points, "") }));
 
-  const candidates = day.visits.filter((v) => plannable(day, v)
-    && (v.technicianIds.length === 0 ? v.status === "unassigned" : planned.some((t) => t.id === v.technicianIds[0])));
+  const plannedIds = new Set(planned.map((t) => t.id));
+  const candidates = day.visits.filter((v) => v.crewId === null
+    ? (plannable(day, v)
+      && (v.technicianIds.length === 0 ? v.status === "unassigned" : plannedIds.has(v.technicianIds[0]!)))
+      || teamPlannable(day, v, plannedIds)
+    : crewSet.has(v.crewId) && crewPlannable(v));
   for (const v of candidates) points.set(v.id, { place: v.place, routeId: v.routeId });
 
+  /** People for one person's work, crews for a crew's: never one for the other. */
   const visits: routing.RebalanceVisit[] = candidates.map((v) => ({
     stop: stopOf(day, v),
     locked: v.locked,
-    refusals: Object.fromEntries(planned.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
+    refusals: v.crewId !== null
+      ? Object.fromEntries(plannedCrews.map((c) => [crewKey(c.id), crewRefusal(c.id, v.jobId, day.date, hoursOf(v))]))
+      : Object.fromEntries(planned.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
     priority: members.has(v.id),
+    ...(v.technicianIds.length > 1 ? { team: v.technicianIds } : {}),
   }));
 
   const { travel, matrix } = await travelOver(ctx, day, points);
-  const result = routing.rebalance({ technicians: techs, visits, travel });
+  const result = routing.rebalance({ technicians: [...techs, ...crewDays.map((c) => c.tech)], visits, travel });
 
   const summary = (d: routing.RebalanceDay) => rebalanceSummary(day, d);
   const customer = (id: string) => visitById.get(id)?.customerName ?? "A visit";
@@ -1252,8 +1474,9 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
 
   const after = new Map(result.after.map((d) => [d.technicianId, d]));
   const before = new Map(result.before.map((d) => [d.technicianId, d]));
+  const changedOrder = (key: string) => after.get(key)!.evaluation.order.join() !== before.get(key)!.evaluation.order.join();
   const apply = techs
-    .filter((t) => after.get(t.technicianId)!.evaluation.order.join() !== before.get(t.technicianId)!.evaluation.order.join())
+    .filter((t) => changedOrder(t.technicianId))
     .map((t) => {
       const planned = new Set(after.get(t.technicianId)!.evaluation.order);
       const others = routeOf(day, t.technicianId)
@@ -1262,11 +1485,23 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
         .map((v) => v.id);
       return {
         technicianId: t.technicianId,
-        visitIds: [...keepFirst.get(t.technicianId)!, ...after.get(t.technicianId)!.evaluation.order, ...others],
+        visitIds: orderedFor(day.visits, t.technicianId,
+          [...keepFirst.get(t.technicianId)!, ...after.get(t.technicianId)!.evaluation.order, ...others]),
       };
     })
     .filter((a) => a.visitIds.length > 0);
+  /** A crew's day in its new order: its work under way first, then the plan, then anything the plan left where it was. */
+  const crewOrders = crewDays
+    .filter((c) => changedOrder(c.tech.technicianId))
+    .map((c) => {
+      const placed = new Set(after.get(c.tech.technicianId)!.evaluation.order);
+      const others = c.stops.filter((v) => !c.keep.includes(v.id) && !placed.has(v.id)
+        && !before.get(c.tech.technicianId)!.evaluation.order.includes(v.id)).map((v) => v.id);
+      return { crewId: c.crew.id, visitIds: [...c.keep, ...after.get(c.tech.technicianId)!.evaluation.order, ...others] };
+    })
+    .filter((o) => o.visitIds.length > 0);
 
+  const named = (key: string | null) => key ? nameOf.get(key) ?? null : null;
   return {
     date: day.date,
     basis: basisOf(day),
@@ -1281,17 +1516,32 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
       before: summary(before.get(t.id)!),
       after: summary(after.get(t.id)!),
     })),
-    moves: result.moves.map((m) => ({
-      visitId: m.visitId,
-      customerName: customer(m.visitId),
-      fromTechnicianId: m.from,
-      fromName: m.from ? nameOf.get(m.from) ?? null : null,
-      toTechnicianId: m.to,
-      toName: nameOf.get(m.to) ?? "",
+    /** Each planned crew's day as it is and as it would be. */
+    crews: crewDays.map((c) => ({
+      crewId: c.crew.id,
+      name: c.crew.name,
+      color: c.crew.color,
+      before: summary(before.get(c.tech.technicianId)!),
+      after: summary(after.get(c.tech.technicianId)!),
     })),
+    moves: result.moves.map((m) => {
+      const from = m.from ? holderOf(m.from) : { technicianId: null, crewId: null };
+      const to = holderOf(m.to);
+      return {
+        visitId: m.visitId,
+        customerName: customer(m.visitId),
+        fromTechnicianId: from.technicianId,
+        fromCrewId: from.crewId,
+        fromName: named(m.from),
+        toTechnicianId: to.technicianId,
+        toCrewId: to.crewId,
+        toName: named(m.to) ?? "",
+      };
+    }),
     unplaced: result.unplaced.map((u) => ({ visitId: u.visitId, customerName: customer(u.visitId), reason: why(u) })),
     leftOut,
-    /** Not planned at all: not on the map, a crew's, or several people's. Left where they are. */
+    crewsLeftOut,
+    /** Not planned at all: not on the map, a crew's that is not planned, or several people's when one of them is not planned. Left where they are. */
     untouched: day.visits
       .filter((v) => !(NOT_STOPS as readonly string[]).includes(v.status) && !candidates.includes(v)
         && !(UNDER_WAY as readonly string[]).includes(v.status) && !(FINISHED as readonly string[]).includes(v.status))
@@ -1302,12 +1552,13 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
     overtimeBeforeMinutes: result.overtimeBefore,
     overtimeAfterMinutes: result.overtimeAfter,
     newlyAssigned: result.moves.filter((m) => m.from === null).length,
-    moveAssignments: result.moves.map((m) => ({ visitId: m.visitId, technicianId: m.to })),
+    moveAssignments: result.moves.map((m) => ({ visitId: m.visitId, ...holderFor(m.to) })),
     visits: candidates.map((v) => ({
       visitId: v.id, customerName: v.customerName, locked: v.locked,
       windowStart: iso(v.windowStart), windowEnd: iso(v.windowEnd),
     })),
     apply,
+    crewOrders,
     workday: day.workday,
     ...sourceOf(matrix),
   };
@@ -1319,13 +1570,17 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
  * Through the same assignment and reorder a drag uses, inside one
  * transaction, so the qualification check refuses here exactly as it would
  * on the board and a refusal leaves the day as it was rather than half
- * moved. Refused when the board has changed since the proposal was made.
+ * moved. A move to a crew goes through the crew's own assignment, the
+ * check a drag onto a crew makes, which refuses in words a crew without
+ * the kit or the people. Refused when the board has changed since the
+ * proposal was made.
  */
 export async function applyRebalance(ctx: ServiceContext, input: {
   date: string;
   basis: string;
-  moves: { visitId: string; technicianId: string }[];
+  moves: { visitId: string; technicianId?: string | undefined; crewId?: string | undefined }[];
   orders: { technicianId: string; visitIds: string[] }[];
+  crewOrders?: { crewId: string; visitIds: string[] }[] | undefined;
 }) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
     assertCan(ctx.actor, "visit:reschedule");
@@ -1339,18 +1594,24 @@ export async function applyRebalance(ctx: ServiceContext, input: {
     const inner: ServiceContext = { ...ctx, db: tx };
     delete inner.idempotencyKey;
     for (const move of input.moves) {
+      if (Boolean(move.technicianId) === Boolean(move.crewId)) throw new ConflictError("Each move goes to one person or one crew.");
       const visit = day.visits.find((v) => v.id === move.visitId);
       if (!visit) throw new NotFoundError("Visit");
       if (visit.locked) throw new ConflictError(`${visit.customerName}'s visit is locked, so it is not moved.`);
-      await dispatch.assign(inner, { id: move.visitId, technicianIds: [move.technicianId] });
+      if (move.crewId) await assignCrew(inner, { id: move.visitId, crewId: move.crewId });
+      else await dispatch.assign(inner, { id: move.visitId, technicianIds: [move.technicianId!] });
     }
     for (const order of input.orders) {
       if (order.visitIds.length === 0) continue;
       await dispatch.reorder(inner, { technicianId: order.technicianId, date: input.date, visitIds: order.visitIds });
     }
-    const answer = { ok: true as const, moved: input.moves.length, reordered: input.orders.length };
+    for (const order of input.crewOrders ?? []) {
+      if (order.visitIds.length === 0) continue;
+      await setCrewOrder(tx, day.zone, { date: input.date, crewId: order.crewId, visitIds: order.visitIds });
+    }
+    const answer = { ok: true as const, moved: input.moves.length, reordered: input.orders.length + (input.crewOrders?.length ?? 0) };
     await audit(tx, ctx, "dispatch.rebalanced", "organization", ctx.actor.organizationId, { basis: input.basis },
-      { date: input.date, moves: input.moves, orders: input.orders.map((o) => o.technicianId) });
+      { date: input.date, moves: input.moves, orders: input.orders.map((o) => o.technicianId), crewOrders: (input.crewOrders ?? []).map((o) => o.crewId) });
     await remember(tx, ctx, "dispatch_rebalance", null, answer);
     return answer;
   });
@@ -1543,8 +1804,9 @@ export const handlers = {
   }),
   getRebalance: (ctx: ServiceContext, input: { date: string }) => rebalance(ctx, input),
   applyRebalance: (ctx: ServiceContext, input: {
-    date: string; basis: string; moves: { visitId: string; technicianId: string }[];
+    date: string; basis: string; moves: { visitId: string; technicianId?: string | undefined; crewId?: string | undefined }[];
     orders: { technicianId: string; visitIds: string[] }[];
+    crewOrders?: { crewId: string; visitIds: string[] }[] | undefined;
   }) => applyRebalance(ctx, input),
   lockVisit: (ctx: ServiceContext, input: { id: string; locked: boolean }) => lockVisit(ctx, input),
 } as const;

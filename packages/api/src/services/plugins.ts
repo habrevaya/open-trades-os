@@ -11,7 +11,7 @@ import {
 import { definitionsWithin } from "./custom-fields";
 import { jobScopeFilter } from "./scope";
 import { weekOf } from "./after-hours";
-import { loadHolidays } from "./holidays";
+import { holidaysForJob } from "./holidays";
 import { catalogueFor } from "./report-company";
 import { available as availableDatasets } from "./reports";
 import { remember, replayed } from "./once";
@@ -744,7 +744,7 @@ async function ruleFactsWithin(
       const date = time.dateIn(visit.windowStart, zone);
       const minute = time.minutesInDay(visit.windowStart, zone);
       const outsideHours = active.some((r) => r.rule.window === "outside_hours")
-        ? holidayRules.bookedAt({ week: await weekOf(tx), holidays: await loadHolidays(tx, organizationId), date, minute }).outsideHours
+        ? holidayRules.bookedAt({ week: await weekOf(tx), holidays: await holidaysForJob(tx, organizationId, sale.jobId), date, minute }).outsideHours
         : false;
       work = { dayOfWeek: new Date(`${date}T00:00:00Z`).getUTCDay(), minute, outsideHours };
     }

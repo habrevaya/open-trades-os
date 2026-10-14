@@ -208,3 +208,36 @@ describe("a locked stop in one technician's order", () => {
     expect(pinned.proposed.order[0]).toBe("a");
   });
 });
+
+describe("a visit with several people on it", () => {
+  /**
+   * Ray and Dana are both on e1, on the east side. Ray starts in the west
+   * yard, so e1 costs him a long drive, and Lee in the east yard is free.
+   * Handing it to Lee would save driving, and would also split a team the
+   * office put together: it stays with both of them, counted on both days.
+   */
+  const grid: Grid = { west: [0, 0], east: [100, 0], w1: [10, 0], e1: [90, 0], e2: [95, 0] };
+  const tech = (technicianId: string, start: string, order: string[]): routing.RebalanceTechnician => ({
+    technicianId, start, end: start, departAt: 0, shift: shift(), order,
+  });
+  const everybody = { ray: null, dana: null, lee: null };
+
+  it("is counted on every member's day and handed to nobody else", () => {
+    const result = routing.rebalance({
+      technicians: [tech("ray", "west", ["w1", "e1"]), tech("dana", "east", ["e1"]), tech("lee", "east", ["e2"])],
+      visits: [
+        { stop: stop("w1"), locked: false, refusals: everybody },
+        { stop: stop("e1"), locked: false, refusals: everybody, team: ["ray", "dana"] },
+        { stop: stop("e2"), locked: false, refusals: everybody },
+      ],
+      travel: manhattan(grid),
+    });
+    expect(result.moves.map((m) => m.visitId)).not.toContain("e1");
+    const after = (id: string) => result.after.find((d) => d.technicianId === id)!.evaluation;
+    expect(after("ray").order).toContain("e1");
+    expect(after("dana").order).toContain("e1");
+    /** Ray's day is driven out to the east side and back because of it: 180 minutes, not the 20 of w1 alone. */
+    expect(after("ray").driveMinutes).toBe(180);
+    expect(result.unplaced).toEqual([]);
+  });
+});

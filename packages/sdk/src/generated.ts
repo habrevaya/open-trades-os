@@ -773,6 +773,7 @@ export interface ApplyMultiDayRebalanceInput {
     visitId: string;
     toDate: string;
     technicianId?: string;
+    technicianIds?: string[];
     crewId?: string;
   }>;
   moves: Array<{
@@ -877,10 +878,15 @@ export interface ApplyRebalanceInput {
   basis: string;
   moves: Array<{
     visitId: string;
-    technicianId: string;
+    technicianId?: string;
+    crewId?: string;
   }>;
   orders: Array<{
     technicianId: string;
+    visitIds: string[];
+  }>;
+  crewOrders?: Array<{
+    crewId: string;
     visitIds: string[];
   }>;
 }
@@ -3210,8 +3216,15 @@ export interface CreateEstimateOutput {
 
 export interface CreateHolidayInput {
   name: string;
-  date: string;
+  date?: string;
   repeatsYearly?: boolean;
+  rule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed?: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId?: string | null;
   closed: boolean;
   opensAt?: string | null;
   closesAt?: string | null;
@@ -3222,6 +3235,15 @@ export interface CreateHolidayOutput {
   name: string;
   date: string;
   repeatsYearly: boolean;
+  rule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId: string | null;
+  branchName: string | null;
+  when: string;
   closed: boolean;
   opensAt: string | null;
   closesAt: string | null;
@@ -4564,6 +4586,10 @@ export interface CreateTruckKindInput {
   name: string;
   containersCarried: number;
   containerSizes?: number[];
+  capacityBySize?: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes: number;
   notes?: string | null;
 }
@@ -4573,6 +4599,10 @@ export interface CreateTruckKindOutput {
   name: string;
   containersCarried: number;
   containerSizes: number[];
+  capacityBySize: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes: number;
   notes: string | null;
   trucks: Array<{
@@ -9291,6 +9321,7 @@ export interface GetMultiDayRebalanceOutput {
     fromCrewId: string | null;
     fromName: string | null;
     toTechnicianId: string | null;
+    toTechnicianIds: string[];
     toCrewId: string | null;
     toName: string;
     windowStart: string;
@@ -9411,6 +9442,7 @@ export interface GetMultiDayRebalanceOutput {
     locked: boolean;
     windowStart: string | null;
     windowEnd: string | null;
+    team: string[];
   }>;
   driveBeforeMinutes: number;
   driveAfterMinutes: number;
@@ -9421,6 +9453,7 @@ export interface GetMultiDayRebalanceOutput {
       visitId: string;
       toDate: string;
       technicianId?: string;
+      technicianIds?: string[];
       crewId?: string;
     }>;
     moves: Array<{
@@ -10680,12 +10713,47 @@ export interface GetRebalanceOutput {
       refused: string[];
     };
   }>;
+  crews: Array<{
+    crewId: string;
+    name: string;
+    color: string | null;
+    before: {
+      order: string[];
+      driveMinutes: number;
+      finishAt: string;
+      overtimeMinutes: number;
+      overLimitMinutes: number;
+      lunchAt: string | null;
+      lunchLateMinutes: number;
+      late: Array<{
+        visitId: string;
+        lateByMinutes: number;
+      }>;
+      refused: string[];
+    };
+    after: {
+      order: string[];
+      driveMinutes: number;
+      finishAt: string;
+      overtimeMinutes: number;
+      overLimitMinutes: number;
+      lunchAt: string | null;
+      lunchLateMinutes: number;
+      late: Array<{
+        visitId: string;
+        lateByMinutes: number;
+      }>;
+      refused: string[];
+    };
+  }>;
   moves: Array<{
     visitId: string;
     customerName: string;
     fromTechnicianId: string | null;
+    fromCrewId: string | null;
     fromName: string | null;
-    toTechnicianId: string;
+    toTechnicianId: string | null;
+    toCrewId: string | null;
     toName: string;
   }>;
   unplaced: Array<{
@@ -10696,6 +10764,11 @@ export interface GetRebalanceOutput {
   leftOut: Array<{
     technicianId: string;
     displayName: string;
+    reason: string;
+  }>;
+  crewsLeftOut: Array<{
+    crewId: string;
+    name: string;
     reason: string;
   }>;
   untouched: string[];
@@ -10714,10 +10787,15 @@ export interface GetRebalanceOutput {
   }>;
   moveAssignments: Array<{
     visitId: string;
-    technicianId: string;
+    technicianId?: string;
+    crewId?: string;
   }>;
   apply: Array<{
     technicianId: string;
+    visitIds: string[];
+  }>;
+  crewOrders: Array<{
+    crewId: string;
     visitIds: string[];
   }>;
   workday: {
@@ -10938,6 +11016,10 @@ export interface GetRouteProposalOutput {
     truckLabel: string | null;
     kindName: string | null;
     sizes: number[];
+    capacityBySize: Array<{
+      size: number;
+      carried: number;
+    }>;
     notCarried: string[];
     facility: {
       id: string;
@@ -13934,6 +14016,15 @@ export interface ListHolidaysOutput {
     name: string;
     date: string;
     repeatsYearly: boolean;
+    rule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+    businessUnitId: string | null;
+    branchName: string | null;
+    when: string;
     closed: boolean;
     opensAt: string | null;
     closesAt: string | null;
@@ -16532,6 +16623,10 @@ export interface ListTruckKindsOutput {
     name: string;
     containersCarried: number;
     containerSizes: number[];
+    capacityBySize: Array<{
+      size: number;
+      carried: number;
+    }>;
     yardMinutes: number;
     notes: string | null;
     trucks: Array<{
@@ -25244,8 +25339,15 @@ export interface UpdateEquipmentOutput {
 
 export interface UpdateHolidayInput {
   name: string;
-  date: string;
+  date?: string;
   repeatsYearly?: boolean;
+  rule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed?: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId?: string | null;
   closed: boolean;
   opensAt?: string | null;
   closesAt?: string | null;
@@ -25256,6 +25358,15 @@ export interface UpdateHolidayOutput {
   name: string;
   date: string;
   repeatsYearly: boolean;
+  rule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId: string | null;
+  branchName: string | null;
+  when: string;
   closed: boolean;
   opensAt: string | null;
   closesAt: string | null;
@@ -26349,6 +26460,10 @@ export interface UpdateTruckKindInput {
   name?: string;
   containersCarried?: number;
   containerSizes?: number[];
+  capacityBySize?: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes?: number;
   notes?: string | null;
 }
@@ -26358,6 +26473,10 @@ export interface UpdateTruckKindOutput {
   name: string;
   containersCarried: number;
   containerSizes: number[];
+  capacityBySize: Array<{
+    size: number;
+    carried: number;
+  }>;
   yardMinutes: number;
   notes: string | null;
   trucks: Array<{

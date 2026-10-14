@@ -154,6 +154,21 @@ export interface OpenSlot {
  * re-checking a request's own slot when it is approved does not find it full
  * of itself.
  */
+/**
+ * The branch a booking's job will be in: the service's, then its job type's,
+ * the order a booked job takes them in. Its holidays are read beside the
+ * company's, so a branch closed for its own day is not offered then.
+ */
+async function bookingBranch(
+  db: Database, service: { organizationId: string; businessUnitId: string | null; jobTypeId: string },
+): Promise<string | null> {
+  if (service.businessUnitId) return service.businessUnitId;
+  /** The organization said, as `loadHolidays` says it, because the public page reads this with no tenant. */
+  const [type] = await db.select({ branchId: schema.jobType.businessUnitId }).from(schema.jobType)
+    .where(and(eq(schema.jobType.id, service.jobTypeId), eq(schema.jobType.organizationId, service.organizationId))).limit(1);
+  return type?.branchId ?? null;
+}
+
 export async function openSlots(db: Database, input: {
   organizationId: string;
   timezone: string;
@@ -192,9 +207,10 @@ export async function openSlots(db: Database, input: {
    * The company's holiday list. On a date in it, its hours replace the
    * week's: a closed date offers nothing, and a short day offers only the
    * windows that fit inside its hours, so Christmas Eve until noon is not
-   * offered an afternoon arrival.
+   * offered an afternoon arrival. The branch the booking's job will be in
+   * reads its own holidays beside the company's.
    */
-  const holidayList = await loadHolidays(db, org.id);
+  const holidayList = await loadHolidays(db, org.id, await bookingBranch(db, service));
 
   // The service's own ceiling wins over whatever the caller asked for, so a
   // client cannot widen the calendar past what the company opened.
@@ -1152,7 +1168,7 @@ export async function createRequest(
      * page offered it before the list changed, and a request for Christmas
      * Day is a customer waiting for somebody who is not coming.
      */
-    const holiday = holidayRules.holidayOn(await loadHolidays(tx, org.id), input.requestedDate);
+    const holiday = holidayRules.holidayOn(await loadHolidays(tx, org.id, await bookingBranch(tx, service)), input.requestedDate);
     if (holiday) {
       const [window] = await tx.select().from(schema.arrivalWindow)
         .where(and(eq(schema.arrivalWindow.id, input.arrivalWindowId), eq(schema.arrivalWindow.organizationId, org.id)))
