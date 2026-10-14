@@ -1668,7 +1668,7 @@ export interface CampaignRecipientsOutput {
     customerId: string;
     customerName: string | null;
     address: string;
-    variant: "a" | "b";
+    variant: "a" | "b" | "c" | "d";
     state: "pending" | "queued" | "skipped";
     skipReason: string | null;
     skipExplanation: string | null;
@@ -1689,6 +1689,13 @@ export interface CampaignResultsOutput {
     body: string;
     variantBBody: string | null;
     variantBSubject: string | null;
+    variantCBody: string | null;
+    variantCSubject: string | null;
+    variantDBody: string | null;
+    variantDSubject: string | null;
+    variantShares: number[] | null;
+    versions: number;
+    splitInWords: string | null;
     abTest: boolean;
     utmCampaign: string;
     messagingCampaignId: string | null;
@@ -1712,7 +1719,8 @@ export interface CampaignResultsOutput {
   revenue: string;
   abTest: {
     versions: Array<{
-      version: "a" | "b";
+      version: "a" | "b" | "c" | "d";
+      share: number;
       label: string;
       selected: number;
       sent: number;
@@ -1728,13 +1736,14 @@ export interface CampaignResultsOutput {
     measures: Array<{
       measure: "clicks" | "replies" | "booked";
       label: string;
+      against: "b" | "c" | "d";
       verdict: "no_data" | "too_few" | "no_clear_difference" | "a_higher" | "b_higher";
       rateA: string | null;
       rateB: string | null;
       pValue: number | null;
       sentence: string;
     }>;
-    winner: "a" | "b" | null;
+    winner: "a" | "b" | "c" | "d" | null;
     headline: string;
   } | null;
 }
@@ -1794,6 +1803,13 @@ export interface CancelCampaignOutput {
   body: string;
   variantBBody: string | null;
   variantBSubject: string | null;
+  variantCBody: string | null;
+  variantCSubject: string | null;
+  variantDBody: string | null;
+  variantDSubject: string | null;
+  variantShares: number[] | null;
+  versions: number;
+  splitInWords: string | null;
   abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
@@ -2090,6 +2106,7 @@ export interface ConfigureAgentInput {
       publicPriceItemIds: string[];
       web: boolean;
       text: boolean;
+      portal?: boolean;
     };
     intake: {
       texts: boolean;
@@ -2138,6 +2155,7 @@ export interface ConfigureAgentOutput {
       publicPriceItemIds: string[];
       web: boolean;
       text: boolean;
+      portal?: boolean;
     };
     intake: {
       texts: boolean;
@@ -2782,6 +2800,11 @@ export interface CreateCampaignInput {
   templateCode?: string;
   variantBBody?: string;
   variantBSubject?: string | null;
+  variantCBody?: string;
+  variantCSubject?: string | null;
+  variantDBody?: string;
+  variantDSubject?: string | null;
+  variantShares?: number[] | null;
   utmCampaign?: string;
   messagingCampaignId?: string | null;
 }
@@ -2797,6 +2820,13 @@ export interface CreateCampaignOutput {
   body: string;
   variantBBody: string | null;
   variantBSubject: string | null;
+  variantCBody: string | null;
+  variantCSubject: string | null;
+  variantDBody: string | null;
+  variantDSubject: string | null;
+  variantShares: number[] | null;
+  versions: number;
+  splitInWords: string | null;
   abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
@@ -6817,6 +6847,13 @@ export interface GetCampaignOutput {
   body: string;
   variantBBody: string | null;
   variantBSubject: string | null;
+  variantCBody: string | null;
+  variantCSubject: string | null;
+  variantDBody: string | null;
+  variantDSubject: string | null;
+  variantShares: number[] | null;
+  versions: number;
+  splitInWords: string | null;
   abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
@@ -8424,7 +8461,7 @@ export interface GetFormOutput {
   fields: Array<{
     key: string;
     label: string;
-    type: "text" | "long_text" | "email" | "phone" | "service_address" | "choice" | "multi_choice" | "number" | "date" | "consent" | "hidden" | "honeypot";
+    type: "text" | "long_text" | "email" | "phone" | "service_address" | "choice" | "multi_choice" | "number" | "date" | "consent" | "hidden" | "honeypot" | "file";
     required: boolean;
     help?: string;
     rules?: Array<{
@@ -8451,6 +8488,7 @@ export interface GetFormOutput {
       channel: "sms" | "email";
       purpose: "marketing" | "transactional";
     };
+    page?: number;
   }>;
   minimumFillSeconds: number | null;
   settings: {
@@ -8459,6 +8497,9 @@ export interface GetFormOutput {
     confirmationEmailSubject?: string;
     confirmationEmailBody?: string;
   };
+  pages: Array<{
+    title: string;
+  }>;
 }
 
 export interface GetFormRefusalsOutput {
@@ -8490,7 +8531,7 @@ export interface GetHostedFormOutput {
   fields: Array<{
     key: string;
     label: string;
-    type: "text" | "long_text" | "email" | "phone" | "service_address" | "choice" | "multi_choice" | "number" | "date" | "consent" | "hidden" | "honeypot";
+    type: "text" | "long_text" | "email" | "phone" | "service_address" | "choice" | "multi_choice" | "number" | "date" | "consent" | "hidden" | "honeypot" | "file";
     required: boolean;
     help?: string;
     rules?: Array<{
@@ -8517,8 +8558,18 @@ export interface GetHostedFormOutput {
       channel: "sms" | "email";
       purpose: "marketing" | "transactional";
     };
+    page?: number;
   }>;
   thankYou: string | null;
+  pages: Array<{
+    title: string;
+  }>;
+  uploads: {
+    maxFiles: number;
+    maxFileMegabytes: number;
+    maxTotalMegabytes: number;
+    types: string[];
+  };
 }
 
 export interface GetImportOutput {
@@ -10298,6 +10349,18 @@ export interface GetPortalBookingOptionsOutput {
   technicians: Array<{
     id: string;
     name: string;
+  }>;
+}
+
+export interface GetPortalChatOutput {
+  assistant: boolean;
+  status: "open" | "handed_off" | "closed" | null;
+  bookingTaken: boolean;
+  messages: Array<{
+    id: string;
+    from: "visitor" | "assistant" | "person";
+    text: string;
+    at: string;
   }>;
 }
 
@@ -12533,6 +12596,7 @@ export interface ListAgentsOutput {
         publicPriceItemIds: string[];
         web: boolean;
         text: boolean;
+        portal?: boolean;
       };
       intake: {
         texts: boolean;
@@ -13051,6 +13115,13 @@ export interface ListCampaignsOutput {
     body: string;
     variantBBody: string | null;
     variantBSubject: string | null;
+    variantCBody: string | null;
+    variantCSubject: string | null;
+    variantDBody: string | null;
+    variantDSubject: string | null;
+    variantShares: number[] | null;
+    versions: number;
+    splitInWords: string | null;
     abTest: boolean;
     utmCampaign: string;
     messagingCampaignId: string | null;
@@ -18408,6 +18479,12 @@ export interface PreviewCampaignOutput {
     body: string;
     subject: string | null;
   } | null;
+  renderedVersions: Array<{
+    version: "b" | "c" | "d";
+    for: string | null;
+    body: string;
+    subject: string | null;
+  }>;
   count: number;
   overflow: boolean;
   inWords: string;
@@ -22012,7 +22089,7 @@ export interface SaveFormInput {
   fields: Array<{
     key: string;
     label: string;
-    type: "text" | "long_text" | "email" | "phone" | "service_address" | "choice" | "multi_choice" | "number" | "date" | "consent" | "hidden" | "honeypot";
+    type: "text" | "long_text" | "email" | "phone" | "service_address" | "choice" | "multi_choice" | "number" | "date" | "consent" | "hidden" | "honeypot" | "file";
     required: boolean;
     help?: string;
     rules?: Array<{
@@ -22039,6 +22116,7 @@ export interface SaveFormInput {
       channel: "sms" | "email";
       purpose: "marketing" | "transactional";
     };
+    page?: number;
   }>;
   minimumFillSeconds?: number;
   settings?: {
@@ -22047,6 +22125,9 @@ export interface SaveFormInput {
     confirmationEmailSubject?: string;
     confirmationEmailBody?: string;
   };
+  pages?: Array<{
+    title: string;
+  }>;
 }
 
 export interface SaveFormOutput {
@@ -22065,6 +22146,23 @@ export interface SayInChatInput {
 
 export interface SayInChatOutput {
   status: "open" | "handed_off" | "closed";
+  bookingTaken: boolean;
+  messages: Array<{
+    id: string;
+    from: "visitor" | "assistant" | "person";
+    text: string;
+    at: string;
+  }>;
+}
+
+export interface SayInPortalChatInput {
+  token: string;
+  text: string;
+}
+
+export interface SayInPortalChatOutput {
+  assistant: boolean;
+  status: "open" | "handed_off" | "closed" | null;
   bookingTaken: boolean;
   messages: Array<{
     id: string;
@@ -24593,6 +24691,12 @@ export interface SubmitFormInput {
   visitorId?: string;
   landingQuery?: string;
   referrer?: string;
+  files?: Array<{
+    field: string;
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  }>;
 }
 
 export interface SubmitFormOutput {
@@ -25409,6 +25513,11 @@ export interface UpdateCampaignInput {
   subject?: string | null;
   variantBBody?: string | null;
   variantBSubject?: string | null;
+  variantCBody?: string | null;
+  variantCSubject?: string | null;
+  variantDBody?: string | null;
+  variantDSubject?: string | null;
+  variantShares?: number[] | null;
   scheduledFor?: string | null;
   messagingCampaignId?: string | null;
 }
@@ -25424,6 +25533,13 @@ export interface UpdateCampaignOutput {
   body: string;
   variantBBody: string | null;
   variantBSubject: string | null;
+  variantCBody: string | null;
+  variantCSubject: string | null;
+  variantDBody: string | null;
+  variantDSubject: string | null;
+  variantShares: number[] | null;
+  versions: number;
+  splitInWords: string | null;
   abTest: boolean;
   utmCampaign: string;
   messagingCampaignId: string | null;
@@ -29018,6 +29134,11 @@ export interface GetPortalBookingOptionsInput {
   token: string;
 }
 
+export interface GetPortalChatInput {
+  token: string;
+  after?: string;
+}
+
 export interface GetPortalJobLiveInput {
   token: string;
 }
@@ -31949,6 +32070,7 @@ export interface OperationTypes {
   getPlanPortalLayout: { input: GetPlanPortalLayoutInput; output: GetPlanPortalLayoutOutput };
   getPortalBookingAvailability: { input: GetPortalBookingAvailabilityInput; output: GetPortalBookingAvailabilityOutput };
   getPortalBookingOptions: { input: GetPortalBookingOptionsInput; output: GetPortalBookingOptionsOutput };
+  getPortalChat: { input: GetPortalChatInput; output: GetPortalChatOutput };
   getPortalJobLive: { input: GetPortalJobLiveInput; output: GetPortalJobLiveOutput };
   getPortalLayout: { input: GetPortalLayoutInput; output: GetPortalLayoutOutput };
   getPortalSettings: { input: GetPortalSettingsInput; output: GetPortalSettingsOutput };
@@ -32489,6 +32611,7 @@ export interface OperationTypes {
   satisfyObligation: { input: SatisfyObligationParams & SatisfyObligationInput; output: SatisfyObligationOutput };
   saveForm: { input: SaveFormParams & SaveFormInput; output: SaveFormOutput };
   sayInChat: { input: SayInChatInput; output: SayInChatOutput };
+  sayInPortalChat: { input: SayInPortalChatInput; output: SayInPortalChatOutput };
   scheduleOnCall: { input: ScheduleOnCallInput; output: ScheduleOnCallOutput };
   scheduleRentalCollections: { input: ScheduleRentalCollectionsInput; output: ScheduleRentalCollectionsOutput };
   scheduleVisit: { input: ScheduleVisitParams & ScheduleVisitInput; output: ScheduleVisitOutput };
@@ -33093,6 +33216,7 @@ export const OPERATIONS = {
   getPlanPortalLayout: { method: "GET", path: "/v1/agreement-plans/{id}/portal-layout", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalBookingAvailability: { method: "GET", path: "/v1/portal/booking/availability", pathParams: [], queryParams: ["token","bookableServiceId","from","days","technicianId","propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalBookingOptions: { method: "GET", path: "/v1/portal/booking", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  getPortalChat: { method: "GET", path: "/v1/portal/chat", pathParams: [], queryParams: ["token","after"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalJobLive: { method: "GET", path: "/v1/portal/job/live", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalLayout: { method: "GET", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalSettings: { method: "GET", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -33633,6 +33757,7 @@ export const OPERATIONS = {
   satisfyObligation: { method: "POST", path: "/v1/obligations/{id}/satisfy", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   saveForm: { method: "PUT", path: "/v1/marketing/forms/{slug}", pathParams: ["slug"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   sayInChat: { method: "POST", path: "/v1/public/chat/messages", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  sayInPortalChat: { method: "POST", path: "/v1/portal/chat/messages", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   scheduleOnCall: { method: "POST", path: "/v1/on-call/rotations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   scheduleRentalCollections: { method: "POST", path: "/v1/rental-collections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write","job:write"] },
   scheduleVisit: { method: "POST", path: "/v1/jobs/{id}/visits", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
@@ -37119,6 +37244,15 @@ export abstract class GeneratedOperations {
    */
   getPortalBookingOptions(input: GetPortalBookingOptionsInput, options?: CallOptions): Promise<GetPortalBookingOptionsOutput> {
     return this.call("getPortalBookingOptions", input, options);
+  }
+
+  /**
+   * The signed in customer's chat with the company.
+   *
+   * GET /v1/portal/chat.
+   */
+  getPortalChat(input: GetPortalChatInput, options?: CallOptions): Promise<GetPortalChatOutput> {
+    return this.call("getPortalChat", input, options);
   }
 
   /**
@@ -41979,6 +42113,15 @@ export abstract class GeneratedOperations {
    */
   sayInChat(input: SayInChatInput, options?: CallOptions): Promise<SayInChatOutput> {
     return this.call("sayInChat", input, options);
+  }
+
+  /**
+   * Write to the company from the customer's account.
+   *
+   * POST /v1/portal/chat/messages.
+   */
+  sayInPortalChat(input: SayInPortalChatInput, options?: CallOptions): Promise<SayInPortalChatOutput> {
+    return this.call("sayInPortalChat", input, options);
   }
 
   /**
