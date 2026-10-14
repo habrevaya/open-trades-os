@@ -25,9 +25,10 @@ test("Dashboards: a tile is broken down by its report's second grouping, and a p
   await owner.getByRole("button", { name: "Create it" }).click();
   await expect(owner).toHaveURL(/\/dashboards\/saved\//);
 
-  await owner.getByLabel("Show").selectOption({ label: "Visits by technician" });
-  await owner.getByLabel("As").selectOption("bars");
-  await owner.getByLabel("Broken down").selectOption("stacked");
+  // Each label wraps its select, so its name carries the options' words too: picked by field name.
+  await owner.locator('select[name="report"]').selectOption({ label: "Visits by technician" });
+  await owner.locator('select[name="kind"]').selectOption("bars");
+  await owner.locator('select[name="breakdown"]').selectOption("stacked");
   await owner.getByRole("button", { name: "Add it" }).click();
 
   const tile = owner.locator("section", { has: owner.getByRole("heading", { name: "Visits by technician" }) });
