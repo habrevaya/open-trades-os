@@ -167,11 +167,12 @@ run("giving the customer longer", () => {
     const { id } = await sentEstimate(plus(1));
     await raw`update public.portal_grant set expires_at = now() + interval '60 days'
       where scope = 'estimate' and subject_id = ${id}`;
-    const [{ expires_at: was }] = await raw<{ expires_at: Date }[]>`select expires_at from public.portal_grant
+    const [link] = await raw<{ expires_at: Date }[]>`select expires_at from public.portal_grant
       where scope = 'estimate' and subject_id = ${id}`;
+    const was = link!.expires_at;
     const given = await expiry.extend(owner(), { id, expiresOn: plus(7), reason: "Waiting on their insurer." });
     expect(given.status).toBe("sent");
-    expect(given.linkExpiresAt).toBe(was!.toISOString());
+    expect(given.linkExpiresAt).toBe(was.toISOString());
   });
 
   it("says when there is no live link to give them, and never revives a withdrawn one", async () => {

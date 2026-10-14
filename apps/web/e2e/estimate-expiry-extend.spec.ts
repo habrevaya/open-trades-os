@@ -44,7 +44,7 @@ test("the office gives a customer longer to answer an expired estimate, and noth
   await owner.getByRole("button", { name: "Move the date" }).click();
   await expect(owner.getByRole("status").filter({ hasText: "The link they were sent works until then." })).toBeVisible();
   await owner.reload();
-  await expect(owner.getByText("Sent", { exact: true })).toBeVisible();
+  await expect(owner.getByText("Sent", { exact: true }).first()).toBeVisible();
   await expect(owner.getByText("Expired", { exact: true })).toHaveCount(0);
   await expect(owner.getByText("$1,450.00").first()).toBeVisible();
 

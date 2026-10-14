@@ -199,9 +199,13 @@ export async function add(db: Database, input: AddFileInput, _meta?: RequestMeta
   const bytes = decode(input.bytes);
 
   return inGrant(db, session.grant, async (tx, ctx) => {
+    /**
+     * Locked, so two files sent at the same moment are counted one after the
+     * other: the limit on one job is ten, not ten each.
+     */
     const [job] = await tx.select().from(schema.job)
       .where(and(eq(schema.job.id, input.jobId), eq(schema.job.customerId, session.customerId), isNull(schema.job.deletedAt)))
-      .limit(1);
+      .limit(1).for("update");
     if (!job) throw new NotFoundError("Job");
     if (job.status === "cancelled") {
       throw new ConflictError("That job was cancelled, so nothing can be added to it. Call us if the work is still needed.");
