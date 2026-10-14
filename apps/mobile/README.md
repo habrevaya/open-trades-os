@@ -14,7 +14,8 @@ the price book on the phone, the member's price shown as it will be charged),
 the customer's screen (choose, tick extras, sign on the glass), the invoice
 (the option signed for or the work recorded, signed for), cash or a check
 with a tip, a card or financing link, a cash tip kept, the office's tasks and
-the field assistant. All of it but the links and the assistant goes through
+the field assistant, whose answer appears a sentence at a time as it is
+written. All of it but the links and the assistant goes through
 the same queue as the rest of the day, so it works with no signal.
 `docs/modules/m11-mobile-field-app.md` has the rules.
 

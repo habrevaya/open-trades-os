@@ -15,6 +15,12 @@ import type { Navigate } from "../shell/App";
  * visits, a part's price, how this company does a job. It says where the
  * answer came from, and says so when the records do not answer it. It needs
  * a signal, because it asks a model; nothing is queued.
+ *
+ * The answer appears as it is written, a finished sentence at a time, under
+ * "Still writing...". The server checks each sentence before sending it, so a
+ * price that is not in the records never shows. Once the whole answer has
+ * been checked it takes the place of what was shown, and it can say the
+ * answer cannot be shown.
  */
 const EXAMPLES = [
   "When was this unit last serviced?",
@@ -30,13 +36,17 @@ export function AssistantScreen({ visitId, nav }: { visitId: string | null; nav:
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState<AssistantAnswer | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [writing, setWriting] = useState<string | null>(null);
 
   const ask = async () => {
     if (question.trim().length < 3) return;
     setAsking(true);
     setProblem(null);
-    const reply = await field.ask(question.trim(), visit?.id ?? null);
+    setAnswer(null);
+    setWriting(null);
+    const reply = await field.ask(question.trim(), visit?.id ?? null, setWriting);
     setAsking(false);
+    setWriting(null);
     if ("problem" in reply) { setProblem(reply.problem); setAnswer(null); return; }
     setAnswer(reply);
   };
@@ -51,12 +61,18 @@ export function AssistantScreen({ visitId, nav }: { visitId: string | null; nav:
         <TextInput value={question} onChangeText={setQuestion} placeholder={EXAMPLES[0]} placeholderTextColor={color.inkFaint}
                    style={styles.input} multiline accessibilityLabel="Your question" />
         <Button label="Ask" busy={asking} disabled={question.trim().length < 3} onPress={() => void ask()} />
-        {!answer && !problem ? (
+        {!answer && !problem && !writing ? (
           <View style={{ marginTop: space.md }}>
             {EXAMPLES.map((example) => (
               <Button key={example} label={example} kind="secondary" onPress={() => setQuestion(example)} />
             ))}
           </View>
+        ) : null}
+        {writing ? (
+          <Card>
+            <Text style={type.body}>{writing}</Text>
+            <Text style={[type.soft, { marginTop: space.sm }]}>Still writing...</Text>
+          </Card>
         ) : null}
         {problem ? <Notice tone="red">{problem}</Notice> : null}
         {answer ? (

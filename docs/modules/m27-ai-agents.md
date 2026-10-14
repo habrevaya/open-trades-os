@@ -300,8 +300,9 @@ Only the whole answer is kept. `POST /v1/ai/field-assistant` does the same for
 a caller that sends `Accept: text/event-stream`: Server-Sent Events, `writing`
 with the answer so far and then `answer` with the JSON the route otherwise
 answers, from the same service with the same permission and limits (M26 says how
-to read them). Without that header it answers whole, as before. The phone app
-(M11) gets the whole answer at once.
+to read them). Without that header it answers whole, as before. The phone app (M11) asks for
+events and shows the answer as it is written under "Still writing...", as
+`/my-day` does.
 
 The how-to notes are written on `/settings/agents/notes`
 (`knowledge:write`, which the office manager preset holds), each a job with
@@ -427,15 +428,16 @@ model by matching the words of the question against the records and notes, not b
 meaning, so a question in words no note uses finds nothing and says so; it reads the
 equipment and notes of one address and the price book, not the photographs, the
 manufacturer's literature or another customer's history, and it needs a signal. The
-phone assistant, the website chat and the field assistant on `/my-day` show an answer as
+phone assistant, the website chat and the field assistant show an answer as
 it is written, on Anthropic and OpenAI connections only; on a Google connection they
 answer whole. A sentence is shown only once it is finished, so a reply of one long
 sentence appears all at once. The website chat's reply so far reaches the visitor by the
 widget reading the chat once a second, not by a stream of its own, so it grows a second or
 so behind the model, and a visitor may read the start of a reply that the whole answer's
 check then replaces with a hand over to a person (never a sentence with an unpublished
-price). The field assistant streams on `/my-day` and through the API for a caller that asks
-for events; the phone app answers whole. A part of an answer shown there may likewise
+price). The field assistant streams on `/my-day`, in the phone app and through the API for a
+caller that asks for events; the phone app's reading of it has been tested against a
+fake of the phone's request object, not on a device. A part of an answer shown there may likewise
 be replaced by "it was not shown" when the whole answer cites a record it was not
 given. Texts are sent whole. Every other
 agent's model call is one request and one response. The intake agent books through online booking's services and

@@ -1,4 +1,5 @@
 import { OfflineError, type Transport, type SyncResponse } from "./queue";
+import { EventReader, type ServerEvent } from "./events";
 import type {
   ArrivalNoticeResult, AssistantAnswer, CodeRequestResult, FieldSnapshot, FinancingLinkResult, OwedUpload,
   PaymentLinkResult, RegisterResult, SignInResult, StoreUploadResult,
@@ -85,11 +86,40 @@ export function normalizeServerUrl(input: string):
   return { ok: true, url, insecure: parsed.protocol === "http:" };
 }
 
+/**
+ * The part of `XMLHttpRequest` an answer read as it arrives needs.
+ *
+ * Why not `fetch`: React Native's `fetch` hands over a body only once it has
+ * all arrived, on both platforms, and reading it in pieces there takes a
+ * native module. Its `XMLHttpRequest` does not: `responseText` grows as the
+ * body arrives and `onprogress` says so, on Android and iOS alike, with
+ * nothing added to the app. Browsers behave the same way.
+ */
+export interface StreamingXhr {
+  readonly readyState: number;
+  readonly status: number;
+  readonly responseText: string;
+  open(method: string, url: string): void;
+  setRequestHeader(name: string, value: string): void;
+  getResponseHeader(name: string): string | null;
+  send(body?: string | null): void;
+  abort(): void;
+  onreadystatechange: (() => void) | null;
+  onprogress: (() => void) | null;
+  onerror: (() => void) | null;
+}
+
 export interface FieldApiOptions {
   /** As returned by `normalizeServerUrl`. */
   serverUrl: string;
   token?: string | undefined;
   fetch?: typeof fetch;
+  /**
+   * Makes the request an answer is read from as it is written. Defaults to
+   * the platform's own `XMLHttpRequest`; where there is none, the answer is
+   * asked for whole.
+   */
+  xhr?: (() => StreamingXhr) | undefined;
   /** A van on a highway. Long enough for one bar, short enough to give up. */
   timeoutMs?: number;
 }
@@ -101,6 +131,7 @@ export class FieldApi {
   private readonly root: string;
   private readonly token: string | undefined;
   private readonly fetcher: typeof fetch;
+  private readonly xhr: (() => StreamingXhr) | undefined;
   private readonly timeoutMs: number;
 
   constructor(options: FieldApiOptions) {
@@ -108,6 +139,9 @@ export class FieldApi {
     this.base = `${this.root}/api`;
     this.token = options.token;
     this.fetcher = options.fetch ?? ((...args) => fetch(...args));
+    this.xhr = options.xhr ?? (typeof XMLHttpRequest === "function"
+      ? () => new XMLHttpRequest() as unknown as StreamingXhr
+      : undefined);
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
@@ -175,6 +209,114 @@ export class FieldApi {
     return this.request(
       "POST", "/v1/ai/field-assistant", { question, ...(visitId ? { visitId } : {}) }, { idempotencyKey },
     );
+  }
+
+  /**
+   * The same question, with the answer read as it is written.
+   *
+   * Asks the same route for Server-Sent Events. `onWriting` is handed the
+   * answer so far each time it grows: whole sentences, each naming only
+   * prices in the records, which the server checked before sending. The
+   * promise is the whole answer after every check, which takes the place of
+   * what was shown and can say it cannot be shown. A refusal is the same
+   * error the whole answer gives, and a connection that drops before the
+   * answer is no signal; the key makes asking again answer from the record
+   * once the first answer was kept.
+   *
+   * A server that answers whole (one from before this, or a proxy that
+   * stripped the header) is read whole, and a platform with no
+   * `XMLHttpRequest` asks for the answer whole.
+   */
+  askAssistantAsItWrites(
+    question: string, visitId: string | null, idempotencyKey: string, onWriting: (text: string) => void,
+  ): Promise<AssistantAnswer> {
+    const make = this.xhr;
+    if (!make) return this.askAssistant(question, visitId, idempotencyKey);
+    const x = make();
+    const reader = new EventReader();
+    let seen = 0;
+    let streaming: boolean | null = null;
+    let settled = false;
+    let idle: ReturnType<typeof setTimeout> | undefined;
+
+    return new Promise<AssistantAnswer>((resolve, reject) => {
+      const finish = (outcome: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(idle);
+        x.onreadystatechange = null;
+        x.onprogress = null;
+        x.onerror = null;
+        outcome();
+      };
+      const offline = (message: string) => finish(() => reject(new OfflineError(message)));
+      /** Quiet for as long as an ordinary request may take: the server says something every fifteen seconds. */
+      const arm = () => {
+        clearTimeout(idle);
+        idle = setTimeout(() => {
+          x.abort();
+          offline("The server stopped answering.");
+        }, this.timeoutMs);
+      };
+      const handle = (event: ServerEvent) => {
+        let data: unknown = null;
+        try { data = JSON.parse(event.data); } catch { return; }
+        const value = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
+        if (event.event === "writing" && typeof value["text"] === "string") onWriting(value["text"]);
+        else if (event.event === "answer") finish(() => resolve(value as unknown as AssistantAnswer));
+        else if (event.event === "problem") {
+          const status = typeof value["status"] === "number" ? value["status"] : 500;
+          finish(() => reject(this.refusal(status, value, false)));
+        }
+      };
+      const read = () => {
+        if (settled || x.readyState < 2) return;
+        if (streaming === null) {
+          const type = x.getResponseHeader("content-type") ?? "";
+          streaming = x.status >= 200 && x.status < 300 && type.includes("text/event-stream");
+        }
+        if (!streaming) return;
+        const text = x.responseText ?? "";
+        const fresh = text.slice(seen);
+        seen = text.length;
+        for (const event of reader.feed(fresh)) handle(event);
+      };
+      const done = () => {
+        read();
+        if (settled) return;
+        /** No status is no answer: the signal went, or the address does not reach anything. */
+        if (x.status === 0) return offline("Could not reach the server.");
+        if (streaming) {
+          for (const event of reader.end()) handle(event);
+          return offline("The answer did not arrive. Ask again when you have a signal.");
+        }
+        let parsed: unknown = null;
+        try { parsed = JSON.parse(x.responseText); } catch { parsed = null; }
+        if (x.status >= 200 && x.status < 300 && parsed !== null) {
+          return finish(() => resolve(parsed as AssistantAnswer));
+        }
+        finish(() => reject(this.refusal(x.status, parsed, false)));
+      };
+
+      x.onreadystatechange = () => {
+        arm();
+        if (x.readyState === 4) done();
+        else read();
+      };
+      x.onprogress = () => { arm(); read(); };
+      x.onerror = () => offline("Could not reach the server.");
+      try {
+        x.open("POST", `${this.base}/v1/ai/field-assistant`);
+        x.setRequestHeader("accept", "text/event-stream");
+        x.setRequestHeader("content-type", "application/json");
+        if (this.token) x.setRequestHeader("authorization", `Bearer ${this.token}`);
+        x.setRequestHeader("idempotency-key", idempotencyKey);
+        arm();
+        x.send(JSON.stringify({ question, ...(visitId ? { visitId } : {}) }));
+      } catch {
+        offline("Could not reach the server.");
+      }
+    });
   }
 
   signOut(deviceId: string): Promise<{ ok: true }> {
@@ -288,7 +430,11 @@ export class FieldApi {
     }
 
     if (response.ok) return parsed as T;
+    throw this.refusal(response.status, parsed, options.anonymous === true);
+  }
 
+  /** What a status and the server's body mean for the person holding the phone. */
+  private refusal(status: number, parsed: unknown, anonymous: boolean): Error {
     const said = typeof parsed === "object" && parsed !== null
       ? (parsed as { error?: unknown }).error
       : undefined;
@@ -298,24 +444,24 @@ export class FieldApi {
      * A 401 on a request that carried a token is the token ending. On the
      * sign in route itself it is a wrong password, which is an answer.
      */
-    if (response.status === 401 && !options.anonymous) throw new SignedOutError();
+    if (status === 401 && !anonymous) return new SignedOutError();
 
     /**
      * A gateway that could not reach the app behind it answered, but not
      * about the work. Treated like no signal, so a server restarting during
      * a deploy does not cost every phone a try.
      */
-    if (response.status === 502 || response.status === 503 || response.status === 504) {
-      throw new OfflineError("The server is not answering right now.");
+    if (status === 502 || status === 503 || status === 504) {
+      return new OfflineError("The server is not answering right now.");
     }
 
-    if (response.status === 404 && (message === null || message.startsWith("No route for"))) {
-      throw new ApiError(
+    if (status === 404 && (message === null || message.startsWith("No route for"))) {
+      return new ApiError(
         "That address answered, but not as an OpenTradesOS server. Check the address, or ask whoever runs it whether it is up to date.",
         404,
       );
     }
 
-    throw new ApiError(message ?? `The server refused that (${response.status}).`, response.status);
+    return new ApiError(message ?? `The server refused that (${status}).`, status);
   }
 }
