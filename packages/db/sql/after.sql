@@ -2005,7 +2005,15 @@ returns table (organization_id uuid)
          and (s.state = 'active'
            -- An end put in ahead still bills the periods up to it, and a week
            -- after it is enough for a worker that was down to catch up.
-           or (s.state = 'ended' and s.ended_on >= current_date - 7))
+           -- In arrears the last part is billed the day after the end.
+           or (s.state = 'ended' and s.ended_on >= current_date - 8)
+           -- In arrears a pause bills the part of the period before it, on
+           -- the day it was paused, so a paused schedule is visited until the
+           -- day before its pause is billed, and not after.
+           or (s.state = 'paused' and s.timing = 'arrears' and s.starts_on < s.paused_on
+               and not exists (
+                 select 1 from public.contract_billing_period p
+                  where p.contract_id = s.contract_id and p.period_end >= s.paused_on - 1)))
     ) x
     where not exists (
       select 1 from public.organization o
@@ -2033,7 +2041,10 @@ returns table (organization_id uuid)
       select distinct c.organization_id
         from public.service_contract c
        where c.active and c.deleted_at is null
-         and c.escalation_rate is not null and c.escalation_rate > 0
+         and ((c.escalation_rate is not null and c.escalation_rate > 0)
+           -- Or rises of its own that differ by year, card or trade.
+           or exists (select 1 from public.contract_escalation_rise r
+                       where r.contract_id = c.id and r.rate > 0))
          and c.starts_on is not null
          and (c.ends_on is null or c.ends_on >= current_date)
     ) x

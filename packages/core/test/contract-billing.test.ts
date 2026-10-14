@@ -133,3 +133,74 @@ describe("what a schedule may say", () => {
     expect(cb.periodWords("2027-03-01", "2027-03-31")).toBe("1 Mar 2027 to 31 Mar 2027");
   });
 });
+
+describe("a schedule billed in arrears", () => {
+  const arrears = (over: Partial<cb.Schedule> = {}) => monthly({ timing: "arrears", ...over });
+
+  it("bills each month the day after it ends, for the month just gone", () => {
+    expect(plain(cb.periodsThrough(arrears(), "2027-03-31"))).toEqual([
+      ["2027-01-01", "2027-01-31", "2027-02-01", "1200.0000", false],
+      ["2027-02-01", "2027-02-28", "2027-03-01", "1200.0000", false],
+    ]);
+    expect(plain(cb.periodsThrough(arrears(), "2027-04-01")).at(-1))
+      .toEqual(["2027-03-01", "2027-03-31", "2027-04-01", "1200.0000", false]);
+    expect(cb.nextPeriod(arrears(), "2027-01-15")).toMatchObject({ start: "2027-01-01", billOn: "2027-02-01" });
+    expect(cb.periodNote(cb.periodsThrough(arrears(), "2027-02-01")[0]!, usd("1200.00"), "arrears"))
+      .toBe("The contract's fee for the period just gone, billed in arrears.");
+  });
+
+  it("bills the part of the month that ran when it ends, by the day, whatever the contract says about prorating", () => {
+    const periods = cb.periodsThrough(arrears({ endsOn: "2027-03-10" }), "2027-12-31");
+    /** 1,200 times 10 over 31 is 387.0967..., to 387.10, billed on the 11th. */
+    expect(plain(periods).at(-1)).toEqual(["2027-03-01", "2027-03-10", "2027-03-11", "387.1000", true]);
+    expect(periods.at(-1)!.cut).toBe("end");
+    expect(cb.periodNote(periods.at(-1)!, usd("1200.00"), "arrears"))
+      .toBe("The last day billed for is 2027-03-10, so this is the part of the period that ran: 10 of 31 days of 1200.00 a period, prorated by day.");
+    expect(cb.nextPeriod(arrears({ endsOn: "2027-03-10" }), "2027-03-11")).toBeNull();
+  });
+
+  it("still bills a part month at the start whole unless the contract says prorate", () => {
+    expect(plain(cb.periodsThrough(arrears({ startsOn: "2027-01-15" }), "2027-02-01")))
+      .toEqual([["2027-01-15", "2027-01-31", "2027-02-01", "1200.0000", false]]);
+    expect(plain(cb.periodsThrough(arrears({ startsOn: "2027-01-15", prorate: true }), "2027-02-01")))
+      .toEqual([["2027-01-15", "2027-01-31", "2027-02-01", "658.0600", true]]);
+  });
+
+  it("bills the days before a pause on the day it is paused, and nothing after while it lasts", () => {
+    const paused = arrears({ stops: [{ from: "2027-03-10", to: null }] });
+    const periods = cb.periodsThrough(paused, "2027-12-31");
+    /** 1,200 times 9 over 31 is 348.387..., to 348.39. */
+    expect(plain(periods).at(-1)).toEqual(["2027-03-01", "2027-03-09", "2027-03-10", "348.3900", true]);
+    expect(periods.at(-1)!.cut).toBe("pause");
+    expect(cb.periodNote(periods.at(-1)!, usd("1200.00"), "arrears")).toMatch(/^Billing was paused on 2027-03-10, so this is the part of the period that ran: 9 of 31 days/);
+    expect(cb.nextPeriod(paused, "2027-03-10")).toBeNull();
+  });
+
+  it("never bills a paused day, and bills the part of the month after billing started again", () => {
+    const resumed = arrears({ stops: [{ from: "2027-03-10", to: "2027-05-04" }] });
+    const periods = cb.periodsThrough(resumed, "2027-07-01");
+    expect(plain(periods)).toEqual([
+      ["2027-01-01", "2027-01-31", "2027-02-01", "1200.0000", false],
+      ["2027-02-01", "2027-02-28", "2027-03-01", "1200.0000", false],
+      ["2027-03-01", "2027-03-09", "2027-03-10", "348.3900", true],
+      /** 1,200 times 27 over 31 is 1045.16..., from the 5th. */
+      ["2027-05-05", "2027-05-31", "2027-06-01", "1045.1600", true],
+      ["2027-06-01", "2027-06-30", "2027-07-01", "1200.0000", false],
+    ]);
+    expect(periods[3]!.cut).toBe("resume");
+    expect(cb.periodNote(periods[3]!, usd("1200.00"), "arrears")).toMatch(/^Billing started again on 2027-05-05/);
+  });
+
+  it("bills nothing for a month paused on its first day", () => {
+    const periods = cb.periodsThrough(arrears({ stops: [{ from: "2027-03-01", to: "2027-03-31" }] }), "2027-05-01");
+    expect(periods.map((p) => p.start)).toEqual(["2027-01-01", "2027-02-01", "2027-04-01"]);
+    expect(periods[2]).toMatchObject({ prorated: false, cut: null });
+  });
+
+  it("ignores pauses in advance, where a paused period is skipped whole by the service", () => {
+    const advance = monthly({ stops: [{ from: "2027-03-10", to: null }] });
+    expect(cb.periodsThrough(advance, "2027-04-01").map((p) => [p.start, p.end])).toEqual([
+      ["2027-01-01", "2027-01-31"], ["2027-02-01", "2027-02-28"], ["2027-03-01", "2027-03-31"], ["2027-04-01", "2027-04-30"],
+    ]);
+  });
+});

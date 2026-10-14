@@ -130,6 +130,32 @@ export function cardLinesFromText(
   });
 }
 
+export const RISE_ROWS = 6;
+
+/**
+ * The rises that differ by year, card or trade, as the escalation service
+ * takes them. A row with no rise typed is skipped; a blank year, card or
+ * trade means every one. The rise is typed as a per cent, like the yearly
+ * rate beside it, and "0" is kept, because a card fixed for the term is a
+ * rise of nothing somebody chose.
+ */
+export function risesFromForm(read: Read) {
+  const rises: Array<{ contractYear: number | null; rateCardId: string | null; jobTypeId: string | null; rate: string }> = [];
+  for (let i = 0; i < RISE_ROWS; i += 1) {
+    const typed = text(read, `riseRate${i}`);
+    if (typed === "") continue;
+    const rate = fractionOf(typed) ?? "0";
+    const year = text(read, `riseYear${i}`);
+    rises.push({
+      contractYear: year === "" ? null : Number(year),
+      rateCardId: text(read, `riseCard${i}`) || null,
+      jobTypeId: text(read, `riseTrade${i}`) || null,
+      rate,
+    });
+  }
+  return rises;
+}
+
 /** The SLA rows of the contract form, as the contract service takes them. */
 export function slaTermsFromForm(read: Read) {
   const terms: Array<{ kind: string; minutes: number; priority?: string }> = [];

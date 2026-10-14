@@ -708,7 +708,7 @@ export const assignVisit = defineRoute({
   path: "/v1/visits/{id}/assign",
   summary: "Put a visit on somebody's day",
   description:
-    "Refused, with a sentence naming the person and the skill, when somebody being sent is not qualified for the work's required skills by their certifications or their recorded skills. A caller holding visit:assign_unqualified may send them anyway by giving a reason, which the audit log keeps beside the refusal it overrode.",
+    "Refused, with a sentence naming the person and the skill, when somebody being sent is not qualified for the work's required skills by their certifications or their recorded skills. A caller holding visit:assign_unqualified may send them anyway by giving a reason, which the audit log keeps beside the refusal it overrode. Also refused, in words naming the window and who else has room outside it, when the visit's customer is not a member there that day and the visit would only fit in the share of that person's window held for members (M08), while the window still holds something back; `intoMemberHold` sends them anyway and the audit log records it.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
@@ -724,6 +724,12 @@ export const assignVisit = defineRoute({
      * later would accept.
      */
     overrideQualification: z.object({ reason: z.string().trim().min(5).max(500) }).optional(),
+    /**
+     * Send them although the time it takes is the share of their window held
+     * for members (M08). The audit log records who chose to, the day and the
+     * window.
+     */
+    intoMemberHold: z.boolean().optional(),
   }),
   output: z.object({
     ok: z.literal(true),

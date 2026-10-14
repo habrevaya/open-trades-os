@@ -316,8 +316,8 @@ now and after rising by the rate, to the cent, rounded half up once
 (`GET /v1/contracts/{contractId}/escalation`; markups are fractions of our cost and
 are kept). Nothing changes until a person presses **Apply year N prices**
 (`POST /v1/contracts/{contractId}/escalation`, `pricebook:write`), which is refused
-unless it names the anniversary and rate the page showed, so a rate changed in
-between is a different rise somebody has to look at again.
+unless it names the anniversary and the rate (or the key, below) the page showed,
+so a rate changed in between is a different rise somebody has to look at again.
 
 Applying it writes a new version of each card, named for the year, in force from
 the anniversary, and ends the old card the day before. A card is a price list and
@@ -344,6 +344,47 @@ nothing changes until somebody presses **Apply year N prices**
 the contract before then prepares the draft again and rewrites the task; the
 task stays one. A contract with nothing to rise (no card in force, next year's
 card already loaded, the contract ending first) raises no task.
+
+### Rises that differ by year, by card or by trade
+
+A contract often says more than one rate: "year two 3%, year three 4%", "the
+plumbing labour rate rises 5% a year", "the emergency card is fixed for the
+term". On the contract's page, under **Rises that differ by year, card or
+trade**, the office writes each one as a row: the year it opens (year 2 is the
+first anniversary) or every year, one of the contract's cards or every card,
+one trade's hourly rates or every price, and the rise as a per cent, where 0
+keeps those prices as they are (`GET` and `PUT
+/v1/contracts/{contractId}/escalation/rises`, `contract:read` and
+`contract:write`, because how a contract's prices rise is one of its terms, like
+the yearly rate). Two rows saying the same year, card and trade are refused in
+words, and so is a card that is not this contract's.
+
+Each price rises by the closest match, in this order: the trade on that card,
+then the trade, then the card, then the year, and within each a rise for that
+year before one for every year (`core/rates.riseFor`). What none of them covers
+rises by the contract's yearly rate, and with no yearly rate it is kept. A
+trade's rise is for that trade's hourly rates only: a listed price and a trip
+charge rise by the card's or the year's. The preview says, beside every price,
+the rise it takes and which row it came from ("3%, Year 2", "5%, Every year,
+Plumbing hourly rates", "0%, Every year, Emergency schedule", "The contract's
+yearly rate"). A year nothing rises in is passed over rather than applied as a
+rise of nothing, so a contract that says only "year three 4%" first rises on
+its second anniversary.
+
+Because one rate no longer says what was shown, the preview carries a `key`
+over the anniversary, the yearly rate and every row that applies that year, and
+**Apply year N prices** sends it: a row changed in between is refused with
+"look at the preview again". A contract with no rows applies as before, by its
+rate. A row naming a card follows the card: when the rise is applied, it is
+moved to the card's new version, so it still applies the year after. Each new
+card records its own rise (what its listed prices rose by), and the audit line
+of the rise records every row that applied.
+
+The worker prepares the draft and raises the task thirty days ahead exactly as
+above, with each price risen by its own row, and the task says each one
+("rates rise on 2026-11-01: year 2 by 3%, every year, plumbing hourly rates by
+5%"). A row changed after the draft was made prepares it again and rewrites the
+task, as a changed rate does.
 
 It is never applied by itself, however long after the anniversary: the client
 is priced by last year's card until a person applies it. Applying it, as above,
@@ -460,10 +501,11 @@ A commercial maintenance contract often bills a fixed fee every month, three
 months or year whether or not anybody visited: "1,200.00 a month for planned
 maintenance at both sites". On the contract's page, under **Billed on a
 schedule**, the office sets the fee, how often, the billing day (1 to 28, so
-every month has one), the first day billed for, what the invoice line says,
-whether a part month is charged by the day, and whether sales tax is added
-(`PUT /v1/contracts/{contractId}/billing`, `contract:write`, because how a
-contract bills is one of its terms).
+every month has one), **When it bills** (at the start of each period, or at
+the end of each period for the period just gone), the first day billed for,
+what the invoice line says, whether a part month is charged by the day, and
+whether sales tax is added (`PUT /v1/contracts/{contractId}/billing`,
+`contract:write`, because how a contract bills is one of its terms).
 
 **Each period is billed on its first day, in advance.** On the billing day, in
 the company's calendar, the worker raises an invoice for the period that starts
@@ -476,6 +518,13 @@ when the fee is taxed, and posted the way an invoice is: revenue on the day it i
 raised, with the receivable. Nothing is deferred. A quarterly or yearly fee is
 billed every third or twelfth month, counted from the first billing day on or
 after the first day billed.
+
+**Or at the end, in arrears.** A contract that pays for the month just gone
+bills each period the day after it ends: with a billing day of the 1st, March
+is billed on 1 April. The periods are the same as in advance; only the day
+each is billed moves, and nothing is billed for a period still running. The
+line says the period, the working says "billed in arrears", and it is posted
+the same way, revenue on the day it is raised.
 
 **A part period at either end.** A contract that starts or ends between two
 billing days has a part period: from the first day to the day before the next
@@ -502,10 +551,29 @@ the customer is not sent the paused months the morning it resumes. **End
 billing** (`POST /v1/contracts/{contractId}/billing/end`) names the last day
 billed for: periods up to it are still billed, one cut short by it as a part
 period, and none after. The contract's own end date does the same, and a
-contract switched off bills nothing. Changing how often or on which day it
-bills, once anything is billed, starts the new pattern the day after the last
-period billed, and the first day cannot be moved to before then, so no day is
-billed twice. Saving an ended schedule starts it again.
+contract switched off bills nothing. Changing how often, on which day, or
+between the start and the end of the period, once anything is billed, starts
+the new pattern the day after the last period billed, and the first day cannot
+be moved to before then, so no day is billed twice. Saving an ended schedule
+starts it again.
+
+**Paused and ended in arrears.** Nothing was billed ahead, so there is nothing
+to give back, and the period a pause or an end cuts short is billed for the
+part of it that ran: by the day, as the fee's share of the whole period,
+rounded once, whatever the contract says about part months, because the cover
+was given for those days and not the rest. A pause bills the days before it on
+the day it was paused, and the worker visits a paused schedule only until
+that part is billed. Started again, the paused days are written down as one
+skipped row ("Not billed: the schedule was paused from 2027-03-10 to
+2027-05-05") and never billed, and the period it starts again in is billed at
+its end from that day, by the day. An end bills the days up to the last day,
+the day after it. The invoice line says it in words ("1 Mar 2027 to 9 Mar
+2027, 9 of 31 days, charged by the day") and the working says why ("Billing
+was paused on 2027-03-10, so this is the part of the period that ran"), and
+the page lists the same sentence under the period. A schedule ended while it
+was paused and saved again starts from today, with the pause written down the
+same way. A part period at the start of the contract still follows the
+contract's word on prorating.
 
 The page lists every period with its invoice, or "Skipped while paused", and the
 next period with what it will be billed. `GET /v1/contracts/{contractId}/billing`
@@ -519,8 +587,9 @@ contract, and reading its deadlines.
 
 A card's prices and rules are the price book's business: `pricebook:write`
 to set, `pricebook:read` to see. A contract's terms and clocks need
-`contract:write`, and so do its fixed fee, pausing it and ending it; seeing
-them needs `contract:read`. Raising what a fixed fee owes now needs
+`contract:write`, and so do its fixed fee, pausing it and ending it, and its
+rises that differ by year, card or trade; seeing them needs `contract:read`.
+Applying a rise writes prices, so it needs `pricebook:write`. Raising what a fixed fee owes now needs
 `invoice:write`, because it raises invoices; the worker raises them as the
 system with only that. Previewing how a job would be billed needs `invoice:read`,
 and billing it `invoice:write`. Exporting a payer's invoices needs
@@ -578,14 +647,20 @@ Ariba or Coupa punchout, or a facilities network's invoice API, and the
 being claimed by a file somebody downloaded. The XML is this product's own
 shape, not any standard's.
 
-**Escalation is one rate, applied by a person.** Nothing applies it on its own:
-the worker prepares the draft and raises the task thirty days ahead, and the
-rise waits for somebody to apply it, because a client's prices changing with
-nobody looking is the one way to get this wrong that a client notices. The
-draft is for looking at; it is not edited into the new card, which is written
-from the cards in force when the rise is applied. A contract whose rises differ
-by year, or by trade, loads next year's card by hand. A rate typed with more
-than four decimal places of a percentage is rounded when it is saved.
+**Escalation is applied by a person.** Nothing applies it on its own: the
+worker prepares the draft and raises the task thirty days ahead, and the rise
+waits for somebody to apply it, because a client's prices changing with nobody
+looking is the one way to get this wrong that a client notices. The draft is for
+looking at; it is not edited into the new card, which is written from the cards
+in force when the rise is applied. Rises can differ by year, by card and by
+trade, but a trade is the job type an hourly rate is booked under: a listed
+price is not given a trade, so a rise for "plumbing parts" is written as a rise
+on the card that lists them, not by trade. A rise is a percentage: a rise by a
+fixed amount, or one tied to an index such as the CPI, is loaded as next year's
+card by hand. A markup on our cost is never risen, by any row. The rows are
+edited six at a time on the page; a contract with more uses the API. A rate
+typed with more than four decimal places of a percentage is rounded when it is
+saved.
 
 **Tax rates on a split.** Each line is billed at its own rate, but the rates
 are the company's own: nothing looks up a jurisdiction's rate, and a line taxed
@@ -608,13 +683,17 @@ is an ordinary invoice. Nothing claims it back from the manufacturer: an
 allowance is the manufacturer's figure, and asking them for more is their
 supplement process, not a line here.
 
-**A fixed fee is billed in advance, and never credited back by itself.** Each
-period is billed on its first day. A contract that bills in arrears, at the end
-of the month for the month just gone, is not offered. An invoice already raised
-for a period that a pause or an end cuts short is left as it is: crediting the
-rest is a decision made on the invoice with a credit note, and nobody has
-decided that the schedule should make it for the office. A paused period is
-skipped, never billed late. The fee is one amount: it does not rise with the
+**A fixed fee is never credited back by itself.** In advance, an invoice
+already raised for a period that a pause or an end cuts short is left as it
+is: crediting the rest is a decision made on the invoice with a credit note,
+and nobody has decided that the schedule should make it for the office. A
+contract that should not pay for days it did not get is set to bill in
+arrears, where a pause or an end bills only the days that ran. In advance a
+paused period is skipped whole, never billed late and never billed for the
+days before the pause; in arrears a paused day is never billed at all. The
+pause takes effect on the day it is pressed: that day is not billed. Moving a
+schedule between advance and arrears starts the new way the day after the last
+period billed; it does not go back and rebill anything. The fee is one amount: it does not rise with the
 contract's annual escalation, which applies to the rate cards, so a fee that
 rises is changed on the schedule by a person. The invoice is raised and not sent;
 it goes out the way any invoice does.

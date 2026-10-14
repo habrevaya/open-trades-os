@@ -39,7 +39,19 @@ import { remember, replayed } from "./once";
  * "Raise what is due now" while the worker runs all meet the index, and only
  * one of them writes an invoice.
  *
- * PAUSED AND ENDED. A paused schedule raises nothing, and a period whose
+ * IN ADVANCE OR IN ARREARS. A schedule bills each period on its first day,
+ * for the period ahead, or the day after its last, for the period just gone.
+ * The periods are the same either way; `core/contract-billing` moves the day.
+ *
+ * PAUSED AND ENDED IN ARREARS. Nothing was billed ahead, so a pause or an end
+ * bills the part of the period that ran, by the day, on the day after the
+ * last day it covers, and the invoice line says how many days of how many.
+ * The days a pause took are written down as one skipped row when billing
+ * starts again, and the core walk steps over them: they are never billed,
+ * and the period billing starts again in is billed from that day. Nothing is
+ * credited, because nothing needs to be.
+ *
+ * PAUSED AND ENDED IN ADVANCE. A paused schedule raises nothing, and a period whose
  * billing day falls while it is paused is written down as skipped when it is
  * resumed, so it is never billed afterwards either: resuming does not send a
  * customer three months at once. An ended schedule bills the periods up to
@@ -58,6 +70,8 @@ export interface ScheduleInput {
   amount: string;
   frequency: cb.Frequency;
   billingDay: number;
+  /** In advance (the default for a new schedule) or in arrears. Left off, a change keeps what the schedule had. */
+  timing?: cb.Timing | undefined;
   startsOn?: string | undefined;
   prorate?: boolean | undefined;
   taxable?: boolean | undefined;
@@ -86,6 +100,7 @@ export interface ScheduleView {
     amount: string;
     frequency: cb.Frequency;
     billingDay: number;
+    timing: cb.Timing;
     startsOn: string;
     prorate: boolean;
     taxable: boolean;
@@ -119,10 +134,21 @@ async function scheduleOf(tx: Database, contractId: string): Promise<ScheduleRow
   return row ?? null;
 }
 
-/** The schedule as core reads it, cut at whichever end comes first. */
-function termsOf(schedule: ScheduleRow, contract: ContractRow): cb.Schedule {
+type PeriodRow = typeof schema.contractBillingPeriod.$inferSelect;
+
+/**
+ * The schedule as core reads it, cut at whichever end comes first.
+ *
+ * In arrears it also carries the days nothing is billed for: each skipped
+ * row (in arrears, the days a pause took) and the pause still running, if
+ * there is one. A skipped row written in advance is a whole period, and is
+ * equally a span nobody is billed for, so the two never disagree.
+ */
+function termsOf(schedule: ScheduleRow, contract: ContractRow, written: readonly PeriodRow[] = []): cb.Schedule {
   const ends = [contract.endsOn, schedule.state === "ended" ? schedule.endedOn : null]
     .filter((d): d is string => d !== null).sort();
+  const stops: cb.Stop[] = written.filter((p) => p.status === "skipped").map((p) => ({ from: p.periodStart, to: p.periodEnd }));
+  if (schedule.pausedOn) stops.push({ from: schedule.pausedOn, to: null });
   return {
     amount: usd(schedule.amount),
     frequency: schedule.frequency,
@@ -130,15 +156,15 @@ function termsOf(schedule: ScheduleRow, contract: ContractRow): cb.Schedule {
     startsOn: schedule.startsOn,
     endsOn: ends[0] ?? null,
     prorate: schedule.prorate,
+    timing: schedule.timing,
+    stops,
   };
 }
 
-/** The first day of each period already written, so a period is raised once. */
-async function writtenStarts(tx: Database, contractId: string): Promise<Set<string>> {
-  const rows = await tx.select({ start: schema.contractBillingPeriod.periodStart })
-    .from(schema.contractBillingPeriod).where(eq(schema.contractBillingPeriod.contractId, contractId));
-  return new Set(rows.map((r) => r.start));
+async function writtenRows(tx: Database, contractId: string): Promise<PeriodRow[]> {
+  return tx.select().from(schema.contractBillingPeriod).where(eq(schema.contractBillingPeriod.contractId, contractId));
 }
+
 
 async function lastWrittenEnd(tx: Database, contractId: string): Promise<string | null> {
   const [row] = await tx.select({ end: schema.contractBillingPeriod.periodEnd })
@@ -154,14 +180,19 @@ async function lastWrittenEnd(tx: Database, contractId: string): Promise<string 
  * on or before the schedule's last day, and its billing day did not fall
  * while the schedule was paused. A schedule on a contract that is switched
  * off owes nothing.
+ *
+ * In arrears a paused schedule still owes the days before the pause, billed
+ * the day it was paused: the walk cuts the period there and stops.
  */
 async function owed(tx: Database, schedule: ScheduleRow, contract: ContractRow, today: string): Promise<cb.Period[]> {
   if (!contract.active || contract.deletedAt) return [];
-  if (schedule.state === "paused") return [];
-  const written = await writtenStarts(tx, contract.id);
-  return cb.periodsThrough(termsOf(schedule, contract), today, EVERY_PERIOD)
+  const arrears = schedule.timing === "arrears";
+  if (schedule.state === "paused" && !arrears) return [];
+  const rows = await writtenRows(tx, contract.id);
+  const written = new Set(rows.map((r) => r.periodStart));
+  return cb.periodsThrough(termsOf(schedule, contract, rows), today, EVERY_PERIOD)
     .filter((p) => !written.has(p.start))
-    .filter((p) => !(schedule.pausedOn && p.billOn >= schedule.pausedOn));
+    .filter((p) => arrears || !(schedule.pausedOn && p.billOn >= schedule.pausedOn));
 }
 
 /**
@@ -196,14 +227,16 @@ async function viewWithin(tx: Database, organizationId: string, contractId: stri
   if (!schedule) {
     return { contractId, schedule: null, next: null, due: 0, periods: [], standing: null };
   }
-  const terms = termsOf(schedule, contract);
+  const terms = termsOf(schedule, contract, await writtenRows(tx, contractId));
   const due = await owed(tx, schedule, contract, today);
   /** Walked from the first day, so a schedule years old still finds its next period. */
   const coming = schedule.state === "paused" || !contract.active ? null : cb.nextPeriod(terms, today);
   const standing = !contract.active
     ? "The contract is switched off, so nothing is billed."
     : schedule.state === "paused"
-      ? `Paused since ${schedule.pausedOn}. Nothing is billed while it is, and a period whose billing day falls in the pause is skipped.`
+      ? schedule.timing === "arrears"
+        ? `Paused since ${schedule.pausedOn}. The days before it are billed for the part of the period that ran, and no day is billed while it is paused.`
+        : `Paused since ${schedule.pausedOn}. Nothing is billed while it is, and a period whose billing day falls in the pause is skipped.`
       : terms.endsOn && terms.endsOn < today
         ? `Ended. The last day billed for was ${terms.endsOn}.`
         : null;
@@ -215,6 +248,7 @@ async function viewWithin(tx: Database, organizationId: string, contractId: stri
       amount: schedule.amount,
       frequency: schedule.frequency,
       billingDay: schedule.billingDay,
+      timing: schedule.timing,
       startsOn: schedule.startsOn,
       prorate: schedule.prorate,
       taxable: schedule.taxable,
@@ -268,6 +302,12 @@ export function view(ctx: ServiceContext, input: { contractId: string }): Promis
  *
  * Saving an ended schedule starts it again, from the day after its last
  * period at the earliest.
+ *
+ * Moving between in advance and in arrears is a change of pattern too. The
+ * new timing starts the day after the last period billed, so a month billed
+ * in advance is never billed again in arrears, and the month running when a
+ * schedule moves the other way is billed once, in advance, from the day after
+ * the last month billed in arrears.
  */
 export function set(ctx: ServiceContext, input: ScheduleInput): Promise<ScheduleView> {
   return guardedWrite(ctx, "contract:write", async (tx) => {
@@ -279,10 +319,16 @@ export function set(ctx: ServiceContext, input: ScheduleInput): Promise<Schedule
     const description = input.description.trim();
     if (description === "") throw new ConflictError("Say what the invoice is for: the words the customer reads on the line.");
 
+    /**
+     * Ended while it was paused and now started again: what the pause took is
+     * written down first, as resuming would, so starting again never bills it.
+     */
+    if (before && before.state === "ended" && before.pausedOn) await skipPaused(tx, ctx, before, contract, today);
     const lastEnd = await lastWrittenEnd(tx, contract.id);
     const earliest = lastEnd ? time.addDays(lastEnd, 1) : null;
+    const timing = input.timing ?? before?.timing ?? "advance";
     const patternChanged = before !== null
-      && (before.frequency !== input.frequency || before.billingDay !== input.billingDay);
+      && (before.frequency !== input.frequency || before.billingDay !== input.billingDay || before.timing !== timing);
     let startsOn = input.startsOn ?? before?.startsOn ?? contract.startsOn ?? today;
     if (earliest && startsOn < earliest) {
       /**
@@ -310,6 +356,7 @@ export function set(ctx: ServiceContext, input: ScheduleInput): Promise<Schedule
       amount: m.toString(usd(input.amount)),
       frequency: input.frequency,
       billingDay: input.billingDay,
+      timing,
       startsOn,
       prorate: input.prorate ?? before?.prorate ?? false,
       taxable: input.taxable ?? before?.taxable ?? false,
@@ -356,14 +403,58 @@ export function pause(ctx: ServiceContext, input: { contractId: string }): Promi
 }
 
 /**
- * Start billing again from today.
+ * Write down what a pause took, as it ends, so nothing is billed for it later.
  *
- * Each period whose billing day fell while it was paused is written down as
- * skipped, so the worker never bills it afterwards: a customer whose
- * contract was paused for three months is not sent three invoices the
- * morning it is resumed. A period owed from before the pause, which the
- * worker had not reached, is still owed and is billed as usual.
+ * In advance, each period whose billing day fell while it was paused is
+ * written down as skipped, so the worker never bills it afterwards: a
+ * customer whose contract was paused for three months is not sent three
+ * invoices the morning it is resumed. A period owed from before the pause,
+ * which the worker had not reached, is still owed and is billed as usual.
+ *
+ * In arrears, the days themselves, from the day it was paused to yesterday,
+ * as one skipped row, which the walk steps over from then on: the period
+ * billing starts again in is billed from today, by the day. Paused and
+ * started again on the same day, it took no days and writes nothing.
  */
+async function skipPaused(
+  tx: Database, ctx: ServiceContext, schedule: ScheduleRow, contract: ContractRow, today: string,
+): Promise<number> {
+  const pausedOn = schedule.pausedOn;
+  if (!pausedOn) return 0;
+  const note = `Not billed: the schedule was paused from ${pausedOn} to ${today}.`;
+  if (schedule.timing === "arrears") {
+    if (pausedOn >= today) return 0;
+    const yesterday = time.addDays(today, -1);
+    const days = cb.daysBetween(pausedOn, yesterday);
+    const written = await tx.insert(schema.contractBillingPeriod).values({
+      organizationId: ctx.actor.organizationId,
+      contractId: contract.id,
+      scheduleId: schedule.id,
+      periodStart: pausedOn, periodEnd: yesterday, billOn: today,
+      amount: "0", prorated: false, days, fullDays: days,
+      status: "skipped",
+      note,
+    }).onConflictDoNothing().returning({ id: schema.contractBillingPeriod.id });
+    return written.length;
+  }
+  const written = new Set((await writtenRows(tx, contract.id)).map((r) => r.periodStart));
+  const missed = cb.periodsThrough(termsOf(schedule, contract), today)
+    .filter((p) => !written.has(p.start) && p.billOn >= pausedOn && p.billOn < today);
+  if (missed.length > 0) {
+    await tx.insert(schema.contractBillingPeriod).values(missed.map((p) => ({
+      organizationId: ctx.actor.organizationId,
+      contractId: contract.id,
+      scheduleId: schedule.id,
+      periodStart: p.start, periodEnd: p.end, billOn: p.billOn,
+      amount: m.toString(p.amount), prorated: p.prorated, days: p.days, fullDays: p.fullDays,
+      status: "skipped" as const,
+      note,
+    }))).onConflictDoNothing();
+  }
+  return missed.length;
+}
+
+/** Start billing again from today, with what the pause took written down as skipped. */
 export function resume(ctx: ServiceContext, input: { contractId: string }): Promise<ScheduleView> {
   return guardedWrite(ctx, "contract:write", async (tx) => {
     const contract = await loadContract(tx, input.contractId);
@@ -372,24 +463,11 @@ export function resume(ctx: ServiceContext, input: { contractId: string }): Prom
       return viewWithin(tx, ctx.actor.organizationId, input.contractId);
     }
     const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
-    const written = await writtenStarts(tx, contract.id);
-    const missed = cb.periodsThrough(termsOf(schedule, contract), today)
-      .filter((p) => !written.has(p.start) && p.billOn >= schedule.pausedOn! && p.billOn < today);
-    if (missed.length > 0) {
-      await tx.insert(schema.contractBillingPeriod).values(missed.map((p) => ({
-        organizationId: ctx.actor.organizationId,
-        contractId: contract.id,
-        scheduleId: schedule.id,
-        periodStart: p.start, periodEnd: p.end, billOn: p.billOn,
-        amount: m.toString(p.amount), prorated: p.prorated, days: p.days, fullDays: p.fullDays,
-        status: "skipped" as const,
-        note: `Not billed: the schedule was paused from ${schedule.pausedOn} to ${today}.`,
-      }))).onConflictDoNothing();
-    }
+    const skipped = await skipPaused(tx, ctx, schedule, contract, today);
     const [after] = await tx.update(schema.contractBillingSchedule)
       .set({ state: "active", pausedOn: null, updatedAt: new Date() })
       .where(eq(schema.contractBillingSchedule.id, schedule.id)).returning();
-    await audit(tx, ctx, "contract.billing_resumed", "service_contract", input.contractId, schedule, { ...after, skipped: missed.length });
+    await audit(tx, ctx, "contract.billing_resumed", "service_contract", input.contractId, schedule, { ...after, skipped });
     return viewWithin(tx, ctx.actor.organizationId, input.contractId);
   });
 }
@@ -398,9 +476,10 @@ export function resume(ctx: ServiceContext, input: { contractId: string }): Prom
  * End the schedule on a last day, today unless another is given.
  *
  * Periods up to that day are still billed (one that has started is billed
- * cut at the last day, prorated when the schedule prorates), and nothing
- * after it. A period already invoiced past the last day keeps its invoice:
- * whether to credit the rest is decided on that invoice.
+ * cut at the last day, prorated when the schedule prorates, and always by the
+ * day in arrears, the day after the last day), and nothing after it. A period
+ * already invoiced past the last day keeps its invoice: whether to credit the
+ * rest is decided on that invoice.
  */
 export function end(ctx: ServiceContext, input: { contractId: string; lastDay?: string | undefined }): Promise<ScheduleView> {
   return guardedWrite(ctx, "contract:write", async (tx) => {
@@ -440,6 +519,7 @@ export interface Raised {
 async function raisePeriod(
   tx: Database, ctx: ServiceContext, schedule: ScheduleRow, contract: ContractRow, period: cb.Period, today: string,
 ): Promise<Raised | null> {
+  const working = cb.periodNote(period, usd(schedule.amount), schedule.timing);
   const [claimed] = await tx.insert(schema.contractBillingPeriod).values({
     organizationId: ctx.actor.organizationId,
     contractId: contract.id,
@@ -447,6 +527,7 @@ async function raisePeriod(
     periodStart: period.start, periodEnd: period.end, billOn: period.billOn,
     amount: m.toString(period.amount), prorated: period.prorated, days: period.days, fullDays: period.fullDays,
     status: "invoiced",
+    note: working,
   }).onConflictDoNothing().returning({ id: schema.contractBillingPeriod.id });
   if (!claimed) return null;
 
@@ -455,6 +536,14 @@ async function raisePeriod(
     .from(schema.customer).where(eq(schema.customer.id, contract.customerId)).limit(1);
   const termsDays = Number(payer?.terms ?? "0");
   const words = cb.periodWords(period.start, period.end);
+  /**
+   * In arrears a part period says on the line itself how many days of how
+   * many it charges, because the customer is reading a bill for a month they
+   * know was cut short and the amount is not the fee they agreed.
+   */
+  const lineWords = schedule.timing === "arrears" && period.prorated
+    ? `${words}, ${period.days} of ${period.fullDays} days, charged by the day`
+    : words;
   const { idempotencyKey: _key, ...plain } = ctx;
   const invoice = await billing.createIn(tx, plain, {
     customerId: contract.customerId,
@@ -463,7 +552,7 @@ async function raisePeriod(
     memo: `${contract.name}${contract.contractNumber ? `, contract ${contract.contractNumber}` : ""}: ${words}.`,
     lines: [{
       name: schedule.description,
-      description: words,
+      description: lineWords,
       quantity: "1",
       unitPrice: m.toString(period.amount),
       discountAmount: "0",
@@ -475,7 +564,7 @@ async function raisePeriod(
       quantity: "1",
       authority: "contract",
       basis: "contract_fee",
-      note: `${contract.name}: ${cb.periodNote(period, usd(schedule.amount))}`,
+      note: `${contract.name}: ${working}`,
       rateCardId: null,
       rateCardLineId: null,
     }],

@@ -90,6 +90,13 @@ export function Board({
    * and the technician it was refused for.
    */
   const [refused, setRefused] = useState<{ visitId: string; technicianId: string; message: string } | null>(null);
+  /**
+   * A refusal for time held for members (M08), with who could take it
+   * instead in its words. "Send anyway" carries the visit, the person, and
+   * any qualification reason already given, so it does not have to be typed
+   * twice.
+   */
+  const [held, setHeld] = useState<{ visitId: string; technicianId: string; message: string; overrideReason?: string } | null>(null);
   const [reason, setReason] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [suggested, setSuggested] = useState<Suggested | null>(null);
@@ -107,10 +114,16 @@ export function Board({
    * refusal reads the same and the override is offered the same wherever
    * the attempt came from.
    */
-  async function assign(visitId: string, technicianId: string, overrideReason?: string): Promise<boolean> {
-    const result = await assignVisit({ visitId, technicianId, date, ...(overrideReason ? { overrideReason } : {}) });
+  async function assign(visitId: string, technicianId: string, overrideReason?: string, intoMemberHold?: boolean): Promise<boolean> {
+    const result = await assignVisit({
+      visitId, technicianId, date, ...(overrideReason ? { overrideReason } : {}), ...(intoMemberHold ? { intoMemberHold } : {}),
+    });
     if (!result.ok) {
       if (result.qualification?.mayOverride) setRefused({ visitId, technicianId, message: result.message });
+      else if (result.memberHold) {
+        setRefused(null);
+        setHeld({ visitId, technicianId, message: result.message, ...(overrideReason ? { overrideReason } : {}) });
+      }
       else setError(result.message);
       return false;
     }
@@ -134,6 +147,7 @@ export function Board({
     setError(null);
     setNotice(null);
     setRefused(null);
+    setHeld(null);
   }
 
   function drop(technicianId: string, beforeVisitId?: string) {
@@ -312,6 +326,33 @@ export function Board({
             Leave it
           </button>
         </form>
+      )}
+
+      {held && (
+        /*
+          Time held for members: the refusal names who could take it instead,
+          and "Send anyway" gives this customer a member's place, which the
+          audit log records with the dispatcher's name.
+        */
+        <div aria-label="Held for members" role="group"
+             className="flex flex-wrap items-end gap-3 border-b border-amber-700 bg-amber-tint px-4 py-2 text-sm lg:px-6">
+          <p role="alert" className="w-full text-amber-700">{held.message}</p>
+          <button
+            type="button"
+            className="h-9 rounded border border-amber-700 px-3 font-medium text-amber-700"
+            onClick={() => {
+              const { visitId, technicianId, overrideReason } = held;
+              start(async () => {
+                if (await assign(visitId, technicianId, overrideReason, true)) setHeld(null);
+              });
+            }}
+          >
+            Send anyway
+          </button>
+          <button type="button" onClick={() => setHeld(null)} className="h-9 px-2 text-ink-700 underline">
+            Leave it
+          </button>
+        </div>
       )}
 
       {proposal && (

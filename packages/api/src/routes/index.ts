@@ -184,6 +184,8 @@ export const handlers = {
   listContracts: contractService.handlers.listContracts,
   previewContractEscalation: contractEscalation.handlers.previewContractEscalation,
   applyContractEscalation: contractEscalation.handlers.applyContractEscalation,
+  listContractRises: contractEscalation.handlers.listContractRises,
+  setContractRises: contractEscalation.handlers.setContractRises,
   getContractBilling: contractBilling.handlers.getContractBilling,
   setContractBilling: contractBilling.handlers.setContractBilling,
   pauseContractBilling: contractBilling.handlers.pauseContractBilling,

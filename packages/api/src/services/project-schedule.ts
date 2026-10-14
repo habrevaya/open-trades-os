@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, notInArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { isSystem, project as plan, time } from "@opentradesos/core";
+import { assertCan, isSystem, project as plan, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { loadProjectIn } from "./project-position";
+import { announce, sideOf } from "./visit-notices";
+import { officeMoved } from "./visit-changes";
 
 /**
  * M12. THE SCHEDULE: PHASES ON A TIMELINE.
@@ -279,7 +281,11 @@ export interface ChangeOrderDaysProposal {
   phaseId: string | null;
   phaseName: string | null;
   /** Already applied: never applied twice. */
-  applied: { at: Date; phaseId: string; days: number; changes: plan.DayChange[] } | null;
+  applied: {
+    at: Date; phaseId: string; days: number; changes: plan.DayChange[];
+    /** The visits it moved, and the ones it left where they were with why. Empty before visits moved with the days. */
+    visits: AppliedVisits;
+  } | null;
   /** Whether applying is possible now, and when it is not, why in a sentence. */
   canApply: boolean;
   reason: string | null;
@@ -289,16 +295,99 @@ export interface ChangeOrderDaysProposal {
     finishBefore: string | null;
     finishAfter: string | null;
     statement: string;
-    /** What the person was shown. Applying hands it back, and a schedule that changed since is refused. */
+    /** Visits booked on the phases that move: each going with its phase, or left where it is and why. */
+    visits: { moves: plan.VisitMove[]; left: plan.VisitLeft[] };
+    /** What the person was shown. Applying hands it back, and a schedule or a booking that changed since is refused. */
     key: string;
   } | null;
 }
 
-/** A short fingerprint of exactly which dates a proposal would write. */
-const keyOf = (changes: readonly plan.DayChange[]) =>
+export interface AppliedVisits {
+  moved: { id: string; label: string; wasStart: string; wasEnd: string | null; start: string; end: string | null; notified: string }[];
+  left: { id: string; label: string; wasStart: string; reason: string }[];
+}
+
+/**
+ * A short fingerprint of exactly which dates a proposal would write, and which
+ * visits it would move or leave, so a booking changed since is looked at again.
+ */
+const keyOf = (changes: readonly plan.DayChange[], visits: { moves: plan.VisitMove[]; left: plan.VisitLeft[] }) =>
   createHash("sha256")
-    .update(changes.map((c) => `${c.id}:${c.wasStartsOn}:${c.wasEndsOn}:${c.startsOn}:${c.endsOn}`).join("|"))
+    .update([
+      ...changes.map((c) => `${c.id}:${c.wasStartsOn}:${c.wasEndsOn}:${c.startsOn}:${c.endsOn}`),
+      ...visits.moves.map((v) => `v:${v.id}:${v.wasStart.toISOString()}:${v.start.toISOString()}`),
+      ...visits.left.map((v) => `l:${v.id}:${v.wasStart.toISOString()}:${v.reason}`),
+    ].join("|"))
     .digest("hex").slice(0, 32);
+
+/**
+ * The visits booked on the phases that move, with everybody on each (a crew's
+ * members included), and what holds those people's time: their approved time
+ * off and their other visits still to come. Read for `core/project.planVisitMoves`.
+ */
+async function visitsToMove(
+  tx: Database, projectId: string, shiftDays: ReadonlyMap<string, number>, zone: string, now: Date,
+): Promise<{ moves: plan.VisitMove[]; left: plan.VisitLeft[] }> {
+  const phaseIds = [...shiftDays.entries()].filter(([, d]) => d !== 0).map(([id]) => id);
+  if (phaseIds.length === 0) return { moves: [], left: [] };
+  const rows = await tx.select({
+    id: schema.visit.id, status: schema.visit.status, start: schema.visit.windowStart, end: schema.visit.windowEnd,
+    minutes: schema.visit.estimatedDurationMinutes, crewId: schema.visit.crewId,
+    phaseId: schema.projectJob.projectPhaseId, jobNumber: schema.job.number, customerName: schema.customer.name,
+  }).from(schema.projectJob)
+    .innerJoin(schema.visit, eq(schema.visit.jobId, schema.projectJob.jobId))
+    .innerJoin(schema.job, eq(schema.job.id, schema.projectJob.jobId))
+    .innerJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
+    .where(and(eq(schema.projectJob.projectId, projectId), inArray(schema.projectJob.projectPhaseId, phaseIds)));
+  const booked = rows.filter((r) => r.start !== null && r.phaseId !== null && !AHEAD_OVER.has(r.status));
+  if (booked.length === 0) return { moves: [], left: [] };
+
+  const assigned = await tx.select({
+    visitId: schema.visitAssignment.visitId, id: schema.technician.id, name: schema.technician.displayName,
+  }).from(schema.visitAssignment)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
+    .where(inArray(schema.visitAssignment.visitId, booked.map((v) => v.id)));
+  const crewIds = [...new Set(booked.map((v) => v.crewId).filter((id): id is string => id !== null))];
+  const crewPeople = crewIds.length === 0 ? [] : await tx.select({
+    crewId: schema.crewMember.crewId, id: schema.technician.id, name: schema.technician.displayName,
+  }).from(schema.crewMember)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+    .where(inArray(schema.crewMember.crewId, crewIds));
+  const visits: plan.BookedVisit[] = booked.map((v) => ({
+    id: v.id, phaseId: v.phaseId!, status: v.status, start: v.start!, end: v.end, minutes: v.minutes,
+    label: `${v.customerName}, job ${v.jobNumber}`,
+    people: [
+      ...assigned.filter((a) => a.visitId === v.id).map((a) => ({ id: a.id, name: a.name })),
+      ...crewPeople.filter((c) => c.crewId === v.crewId).map((c) => ({ id: c.id, name: c.name })),
+    ],
+  }));
+
+  const people = [...new Set(visits.flatMap((v) => v.people.map((p) => p.id)))];
+  const away = people.length === 0 ? [] : (await tx.select({
+    personId: schema.timeOff.technicianId, start: schema.timeOff.startsAt, end: schema.timeOff.endsAt,
+  }).from(schema.timeOff).where(and(
+    inArray(schema.timeOff.technicianId, people), eq(schema.timeOff.approved, true), gt(schema.timeOff.endsAt, now),
+  )));
+  /** Their other visits still to come, by assignment and by crew. */
+  const live = notInArray(schema.visit.status, [...AHEAD_OVER] as ("completed" | "cancelled" | "no_show" | "completed_after_cancellation")[]);
+  const byAssignment = people.length === 0 ? [] : await tx.select({
+    personId: schema.visitAssignment.technicianId, visitId: schema.visit.id,
+    start: schema.visit.windowStart, end: schema.visit.windowEnd, minutes: schema.visit.estimatedDurationMinutes,
+  }).from(schema.visitAssignment)
+    .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
+    .where(and(inArray(schema.visitAssignment.technicianId, people), gt(schema.visit.windowStart, now), live));
+  const byCrew = people.length === 0 ? [] : await tx.select({
+    personId: schema.crewMember.technicianId, visitId: schema.visit.id,
+    start: schema.visit.windowStart, end: schema.visit.windowEnd, minutes: schema.visit.estimatedDurationMinutes,
+  }).from(schema.crewMember)
+    .innerJoin(schema.visit, eq(schema.visit.crewId, schema.crewMember.crewId))
+    .where(and(inArray(schema.crewMember.technicianId, people), gt(schema.visit.windowStart, now), live));
+  const busy = [...byAssignment, ...byCrew].flatMap((b) => {
+    const span = time.visitSpan(b.start, b.end, b.minutes);
+    return span ? [{ personId: b.personId, visitId: b.visitId, start: span.start, end: span.end }] : [];
+  });
+  return plan.planVisitMoves({ visits, shiftDays, timeZone: zone, now, away, busy });
+}
 
 async function loadChangeOrder(tx: Database, organizationId: string, id: string) {
   const [row] = await tx.select().from(schema.projectChangeOrder)
@@ -336,6 +425,7 @@ async function proposeIn(
           id: mv.id, name: rows.find((r) => r.id === mv.id)?.name ?? "Phase",
           startsOn: mv.startsOn, endsOn: mv.endsOn, wasStartsOn: mv.wasStartsOn, wasEndsOn: mv.wasEndsOn,
         })),
+        visits: done.visits ?? { moved: [], left: [] },
       },
       canApply: false, reason: "These days are already on the schedule.", proposal: null,
     };
@@ -352,11 +442,16 @@ async function proposeIn(
   if (!target) return refused("Choose the phase these days land on. The change order does not name one.");
   const decision = plan.proposeChangeOrderDays(planned(rows), target, order.scheduleDays);
   if (!decision.ok) return refused(decision.reason);
+  /** Each phase whose start moves takes its booked visits with it, by the same days. */
+  const shiftDays = new Map(decision.changes
+    .filter((c) => c.startsOn !== c.wasStartsOn)
+    .map((c) => [c.id, plan.daysBetween(c.wasStartsOn, c.startsOn)]));
+  const visits = await visitsToMove(tx, order.projectId, shiftDays, await timezoneOf(tx, organizationId), new Date());
   return {
     ...base, applied: null, canApply: true, reason: null,
     proposal: {
       changes: decision.changes, finishBefore: decision.finishBefore, finishAfter: decision.finishAfter,
-      statement: decision.statement, key: keyOf(decision.changes),
+      statement: decision.statement, visits, key: keyOf(decision.changes, visits),
     },
   };
 }
@@ -388,8 +483,17 @@ export async function proposeChangeOrderDays(
  *
  * Applied once. The change order row is locked, and a second call (a retry, or
  * a colleague clicking the same button) gets back what the first one did
- * instead of pushing every later phase out a second time. Visits already
- * booked are not moved; if the move leaves somebody booked twice, the schedule
+ * instead of pushing every later phase out a second time.
+ *
+ * THE VISITS GO WITH THEIR PHASES. Each visit the proposal showed moving is
+ * moved to its new time, the people on it hear it moved through the visit's
+ * notices, and the customer is told through the same visit change notice the
+ * office's other moves use, saying it is the change order that moved it.
+ * Each visit the proposal showed staying stays, and is named on the change
+ * order with why. Moving a booked visit is a decision about the schedule of
+ * visits, so it needs `visit:reschedule` as well, which a customer service
+ * seat does not hold: they are told so and can apply a proposal that moves
+ * no visit. If a phase move still leaves somebody booked twice, the schedule
  * flags it and leaves it to a person.
  */
 export async function applyChangeOrderDays(
@@ -408,13 +512,35 @@ export async function applyChangeOrderDays(
     if (seen.applied) return { ...seen, alreadyApplied: true };
     if (!seen.canApply || !seen.proposal) throw new ConflictError(seen.reason ?? "Nothing to apply.");
     if (seen.proposal.key !== input.proposalKey) {
-      throw new ConflictError("The schedule changed since you looked at this proposal. Look at it again before you apply it.");
+      throw new ConflictError("The schedule changed since you looked at this proposal, or a booked visit did. Look at it again before you apply it.");
     }
+    if (seen.proposal.visits.moves.length > 0) assertCan(ctx.actor, "visit:reschedule");
 
     for (const change of seen.proposal.changes) {
       await tx.update(schema.projectPhase).set({
         startsOn: change.startsOn, endsOn: change.endsOn, updatedAt: new Date(),
       }).where(eq(schema.projectPhase.id, change.id));
+    }
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const visits: AppliedVisits = { moved: [], left: [] };
+    for (const move of seen.proposal.visits.moves) {
+      const before = await sideOf(tx, move.id);
+      await tx.update(schema.visit).set({ windowStart: move.start, windowEnd: move.end, updatedAt: new Date() })
+        .where(eq(schema.visit.id, move.id));
+      if (before) await announce(tx, ctx, move.id, before);
+      const shift = plan.daysBetween(time.dateIn(move.wasStart, zone), time.dateIn(move.start, zone));
+      const notified = await officeMoved(tx, ctx, {
+        visitId: move.id, was: { start: move.wasStart, end: move.wasEnd },
+        because: `because the change to your project you agreed (change order ${order.number}) moves this part of the work `
+          + `${Math.abs(shift)} ${Math.abs(shift) === 1 ? "day" : "days"} ${shift > 0 ? "later" : "earlier"}`,
+      });
+      visits.moved.push({
+        id: move.id, label: move.label, wasStart: move.wasStart.toISOString(), wasEnd: move.wasEnd?.toISOString() ?? null,
+        start: move.start.toISOString(), end: move.end?.toISOString() ?? null, notified,
+      });
+    }
+    for (const stay of seen.proposal.visits.left) {
+      visits.left.push({ id: stay.id, label: stay.label, wasStart: stay.wasStart.toISOString(), reason: stay.reason });
     }
     const at = new Date();
     await tx.update(schema.projectChangeOrder).set({
@@ -425,12 +551,13 @@ export async function applyChangeOrderDays(
         moves: seen.proposal.changes.map((c) => ({
           id: c.id, startsOn: c.startsOn, endsOn: c.endsOn, wasStartsOn: c.wasStartsOn, wasEndsOn: c.wasEndsOn,
         })),
+        visits,
       },
       updatedAt: at,
     }).where(eq(schema.projectChangeOrder.id, order.id));
     await audit(tx, ctx, "project_change_order.schedule_applied", "project_change_order", order.id,
       { scheduleAppliedAt: null },
-      { phaseId: seen.phaseId, days: order.scheduleDays, changes: seen.proposal.changes });
+      { phaseId: seen.phaseId, days: order.scheduleDays, changes: seen.proposal.changes, visits });
     const after = await loadChangeOrder(tx, ctx.actor.organizationId, order.id);
     return { ...(await proposeIn(tx, ctx.actor.organizationId, after, undefined)), alreadyApplied: false };
   });

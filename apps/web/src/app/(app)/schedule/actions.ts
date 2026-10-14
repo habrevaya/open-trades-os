@@ -22,9 +22,11 @@ export async function assignVisit(input: {
   date: string;
   /** Send them although the qualification check refused, with the reason the audit log keeps. */
   overrideReason?: string;
+  /** Send them although the time is the share of their window held for members. */
+  intoMemberHold?: boolean;
 }): Promise<
   | { ok: true; unknownSkills: string[]; droppedSkills: { skill: string; reason: string; through?: string }[] }
-  | { ok: false; message: string; qualification?: { mayOverride: boolean } }
+  | { ok: false; message: string; qualification?: { mayOverride: boolean }; memberHold?: true }
 > {
   const user = await requireSetupUser();
 
@@ -37,6 +39,7 @@ export async function assignVisit(input: {
         id: input.visitId,
         technicianIds: [input.technicianId],
         ...(input.overrideReason ? { overrideQualification: { reason: input.overrideReason } } : {}),
+        ...(input.intoMemberHold ? { intoMemberHold: true } : {}),
       },
     );
     unknownSkills = result.unknownSkills;
@@ -50,10 +53,13 @@ export async function assignVisit(input: {
     const qualification = (error as { qualificationRefused?: boolean }).qualificationRefused
       ? { mayOverride: can(user.actor, "visit:assign_unqualified") }
       : undefined;
+    /** Time held for members: the board offers "Send anyway", which anybody who may dispatch may press. */
+    const memberHold = (error as { memberHoldRefused?: boolean }).memberHoldRefused === true;
     return {
       ok: false,
       message: refusalOf(error) ?? "That did not take. Reload the board and try again.",
       ...(qualification ? { qualification } : {}),
+      ...(memberHold ? { memberHold: true as const } : {}),
     };
   }
 

@@ -110,7 +110,26 @@ waiting for it, is refused in words (their dates are what happened), and so is a
 credit of more days than the phase has. The days are applied once: the change
 order keeps who applied them, when, and exactly what moved, and a retry or a
 second person gets that back instead of pushing every later phase out again.
-Visits already booked are not moved; the schedule flags anyone left booked twice.
+
+**The visits go with their phases, as part of the same proposal.** Each visit
+still to come on the jobs of a phase whose start moves goes by the same days,
+at the same time of day in the company's calendar, and the proposal lists it
+with its time now and after. A visit stays where it is, named with why, when
+somebody on it (a crew's members included) is off at the new time or booked on
+another visit then that is not moving with it, when it has started, or when its
+time, or the time it would move to, has gone by: who goes instead is the
+dispatch board's decision, not a change order's. The phase the days land on
+keeps its start, so its own visits stay. The proposal's key covers the visits
+too, so a visit moved or booked differently since the person looked is a
+proposal to look at again. Applying moves each listed visit, tells the people on
+it through the visit's notices, and tells the customer through the same visit
+change notice the office's other moves use ("We have moved your visit from ...
+to ..., because the change to your project you agreed (change order 3) moves
+this part of the work 3 days later."), and the change order keeps what it moved,
+who was told, and what it left. Moving a booked visit needs `visit:reschedule`
+as well as `job:write`, so a customer service seat can apply days that move no
+visit and is told somebody who can move visits has to apply the rest. The
+schedule still flags anyone left booked twice.
 
 **A person booked on two phases at once is flagged, never moved.** The schedule
 marks it on the timeline (an amber strip under both bars across the days the two
@@ -220,8 +239,11 @@ carries `clashes`, each person or crew booked on two phases at once with the day
 an agreed change order (pass `phaseId` when it names none), and
 `POST /v1/project-change-orders/{id}/schedule-days` applies it with the proposal's
 `key`. The change order's page, `/projects/{id}/change-orders/{changeOrderId}`, shows
-the proposal under "The schedule", with what would move and the finish before and
-after, and an "Apply to the schedule" button for whoever holds `job:write`.
+the proposal under "The schedule", with what would move, the visits that move with
+their time now and after and the ones that stay with why, and the finish before and
+after, and an "Apply to the schedule" button for whoever holds `job:write` (and
+`visit:reschedule` when visits move). Once applied, the same section lists the
+visits moved and left.
 
 ### Apply for payment
 
@@ -282,7 +304,7 @@ payment.
 | `POST /v1/project-phases/{id}/move` | `job:write` |
 | `POST /v1/project-phases/{id}/dates` | `job:write` |
 | `GET /v1/project-change-orders/{id}/schedule-days` | `job:read` |
-| `POST /v1/project-change-orders/{id}/schedule-days` | `job:write` |
+| `POST /v1/project-change-orders/{id}/schedule-days` | `job:write`, and `visit:reschedule` when it moves booked visits |
 | `GET /v1/projects/{projectId}/applications` | `invoice:read` |
 | `POST /v1/projects/{projectId}/applications` | `invoice:write` |
 | `GET /v1/project-applications/{id}` | `invoice:read` |
@@ -311,7 +333,8 @@ covers the page as sent. Withdraw it and raise another.
 
 **Does a change order's extra days move the schedule?** Only when a person applies
 them. They print on the change order, and once it is agreed the change order's page
-proposes what would move; a person looks and presses apply. Nothing moves on its own.
+proposes what would move, booked visits included; a person looks and presses apply.
+Nothing moves on its own.
 
 **Does the schedule move people who are booked twice?** No. It flags them and says
 who and when. Moving somebody is a decision on the dispatch board.
@@ -325,8 +348,13 @@ association's form, numbering or name.
 Resource levelling: the schedule shows who is booked on each phase and flags a person
 booked on two phases that run at once, and does not move anybody to resolve it. The days
 a change order adds are applied by a person from a proposal, for an agreed change order
-only, and move the phase and what waits for it; they do not move visits already booked,
-and a change order that names no phase asks which one. A clash is a phase to phase
+only, and move the phase and what waits for it, with the visits booked on the phases that
+move. A visit that cannot go (its person off or booked then, started, or gone by) is left
+where it is and named, never given to somebody else. The visits on the phase the days land
+on stay, including any on days a credit takes off its end, which a person sorts out on the
+board. A change order that names no phase asks which one. Moving a visit tells the customer
+by text or email when the company can reach them; nothing asks the customer first, because
+the change they agreed is what moved it. A clash is a phase to phase
 reading: it does not count a person who is booked on two visits at the same hour, which is
 the dispatch board's check, and it does not read a crew's members. A project billed before retainage was booked to a
 receivable stays on the old way for good; there is no switch that moves it across

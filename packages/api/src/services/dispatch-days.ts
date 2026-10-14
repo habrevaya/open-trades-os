@@ -492,8 +492,8 @@ export async function applyRebalanceDays(ctx: ServiceContext, input: {
     };
     const assignTo = async (visitId: string, m: { technicianId?: string | undefined; technicianIds?: string[] | undefined; crewId?: string | undefined }) => {
       if (m.crewId) await crews.assign(inner, { id: visitId, crewId: m.crewId });
-      else if (m.technicianIds) await dispatch.assign(inner, { id: visitId, technicianIds: m.technicianIds, leadTechnicianId: m.technicianIds[0]! });
-      else await dispatch.assign(inner, { id: visitId, technicianIds: [m.technicianId!] });
+      else if (m.technicianIds) await dispatch.assign(inner, { id: visitId, technicianIds: m.technicianIds, leadTechnicianId: m.technicianIds[0]!, skipMemberHold: true });
+      else await dispatch.assign(inner, { id: visitId, technicianIds: [m.technicianId!], skipMemberHold: true });
     };
 
     /** Online booking's ceiling, read now: a booking may have taken a place since the proposal. */

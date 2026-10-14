@@ -256,14 +256,34 @@ export const getPropertyCeiling = defineRoute({
   }),
 });
 
-const EscalatedPrice = z.object({ before: MoneyString, after: MoneyString });
+const EscalatedPrice = z.object({
+  before: MoneyString,
+  after: MoneyString,
+  /** The rate it rises by, "0" for a price kept as it is. */
+  rate: RateString,
+  /** Which rise that is, in words: "Year 3", "Every year, Plumbing hourly rates", "The contract's yearly rate". */
+  because: z.string(),
+});
+
+/** One of the contract's rises beyond its own yearly rate. */
+const ContractRise = z.object({
+  id: Uuid,
+  /** The year of the contract it opens (2 is the first anniversary), or null for every year. */
+  contractYear: z.number().int().nullable(),
+  rateCardId: Uuid.nullable(),
+  rateCardName: z.string().nullable(),
+  /** The trade whose hourly rates it applies to, or null for every price. */
+  jobTypeId: Uuid.nullable(),
+  jobTypeName: z.string().nullable(),
+  rate: RateString,
+});
 
 export const previewContractEscalation = defineRoute({
   method: "get",
   path: "/v1/contracts/{contractId}/escalation",
   summary: "What the contract's next annual escalation would do to its cards",
   description:
-    "The next anniversary of the contract's start (a year after the last one applied), the year of the contract it opens, and every price on every card in force the day before it, before and after rising by the contract's escalation rate, to the cent, half up. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. Nothing is written.",
+    "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. Nothing is written.",
   module: "M31",
   permissions: ["pricebook:read"],
   input: z.object({ contractId: Uuid }),
@@ -286,6 +306,8 @@ export const previewContractEscalation = defineRoute({
       tripCharge: EscalatedPrice.nullable(),
     })),
     drafts: z.array(z.object({ rateCardId: Uuid, name: z.string(), preparedAt: z.string().datetime() })).optional(),
+    rises: z.array(ContractRise),
+    key: z.string().nullable(),
   }),
 });
 
@@ -294,32 +316,74 @@ export const applyContractEscalation = defineRoute({
   path: "/v1/contracts/{contractId}/escalation",
   summary: "Apply the annual escalation the preview showed",
   description:
-    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen by the rate (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. Refused unless `anniversary` and `rate` are the ones the preview shows now, and before the preview says it is ready. A retry for an anniversary already applied answers with the cards it made.",
+    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards it made.",
   module: "M31",
   permissions: ["pricebook:write"],
   idempotent: true,
-  input: z.object({ contractId: Uuid, anniversary: z.string().date(), rate: RateString }),
+  input: z.object({
+    contractId: Uuid,
+    anniversary: z.string().date(),
+    /** The yearly rate the preview showed, on a contract with no rises of its own that year. */
+    rate: RateString.optional(),
+    /** The preview's `key`, which every contract's preview carries and one whose rises differ needs. */
+    key: z.string().max(64).optional(),
+  }),
   output: z.object({
     contractId: Uuid,
     anniversary: z.string().date(),
-    rate: RateString,
+    /** The contract's own yearly rate, null when only its rises say what rises. */
+    rate: RateString.nullable(),
     cards: z.array(z.object({
       fromRateCardId: Uuid, rateCardId: Uuid, name: z.string(), effectiveFrom: z.string().date(),
     })),
   }),
 });
 
+export const listContractRises = defineRoute({
+  method: "get",
+  path: "/v1/contracts/{contractId}/escalation/rises",
+  summary: "The contract's rises that differ by year, by card or by trade",
+  description:
+    "Each rise beyond the contract's own yearly rate: the year of the contract it opens (or every year), the card it applies to (or every card) and the trade whose hourly rates it applies to (or every price), with the rate. A rise naming a card follows the card to each new version written when a rise is applied.",
+  module: "M31",
+  permissions: ["contract:read"],
+  input: z.object({ contractId: Uuid }),
+  output: z.array(ContractRise),
+});
+
+export const setContractRises = defineRoute({
+  method: "put",
+  path: "/v1/contracts/{contractId}/escalation/rises",
+  summary: "Say how the contract's rises differ by year, by card or by trade",
+  description:
+    "Replaces the contract's rises with these. Each is a rate (0.04 for four per cent; nothing is allowed, for a card fixed for the term), for a year of the contract from 2 or every year, for one of the contract's cards or every card, and for one trade's hourly rates or every price. Two rows saying the same year, card and trade are refused in words, as is a card that is not this contract's. Nothing rises because of this: the preview shows the change and a person applies it, and drafts the worker already prepared are prepared again.",
+  module: "M31",
+  permissions: ["contract:write"],
+  input: z.object({
+    contractId: Uuid,
+    rises: z.array(z.object({
+      contractYear: z.number().int().min(2).max(99).nullable().optional(),
+      rateCardId: Uuid.nullable().optional(),
+      jobTypeId: Uuid.nullable().optional(),
+      rate: RateString,
+    })).max(50),
+  }),
+  output: z.array(ContractRise),
+});
+
 /* ------------------------------------------------ billed on a schedule */
 
 const BillingFrequency = z.enum(["monthly", "quarterly", "yearly"]);
+/** In advance, each period on its first day; in arrears, the day after its last, for the period just gone. */
+const BillingTiming = z.enum(["advance", "arrears"]);
 
 const BillingPeriod = z.object({
   start: z.string().date(),
   end: z.string().date(),
-  /** The day it is billed: its first day. */
+  /** The day it is billed: its first day in advance, the day after its last in arrears. */
   billOn: z.string().date(),
   amount: MoneyString,
-  /** A part period's share of the fee, by day, when the schedule prorates. */
+  /** A part period's share of the fee, by day: when the schedule prorates, or in arrears when a pause or an end cut it short. */
   prorated: z.boolean(),
   days: z.number().int(),
   /** The days of the whole period it is part of. */
@@ -335,6 +399,7 @@ export const ContractBilling = z.object({
     frequency: BillingFrequency,
     /** 1 to 28. */
     billingDay: z.number().int(),
+    timing: BillingTiming,
     /** The first day billed for, and the day the billing days are counted from. */
     startsOn: z.string().date(),
     prorate: z.boolean(),
@@ -353,10 +418,11 @@ export const ContractBilling = z.object({
   due: z.number().int(),
   periods: z.array(BillingPeriod.extend({
     id: Uuid,
-    /** `skipped` for a period whose billing day fell while the schedule was paused. */
+    /** `skipped` for a period whose billing day fell while the schedule was paused, or in arrears the days a pause took. */
     status: z.enum(["invoiced", "skipped"]),
     invoiceId: Uuid.nullable(),
     invoiceNumber: z.number().int().nullable(),
+    /** Why it was skipped, or how an invoiced one was worked out, in words. */
     note: z.string().nullable(),
   })),
   /** Why nothing is being billed, in words, when nothing is. */
@@ -368,7 +434,7 @@ export const getContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing",
   summary: "A contract's fixed fee schedule, and every period it has billed",
   description:
-    "The schedule (the fee, how often, the billing day, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.",
+    "The schedule (the fee, how often, the billing day, in advance or in arrears, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.",
   module: "M31",
   permissions: ["contract:read"],
   input: z.object({ contractId: Uuid }),
@@ -380,7 +446,7 @@ export const setContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing",
   summary: "Bill a contract a fixed fee every month, quarter or year",
   description:
-    "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer on the period's billing day in the company's calendar, in advance, for the period that starts that day, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue like any invoice. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of. The billing day is 1 to 28. Changing how often or on which day it bills, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.",
+    "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer in the company's calendar, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue on the day it is raised like any invoice. With `timing` `advance` (the default) each period is billed on its billing day, for the period that starts that day; with `arrears` it is billed the day after it ends, for the period just gone. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of; in arrears a period cut short by a pause or an end is always charged by the day for the days that ran, and the invoice line says how many. The billing day is 1 to 28. Changing how often, on which day or in advance or arrears, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
@@ -389,6 +455,8 @@ export const setContractBilling = defineRoute({
     amount: MoneyString,
     frequency: BillingFrequency,
     billingDay: z.number().int().min(1).max(28),
+    /** Left off, a new schedule bills in advance and a change keeps what the schedule had. */
+    timing: BillingTiming.optional(),
     /** The first day billed for. Left off, the contract's start, or today. */
     startsOn: z.string().date().optional(),
     prorate: z.boolean().optional(),
@@ -403,7 +471,7 @@ export const pauseContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing/pause",
   summary: "Stop a contract's fixed fee until it is resumed",
   description:
-    "Nothing is billed while it is paused, and a period whose billing day falls in the pause is written down as skipped when it is resumed, so it is never billed afterwards. Pausing one already paused changes nothing.",
+    "Nothing is billed while it is paused. In advance, a period whose billing day falls in the pause is written down as skipped when it is resumed, so it is never billed afterwards, and a period already billed is left as it is. In arrears, the part of the running period before today is billed by the day on the next pass, as the part that ran, and no paused day is ever billed. Nothing is credited either way. Pausing one already paused changes nothing.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
@@ -416,7 +484,7 @@ export const resumeContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing/resume",
   summary: "Start a paused fixed fee again",
   description:
-    "Billing starts again from today. Each period whose billing day fell while it was paused is written down as skipped rather than billed, so a customer is not sent the paused months the morning it is resumed. A period owed from before the pause is still billed. Resuming one not paused changes nothing.",
+    "Billing starts again from today. In advance, each period whose billing day fell while it was paused is written down as skipped rather than billed, so a customer is not sent the paused months the morning it is resumed, and a period owed from before the pause is still billed. In arrears, the paused days are written down as skipped, and the period running today is billed at its end for the days from today, by the day. Resuming one not paused changes nothing.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
@@ -429,7 +497,7 @@ export const endContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing/end",
   summary: "End a contract's fixed fee on a last day",
   description:
-    "Periods up to `lastDay` (today when left off) are still billed, one cut short by it as a part period, and nothing after. An invoice already raised for a period the end cuts short is left as it is: crediting the rest is decided on that invoice. Saving the schedule again starts it again.",
+    "Periods up to `lastDay` (today when left off) are still billed, one cut short by it as a part period, and nothing after. In arrears the part period is charged by the day and billed the day after `lastDay`. In advance, an invoice already raised for a period the end cuts short is left as it is: crediting the rest is decided on that invoice. Saving the schedule again starts it again.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
@@ -464,7 +532,7 @@ export const contractRoutes = {
   listContracts, createContract, updateContract, addContractSite,
   createRateCard, setRateCardLines, listRateCardLines,
   resolveContractPrice, getPropertyCeiling,
-  previewContractEscalation, applyContractEscalation,
+  previewContractEscalation, applyContractEscalation, listContractRises, setContractRises,
   getContractBilling, setContractBilling, pauseContractBilling, resumeContractBilling,
   endContractBilling, raiseContractBilling,
 } as const;

@@ -709,6 +709,12 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
 export async function officeMoved(tx: Database, ctx: ServiceContext, input: {
   visitId: string;
   was: { start: Date; end: Date | null };
+  /**
+   * Why it moved, as the end of the sentence the customer reads. Left off, the
+   * move is inside what they agreed: "a day you told us suits you". A change
+   * order's days moving their project's work give their own reason.
+   */
+  because?: string | undefined;
 }): Promise<string> {
   const [row] = await tx.select({ visit: schema.visit, job: schema.job })
     .from(schema.visit).innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
@@ -737,7 +743,7 @@ export async function officeMoved(tx: Database, ctx: ServiceContext, input: {
   const notified = await tell(tx, ctx, {
     customerId: row.job.customerId,
     subject: "Your visit has been moved",
-    body: `We have moved your visit from ${was} to ${when}, a day you told us suits you. Reply to this message if it does not.`,
+    body: `We have moved your visit from ${was} to ${when}, ${input.because ?? "a day you told us suits you"}. Reply to this message if it does not.`,
   });
   await audit(tx, ctx, "visit.moved_by_office", "visit", input.visitId,
     { windowStart: input.was.start, windowEnd: input.was.end },

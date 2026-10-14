@@ -6,7 +6,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { contracts, rateCards, payerDelivery, priceBook } from "@opentradesos/api/services";
 import { attempt, field, refused, refusalOf, type FormState } from "@/lib/actions";
-import { cardLinesFromText, cardTermsFromForm, fractionOf, slaTermsFromForm } from "@/lib/contract-forms";
+import { cardLinesFromText, cardTermsFromForm, fractionOf, risesFromForm, slaTermsFromForm } from "@/lib/contract-forms";
 import { contractEscalation, contractBilling } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -144,13 +144,14 @@ export async function issuePayerLink(_previous: FormState, form: FormData): Prom
 
 /**
  * Apply the annual escalation the page showed, with the anniversary and the
- * rate it showed, so a rate changed in between is refused rather than applied.
+ * key it showed, so a rate or a rise changed in between is refused rather
+ * than applied.
  */
 export async function applyEscalation(_previous: FormState, form: FormData): Promise<FormState> {
   const contractId = field(form, "contractId") ?? "";
   const result = await attempt(form, async () => {
     const done = await contractEscalation.apply(await ctx(), {
-      contractId, anniversary: field(form, "anniversary") ?? "", rate: field(form, "rate") ?? "",
+      contractId, anniversary: field(form, "anniversary") ?? "", key: field(form, "key") ?? "",
     });
     return {
       message: `${done.cards.length === 1 ? "One card" : `${done.cards.length} cards`} risen from ${done.anniversary}. `
@@ -159,6 +160,24 @@ export async function applyEscalation(_previous: FormState, form: FormData): Pro
   });
   revalidatePath(`/contracts/${contractId}`);
   return result;
+}
+
+/**
+ * The rises that differ by year, card or trade, replaced as a set. A per cent
+ * that is not one is refused in words, as the yearly rate is.
+ */
+export async function setContractRises(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  try {
+    const rises = risesFromForm(reader(form));
+    await contractEscalation.setRises(await ctx(), { contractId, rises });
+  } catch (error) {
+    const message = refusalOf(error) ?? (error instanceof Error && /percentage/.test(error.message) ? error.message : null);
+    if (message === null) throw error;
+    return refused(form, message);
+  }
+  revalidatePath(`/contracts/${contractId}`);
+  return { done: true, message: "Saved. The preview above shows what each price rises by." };
 }
 
 /* ------------------------------------------------- billed on a schedule */
@@ -175,6 +194,7 @@ export async function setContractBilling(_previous: FormState, form: FormData): 
     amount: field(form, "amount") ?? "",
     frequency: (frequency === "quarterly" || frequency === "yearly" ? frequency : "monthly"),
     billingDay: Number(field(form, "billingDay") ?? "0"),
+    timing: field(form, "timing") === "arrears" ? "arrears" : "advance",
     startsOn: field(form, "startsOn"),
     prorate: form.get("prorate") === "1",
     taxable: form.get("taxable") === "1",

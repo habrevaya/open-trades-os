@@ -1632,7 +1632,7 @@ export async function applyRebalance(ctx: ServiceContext, input: {
       if (!visit) throw new NotFoundError("Visit");
       if (visit.locked) throw new ConflictError(`${visit.customerName}'s visit is locked, so it is not moved.`);
       if (move.crewId) await assignCrew(inner, { id: move.visitId, crewId: move.crewId });
-      else await dispatch.assign(inner, { id: move.visitId, technicianIds: [move.technicianId!] });
+      else await dispatch.assign(inner, { id: move.visitId, technicianIds: [move.technicianId!], skipMemberHold: true });
     }
     for (const order of input.orders) {
       if (order.visitIds.length === 0) continue;
