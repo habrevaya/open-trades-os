@@ -97,13 +97,16 @@ export async function orderParts(_previous: unknown, form: FormData): Promise<Re
   const parts = form.getAll("partNumber").map((v) => String(v).trim());
   const quantities = form.getAll("partQuantity").map((v) => String(v).trim());
   const prices = form.getAll("partPrice").map((v) => String(v).trim().replace(/[$,\s]/g, ""));
+  /** Which way to buy it, for a part the vendor sells two ways; empty is the cheaper way that fits. */
+  const packs = form.getAll("partPack").map((v) => String(v).trim());
   const lines = parts
-    .map((partNumber, i) => ({ partNumber, quantity: quantities[i] ?? "", unitPrice: prices[i] ?? "" }))
+    .map((partNumber, i) => ({ partNumber, quantity: quantities[i] ?? "", unitPrice: prices[i] ?? "", pack: packs[i] ?? "" }))
     .filter((line) => line.partNumber !== "")
     .map((line) => ({
       partNumber: line.partNumber,
       quantity: line.quantity === "" ? "1" : line.quantity,
       ...(line.unitPrice !== "" ? { unitPrice: line.unitPrice } : {}),
+      ...(line.pack !== "" ? { packQuantity: line.pack } : {}),
     }));
   if (lines.length === 0) return refused(form, "Give at least one part number.");
   const locationId = String(form.get("locationId") ?? "");

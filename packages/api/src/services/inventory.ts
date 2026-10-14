@@ -1390,6 +1390,12 @@ export interface OrderLineInput {
   quantity: string;
   /** What the vendor charges for one of ours. Their price on record, at the break the order reaches, when left out. */
   unitPrice?: string | undefined;
+  /**
+   * Which way to buy it, by how many of ours are in one of theirs ("1" for
+   * the each, "25" for the box), when the vendor sells it two ways. Left out,
+   * the cheaper per one of ours that this many is whole packs of.
+   */
+  packQuantity?: string | undefined;
 }
 
 interface ResolvedLine {
@@ -1434,14 +1440,28 @@ async function resolveLines(
       ...(line.partNumber ? { partNumber: line.partNumber } : {}),
     });
     const quantity = inv.quantityToString(inv.quantity(line.quantity));
-    const pack = part.packQuantity;
-    const byPack = m.compare(m.money(pack), m.money("1")) !== 0;
     const named = part.partNumber ?? line.partNumber ?? "that part";
+    /**
+     * TWO WAYS TO BUY IT. A vendor selling the part by the each and by the
+     * box is sent whichever the line names, or the cheaper per one of ours
+     * at the break the order reaches among the packs this many is whole
+     * packs of (`catalogue.choosePack`). One way is the rule below as it was.
+     */
+    let chosen = { quantity: part.packQuantity, unit: part.purchaseUnit, cost: part.cost, breaks: part.priceBreaks };
+    if (part.packs.length > 1) {
+      const choice = catalogue.choosePack(part.packs, quantity, line.packQuantity?.trim() || null);
+      if (!choice.ok) throw new ConflictError(`This vendor sells ${named} two ways. ${choice.reason}`);
+      chosen = { ...choice.pack, breaks: [...choice.pack.breaks] };
+    } else if (line.packQuantity?.trim() && m.compare(m.money(line.packQuantity.trim()), m.money(part.packQuantity)) !== 0) {
+      throw new ConflictError(`This vendor sells ${named} one way only: ${Number(part.packQuantity) === 1 ? "by the each" : `by the ${part.purchaseUnit ?? "pack"} of ${Number(part.packQuantity)}`}.`);
+    }
+    const pack = chosen.quantity;
+    const byPack = m.compare(m.money(pack), m.money("1")) !== 0;
     let packs = quantity;
     if (byPack) {
       const whole = catalogue.packsIn(quantity, pack);
       if (!whole.ok) {
-        const unit = part.purchaseUnit ?? "pack";
+        const unit = chosen.unit ?? "pack";
         throw new ConflictError(
           `This vendor sells ${named} by the ${unit} of ${inv.quantityLabel(inv.quantity(pack))}. `
           + `Order ${whole.below === "0" ? whole.above : `${whole.below} or ${whole.above}`}, not ${inv.quantityLabel(inv.quantity(quantity))}.`,
@@ -1456,12 +1476,12 @@ async function resolveLines(
       unitPrice = typed;
       if (byPack) packPrice = m.toString(m.multiply(m.money(typed), pack));
     } else {
-      if (!part.cost) {
+      if (!chosen.cost) {
         throw new ConflictError(
           `There is no price on record from this vendor for ${named}. Give the price they quoted for one.`,
         );
       }
-      const priced = catalogue.packPriceFor(part.cost, part.priceBreaks, packs);
+      const priced = catalogue.packPriceFor(chosen.cost, chosen.breaks, packs);
       unitPrice = catalogue.eachCost(priced.cost, pack);
       if (byPack) packPrice = priced.cost;
     }
@@ -1479,7 +1499,7 @@ async function resolveLines(
       quantityOrdered: quantity,
       unitPrice,
       packQuantity: pack,
-      purchaseUnit: byPack ? part.purchaseUnit : null,
+      purchaseUnit: byPack ? chosen.unit : null,
       packPrice,
     });
   }

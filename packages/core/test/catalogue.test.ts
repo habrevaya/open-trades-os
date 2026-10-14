@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  parseCatalogue, planCatalogue, splitRecords, parseCost, MAX_ROWS,
+  parseCatalogue, planCatalogue, splitRecords, parseCost, MAX_ROWS, cheaperFirst, choosePack,
   type CatalogueState,
 } from "../src/catalogue/index.js";
 
@@ -143,5 +143,97 @@ describe("deciding what each row does", () => {
   it("does not create a new item without a description to name it", () => {
     const plan = planCatalogue([row("NEW-2", "5.00", "Ferguson", "")], STATE, { updateItemCost: false, margin: "0.5" });
     expect((plan.rows[0] as { reason: string }).reason).toMatch(/no description/);
+  });
+});
+
+describe("vendors the file names that are not set up yet", () => {
+  it("are added only when the person importing ticks it, once each, under the first spelling", () => {
+    const rows = [row("FLT-16", "5.00", "Acme Supply", "F", 2), row("NEW-9", "2.00", "ACME SUPPLY", "Fuse 5A", 3)];
+    const off = planCatalogue(rows, STATE, { updateItemCost: false, margin: "0.5" });
+    expect(off.rows.every((r) => r.action === "skip")).toBe(true);
+    expect((off.rows[0] as { reason: string }).reason).toMatch(/tick that the import may add/);
+    expect(off.newVendors).toEqual([]);
+
+    const on = planCatalogue(rows, STATE, { updateItemCost: false, margin: "0.5", createVendors: true });
+    expect(on.newVendors).toEqual([{ name: "Acme Supply", line: 2 }]);
+    expect(on.rows[0]).toMatchObject({ action: "link", vendorId: null, vendorName: "Acme Supply", newVendor: true, itemId: "i2" });
+    expect(on.rows[1]).toMatchObject({ action: "create", vendorId: null, vendorName: "Acme Supply", newVendor: true });
+  });
+
+  it("match a vendor already set up without capitals, and are not added when every row of theirs is skipped", () => {
+    const plan = planCatalogue([row("C455R", "12", "FERGUSON", "Cap", 2), row("NEW-3", "2.00", "Nobody Supply", "", 3)],
+      STATE, { updateItemCost: false, margin: "0.5", createVendors: true });
+    expect(plan.rows[0]).toMatchObject({ action: "update", vendorId: "v1", newVendor: false });
+    expect(plan.rows[1]).toMatchObject({ action: "skip" });
+    expect(plan.newVendors).toEqual([]);
+  });
+});
+
+describe("a part bought two ways from one vendor", () => {
+  const packed = (sku: string, cost: string, pack: string, unit: string, line: number, vendor = "Ferguson") =>
+    ({ line, sku, description: "Wire nut", cost, vendor, pack, unit });
+
+  it("keeps the second row with another pack as the link's second way to buy it", () => {
+    const plan = planCatalogue([packed("C455R", "0.55", "1", "", 2), packed("C455R", "10.00", "25", "box", 3)],
+      STATE, { updateItemCost: false });
+    expect(plan.rows[0]).toMatchObject({ action: "update", slot: "first", pack: "1.0000" });
+    expect(plan.rows[1]).toMatchObject({
+      action: "pack", slot: "second", pairsWith: 2, itemId: "i1", pack: "25.0000", unit: "box", eachCost: "0.4000", cost: "10.0000",
+    });
+    // A second pack is a change to the link, and counted with the updates.
+    expect(plan.counts).toMatchObject({ update: 2, skip: 0 });
+  });
+
+  it("refuses a third pack and the same pack twice, and pairs a new part's box with the line that makes it", () => {
+    const three = planCatalogue([packed("C455R", "0.55", "1", "", 2), packed("C455R", "10.00", "25", "box", 3),
+      packed("C455R", "38.00", "100", "case", 4), packed("NEW-5", "0.50", "1", "", 5), packed("NEW-5", "0.60", "1", "", 6),
+      packed("NEW-5", "9.00", "25", "box", 7)], STATE, { updateItemCost: false, margin: "0.5" });
+    expect((three.rows[2] as { reason: string }).reason).toMatch(/already bought two ways/);
+    expect((three.rows[4] as { reason: string }).reason).toMatch(/already on line 5/);
+    expect(three.rows[5]).toMatchObject({ action: "pack", pairsWith: 5, itemId: null, itemCode: "NEW-5" });
+  });
+
+  it("states the pack a link already holds, whichever line of the file it is on, and leaves the other alone", () => {
+    const state: CatalogueState = {
+      ...STATE,
+      links: [{ ...STATE.links[0]!, packQuantity: "1", second: { packQuantity: "25", purchaseUnit: "box", cost: "10.00", priceBreaks: [] } }],
+    };
+    const box = planCatalogue([packed("C455R", "9.50", "25", "box", 2)], state, { updateItemCost: true });
+    expect(box.rows[0]).toMatchObject({ action: "pack", slot: "second", pairsWith: null, costBefore: "10.00", packBefore: "25" });
+    const same = planCatalogue([packed("C455R", "10.00", "25", "box", 2)], state, { updateItemCost: true });
+    expect(same.rows[0]).toMatchObject({ action: "unchanged", slot: "second" });
+  });
+
+  it("skips the second way when the line it goes with was skipped", () => {
+    const plan = planCatalogue([packed("NEW-6", "0.50", "1", "", 2), packed("NEW-6", "9.00", "25", "box", 3)],
+      STATE, { updateItemCost: false });
+    expect((plan.rows[1] as { reason: string }).reason).toMatch(/Line 2 for the same part was skipped/);
+  });
+});
+
+describe("choosing between two ways to buy a part", () => {
+  const each = { quantity: "1", unit: null, cost: "0.55", breaks: [] };
+  const box = { quantity: "25", unit: "box", cost: "10.00", breaks: [{ minimum: "4", cost: "9.00" }] };
+
+  it("offers the cheaper per one of ours first", () => {
+    expect(cheaperFirst([each, box])).toEqual([box, each]);
+    expect(cheaperFirst([{ ...box, cost: null }, each])).toEqual([each, { ...box, cost: null }]);
+  });
+
+  it("takes the cheaper way the quantity is whole packs of, at the break it reaches", () => {
+    expect(choosePack([each, box], "50")).toEqual({ ok: true, pack: box, packs: "2" });
+    expect(choosePack([each, box], "30")).toEqual({ ok: true, pack: each, packs: "30" });
+    // A box dearer per nut than the each until the break: 3 boxes at 25 each is 1.00 a nut against 0.55...
+    const dear = { ...box, cost: "25.00", breaks: [{ minimum: "4", cost: "12.50" }] };
+    expect(choosePack([each, dear], "75")).toMatchObject({ ok: true, pack: each });
+    // ...and four boxes reach the break at 0.50 a nut.
+    expect(choosePack([each, dear], "100")).toMatchObject({ ok: true, pack: dear, packs: "4" });
+  });
+
+  it("takes the way named, and says what would go when it does not fit", () => {
+    expect(choosePack([each, box], "50", "1")).toEqual({ ok: true, pack: each, packs: "50" });
+    const refused = choosePack([each, box], "30", "25");
+    expect(refused).toEqual({ ok: false, reason: "Order 25 or 50 by the box of 25, not 30." });
+    expect(choosePack([each, box], "30", "10")).toMatchObject({ ok: false, reason: expect.stringContaining("do not sell it in packs of 10") });
   });
 });

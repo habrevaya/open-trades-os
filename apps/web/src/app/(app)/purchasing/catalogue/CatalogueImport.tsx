@@ -8,7 +8,7 @@ import { applyCatalogue, previewCatalogue, type CatalogueState } from "./actions
 type Row = NonNullable<NonNullable<CatalogueState>["preview"]>["rows"][number];
 
 const SAYS: Record<Row["action"], string> = {
-  create: "New item", link: "Link to our item", update: "Update", unchanged: "No change", skip: "Skipped",
+  create: "New item", link: "Link to our item", update: "Update", pack: "Second way to buy it", unchanged: "No change", skip: "Skipped",
 };
 
 /**
@@ -80,6 +80,11 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
             <input type="checkbox" name="updateItemCost" defaultChecked />
             Our cost for a matched item follows this vendor&apos;s (as a new version)
           </label>
+          <label className="flex items-center gap-2 text-sm sm:col-span-3">
+            <input type="checkbox" name="createVendors" />
+            Add the vendors this file names that are not set up yet. Left off, their rows are skipped, so a misspelt
+            name in the file does not become a second supplier.
+          </label>
         </div>
         <button type="submit" disabled={previewing}
                 className="inline-flex h-9 items-center rounded bg-ink-900 px-3.5 text-sm font-medium text-white hover:bg-ink-700 disabled:opacity-60">
@@ -96,6 +101,12 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
             {preview.preview.counts.create} new, {preview.preview.counts.link} linked, {preview.preview.counts.update} updated,{" "}
             {preview.preview.counts.unchanged} unchanged, {preview.preview.counts.skip + preview.preview.problems.length} skipped.
           </p>
+          {preview.preview.newVendors.length > 0 ? (
+            <p className="text-sm text-ink-700" data-testid="new-vendors">
+              New {preview.preview.newVendors.length === 1 ? "vendor" : "vendors"} this adds:{" "}
+              {preview.preview.newVendors.map((v) => v.name).join(", ")}. Add their account number and email under Purchasing afterwards.
+            </p>
+          ) : null}
           {preview.preview.problems.length > 0 ? (
             <ul className="text-sm text-red-600">
               {preview.preview.problems.map((p) => <li key={p.line}>Line {p.line}: {p.message}</li>)}
@@ -128,12 +139,14 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
                       <span className="font-medium">{SAYS[row.action]}</span>
                       {row.action === "skip" ? <span className="text-red-600">: {row.reason}</span> : null}
                       {row.action === "create" ? <span className="text-ink-700">: {row.name}, priced at <Money value={row.price} /></span> : null}
-                      {row.action === "link" || row.action === "update" || row.action === "unchanged"
+                      {row.action === "link" || row.action === "update" || row.action === "unchanged" || row.action === "pack"
                         ? <span className="text-ink-700">: {row.itemCode} {row.itemName}</span> : null}
+                      {row.action === "pack" && row.pairsWith !== null
+                        ? <span className="text-ink-500"> (with line {row.pairsWith})</span> : null}
                       {row.action === "update" && row.partNumberBefore !== row.sku ? (
                         <span className="text-ink-500"> (was {row.partNumberBefore})</span>
                       ) : null}
-                      {"vendorName" in row ? <span className="text-ink-500">, {row.vendorName}</span> : null}
+                      {"vendorName" in row ? <span className="text-ink-500">, {row.vendorName}{row.newVendor ? " (new vendor)" : ""}</span> : null}
                     </td>
                     <td className="px-3 py-2 text-right">
                       {"cost" in row ? <Money value={row.cost} /> : null}
@@ -170,7 +183,8 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
           {applied?.applied ? (
             <p role="status" className="text-sm text-ink-700">
               Done: {applied.applied.created} items added, {applied.applied.linked} linked, {applied.applied.updated} updated,
-              {" "}{applied.applied.itemCostsRevised} item costs revised.
+              {" "}{applied.applied.itemCostsRevised} item costs revised
+              {applied.applied.vendorsAdded > 0 ? `, ${applied.applied.vendorsAdded} ${applied.applied.vendorsAdded === 1 ? "vendor" : "vendors"} added` : ""}.
             </p>
           ) : null}
         </form>

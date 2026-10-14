@@ -203,11 +203,24 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                         {link.priceBreaks.map((b) => `${Number(b.minimum)}+ at ${Number(b.cost).toFixed(2)}`).join(", ")}
                       </div>
                     ) : null}
+                    {link.secondPack ? (
+                      <div className="text-xs text-ink-500" data-testid="second-pack">
+                        or {Number(link.secondPack.packQuantity) === 1 && !link.secondPack.purchaseUnit
+                          ? "by the each"
+                          : `a ${link.secondPack.purchaseUnit ?? "pack"} of ${Number(link.secondPack.packQuantity)}`}
+                        {link.secondPack.cost ? <> at <Money value={link.secondPack.cost} muted /></> : null}
+                        {link.secondPack.eachCost && Number(link.secondPack.packQuantity) !== 1 ? <>, <Money value={link.secondPack.eachCost} muted /> each</> : null}
+                      </div>
+                    ) : null}
                   </Td>
                   <Td>
                     {writesVendors ? (
                       <ActionForm action={actOnItem} submit="Forget" tone="quiet"
                                   hidden={{ ...hidden, op: "unvendor", linkId: link.id }} className="inline" />
+                    ) : null}
+                    {writesVendors && link.secondPack ? (
+                      <ActionForm action={actOnItem} submit="Stop buying it the second way" tone="quiet"
+                                  hidden={{ ...hidden, op: "nosecond", vendorId: link.vendorId, partNumber: link.partNumber }} className="inline" />
                     ) : null}
                   </Td>
                 </tr>
@@ -226,6 +239,17 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
               </div>
               <p className="text-xs text-ink-500">
                 When they sell it by the box, their price is for the box and orders to them go in whole boxes.
+              </p>
+              <fieldset className="grid gap-3 sm:grid-cols-4">
+                <legend className="mb-1 text-sm font-medium text-ink-700">A second way they sell it (optional)</legend>
+                <TextField label="How many in one, the second way" name="secondPackQuantity" inputMode="decimal" placeholder="25" />
+                <TextField label="What they call that" name="secondPurchaseUnit" placeholder="box" maxLength={40} />
+                <TextField label="Their price for one of those" name="secondCost" inputMode="decimal" />
+              </fieldset>
+              <p className="text-xs text-ink-500">
+                Some suppliers sell the same part by the each and by the box at different prices. Fill this in and a
+                purchase order to them offers the cheaper per piece first, buying by the box when the quantity is whole
+                boxes. Leave it empty to keep what is there.
               </p>
             </ActionForm>
           ) : null}

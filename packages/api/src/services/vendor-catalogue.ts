@@ -46,6 +46,24 @@ export interface VendorLinkView {
   priceBreaks: catalogue.PriceBreak[];
   /** What one of ours comes to at their base price. Null with no cost. */
   eachCost: string | null;
+  /** The second way they sell it (by the box as well as the each), or null for a part sold one way. */
+  secondPack: {
+    packQuantity: string; purchaseUnit: string | null; cost: string | null;
+    priceBreaks: catalogue.PriceBreak[]; eachCost: string | null;
+  } | null;
+  /** Both ways to buy it, cheaper per one of ours first: the order a purchase order offers them in. */
+  packs: { packQuantity: string; purchaseUnit: string | null; cost: string | null; eachCost: string | null; second: boolean }[];
+}
+
+/** A link's ways to buy the part, as an order chooses between them, first pack first. */
+function packsOf(link: typeof schema.vendorItem.$inferSelect): (catalogue.Pack & { second: boolean })[] {
+  return [
+    { quantity: link.packQuantity, unit: link.purchaseUnit, cost: link.cost, breaks: link.priceBreaks, second: false },
+    ...(link.secondPackQuantity ? [{
+      quantity: link.secondPackQuantity, unit: link.secondPurchaseUnit, cost: link.secondCost,
+      breaks: link.secondPriceBreaks, second: true,
+    }] : []),
+  ];
 }
 
 async function linksWithin(
@@ -87,6 +105,15 @@ async function linksWithin(
     purchaseUnit: r.link.purchaseUnit,
     priceBreaks: r.link.priceBreaks,
     eachCost: r.link.cost ? catalogue.eachCost(r.link.cost, r.link.packQuantity) : null,
+    secondPack: r.link.secondPackQuantity ? {
+      packQuantity: r.link.secondPackQuantity, purchaseUnit: r.link.secondPurchaseUnit, cost: r.link.secondCost,
+      priceBreaks: r.link.secondPriceBreaks,
+      eachCost: r.link.secondCost ? catalogue.eachCost(r.link.secondCost, r.link.secondPackQuantity) : null,
+    } : null,
+    packs: catalogue.cheaperFirst(packsOf(r.link)).map((p) => ({
+      packQuantity: p.quantity, purchaseUnit: p.unit, cost: p.cost,
+      eachCost: p.cost ? catalogue.eachCost(p.cost, p.quantity) : null, second: p.second,
+    })),
   }));
 }
 
@@ -118,6 +145,14 @@ export async function setLink(
     purchaseUnit?: string | null | undefined;
     /** Replaces the break table whole when given. */
     priceBreaks?: readonly catalogue.PriceBreak[] | null | undefined;
+    /**
+     * The second way they sell it, replaced whole when given; null takes it
+     * away, and left out keeps what is on record.
+     */
+    secondPack?: {
+      packQuantity: string; purchaseUnit?: string | null | undefined; cost?: string | null | undefined;
+      priceBreaks?: readonly catalogue.PriceBreak[] | null | undefined;
+    } | null | undefined;
   },
 ): Promise<VendorLinkView> {
   return guardedWrite(ctx, "vendor:write", async (tx) => {
@@ -146,6 +181,15 @@ export async function setLink(
       .where(and(eq(schema.vendorItem.vendorId, input.vendorId), eq(schema.vendorItem.itemId, input.itemId)))
       .limit(1);
 
+    const second = secondPackOf(input.secondPack);
+    const firstPack = pack === null ? before?.packQuantity ?? "1" : m.toString(m.money(pack));
+    const secondQuantity = second === undefined ? before?.secondPackQuantity ?? null : second?.packQuantity ?? null;
+    if (secondQuantity !== null && m.compare(m.money(secondQuantity), m.money(firstPack)) === 0) {
+      throw new ConflictError(
+        `Both ways to buy it are packs of ${Number(firstPack)}. A second way is a different pack, like the each and the box of 25.`,
+      );
+    }
+
     const values = {
       partNumber,
       description: input.description?.trim() ? input.description.trim() : before?.description ?? null,
@@ -154,6 +198,12 @@ export async function setLink(
       packQuantity: pack === null ? before?.packQuantity ?? "1" : m.toString(m.money(pack)),
       purchaseUnit: input.purchaseUnit === undefined ? before?.purchaseUnit ?? null : input.purchaseUnit?.trim() || null,
       priceBreaks: breaks?.ok ? breaks.breaks : before?.priceBreaks ?? [],
+      ...(second === undefined ? {} : {
+        secondPackQuantity: second?.packQuantity ?? null,
+        secondPurchaseUnit: second?.purchaseUnit ?? null,
+        secondCost: second?.cost ?? null,
+        secondPriceBreaks: second?.priceBreaks ?? [],
+      }),
       updatedAt: new Date(),
     };
     const [row] = await refusingDuplicate("vendor_item_part_number_idx", PART_NUMBER_TAKEN(partNumber), () =>
@@ -166,6 +216,35 @@ export async function setLink(
     await audit(tx, ctx, before ? "vendor_item.updated" : "vendor_item.created", "vendor_item", row!.id, before ?? null, row!);
     return (await linksWithin(tx, { itemId: input.itemId })).find((l) => l.id === row!.id)!;
   });
+}
+
+/**
+ * A second pack as somebody typed it, checked the way the first is: a number
+ * in it, an amount for its price, a break table that reads. Undefined keeps
+ * what is on record and null takes it away.
+ */
+function secondPackOf(input: {
+  packQuantity: string; purchaseUnit?: string | null | undefined; cost?: string | null | undefined;
+  priceBreaks?: readonly catalogue.PriceBreak[] | null | undefined;
+} | null | undefined) {
+  if (input === undefined) return undefined;
+  if (input === null) return null;
+  const pack = catalogue.parsePack(input.packQuantity);
+  if (pack === null) {
+    throw new ConflictError(`"${input.packQuantity}" is not how many come in the second way they sell it. Give a number, like 25 for a box of 25.`);
+  }
+  const cost = input.cost?.trim() ? catalogue.parseCost(input.cost) : null;
+  if (input.cost?.trim() && cost === null) {
+    throw new ConflictError(`"${input.cost}" is not an amount. Give the vendor's price for one of the second pack.`);
+  }
+  const breaks = input.priceBreaks ? catalogue.checkBreaks(input.priceBreaks) : null;
+  if (breaks && !breaks.ok) throw new ConflictError(breaks.message);
+  return {
+    packQuantity: m.toString(m.money(pack)),
+    purchaseUnit: input.purchaseUnit?.trim() || null,
+    cost: cost === null ? null : m.toString(m.money(cost)),
+    priceBreaks: breaks?.ok ? breaks.breaks : [],
+  };
 }
 
 /**
@@ -197,12 +276,16 @@ export interface CatalogueInput {
   updateItemCost?: boolean | undefined;
   /** The shelf new items go on. */
   categoryId?: string | null | undefined;
+  /** Whether a vendor the file names that is not set up yet may be added. Off unless asked. */
+  createVendors?: boolean | undefined;
 }
 
 export interface CatalogueResult {
   problems: catalogue.CatalogueProblem[];
   rows: catalogue.RowPlan[];
   counts: catalogue.CataloguePlan["counts"];
+  /** The vendors applying it adds, by the name the file gives, with the first line that names each. */
+  newVendors: catalogue.CataloguePlan["newVendors"];
 }
 
 /**
@@ -252,6 +335,9 @@ async function stateFor(tx: Database, rows: readonly catalogue.CatalogueRow[]): 
     links: links.map((l) => ({
       vendorId: l.vendorId, itemId: l.itemId, partNumber: l.partNumber, cost: l.cost, description: l.description,
       packQuantity: l.packQuantity, purchaseUnit: l.purchaseUnit, priceBreaks: l.priceBreaks,
+      second: l.secondPackQuantity ? {
+        packQuantity: l.secondPackQuantity, purchaseUnit: l.secondPurchaseUnit, cost: l.secondCost, priceBreaks: l.secondPriceBreaks,
+      } : null,
     })),
     items: items.map((i) => ({ ...i, scheduled: ahead.has(i.id) })),
   };
@@ -275,8 +361,11 @@ async function planWithin(tx: Database, ctx: ServiceContext, input: CatalogueInp
     margin: input.margin ?? null,
     ending: input.ending ?? null,
     updateItemCost: input.updateItemCost ?? false,
+    createVendors: input.createVendors ?? false,
   });
-  return { parsed, problems: parsed.problems, rows: redacted(ctx, plan.rows), counts: plan.counts };
+  return {
+    parsed, problems: parsed.problems, rows: redacted(ctx, plan.rows), counts: plan.counts, newVendors: plan.newVendors,
+  };
 }
 
 /** An item's own cost, beside the vendor's, only for a reader who may see cost. */
@@ -319,10 +408,12 @@ export async function preview(ctx: ServiceContext, input: CatalogueInput): Promi
  */
 export async function apply(
   ctx: ServiceContext, input: CatalogueInput & { skipLines?: number[] | undefined },
-): Promise<CatalogueResult & { created: number; linked: number; updated: number; itemCostsRevised: number }> {
+): Promise<CatalogueResult & { created: number; linked: number; updated: number; itemCostsRevised: number; vendorsAdded: number }> {
   assertCan(ctx.actor, "pricebook:write");
   return guardedWrite(ctx, "vendor:write", async (tx) => {
-    type Applied = CatalogueResult & { created: number; linked: number; updated: number; itemCostsRevised: number };
+    type Applied = CatalogueResult & {
+      created: number; linked: number; updated: number; itemCostsRevised: number; vendorsAdded: number;
+    };
     const seen = await once.replayed<Applied>(tx, ctx, "vendor_catalogue");
     if (seen) return seen;
 
@@ -335,6 +426,31 @@ export async function apply(
 
     const result = await planWithin(tx, ctx, input);
     const skip = new Set(input.skipLines ?? []);
+
+    /**
+     * THE VENDORS THE FILE NAMES THAT ARE NOT SET UP, when the person asked
+     * for them to be added: one per name, under the spelling of the first
+     * line, and only a vendor at least one ticked row is for, so unticking a
+     * vendor's rows does not leave an empty supplier behind.
+     */
+    const vendorIds = new Map<string, string>();
+    let vendorsAdded = 0;
+    for (const wanted of result.newVendors) {
+      const ticked = result.rows.some((r) => r.action !== "skip" && r.newVendor && !skip.has(r.line)
+        && r.vendorName.toLowerCase() === wanted.name.toLowerCase());
+      if (!ticked) continue;
+      const [vendor] = await refusingDuplicate(
+        "vendor_name_idx",
+        `${wanted.name} was added as a vendor while this file was being read. Preview it again.`,
+        () => tx.insert(schema.vendor).values({ organizationId: ctx.actor.organizationId, name: wanted.name }).returning(),
+      );
+      await audit(tx, ctx, "vendor.created", "vendor", vendor!.id, null, { ...vendor!, from: "catalogue import", line: wanted.line });
+      vendorIds.set(wanted.name.toLowerCase(), vendor!.id);
+      vendorsAdded += 1;
+    }
+    /** The vendor a row is for: its own id, or the one just added for its name. */
+    const vendorOf = (row: { vendorId: string | null; vendorName: string }): string | null =>
+      row.vendorId ?? vendorIds.get(row.vendorName.toLowerCase()) ?? null;
     /**
      * Pack, unit and breaks as the FILE stated them. A file with no pack
      * column says nothing about packs, so an existing link keeps its own.
@@ -346,6 +462,16 @@ export async function apply(
         ...(read?.pack !== undefined ? { packQuantity: row.pack } : {}),
         ...(read?.unit !== undefined ? { purchaseUnit: row.unit } : {}),
         ...(read?.breaks !== undefined ? { priceBreaks: row.breaks } : {}),
+      };
+    };
+    /** The same, for the link's second pack: its quantity and price always, unit and breaks as the file states them. */
+    const secondPacking = (row: { line: number; pack: string; unit: string | null; breaks: catalogue.PriceBreak[]; cost: string }) => {
+      const read = parsedOf.get(row.line);
+      return {
+        secondPackQuantity: row.pack,
+        secondCost: row.cost,
+        ...(read?.unit !== undefined ? { secondPurchaseUnit: row.unit } : {}),
+        ...(read?.breaks !== undefined ? { secondPriceBreaks: row.breaks } : {}),
       };
     };
     const now = new Date();
@@ -363,6 +489,10 @@ export async function apply(
 
     for (const row of result.rows) {
       if (skip.has(row.line)) continue;
+      if (row.action === "skip" || row.action === "unchanged") continue;
+      const vendorId = vendorOf(row);
+      /** A new vendor whose rows were all unticked was not added, so nothing of theirs is written. */
+      if (!vendorId) continue;
       switch (row.action) {
         case "create": {
           const [item] = await tx.insert(schema.priceBookItem).values({
@@ -384,7 +514,7 @@ export async function apply(
           });
           await tx.insert(schema.vendorItem).values({
             organizationId: ctx.actor.organizationId,
-            vendorId: row.vendorId,
+            vendorId,
             itemId: item!.id,
             partNumber: row.sku.trim(),
             description: row.name,
@@ -398,7 +528,7 @@ export async function apply(
         case "link": {
           await tx.insert(schema.vendorItem).values({
             organizationId: ctx.actor.organizationId,
-            vendorId: row.vendorId,
+            vendorId,
             itemId: row.itemId,
             partNumber: row.sku.trim(),
             description: result.parsed.rows.find((r) => r.line === row.line)?.description.trim() || null,
@@ -419,24 +549,38 @@ export async function apply(
             costUpdatedAt: now,
             ...packing(row),
             updatedAt: now,
-          }).where(and(eq(schema.vendorItem.vendorId, row.vendorId), eq(schema.vendorItem.itemId, row.itemId)));
+          }).where(and(eq(schema.vendorItem.vendorId, vendorId), eq(schema.vendorItem.itemId, row.itemId)));
           if (row.itemCostAfter !== null) await reviseCost(row.itemId, row.itemCostAfter);
           updated += 1;
           break;
         }
-        case "unchanged":
-        case "skip":
+        case "pack": {
+          /**
+           * The second way to buy it goes on the link the item already has
+           * with this vendor, or the one an earlier line of this file just
+           * made. Neither there (that line was unticked) is nothing to add
+           * it to, and nothing is written.
+           */
+          const target = row.itemId
+            ? and(eq(schema.vendorItem.vendorId, vendorId), eq(schema.vendorItem.itemId, row.itemId))
+            : and(eq(schema.vendorItem.vendorId, vendorId), sql`lower(${schema.vendorItem.partNumber}) = ${row.sku.trim().toLowerCase()}`);
+          const done = await tx.update(schema.vendorItem)
+            .set({ ...secondPacking(row), costUpdatedAt: now, updatedAt: now })
+            .where(and(target, sql`${schema.vendorItem.packQuantity} <> ${row.pack}`))
+            .returning({ id: schema.vendorItem.id });
+          if (done.length > 0) updated += 1;
           break;
+        }
       }
     }
 
     const answer: Applied = {
-      problems: result.problems, rows: result.rows, counts: result.counts,
-      created, linked, updated, itemCostsRevised,
+      problems: result.problems, rows: result.rows, counts: result.counts, newVendors: result.newVendors,
+      created, linked, updated, itemCostsRevised, vendorsAdded,
     };
     await audit(tx, ctx, "vendor_catalogue.applied", input.vendorId ? "vendor" : "organization",
       input.vendorId ?? ctx.actor.organizationId, null, {
-      created, linked, updated, itemCostsRevised,
+      created, linked, updated, itemCostsRevised, vendorsAdded,
       skipped: result.counts.skip + skip.size, problems: result.problems.length,
     });
     await once.remember(tx, ctx, "vendor_catalogue", null, answer);
@@ -461,11 +605,14 @@ export async function resolvePart(
   itemId: string; partNumber: string | null; cost: string | null;
   /** How the vendor sells it: so many of ours in one of theirs, called what, and their breaks. */
   packQuantity: string; purchaseUnit: string | null; priceBreaks: catalogue.PriceBreak[];
+  /** Every way they sell it: the first pack above, and the second when there is one. */
+  packs: catalogue.Pack[];
 }> {
   const packing = (link: typeof schema.vendorItem.$inferSelect | undefined) => ({
     packQuantity: link?.packQuantity ?? "1",
     purchaseUnit: link?.purchaseUnit ?? null,
     priceBreaks: link?.priceBreaks ?? [],
+    packs: link ? packsOf(link).map(({ second: _second, ...pack }) => pack) : [],
   });
   const typed = line.partNumber?.trim() ?? "";
   if (line.itemId) {
@@ -505,6 +652,10 @@ export const handlers = {
     description?: string | null | undefined; cost?: string | null | undefined;
     packQuantity?: string | null | undefined; purchaseUnit?: string | null | undefined;
     priceBreaks?: readonly { minimum: string; cost: string }[] | null | undefined;
+    secondPack?: {
+      packQuantity: string; purchaseUnit?: string | null | undefined; cost?: string | null | undefined;
+      priceBreaks?: readonly { minimum: string; cost: string }[] | null | undefined;
+    } | null | undefined;
   }) => setLink(ctx, input),
   removeVendorItem: (ctx: ServiceContext, input: { id: string }) => removeLink(ctx, input),
   previewVendorCatalogue: (ctx: ServiceContext, input: CatalogueInput) => preview(ctx, input),
