@@ -57,8 +57,8 @@ test("an emergency line given its own hours and a day off of its own, then put b
     await expect(owner.locator("section").first()).toContainText("Its own hours");
     await expect(owner.locator("section").first()).toContainText("Sun 00:00 to 23:59");
 
-    await owner.getByLabel("Name").fill(`Line maintenance ${run}`);
-    await owner.getByLabel("Date").fill("2031-03-04");
+    await owner.getByLabel("Name", { exact: true }).fill(`Line maintenance ${run}`);
+    await owner.getByLabel("Date", { exact: true }).fill("2031-03-04");
     await owner.getByRole("button", { name: "Add day off" }).click();
     const day = owner.getByRole("row").filter({ hasText: `Line maintenance ${run}` });
     await expect(day).toContainText("Closed");
