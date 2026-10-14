@@ -346,6 +346,13 @@ export interface CampaignInput {
    */
   variantBBody?: string | undefined;
   variantBSubject?: string | null | undefined;
+  /** A third and a fourth version, each needing the one before it. */
+  variantCBody?: string | undefined;
+  variantCSubject?: string | null | undefined;
+  variantDBody?: string | undefined;
+  variantDSubject?: string | null | undefined;
+  /** Each version's share in whole percent, A first. Absent or null is an even split. */
+  variantShares?: number[] | null | undefined;
 }
 
 /**
@@ -446,6 +453,85 @@ function checkVersionB(
   return { body, subject };
 }
 
+type Words = { body: string | null; subject: string | null };
+
+/**
+ * Every version after A, checked as B always was (as A is, and against A),
+ * against each other too, and in order: C needs B and D needs C, so a test is
+ * never missing a letter in the middle. A version given a body of null or
+ * nothing takes itself and every later one off. The shares are checked against
+ * however many versions that leaves.
+ */
+function checkVersions(
+  channel: "sms" | "email",
+  a: { body: string; subject: string | null },
+  given: { b: Words; c: Words; d: Words },
+  shares: number[] | null | undefined,
+): { b: Words; c: Words; d: Words; shares: number[] | null } {
+  const b = checkVersionB(channel, a, given.b);
+  const later = (label: "C" | "D", words: Words, before: Words[]): Words => {
+    const body = words.body?.trim() || null;
+    if (body === null) {
+      if (words.subject?.trim()) throw new ConflictError(`A subject for version ${label} needs a body for version ${label} too.`);
+      return { body: null, subject: null };
+    }
+    if (before.some((w) => w.body === null)) {
+      throw new ConflictError(`Version ${label} needs the version before it. Write version ${label === "C" ? "B" : "C"} first.`);
+    }
+    const checked = (() => {
+      try {
+        return checkVersionB(channel, a, words);
+      } catch (error) {
+        if (error instanceof ConflictError) throw new ConflictError(error.message.replace(/^Version B:/, `Version ${label}:`));
+        throw error;
+      }
+    })();
+    const subjectOf = (w: Words) => (channel === "email" ? w.subject ?? a.subject : null);
+    for (const [i, other] of before.entries()) {
+      const same = other.body!.trim() === checked.body!.trim() && (subjectOf(other) ?? "") === (subjectOf(checked) ?? "");
+      if (same) {
+        throw new ConflictError(`Version ${label} says the same thing as version ${"BC"[i]}, so there is nothing to test between them. Change the words.`);
+      }
+    }
+    return checked;
+  };
+  const c = b.body === null ? later("C", { body: null, subject: null }, []) : later("C", given.c, [b]);
+  if (b.body === null && given.c.body?.trim()) {
+    throw new ConflictError("Version C needs the version before it. Write version B first.");
+  }
+  const d = later("D", given.d, [b, c]);
+  const versions = 1 + [b, c, d].filter((w) => w.body !== null).length;
+  const verdict = cp.checkShares(shares, versions);
+  if (!verdict.ok) throw new ConflictError(verdict.message);
+  return { b, c, d, shares: verdict.shares };
+}
+
+/** The versions a campaign carries, A first, each with the words it is sent with. */
+function versionsOf(row: typeof schema.marketingCampaign.$inferSelect): { variant: cp.Variant; body: string; subject: string | null }[] {
+  const channel = row.channel as "sms" | "email";
+  const subjectOf = (own: string | null) => (channel === "email" ? own ?? row.subject : null);
+  const out: { variant: cp.Variant; body: string; subject: string | null }[] = [
+    { variant: "a", body: row.body, subject: row.subject },
+  ];
+  const later: [cp.Variant, string | null, string | null][] = [
+    ["b", row.variantBBody, row.variantBSubject],
+    ["c", row.variantCBody, row.variantCSubject],
+    ["d", row.variantDBody, row.variantDSubject],
+  ];
+  for (const [variant, body, subject] of later) {
+    if (body === null) break;
+    out.push({ variant, body, subject: subjectOf(subject) });
+  }
+  return out;
+}
+
+/** Each version's share in whole percent: as chosen, or the even split the hash gives. */
+function sharesOf(row: typeof schema.marketingCampaign.$inferSelect, versions: number): number[] {
+  if (row.variantShares && row.variantShares.length === versions) return [...row.variantShares];
+  const even = Math.floor(100 / versions);
+  return Array.from({ length: versions }, (_, i) => (i === 0 ? 100 - even * (versions - 1) : even));
+}
+
 export function create(ctx: ServiceContext, input: CampaignInput) {
   return guardedWrite(ctx, "campaign:write", async (tx) => {
     const name = input.name.trim();
@@ -463,10 +549,15 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
       subject: input.subject?.trim() || fromTemplate?.subject || null,
     };
     checkContent({ channel: input.channel, subject: words.subject, body: words.body });
-    const versionB = checkVersionB(
+    const versions = checkVersions(
       input.channel,
       { body: words.body, subject: input.channel === "email" ? words.subject : null },
-      { body: input.variantBBody, subject: input.variantBSubject },
+      {
+        b: { body: input.variantBBody ?? null, subject: input.variantBSubject ?? null },
+        c: { body: input.variantCBody ?? null, subject: input.variantCSubject ?? null },
+        d: { body: input.variantDBody ?? null, subject: input.variantDSubject ?? null },
+      },
+      input.variantShares,
     );
 
     const utmCampaign = (input.utmCampaign?.trim() || utmFor(name));
@@ -493,8 +584,13 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
         audience: verdict.rules as unknown as Record<string, unknown>[],
         body: words.body,
         subject: input.channel === "email" ? words.subject : null,
-        variantBBody: versionB.body,
-        variantBSubject: versionB.subject,
+        variantBBody: versions.b.body,
+        variantBSubject: versions.b.subject,
+        variantCBody: versions.c.body,
+        variantCSubject: versions.c.subject,
+        variantDBody: versions.d.body,
+        variantDSubject: versions.d.subject,
+        variantShares: versions.shares,
         utmCampaign,
         messagingCampaignId: input.messagingCampaignId ?? null,
         createdByUserId: ctx.actor.userId === NIL ? null : ctx.actor.userId,
@@ -538,6 +634,13 @@ export interface CampaignPatch {
   /** Version B's words. Null body takes the test off the campaign. */
   variantBBody?: string | null | undefined;
   variantBSubject?: string | null | undefined;
+  /** Versions C and D. A null body takes that version off, and any after it. */
+  variantCBody?: string | null | undefined;
+  variantCSubject?: string | null | undefined;
+  variantDBody?: string | null | undefined;
+  variantDSubject?: string | null | undefined;
+  /** Each version's share. Null is an even split; absent keeps what there was. */
+  variantShares?: number[] | null | undefined;
 }
 
 export function update(ctx: ServiceContext, input: CampaignPatch) {
@@ -574,15 +677,25 @@ export function update(ctx: ServiceContext, input: CampaignPatch) {
      * not B was touched: editing A into B's words would otherwise leave a test
      * of two identical messages.
      */
-    const versionB = checkVersionB(
+    /**
+     * A version's words as they will be after this change: what was sent,
+     * else what was there. Taking a version off (a null body) takes every
+     * later one off with it, so a test is never left with a gap.
+     */
+    const offFrom = input.variantBBody === null ? 1 : input.variantCBody === null ? 2 : input.variantDBody === null ? 3 : 4;
+    const after = (at: number, body: string | null | undefined, subject: string | null | undefined, was: Words): Words =>
+      at >= offFrom
+        ? { body: null, subject: null }
+        : { body: body === undefined ? was.body : body, subject: subject === undefined ? was.subject : subject };
+    const versions = checkVersions(
       channel,
       { body, subject },
       {
-        body: input.variantBBody === undefined ? current.variantBBody : input.variantBBody,
-        subject: input.variantBBody === null
-          ? null
-          : input.variantBSubject === undefined ? current.variantBSubject : input.variantBSubject,
+        b: after(1, input.variantBBody, input.variantBSubject, { body: current.variantBBody, subject: current.variantBSubject }),
+        c: after(2, input.variantCBody, input.variantCSubject, { body: current.variantCBody, subject: current.variantCSubject }),
+        d: after(3, input.variantDBody, input.variantDSubject, { body: current.variantDBody, subject: current.variantDSubject }),
       },
+      input.variantShares === undefined ? current.variantShares : input.variantShares,
     );
 
     if (input.messagingCampaignId) {
@@ -605,8 +718,13 @@ export function update(ctx: ServiceContext, input: CampaignPatch) {
       audience: audience as unknown as Record<string, unknown>[],
       body,
       subject,
-      variantBBody: versionB.body,
-      variantBSubject: versionB.subject,
+      variantBBody: versions.b.body,
+      variantBSubject: versions.b.subject,
+      variantCBody: versions.c.body,
+      variantCSubject: versions.c.subject,
+      variantDBody: versions.d.body,
+      variantDSubject: versions.d.subject,
+      variantShares: versions.shares,
       scheduledFor,
       state,
       ...(input.messagingCampaignId !== undefined
@@ -748,6 +866,13 @@ function viewOf(row: typeof schema.marketingCampaign.$inferSelect) {
     /** Version B of an A/B test, or null when the campaign is not one. */
     variantBBody: row.variantBBody,
     variantBSubject: row.variantBSubject,
+    variantCBody: row.variantCBody,
+    variantCSubject: row.variantCSubject,
+    variantDBody: row.variantDBody,
+    variantDSubject: row.variantDSubject,
+    variantShares: row.variantShares,
+    versions: versionsOf(row).length,
+    splitInWords: row.variantBBody === null ? null : cp.splitInWords(versionsOf(row).length, row.variantShares),
     abTest: row.variantBBody !== null,
     utmCampaign: row.utmCampaign,
     messagingCampaignId: row.messagingCampaignId,
@@ -872,15 +997,15 @@ export function preview(ctx: ServiceContext, input: {
      * side by side before anybody is sent either. Which half that person is
      * actually in is a fact of the send, not of the preview, so it is not said.
      */
-    const renderedB = saved?.variantBBody
-      ? {
+    const renderedVersions = saved
+      ? versionsOf(saved).slice(1).map((version) => ({
+        version: version.variant as "b" | "c" | "d",
         for: first?.name ?? null,
-        ...personalise({
-          body: saved.variantBBody,
-          subject: saved.channel === "email" ? saved.variantBSubject ?? saved.subject : null,
-        }, scope, forWhom,
-          { utmCampaign: tag, variant: "b" }),
-      }
+        ...personalise(version, scope, forWhom, { utmCampaign: tag, variant: version.variant }),
+      }))
+      : [];
+    const renderedB = renderedVersions[0]
+      ? { for: renderedVersions[0].for, body: renderedVersions[0].body, subject: renderedVersions[0].subject }
       : null;
 
     return {
@@ -897,6 +1022,7 @@ export function preview(ctx: ServiceContext, input: {
       pace: cp.pace(count, limits),
       rendered,
       renderedB,
+      renderedVersions,
       sample: candidates.slice(0, sample).map((c) => ({
         customerId: c.customerId, name: c.name, address: c.address,
       })),
@@ -980,10 +1106,8 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
 
     const channel = row.channel as "sms" | "email";
     const rules = parseRules(row.audience);
-    checkContent({ channel, subject: row.subject, body: row.body });
-    if (row.variantBBody !== null) {
-      checkContent({ channel, subject: channel === "email" ? row.variantBSubject ?? row.subject : null, body: row.variantBBody });
-    }
+    const versions = versionsOf(row);
+    for (const version of versions) checkContent({ channel, subject: version.subject, body: version.body });
 
     const limits = await limitsWithin(tx, ctx.actor.organizationId, row);
 
@@ -1064,14 +1188,15 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
 
     for (const candidate of batch) {
       /**
-       * Which half they are in, from a hash of the campaign and the customer,
-       * so a send that carries on tomorrow puts the same person in the same
-       * half. A campaign with no test gives everybody version A.
+       * Which version they get, from a hash of the campaign and the customer
+       * walked through the shares, so a send that carries on tomorrow gives the
+       * same person the same version. A campaign with no test gives everybody
+       * version A.
        */
-      const variant: cp.Variant = row.variantBBody === null ? "a" : cp.variantFor(row.id, candidate.customerId);
-      const version = variant === "b"
-        ? { body: row.variantBBody!, subject: channel === "email" ? row.variantBSubject ?? row.subject : null }
-        : { body: row.body, subject: row.subject };
+      const variant: cp.Variant = versions.length === 1
+        ? "a"
+        : cp.variantFor(row.id, candidate.customerId, { versions: versions.length, shares: row.variantShares });
+      const version = versions.find((v) => v.variant === variant) ?? versions[0]!;
       /** Their own words: "Hi Maria" rather than "Hi {{ customer.firstName }}". */
       const words = personalise(version, scope, candidate.name, { utmCampaign: row.utmCampaign, variant });
       const outcome = channel === "sms"
@@ -1518,13 +1643,15 @@ export function results(ctx: ServiceContext, input: { id: string }) {
 }
 
 /**
- * THE TWO VERSIONS SIDE BY SIDE, AND WHETHER THE GAP MEANS ANYTHING
+ * THE VERSIONS SIDE BY SIDE, AND WHETHER THE GAPS MEAN ANYTHING
  *
  * Every figure is read from what happened to the people each version went to:
  *
- *   SENT is the recipients queued with that version. The half a person is in
+ *   SENT is the recipients queued with that version. The version a person got
  *   was written on their row when they were selected, so this reads what was
- *   sent, not what the hash would say today.
+ *   sent, not what the hash would say today. A version's share is beside it:
+ *   with 90 and 10, version B's counts are of a tenth of the list, and the
+ *   test compares rates, never totals.
  *
  *   CLICKS are people who arrived on the campaign's utm tag with that version's
  *   utm_content (the `{{ campaign.utm }}` merge field writes both), counted
@@ -1544,11 +1671,13 @@ export function results(ctx: ServiceContext, input: { id: string }) {
  *   the version, not by which link they used, so a customer who booked
  *   without clicking the tagged link again is still in the right column.
  *
- * Whether any of it is a winner is core's call (`campaign.judgeTest`), never
- * this function's.
+ * Whether any of it is a winner is core's call (`campaign.judgeVersions`, every
+ * version against the first), never this function's.
  */
 async function abTestWithin(tx: Database, organizationId: string, row: typeof schema.marketingCampaign.$inferSelect) {
   if (row.variantBBody === null) return null;
+  const present = versionsOf(row).map((v) => v.variant);
+  const shares = sharesOf(row, present.length);
 
   const sends = await tx.execute<{ variant: string; state: string; n: string }>(sql`
     select variant::text as variant, state::text as state, count(*)::text as n
@@ -1564,11 +1693,12 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
            or occurred_at >= ${row.startedAt?.toISOString() ?? null}::timestamptz)
     group by lower(utm_content)
   `);
+  /** A click whose version is not one this campaign has is in no column, like one with no version at all. */
   const [untagged] = await tx.execute<{ n: string }>(sql`
     select count(distinct coalesce('c:' || customer_id::text, 'k:' || caller_e164, 'v:' || visitor_id))::text as n
     from public.marketing_touch
     where lower(utm_campaign) = lower(${row.utmCampaign})
-      and (utm_content is null or lower(utm_content) not in ('a', 'b'))
+      and (utm_content is null or not (lower(utm_content) = any(${sql.raw(`array[${present.map((v) => `'${v}'`).join(",")}]`)})))
       and (${row.startedAt?.toISOString() ?? null}::timestamptz is null
            or occurred_at >= ${row.startedAt?.toISOString() ?? null}::timestamptz)
   `);
@@ -1592,7 +1722,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
 
   const repliesKnown = row.channel === "sms" || (await email.senderFor(tx, organizationId))?.replyDomain != null;
 
-  const versions = cp.VARIANTS.map((variant) => {
+  const versions = present.map((variant, i) => {
     const count = (state: string) => Number(sends.find((x) => x.variant === variant && x.state === state)?.n ?? "0");
     const queued = count("queued");
     const mine = bookedRows.filter((b) => b.variant === variant);
@@ -1600,6 +1730,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
     return {
       version: variant,
       label: cp.VARIANT_LABEL[variant],
+      share: shares[i]!,
       selected: count("queued") + count("skipped") + count("pending"),
       sent: queued,
       skipped: count("skipped"),
@@ -1611,11 +1742,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
       revenue: m.toString(jobIds.reduce((sum, id) => m.add(sum, revenue.get(id) ?? m.zero("USD")), m.zero("USD"))),
     };
   });
-  const [a, b] = versions as [typeof versions[number], typeof versions[number]];
-  const judged = cp.judgeTest(
-    { sent: a.sent, clicks: a.clicks, replies: a.replies, booked: a.booked },
-    { sent: b.sent, clicks: b.clicks, replies: b.replies, booked: b.booked },
-  );
+  const judged = cp.judgeVersions(versions.map((v) => ({ sent: v.sent, clicks: v.clicks, replies: v.replies, booked: v.booked })));
 
   return {
     versions,
@@ -1625,6 +1752,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
     measures: judged.measures.map((x) => ({
       measure: x.measure,
       label: x.label,
+      against: x.against as "b" | "c" | "d",
       verdict: x.comparison.verdict,
       rateA: x.comparison.rateA,
       rateB: x.comparison.rateB,

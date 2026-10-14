@@ -16,6 +16,8 @@ export interface CampaignRow {
   audienceInWords: string;
   utmCampaign: string | null;
   abTest?: boolean;
+  /** How many versions it carries, when it is a test. */
+  versions?: number;
   scheduledFor: string | null;
   startedAt: string | null;
   cancelledAt: string | null;
@@ -27,7 +29,7 @@ export interface RecipientRow {
   id: string;
   customerName: string | null;
   address: string;
-  /** The half of an A/B test this person was given. */
+  /** The version of an A/B test this person was given. */
   variant?: string;
   state: string;
   skipReason: string | null;
@@ -43,17 +45,24 @@ export interface Preview {
   rendered?: { for: string | null; body: string; subject: string | null } | null;
   /** Version B as the same person would read it, for an A/B test. */
   renderedB?: { for: string | null; body: string; subject: string | null } | null;
+  /** Every version after A as the same person would read it, B first. */
+  renderedVersions?: { version: string; for: string | null; body: string; subject: string | null }[];
+  /** How the list is split between the versions, in words. */
+  split?: string | null;
 }
+
+/** "two", "three" or "four" versions, the way the screen says it. */
+export const versionsInWords = (n: number): string => ["one", "two", "three", "four"][n - 1] ?? String(n);
 
 /** The results of an A/B test, as the service returns them. */
 export interface AbResults {
   versions: {
-    version: string; label: string; sent: number; skipped: number; clicks: number;
+    version: string; label: string; share?: number; sent: number; skipped: number; clicks: number;
     replies: number | null; booked: number; jobs: number; revenue: string;
   }[];
   repliesKnown: boolean;
   untaggedClicks: number;
-  measures: { measure: string; label: string; verdict: string; rateA: string | null; rateB: string | null; sentence: string }[];
+  measures: { measure: string; label: string; against?: string; verdict: string; rateA: string | null; rateB: string | null; sentence: string }[];
   winner: string | null;
   headline: string;
 }
@@ -146,7 +155,7 @@ export function Campaigns({
             </Chip></span>
             <span className="block text-xs text-ink-500">
               {campaign.channel === "sms" ? "Text" : "Email"}
-              {campaign.abTest ? " · two versions" : ""}
+              {campaign.abTest ? ` · ${versionsInWords(campaign.versions ?? 2)} versions` : ""}
               {campaign.utmCampaign ? ` · ${campaign.utmCampaign}` : ""}
             </span>
             {campaign.cancelledAt ? (
@@ -255,17 +264,22 @@ export function Audience({ preview }: { preview: Preview }) {
           <p className="mt-1 whitespace-pre-wrap text-sm text-ink-900">{preview.rendered.body}</p>
         </figure>
       ) : null}
-      {preview.renderedB ? (
-        <figure className="mt-3 max-w-xl rounded border border-steel-200 bg-steel-100 p-3">
+      {(preview.renderedVersions ?? (preview.renderedB ? [{ version: "b", ...preview.renderedB }] : [])).map((other) => (
+        <figure key={other.version} className="mt-3 max-w-xl rounded border border-steel-200 bg-steel-100 p-3">
           <figcaption className="text-xs font-medium text-ink-700">
-            Version B. {preview.renderedB.for ? `As ${preview.renderedB.for} will read it` : "As it will read"}.
-            Half the list gets each, chosen at random.
+            Version {other.version.toUpperCase()}. {other.for ? `As ${other.for} will read it` : "As it will read"}.
           </figcaption>
-          {preview.renderedB.subject ? (
-            <p className="mt-1 text-sm font-medium">{preview.renderedB.subject}</p>
+          {other.subject ? (
+            <p className="mt-1 text-sm font-medium">{other.subject}</p>
           ) : null}
-          <p className="mt-1 whitespace-pre-wrap text-sm text-ink-900">{preview.renderedB.body}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-ink-900">{other.body}</p>
         </figure>
+      ))}
+      {preview.renderedB ? (
+        <p className="mt-2 max-w-xl text-xs text-ink-500">
+          {preview.split ?? "Half the list gets each."} Who gets which is picked at random, and stays the same if the
+          send carries on another day.
+        </p>
       ) : null}
 
       {preview.sample.length === 0 ? (
@@ -306,7 +320,7 @@ export function Recipients({ recipients, showVersion = false }: { recipients: Re
         <tr key={recipient.id} className={recipient.state === "skipped" ? "text-ink-700" : undefined}>
           <Td>{recipient.customerName ?? "a customer"}</Td>
           <Td><span className="font-mono text-xs">{recipient.address}</span></Td>
-          {showVersion ? <Td>{recipient.variant === "b" ? "B" : "A"}</Td> : null}
+          {showVersion ? <Td>{(recipient.variant ?? "a").toUpperCase()}</Td> : null}
           <Td>
             {recipient.state === "skipped" ? (
               <span className="text-amber-700">
@@ -323,44 +337,56 @@ export function Recipients({ recipients, showVersion = false }: { recipients: Re
 }
 
 /**
- * THE TWO VERSIONS OF AN A/B TEST, SIDE BY SIDE
+ * THE VERSIONS OF AN A/B TEST, SIDE BY SIDE
  *
  * The counts come first and are always shown. A winner is named only when the
  * service says the gap is more than luck would explain, and what it says
- * otherwise is "no clear winner" with the counts, because two halves of a list
- * differ by a few people even when the words make no difference at all.
+ * otherwise is "no clear winner" with the counts, because two parts of a list
+ * differ by a few people even when the words make no difference at all. Each
+ * version's share is in its heading: with ninety and ten, version B's counts
+ * are of a tenth of the list, and the test compares rates, never totals.
  */
 export function AbTestResults({ results }: { results: AbResults }) {
-  const [a, b] = results.versions;
-  if (!a || !b) return null;
-  const rows: { label: string; a: string; b: string }[] = [
-    { label: "Sent to", a: String(a.sent), b: String(b.sent) },
-    { label: "Clicked the link", a: String(a.clicks), b: String(b.clicks) },
-    {
-      label: "Replied",
-      a: a.replies === null ? "Not known" : String(a.replies),
-      b: b.replies === null ? "Not known" : String(b.replies),
-    },
-    { label: "Booked a job", a: String(a.booked), b: String(b.booked) },
+  const versions = results.versions;
+  if (versions.length < 2) return null;
+  const rows: { label: string; cells: string[] }[] = [
+    { label: "Sent to", cells: versions.map((v) => String(v.sent)) },
+    { label: "Clicked the link", cells: versions.map((v) => String(v.clicks)) },
+    { label: "Replied", cells: versions.map((v) => (v.replies === null ? "Not known" : String(v.replies))) },
+    { label: "Booked a job", cells: versions.map((v) => String(v.booked)) },
   ];
+  const several = versions.length > 2;
+  const showShares = versions.some((v) => v.share !== undefined && v.share !== versions[0]!.share);
   return (
     <div className="mt-3 max-w-2xl">
       <p className={`rounded border p-3 text-sm ${results.winner ? "border-green-700 bg-steel-100" : "border-steel-200 bg-steel-100"}`}>
         {results.headline}
       </p>
-      <Table label="The two versions" head={<><Th>People</Th><Th>Version A</Th><Th>Version B</Th></>}>
+      <Table
+        label={`The ${versionsInWords(versions.length)} versions`}
+        head={<><Th>People</Th>{versions.map((v) => (
+          <Th key={v.version}>{v.label}{showShares && v.share !== undefined ? ` (${v.share}%)` : ""}</Th>
+        ))}</>}
+      >
         {rows.map((row) => (
           <tr key={row.label}>
             <Td>{row.label}</Td>
-            <Td className="tabular-nums">{row.a}</Td>
-            <Td className="tabular-nums">{row.b}</Td>
+            {row.cells.map((cell, i) => <Td key={versions[i]!.version} className="tabular-nums">{cell}</Td>)}
           </tr>
         ))}
       </Table>
+      {several ? (
+        <p className="mt-2 text-xs text-ink-500">
+          Each version is compared with version A, not with each other, and the bar for calling a difference real is
+          higher the more versions there are.
+        </p>
+      ) : null}
       <ul className="mt-3 space-y-2 text-sm text-ink-700">
         {results.measures.map((measure) => (
-          <li key={measure.measure}>
-            <span className="font-medium text-ink-900">{measure.label}.</span> {measure.sentence}
+          <li key={`${measure.against ?? "b"}:${measure.measure}`}>
+            <span className="font-medium text-ink-900">
+              {measure.label}{several ? `, version ${(measure.against ?? "b").toUpperCase()} against A` : ""}.
+            </span>{" "}{measure.sentence}
           </li>
         ))}
       </ul>

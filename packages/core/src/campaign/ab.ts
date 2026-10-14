@@ -1,8 +1,11 @@
 /**
- * A/B TESTS FOR A CAMPAIGN: TWO VERSIONS, ONE HALF EACH, AND NO WINNER WITHOUT PROOF
+ * A/B TESTS FOR A CAMPAIGN: UP TO FOUR VERSIONS, CHOSEN SHARES, AND NO WINNER WITHOUT PROOF
  *
- * A text or an email can be written two ways. The audience is split in two, each
- * half gets one way, and afterwards the office reads the counts side by side.
+ * A text or an email can be written up to four ways. The audience is split, each
+ * part gets one way, and afterwards the office reads the counts side by side. The
+ * split is even unless the office chose shares: ninety in a hundred to the words
+ * that have always worked and ten to the new ones is the commonest test a careful
+ * owner wants, because it risks little of the list on an untried message.
  *
  * THE SPLIT IS RANDOM AND REPRODUCIBLE. A stable hash of the campaign id and the
  * customer id decides the half, so the same customer is in the same half on every
@@ -23,8 +26,19 @@
  * with the counts, never as a trend.
  */
 
-export type Variant = "a" | "b";
-export const VARIANTS: readonly Variant[] = ["a", "b"];
+export type Variant = "a" | "b" | "c" | "d";
+export const VARIANTS: readonly Variant[] = ["a", "b", "c", "d"];
+
+/** At most four versions: past that, each part of a trades company's list is too small to tell anything. */
+export const MAX_VERSIONS = 4;
+
+/**
+ * The smallest share a version may have, in whole percent. Under it a version of
+ * a few hundred people's campaign reaches a handful, and a test of a handful
+ * says nothing except "too few to tell", which the office would be paying to
+ * learn.
+ */
+export const MIN_SHARE = 5;
 
 /** Fowler Noll Vo (FNV-1a, 32 bit) then Murmur3's finaliser, so every bit of the input moves every bit of the result. */
 function hash32(text: string): number {
@@ -48,11 +62,65 @@ function hash32(text: string): number {
  * test they are ever put in: if the same people always got version A, a company
  * that tested twice would be testing on the same group twice.
  */
-export function variantFor(campaignId: string, customerId: string): Variant {
-  return hash32(`${campaignId}:${customerId}`) % 2 === 0 ? "a" : "b";
+export function variantFor(
+  campaignId: string, customerId: string,
+  split: { versions: number; shares?: readonly number[] | null | undefined } = { versions: 2 },
+): Variant {
+  const h = hash32(`${campaignId}:${customerId}`);
+  const versions = Math.max(1, Math.min(MAX_VERSIONS, Math.floor(split.versions)));
+  /**
+   * Two even halves is the rule every campaign has used since tests began, kept
+   * exactly, so a send that carries on across a release gives its remaining
+   * recipients the halves the first day's rule gave.
+   */
+  if (!split.shares || split.shares.length !== versions) {
+    return VARIANTS[versions === 2 ? h % 2 : h % versions]!;
+  }
+  /** A bucket of a hundred, walked through the shares in order: 90 and 10 sends buckets 0 to 89 to A. */
+  const bucket = h % 100;
+  let upTo = 0;
+  for (let i = 0; i < versions; i += 1) {
+    upTo += split.shares[i]!;
+    if (bucket < upTo) return VARIANTS[i]!;
+  }
+  return VARIANTS[versions - 1]!;
 }
 
-export const VARIANT_LABEL: Record<Variant, string> = { a: "Version A", b: "Version B" };
+export const VARIANT_LABEL: Record<Variant, string> = { a: "Version A", b: "Version B", c: "Version C", d: "Version D" };
+
+/**
+ * Whether shares make sense for this many versions: one whole percent per
+ * version, each at least `MIN_SHARE`, adding up to a hundred. Shares that are
+ * all the same are no choice at all and come back as null, the even split.
+ */
+export function checkShares(
+  shares: readonly number[] | null | undefined, versions: number,
+): { ok: true; shares: number[] | null } | { ok: false; message: string } {
+  if (shares === null || shares === undefined || shares.length === 0) return { ok: true, shares: null };
+  if (versions < 2) return { ok: false, message: "Shares need a second version to share with." };
+  if (shares.length !== versions) {
+    return { ok: false, message: `There are ${versions} versions, so give ${versions} shares, one for each.` };
+  }
+  if (shares.some((share) => !Number.isInteger(share))) {
+    return { ok: false, message: "Each share is a whole percent, like 90 or 10." };
+  }
+  if (shares.some((share) => share < MIN_SHARE)) {
+    return { ok: false, message: `Each version needs at least ${MIN_SHARE}% of the list, or it reaches too few people to tell anything.` };
+  }
+  const total = shares.reduce((sum, share) => sum + share, 0);
+  if (total !== 100) return { ok: false, message: `The shares add up to ${total}%. They need to add up to 100%.` };
+  return { ok: true, shares: shares.every((share) => share === shares[0]) ? null : [...shares] };
+}
+
+/** "90% get version A and 10% get version B", or the even split in words. */
+export function splitInWords(versions: number, shares: readonly number[] | null | undefined): string {
+  const used = VARIANTS.slice(0, versions);
+  if (!shares || shares.length !== versions) {
+    return versions === 2 ? "Half get version A and half get version B." : `The list is split evenly between versions ${used.map((v) => v.toUpperCase()).join(", ")}.`;
+  }
+  const parts = used.map((v, i) => `${shares[i]}% get version ${v.toUpperCase()}`);
+  return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}.`;
+}
 
 /* ----------------------------------------------------- the two proportion test */
 
@@ -113,7 +181,13 @@ export function luckInWords(p: number): string {
  * "no clear difference" there would be a claim too, so the answer is "too few
  * to tell", which is different, and says so.
  */
-export function compareRates(a: Arm, b: Arm, alpha: number = ALPHA): RateComparison {
+export function compareRates(
+  a: Arm, b: Arm, alpha: number = ALPHA,
+  /** What the two are called in the sentence: the first version, and the one compared with it. */
+  names: { first: Variant; second: Variant } = { first: "a", second: "b" },
+): RateComparison {
+  const first = names.first.toUpperCase();
+  const second = names.second.toUpperCase();
   const rateA = percent(a.hits, a.n);
   const rateB = percent(b.hits, b.n);
   const base = { rateA, rateB, alpha };
@@ -135,7 +209,7 @@ export function compareRates(a: Arm, b: Arm, alpha: number = ALPHA): RateCompari
   const se = Math.sqrt(pooled * (1 - pooled) * (1 / a.n + 1 / b.n));
   const z = (b.hits / b.n - a.hits / a.n) / se;
   const pValue = twoSidedNormalTail(z);
-  const counts = `${a.hits} of ${a.n} (${rateA}%) for version A against ${b.hits} of ${b.n} (${rateB}%) for version B`;
+  const counts = `${a.hits} of ${a.n} (${rateA}%) for version ${first} against ${b.hits} of ${b.n} (${rateB}%) for version ${second}`;
   if (pValue >= alpha) {
     return {
       ...base, verdict: "no_clear_difference", pValue,
@@ -146,7 +220,7 @@ export function compareRates(a: Arm, b: Arm, alpha: number = ALPHA): RateCompari
   const better = z > 0 ? "b" : "a";
   return {
     ...base, verdict: better === "b" ? "b_higher" : "a_higher", pValue,
-    sentence: `${counts}. Version ${better === "b" ? "B" : "A"} did better. If the two versions were really the same, `
+    sentence: `${counts}. Version ${better === "b" ? second : first} did better. If the two versions were really the same, `
       + `a gap this big would turn up by chance ${luckInWords(pValue)}.`,
   };
 }
@@ -171,37 +245,111 @@ export interface VersionCounts {
 }
 
 export interface TestJudgement {
-  measures: { measure: Measure; label: string; comparison: RateComparison }[];
-  /** Null unless some measure is clearly better for one version and none is clearly better for the other. */
+  /** One per measure per version compared with the first, which is `against`. */
+  measures: { measure: Measure; label: string; against: Variant; comparison: RateComparison }[];
+  /** Null unless the counts prove one version better, as `judgeVersions` explains. */
   winner: Variant | null;
   /** One sentence. Never says a version won without the test behind it. */
   headline: string;
 }
 
+/** Two versions, the first against the second: the test as it was before there could be more. */
 export function judgeTest(a: VersionCounts, b: VersionCounts): TestJudgement {
-  const compared: Measure[] = ["clicks", ...(a.replies !== null && b.replies !== null ? ["replies" as const] : []), "booked"];
-  /** Bonferroni: the bar is split across what is compared, so looking at three things does not triple the false alarms. */
-  const alpha = ALPHA / compared.length;
+  return judgeVersions([a, b]);
+}
+
+/**
+ * The whole test: every other version compared with the first, on each measure.
+ *
+ * EACH AGAINST THE FIRST, NOT EVERY PAIR. The first version is the words the
+ * company already sends, and the question an owner asks is whether a new one
+ * beats it. Comparing every pair as well would mean six comparisons for four
+ * versions, each one another chance of a false alarm.
+ *
+ * THE SAME CONSERVATIVE BAR, SPREAD WIDER. Five in a hundred divided by
+ * everything compared: the measures times the versions compared with the
+ * first (Bonferroni again). Three measures and three new versions is nine
+ * comparisons, so each must clear five in nine hundred, and a test with more
+ * versions asks more of each, which is the price of asking more questions.
+ *
+ * A WINNER ONLY WHEN THE COUNTS SAY SO. A new version is named when it did
+ * clearly better than the first on something, the first did clearly better than
+ * it on nothing, and no other version also did better than the first, because
+ * two new versions that each beat the first have not been compared with each
+ * other. The first version is named when it did clearly better than every
+ * other version on something and none did better than it on anything.
+ */
+export function judgeVersions(all: readonly VersionCounts[]): TestJudgement {
+  const versions = all.slice(0, MAX_VERSIONS);
+  const first = versions[0]!;
+  const others = versions.slice(1);
+  const repliesKnown = versions.every((v) => v.replies !== null);
+  const compared: Measure[] = ["clicks", ...(repliesKnown ? ["replies" as const] : []), "booked"];
+  /** Bonferroni: the bar is split across everything compared, so looking at more things does not multiply the false alarms. */
+  const alpha = ALPHA / (compared.length * Math.max(1, others.length));
   const hits = (v: VersionCounts, m: Measure) => (m === "clicks" ? v.clicks : m === "replies" ? v.replies ?? 0 : v.booked);
-  const measures = compared.map((measure) => ({
-    measure,
-    label: MEASURE_LABEL[measure],
-    comparison: compareRates({ n: a.sent, hits: hits(a, measure) }, { n: b.sent, hits: hits(b, measure) }, alpha),
-  }));
-  const forA = measures.filter((m) => m.comparison.verdict === "a_higher");
-  const forB = measures.filter((m) => m.comparison.verdict === "b_higher");
-  if (forA.length > 0 && forB.length > 0) {
-    return {
-      measures, winner: null,
-      headline: "The versions each did better at something, so there is no single winner. Read the counts and decide what matters more.",
-    };
-  }
-  if (forA.length > 0 || forB.length > 0) {
-    const winner: Variant = forB.length > 0 ? "b" : "a";
-    const on = (forB.length > 0 ? forB : forA).map((m) => m.label.toLowerCase()).join(" and ");
+  const measures = others.flatMap((other, i) => {
+    const against = VARIANTS[i + 1]!;
+    return compared.map((measure) => ({
+      measure,
+      label: MEASURE_LABEL[measure],
+      against,
+      comparison: compareRates(
+        { n: first.sent, hits: hits(first, measure) }, { n: other.sent, hits: hits(other, measure) },
+        alpha, { first: "a", second: against },
+      ),
+    }));
+  });
+
+  const beatFirst = (v: Variant) => measures.filter((m) => m.against === v && m.comparison.verdict === "b_higher");
+  const firstBeat = (v: Variant) => measures.filter((m) => m.against === v && m.comparison.verdict === "a_higher");
+  const challengers = VARIANTS.slice(1, versions.length).filter((v) => beatFirst(v).length > 0);
+  const two = versions.length === 2;
+  const on = (found: typeof measures) => [...new Set(found.map((m) => m.label.toLowerCase()))].join(" and ");
+
+  if (challengers.length === 1 && firstBeat(challengers[0]!).length === 0) {
+    const winner = challengers[0]!;
     return {
       measures, winner,
-      headline: `${VARIANT_LABEL[winner]} did better on ${on}, by more than luck would explain.`,
+      headline: two
+        ? `${VARIANT_LABEL[winner]} did better on ${on(beatFirst(winner))}, by more than luck would explain.`
+        : `${VARIANT_LABEL[winner]} did better than version A on ${on(beatFirst(winner))}, by more than luck would explain. `
+          + "The other versions were compared only with version A.",
+    };
+  }
+  if (challengers.length === 0) {
+    const beaten = VARIANTS.slice(1, versions.length).filter((v) => firstBeat(v).length > 0);
+    if (beaten.length > 0 && beaten.length === others.length) {
+      const lostOn = measures.filter((m) => m.comparison.verdict === "a_higher");
+      return {
+        measures, winner: "a",
+        headline: two
+          ? `Version A did better on ${on(lostOn)}, by more than luck would explain.`
+          : `Version A did better than every other version, on ${on(lostOn)}, by more than luck would explain.`,
+      };
+    }
+  }
+  if (challengers.length > 1) {
+    return {
+      measures, winner: null,
+      headline: "More than one version did better than version A at something, and they have not been compared with each other, so there is no single winner.",
+    };
+  }
+  if (challengers.length === 1) {
+    const mixed = challengers[0]!;
+    return {
+      measures, winner: null,
+      headline: two
+        ? "The versions each did better at something, so there is no single winner. Read the counts and decide what matters more."
+        : `${VARIANT_LABEL[mixed]} did better than version A at one thing and worse at another, so there is no single winner. Read the counts and decide what matters more.`,
+    };
+  }
+  const beatenSome = VARIANTS.slice(1, versions.length).filter((v) => firstBeat(v).length > 0);
+  if (beatenSome.length > 0) {
+    return {
+      measures, winner: null,
+      headline: `Version A did better than ${beatenSome.map((v) => `version ${v.toUpperCase()}`).join(" and ")}, `
+        + "but not clearly better than every other version, so there is no single winner.",
     };
   }
   const nobody = measures.every((m) => m.comparison.verdict === "no_data");

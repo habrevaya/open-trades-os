@@ -319,8 +319,8 @@ export const campaignState = pgEnum("campaign_state", [
   "draft", "scheduled", "sending", "sent", "cancelled",
 ]);
 
-/** Which half of an A/B test a recipient was put in. Every recipient of a campaign with no test is `a`. */
-export const campaignVariant = pgEnum("campaign_variant", ["a", "b"]);
+/** Which version of an A/B test a recipient was given. Every recipient of a campaign with no test is `a`. */
+export const campaignVariant = pgEnum("campaign_variant", ["a", "b", "c", "d"]);
 
 export const campaignRecipientState = pgEnum("campaign_recipient_state", [
   "pending", "queued", "skipped",
@@ -366,6 +366,22 @@ export const marketingCampaign = pgTable("marketing_campaign", {
   variantBBody: text("variant_b_body"),
   /** Null on a text and refused if present, as the first version's is. */
   variantBSubject: text("variant_b_subject"),
+  /**
+   * A third and a fourth version, each only when the one before it exists, and
+   * held to the same rules as version B: checked as version A is, and never the
+   * same words as another version.
+   */
+  variantCBody: text("variant_c_body"),
+  variantCSubject: text("variant_c_subject"),
+  variantDBody: text("variant_d_body"),
+  variantDSubject: text("variant_d_subject"),
+  /**
+   * The share of the list each version gets, in whole percent and in order
+   * (A first), adding up to a hundred. Null is an even split. Fixed with the
+   * words once the campaign goes, and each person's version is written on their
+   * recipient row, so nothing here can move anybody already sent.
+   */
+  variantShares: integer("variant_shares").array(),
 
   /**
    * What a touch arriving later will carry in `utm_campaign`, so a click from

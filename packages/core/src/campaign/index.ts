@@ -516,7 +516,7 @@ export function mergeScope(input: {
   companyName: string;
   companyPhone?: string | null | undefined;
   /** The campaign's own link tag and the version this person got, for `{{ campaign.utm }}`. */
-  campaign?: { utmCampaign: string; variant: "a" | "b" } | undefined;
+  campaign?: { utmCampaign: string; variant: Variant } | undefined;
 }): Record<string, unknown> {
   return {
     customer: { firstName: firstNameOf(input.customerName), name: input.customerName.trim() },
@@ -533,7 +533,7 @@ export function mergeScope(input: {
  * the merge field, so version A and version B can carry the very same link text
  * and a click still says which one it came from.
  */
-export function linkTag(utmCampaign: string, variant: "a" | "b"): string {
+export function linkTag(utmCampaign: string, variant: Variant): string {
   return `utm_campaign=${encodeURIComponent(utmCampaign)}&utm_content=${variant}`;
 }
 
@@ -650,3 +650,4 @@ export function reachRate(result: CampaignResult): string | null {
 }
 
 export * from "./ab.js";
+import type { Variant } from "./ab.js";

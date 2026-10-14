@@ -70,6 +70,17 @@ const CampaignView = z.object({
   /** Version B of an A/B test, or null when the campaign is not one. */
   variantBBody: z.string().nullable(),
   variantBSubject: z.string().nullable(),
+  /** Versions C and D, each only when the one before it exists. */
+  variantCBody: z.string().nullable(),
+  variantCSubject: z.string().nullable(),
+  variantDBody: z.string().nullable(),
+  variantDSubject: z.string().nullable(),
+  /** Each version's share of the list in whole percent, A first. Null is an even split. */
+  variantShares: z.array(z.number().int()).nullable(),
+  /** How many versions: 1 with no test, up to 4. */
+  versions: z.number().int(),
+  /** The split as a sentence, or null with no test. */
+  splitInWords: z.string().nullable(),
   abTest: z.boolean(),
   utmCampaign: z.string(),
   messagingCampaignId: Uuid.nullable(),
@@ -125,6 +136,22 @@ export const createCampaign = defineRoute({
      */
     variantBBody: z.string().min(1).max(20000).optional(),
     variantBSubject: z.string().max(300).nullable().optional(),
+    /**
+     * A third and a fourth version, each needing the one before it. Every
+     * version is checked as version A is and must say something none of the
+     * others says.
+     */
+    variantCBody: z.string().min(1).max(20000).optional(),
+    variantCSubject: z.string().max(300).nullable().optional(),
+    variantDBody: z.string().min(1).max(20000).optional(),
+    variantDSubject: z.string().max(300).nullable().optional(),
+    /**
+     * Each version's share of the list, whole percent, A first, adding up to
+     * 100, each at least 5: [90, 10] sends nine in ten version A. Absent or
+     * null is an even split. The split is still a stable hash of the campaign
+     * and the customer, so the same person gets the same version every run.
+     */
+    variantShares: z.array(z.number().int().min(1).max(99)).min(2).max(4).nullable().optional(),
     /** Defaulted from the name. Two fields that must agree are two spellings in a report. */
     utmCampaign: z.string().min(1).max(100).optional(),
     /** The registered carrier campaign, on SMS. Its throughput is what the send paces against. */
@@ -148,9 +175,20 @@ export const updateCampaign = defineRoute({
     audience: z.array(AudienceRule).optional(),
     body: z.string().min(1).max(20000).optional(),
     subject: z.string().max(300).nullable().optional(),
-    /** Version B of an A/B test. Null takes the test off the campaign. */
+    /** Version B of an A/B test. Null takes the test off the campaign, and versions C and D with it. */
     variantBBody: z.string().min(1).max(20000).nullable().optional(),
     variantBSubject: z.string().max(300).nullable().optional(),
+    /** Version C, and version D. Null takes that version off, and any after it. */
+    variantCBody: z.string().min(1).max(20000).nullable().optional(),
+    variantCSubject: z.string().max(300).nullable().optional(),
+    variantDBody: z.string().min(1).max(20000).nullable().optional(),
+    variantDSubject: z.string().max(300).nullable().optional(),
+    /**
+     * Each version's share, as on create. Null is an even split. Shares kept
+     * from before must still fit the versions there are after the change, or
+     * the change is refused rather than guessed at.
+     */
+    variantShares: z.array(z.number().int().min(1).max(99)).min(2).max(4).nullable().optional(),
     scheduledFor: z.string().datetime().nullable().optional(),
     messagingCampaignId: Uuid.nullable().optional(),
   }),
@@ -246,6 +284,13 @@ export const previewCampaign = defineRoute({
       body: z.string(),
       subject: z.string().nullable(),
     }).nullable(),
+    /** Every version after A as the same first person would read it, B first. Empty with no test. */
+    renderedVersions: z.array(z.object({
+      version: z.enum(["b", "c", "d"]),
+      for: z.string().nullable(),
+      body: z.string(),
+      subject: z.string().nullable(),
+    })),
     count: z.number().int(),
     /** True when the rules matched more than one campaign will take. */
     overflow: z.boolean(),
@@ -305,8 +350,8 @@ export const campaignRecipients = defineRoute({
       customerId: Uuid,
       customerName: z.string().nullable(),
       address: z.string(),
-      /** The half of an A/B test this person was given. `a` on a campaign with no test. */
-      variant: z.enum(["a", "b"]),
+      /** The version of an A/B test this person was given. `a` on a campaign with no test. */
+      variant: z.enum(["a", "b", "c", "d"]),
       state: RecipientState,
       skipReason: z.string().nullable(),
       skipExplanation: z.string().nullable(),
@@ -321,7 +366,7 @@ export const campaignResults = defineRoute({
   path: "/v1/campaigns/{id}/results",
   summary: "What the campaign brought back",
   description:
-    "Replies, opt outs, jobs and revenue, and for an A/B test the two versions side by side: people sent, people who clicked, people who replied where replies are read back, and people who booked, with the counts for each version and a plain sentence on each. A winner is named only when a two proportion test says the gap is more than luck explains, with the bar divided across the measures compared; otherwise `winner` is null and the counts speak for themselves. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.",
+    "Replies, opt outs, jobs and revenue, and for an A/B test the versions side by side: people sent, people who clicked, people who replied where replies are read back, and people who booked, with the counts for each version and a plain sentence on each. Every version after the first is compared with the first. A winner is named only when a two proportion test says the gap is more than luck explains, with the bar divided across every measure and every version compared; otherwise `winner` is null and the counts speak for themselves. The job and revenue figures join through job.campaign_id, a column that has been on the job table since the first migration with no foreign key, written by nothing and read by nothing until now. NO CONVERSION RATE IS RETURNED, and that is deliberate: jobs divided by recipients is a figure whose numerator is attributed under whichever model the reader has not chosen, and quoting one here would make this answer differ from the attribution report's answer for the same campaign. The counts are facts; what share of them the campaign caused is what compareModels exists for, with the model named.",
   module: "M19",
   permissions: ["campaign:read"],
   idempotent: true,
@@ -337,7 +382,9 @@ export const campaignResults = defineRoute({
     /** Null unless the campaign has a version B. */
     abTest: z.object({
       versions: z.array(z.object({
-        version: z.enum(["a", "b"]),
+        version: z.enum(["a", "b", "c", "d"]),
+        /** This version's share of the list in whole percent, as chosen or as the even split gives it. */
+        share: z.number().int(),
         label: z.string(),
         selected: z.number().int(),
         /** Queued to this version: the people who could have acted. */
@@ -358,15 +405,19 @@ export const campaignResults = defineRoute({
       measures: z.array(z.object({
         measure: z.enum(["clicks", "replies", "booked"]),
         label: z.string(),
+        /** The version compared with version A on this measure. */
+        against: z.enum(["b", "c", "d"]),
+        /** `b_higher` means the version named in `against` did better than A. */
         verdict: z.enum(["no_data", "too_few", "no_clear_difference", "a_higher", "b_higher"]),
         rateA: z.string().nullable(),
+        /** The rate of the version named in `against`. */
         rateB: z.string().nullable(),
         /** The chance a gap this big is luck. Null when no test could be run. */
         pValue: z.number().nullable(),
         sentence: z.string(),
       })),
       /** Null unless the difference is more than luck explains. */
-      winner: z.enum(["a", "b"]).nullable(),
+      winner: z.enum(["a", "b", "c", "d"]).nullable(),
       headline: z.string(),
     }).nullable(),
   }),
