@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { routes, routeList } from "../src/contracts/index.js";
-import { handlers, PENDING_ROUTES, routeNames } from "../src/routes/index";
+import { handlers, PENDING_ROUTES, routeNames, streamingHandlers } from "../src/routes/index";
 import * as services from "../src/services/index";
 import { ALL_PERMISSIONS } from "../../core/src/access/permissions.js";
 
@@ -551,5 +551,28 @@ describe("every route has something behind it", () => {
     ).toEqual([]);
     /** And it looked at something, so an import that stopped resolving is not a pass. */
     expect(checked).toBeGreaterThan(200);
+  });
+});
+
+/**
+ * A ROUTE THAT ANSWERS AS IT WRITES, AND ITS SECOND HANDLER.
+ *
+ * `streams` on a route promises Server-Sent Events to a caller who asks for
+ * them, and `streamingHandlers` is what keeps that promise. A route marked
+ * with nothing behind it would quietly answer JSON to a caller reading
+ * events; a streaming handler on a route that is not marked is never called
+ * and is not in the OpenAPI document. Both are held here.
+ */
+describe("routes that answer as they write", () => {
+  it("has a streaming handler for every route marked streams, and none for another", () => {
+    const marked = Object.entries(routes)
+      .filter(([, route]) => (route as { streams?: boolean }).streams === true)
+      .map(([name]) => name).sort();
+    expect(Object.keys(streamingHandlers).sort()).toEqual(marked);
+    expect(marked.length).toBeGreaterThan(0);
+  });
+
+  it("streams only routes that are also served whole", () => {
+    for (const name of Object.keys(streamingHandlers)) expect(name in handlers).toBe(true);
   });
 });

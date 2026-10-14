@@ -296,8 +296,12 @@ shown, nor anything after it. The screen asks through `/my-day/ask`, which sends
 the answer so far line by line and then the whole answer after its checks: whether
 it cites only records it was given and states only their prices. The whole answer
 takes the place of what was shown, and may be that the answer cannot be shown.
-Only the whole answer is kept. The phone app (M11) and `POST /v1/ai/field-assistant`
-get the whole answer at once.
+Only the whole answer is kept. `POST /v1/ai/field-assistant` does the same for
+a caller that sends `Accept: text/event-stream`: Server-Sent Events, `writing`
+with the answer so far and then `answer` with the JSON the route otherwise
+answers, from the same service with the same permission and limits (M26 says how
+to read them). Without that header it answers whole, as before. The phone app
+(M11) gets the whole answer at once.
 
 The how-to notes are written on `/settings/agents/notes`
 (`knowledge:write`, which the office manager preset holds), each a job with
@@ -430,9 +434,10 @@ sentence appears all at once. The website chat's reply so far reaches the visito
 widget reading the chat once a second, not by a stream of its own, so it grows a second or
 so behind the model, and a visitor may read the start of a reply that the whole answer's
 check then replaces with a hand over to a person (never a sentence with an unpublished
-price). The field assistant streams only on `/my-day`: the phone app and the API answer
-whole, and a part of an answer shown there may likewise be replaced by "it was not shown"
-when the whole answer cites a record it was not given. Texts are sent whole. Every other
+price). The field assistant streams on `/my-day` and through the API for a caller that asks
+for events; the phone app answers whole. A part of an answer shown there may likewise
+be replaced by "it was not shown" when the whole answer cites a record it was not
+given. Texts are sent whole. Every other
 agent's model call is one request and one response. The intake agent books through online booking's services and
 windows only; a company with none set up gets the summary and books by hand, and an
 intake booking's visit goes on the board unassigned rather than onto a technician's

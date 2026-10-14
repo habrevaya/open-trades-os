@@ -170,6 +170,31 @@ The open routes, and only they, answer a browser's preflight and mark
 their answers readable from any origin, which is safe because they read no
 cookie and hold no session for another page to borrow.
 
+### Read an answer as it is written
+
+A route that answers with something a model writes can send it as it is
+written. `POST /v1/ai/field-assistant` does: sent with
+`Accept: text/event-stream`, it answers as Server-Sent Events instead of one
+JSON body. Without that header it answers JSON exactly as before, so nothing
+written against it changes. The OpenAPI document marks such a route
+`x-streams` and lists `text/event-stream` beside its JSON answer.
+
+The events come in this order. `writing` carries `{ "text": ... }`, the answer
+so far: whole sentences, each held to the same price check the whole answer is,
+sent whole each time it grows. `answer` carries exactly the JSON the route
+answers without a stream, after every check, and takes the place of what was
+shown; it can say the answer cannot be shown. `problem` carries
+`{ "error", "status" }` for a refusal that came after the first event. A comment
+line keeps a quiet stream open every fifteen seconds.
+
+It is the same route with the same session, the same permissions and the same
+limits, because the same service runs. A refusal before the first event (signed
+out, not allowed, the assistant off, the day's runs used up) is the ordinary
+status and JSON body, since nothing has been sent yet. A retry with the same
+idempotency key answers from the record as one `answer` event. A caller that
+drops the connection does not stop the answer: it is written and kept, and the
+retry reads it.
+
 ### Register a webhook
 
 `POST /v1/webhooks/endpoints` registers one and returns the signing secret once.
@@ -309,6 +334,13 @@ every list can look one up, which is what makes a migration and a two way sync s
 to retry.
 
 ## What is not built
+
+Only the field assistant answers as it is written; every other route answers
+whole. The SDK has no method that reads events: its field assistant call answers
+JSON, and a caller that wants the sentences as they come reads the stream with
+`fetch`. A sentence is sent only once it is finished, so a long first sentence
+arrives late, and on a model connection that does not stream (see M27) the stream
+holds only the `answer` event.
 
 The SDK is TypeScript only, and it is not published to a package registry: it is
 used from this repository, and its package is marked private until the licensing

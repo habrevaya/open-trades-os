@@ -65,10 +65,11 @@ export const askFieldAssistant = defineRoute({
   path: "/v1/ai/field-assistant",
   summary: "Ask the field assistant",
   description:
-    "Answers a technician's question in plain words from the company's own records: the equipment at the visit's address and its service history, the notes on this visit and earlier ones there, price book prices, and the company's how-to notes. Every kind of record is given to the model only when the person asking may read it, and never a cost. The answer must cite what it came from and may state only prices those records state; one that does not is not shown. Runs as the person asking, within the company's spend ceiling and the assistant's runs a day, and is written in the agents' log. A retry with the same idempotency key answers again from the record, without asking the model twice.",
+    "Answers a technician's question in plain words from the company's own records: the equipment at the visit's address and its service history, the notes on this visit and earlier ones there, price book prices, and the company's how-to notes. Every kind of record is given to the model only when the person asking may read it, and never a cost. The answer must cite what it came from and may state only prices those records state; one that does not is not shown. Runs as the person asking, within the company's spend ceiling and the assistant's runs a day, and is written in the agents' log. A retry with the same idempotency key answers again from the record, without asking the model twice. Sent with `Accept: text/event-stream`, it answers as Server-Sent Events instead: `writing` events carrying the answer so far, whole sentences each naming only prices in the records, then one `answer` event with exactly the JSON this route otherwise answers, which replaces what was shown and may say the answer cannot be shown. A refusal before the first sentence is the usual status and body; one after it is a `problem` event.",
   module: "M27",
   permissions: ["field:sync"],
   idempotent: true,
+  streams: true,
   input: z.object({
     question: z.string().min(3).max(1000),
     /** The visit they are on, so its equipment, notes and job come with the question. */

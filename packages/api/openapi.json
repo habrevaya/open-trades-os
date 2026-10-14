@@ -7378,7 +7378,7 @@
       "post": {
         "operationId": "askFieldAssistant",
         "summary": "Ask the field assistant",
-        "description": "Answers a technician's question in plain words from the company's own records: the equipment at the visit's address and its service history, the notes on this visit and earlier ones there, price book prices, and the company's how-to notes. Every kind of record is given to the model only when the person asking may read it, and never a cost. The answer must cite what it came from and may state only prices those records state; one that does not is not shown. Runs as the person asking, within the company's spend ceiling and the assistant's runs a day, and is written in the agents' log. A retry with the same idempotency key answers again from the record, without asking the model twice.\n\nRequires a session holding: field:sync.",
+        "description": "Answers a technician's question in plain words from the company's own records: the equipment at the visit's address and its service history, the notes on this visit and earlier ones there, price book prices, and the company's how-to notes. Every kind of record is given to the model only when the person asking may read it, and never a cost. The answer must cite what it came from and may state only prices those records state; one that does not is not shown. Runs as the person asking, within the company's spend ceiling and the assistant's runs a day, and is written in the agents' log. A retry with the same idempotency key answers again from the record, without asking the model twice. Sent with `Accept: text/event-stream`, it answers as Server-Sent Events instead: `writing` events carrying the answer so far, whole sentences each naming only prices in the records, then one `answer` event with exactly the JSON this route otherwise answers, which replaces what was shown and may say the answer cannot be shown. A refusal before the first sentence is the usual status and body; one after it is a `problem` event.\n\nRequires a session holding: field:sync.",
         "tags": [
           "M27"
         ],
@@ -7410,6 +7410,12 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AskFieldAssistantOutput"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Server-Sent Events. `writing`: `{ \"text\": string }`, the answer so far, sent whole each time it grows. `answer`: the JSON body above, sent once, last. `problem`: `{ \"error\": string, \"status\": number }`, a refusal after the stream opened. A comment line is sent every fifteen seconds while nothing else is."
                 }
               }
             }
@@ -7496,7 +7502,8 @@
         "x-authorization": "session",
         "x-permissions": [
           "field:sync"
-        ]
+        ],
+        "x-streams": true
       }
     },
     "/v1/ai/intake/drafts": {
