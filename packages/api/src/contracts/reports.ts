@@ -28,6 +28,11 @@ export const ReportDefinition = z.object({
   dimensions: z.array(z.string()),
   measures: z.array(z.string()).min(1),
   filters: z.array(ReportFilter).optional(),
+  /**
+   * How the filters on the company's own custom fields are joined: `all` of
+   * them (the default) or `any`. Filters on anything else always narrow.
+   */
+  fieldMatch: z.enum(["all", "any"]).optional(),
   /** Inclusive. */
   from: z.string().date().optional(),
   /** Exclusive, so a month does not include the first moment of the next. */

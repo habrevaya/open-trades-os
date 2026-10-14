@@ -18,7 +18,7 @@ export interface DatasetOption {
   key: string;
   label: string;
   description: string;
-  dimensions: { key: string; label: string }[];
+  dimensions: { key: string; label: string; field?: boolean | undefined }[];
   measures: { key: string; label: string }[];
 }
 
@@ -54,6 +54,8 @@ export function Builder({
   const chosenDimensions = new Set(definition?.dimensions ?? []);
   const chosenMeasures = new Set(definition?.measures ?? []);
   const filters = definition?.filters ?? [];
+  /** How many of the filters are on the company's own fields: "any of these" means something from two. */
+  const onFields = filters.filter((f) => dataset?.dimensions.find((d) => d.key === f.dimension)?.field === true).length;
 
   return (
     <div className="mt-6 space-y-6">
@@ -185,6 +187,22 @@ export function Builder({
                 </select>
               ) : null}
             </div>
+
+            {onFields > 1 ? (
+              <label className="mt-3 block text-sm">
+                <span className="block text-ink-700">Your own fields in the filters above</span>
+                <select name="fieldmatch" defaultValue={definition?.fieldMatch ?? "all"}
+                        className="mt-1 h-9 rounded border border-steel-300 px-2 text-sm">
+                  <option value="all">Every one of them has to match</option>
+                  <option value="any">Any one of them can match</option>
+                </select>
+                <span className="mt-1 block text-xs text-ink-500">
+                  Filters on anything else, like a status, narrow the report either way.
+                </span>
+              </label>
+            ) : definition?.fieldMatch === "any" ? (
+              <input type="hidden" name="fieldmatch" value="any" />
+            ) : null}
 
             {filters.length > 0 ? (
               <ul className="mt-3 flex flex-wrap gap-2">

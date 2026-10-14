@@ -75,6 +75,7 @@ function fieldDimensions(column: string, fields: readonly Field[], prefix: strin
     label: `${labelPrefix}${field.label}`,
     type: dimensionType(field.dataType),
     sql: valueSql(column, field),
+    field: true,
   }));
 }
 

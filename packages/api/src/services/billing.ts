@@ -8,7 +8,7 @@ import {
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
 import * as retainage from "./retainage";
-import { listFilter } from "./custom-fields";
+import { enforceWithin, listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
 import { textFilter } from "./text-search";
@@ -39,7 +39,9 @@ const usd = (v: string) => m.money(v, "USD");
  * serves a third party integration, an AI agent and an offline mobile client,
  * and exactly one of them should be allowed to decide what something costs.
  */
-export async function create(ctx: ServiceContext, input: z.infer<typeof createInvoice.input>) {
+export async function create(
+  ctx: ServiceContext, input: z.infer<typeof createInvoice.input>, options: { requireFields?: boolean } = {},
+) {
   return guardedWrite(ctx, "invoice:write", async (tx) => {
     if (ctx.idempotencyKey) {
       const [seen] = await tx.select({ entityId: schema.integrationEvent.entityId })
@@ -49,6 +51,17 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createIn
           eq(schema.integrationEvent.entityType, "invoice"),
         )).limit(1);
       if (seen?.entityId) return loadInvoice(tx, ctx, seen.entityId);
+    }
+    /**
+     * THE COMPANY'S REQUIRED FIELDS, ASKED FOR WHEN AN INVOICE IS MADE BY A
+     * PERSON OR AN INTEGRATION: the route and the new invoice screen say so.
+     * Every other caller of `create` is the product making an invoice
+     * itself (a project's billing, a migration, the seed), and a required
+     * field the company added later must not stop a progress bill going
+     * out, so those start with none, as they always did.
+     */
+    if (options.requireFields) {
+      await enforceWithin(tx, ctx.actor.organizationId, "invoice", input.customFields ?? {});
     }
     return createIn(tx, ctx, input);
   });
@@ -235,6 +248,7 @@ export async function createIn(
     total: m.toString(computed.totals.total),
     balance: m.toString(computed.totals.total),
     memo: input.memo ?? null,
+    customFields: input.customFields ?? {},
     ...provenance(input.externalRef),
   }).returning();
 

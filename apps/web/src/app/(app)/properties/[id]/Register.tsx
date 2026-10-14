@@ -3,6 +3,7 @@
 import { useKeptAction, type KeptFormProps } from "@/lib/use-kept-action";
 import { useState } from "react";
 import { Chip } from "@opentradesos/ui";
+import { CustomFieldInputs, type CustomFieldDefinitionView } from "@/components/CustomFieldInputs";
 import { registerUnit, retireUnit } from "./actions";
 
 const BUTTON =
@@ -49,11 +50,13 @@ export interface Unit {
  * reads, and the nesting is the difference between a register and a dump.
  */
 export function Register({
-  propertyId, units, writes,
+  propertyId, units, writes, fields = [],
 }: {
   propertyId: string;
   units: Unit[];
   writes: boolean;
+  /** The company's own fields for a unit, drawn on "Add a unit" and asked for when one is required. */
+  fields?: readonly CustomFieldDefinitionView[];
 }) {
   const [addState, addForm, adding] = useKeptAction(registerUnit, null);
   const [retireState, retireForm, retiring] = useKeptAction(retireUnit, null);
@@ -163,6 +166,11 @@ export function Register({
             <span className="block text-xs text-ink-500">Labour warranty ends</span>
             <input name="warrantyLaborExpiresOn" type="date" className={`mt-1 ${FIELD}`} />
           </label>
+          {fields.length > 0 && (
+            <div className="sm:col-span-3">
+              <CustomFieldInputs definitions={fields} legend="Your fields" />
+            </div>
+          )}
           <div className="sm:col-span-3">
             <button type="submit" disabled={adding} className={BUTTON}>
               {adding ? "Adding" : "Add it"}

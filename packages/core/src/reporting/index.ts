@@ -61,6 +61,14 @@ export interface Dimension {
    * called "3 Brothers Plumbing".
    */
   sortPrefix?: boolean;
+  /**
+   * The value is one of the company's own custom fields, on this record or on
+   * one it hangs off. Said by the catalogue so a report can join the filters
+   * on fields by "any of these" without guessing from a key's spelling: a
+   * company may name a field whatever it likes, and `status` is both a
+   * product column and a field some company defined.
+   */
+  field?: boolean;
 }
 
 export interface Measure {
@@ -161,6 +169,14 @@ export interface ReportDefinition {
   dimensions: string[];
   measures: string[];
   filters?: { dimension: string; op: "eq" | "neq" | "in"; value: string | string[] }[];
+  /**
+   * How the filters on the company's own fields are joined to each other:
+   * every one of them (the default) or at least one. Only those: a filter on
+   * status or on a date narrows the report whichever is chosen, because "the
+   * jobs on the Annual plan or in the North, that are still open" does not
+   * mean "or open".
+   */
+  fieldMatch?: "all" | "any";
   /** Inclusive start, exclusive end. Both optional. */
   from?: string;
   to?: string;

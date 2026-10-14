@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, invoiceDelivery } from "@opentradesos/api/services";
+import { billing, customFields, invoiceDelivery } from "@opentradesos/api/services";
+import { can } from "@opentradesos/core";
+import { customFieldsFrom } from "@/lib/custom-field-form";
 import { createInvoice, updateInvoice, sendInvoice } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { linesFromForm } from "@/lib/invoice-form";
@@ -24,9 +26,12 @@ export async function raiseInvoice(_previous: FormState, form: FormData): Promis
   let id: string | null = null;
   const adjustment = adjustmentFrom(form);
   const result = await attempt(form, async () => {
+    const c = await ctx();
+    const definitions = can(c.actor, "invoice:read") ? await customFields.formFields(c, "invoice") : [];
     const input = parsed(createInvoice.input, {
       customerId: field(form, "customerId"),
       jobId: field(form, "jobId"),
+      customFields: customFieldsFrom(form, definitions),
       draft: form.get("draft") === "1",
       dueOn: field(form, "dueOn"),
       memo: field(form, "memo"),
@@ -35,7 +40,8 @@ export async function raiseInvoice(_previous: FormState, form: FormData): Promis
       ...taxRateFrom(form),
       ...(adjustment ? { adjustment } : {}),
     });
-    id = (await billing.create(await ctx(), input)).id;
+    // A person is making this one, so the company's required fields are asked for.
+    id = (await billing.create(c, input, { requireFields: true })).id;
   });
   if (!id) return result;
   redirect(`/invoices/${id}`);

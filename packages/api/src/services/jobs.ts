@@ -1003,7 +1003,9 @@ async function cancelVisitsStillToCome(tx: Database, ctx: ServiceContext, jobId:
   return cancelled;
 }
 
-export async function addVisit(ctx: ServiceContext, input: z.infer<typeof scheduleVisit.input>) {
+export async function addVisit(
+  ctx: ServiceContext, input: z.infer<typeof scheduleVisit.input>, options: { requireFields?: boolean } = {},
+) {
   return guardedWrite(ctx, "visit:write", async (tx) => {
     /**
      * THE CONTRACT SAID IDEMPOTENT AND THIS DID NOT READ THE KEY.
@@ -1040,6 +1042,15 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       throw new ConflictError(`Job ${job.number} was cancelled. Book a new job rather than a visit on this one.`);
     }
     await assertUnclaimed(tx, "visit", input.externalRef);
+    /**
+     * The company's required fields are asked for when a person or an
+     * integration books the visit (the route, the "Add a visit" form). A
+     * visit the product makes itself (an AI intake, a rental, the first one
+     * booked with a new job) starts with none.
+     */
+    if (options.requireFields) {
+      await enforceWithin(tx, ctx.actor.organizationId, "visit", input.customFields ?? {});
+    }
 
     /**
      * Half a window is not a window. A start with no end invents the end,
@@ -1100,6 +1111,7 @@ export async function addVisit(ctx: ServiceContext, input: z.infer<typeof schedu
       crewId: input.crewId ?? null,
       /** The shop of the crew or the people it is booked with (`visit-shop.ts`). */
       locationId: input.crewId ? await shopOfCrew(tx, input.crewId) : await shopOfPeople(tx, input.technicianIds),
+      customFields: input.customFields ?? {},
       ...provenance(input.externalRef),
     }).returning();
 

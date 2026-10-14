@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { afterHours, customers, jobs, priceBook, taxRates, NotFoundError } from "@opentradesos/api/services";
+import { afterHours, customFields, customers, jobs, priceBook, taxRates, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can, money } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
+import { CustomFieldInputs } from "@/components/CustomFieldInputs";
 import { Composer, type ComposerLine } from "../Composer";
 import { raiseInvoice } from "../actions";
 
@@ -64,6 +65,9 @@ export default async function NewInvoicePage({
     customerId, propertyId: (job?.propertyId as string | null | undefined) ?? null, permission: "invoice:read",
   });
 
+  /** The company's own fields, asked for here because the invoice is being made by a person. */
+  const invoiceFields = can(user.actor, "invoice:read") ? await customFields.formFields(ctx, "invoice") : [];
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <Crumb href={job ? `/jobs/${job.id}` : `/customers/${customerId}`}>
@@ -84,6 +88,7 @@ export default async function NewInvoicePage({
         submit="Create invoice"
         offers={offers}
         tax={{ worked: tax.worked?.note ?? "", choices: tax.choices, chosen: "" }}
+        fields={<CustomFieldInputs definitions={invoiceFields} legend="Your fields" />}
       />
     </div>
   );

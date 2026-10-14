@@ -1,10 +1,12 @@
 "use server";
 
-import { attempt, refused } from "@/lib/actions";
+import { attempt, refusalOf, refused } from "@/lib/actions";
+import { customFieldsFrom } from "@/lib/custom-field-form";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { equipment, geocoding, properties, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { customFields, equipment, geocoding, properties, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { can } from "@opentradesos/core";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -24,8 +26,12 @@ export async function registerUnit(_previous: unknown, form: FormData) {
   const propertyId = String(form.get("propertyId") ?? "");
   const serial = text(form, "serialNumber");
   try {
-    await equipment.register(await ctx(), {
+    const c = await ctx();
+    const definitions = can(c.actor, "equipment:read") ? await customFields.formFields(c, "equipment") : [];
+    // A person is adding this one, so the company's required fields are asked for.
+    await equipment.register(c, {
       serialElsewhereConfirmed: form.get("serialElsewhereConfirmed") === "on",
+      customFields: customFieldsFrom(form, definitions),
       propertyId,
       category: String(form.get("category") ?? ""),
       tag: text(form, "tag"),
@@ -36,8 +42,10 @@ export async function registerUnit(_previous: unknown, form: FormData) {
       installedOn: text(form, "installedOn"),
       warrantyPartsExpiresOn: text(form, "warrantyPartsExpiresOn"),
       warrantyLaborExpiresOn: text(form, "warrantyLaborExpiresOn"),
-    });
+    }, { requireFields: true });
   } catch (error) {
+    // A required field left out comes back as the field's own sentence, not as a page that fell over.
+    if (error instanceof Error && error.name === "UnprocessableError") return refused(form, refusalOf(error)!);
     if (error instanceof ConflictError || error instanceof NotFoundError) {
       const matches = serial && error instanceof ConflictError
         ? (await equipment.matchSerial(await ctx(), { serialNumber: serial }))

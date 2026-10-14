@@ -216,7 +216,8 @@ export const listReportDatasets = defineRoute({
       key: z.string(),
       label: z.string(),
       description: z.string(),
-      dimensions: z.array(z.object({ key: z.string(), label: z.string() })),
+      /** `field` is true on one of the company's own custom fields, which a report can join by `fieldMatch: "any"`. */
+      dimensions: z.array(z.object({ key: z.string(), label: z.string(), field: z.boolean().optional() })),
       measures: z.array(z.object({ key: z.string(), label: z.string() })),
     })),
   }),

@@ -136,6 +136,7 @@ export default async function PropertyPage({
           propertyId={id}
           units={register}
           writes={can(user.actor, "equipment:write")}
+          fields={await customFields.formFields(ctx, "equipment")}
         />
       ) : (
         <Empty title="Equipment is not part of your access">

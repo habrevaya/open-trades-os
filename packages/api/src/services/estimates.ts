@@ -8,7 +8,7 @@ import {
   decodeCursor, paginate, NotFoundError, ConflictError,
   scopeOf, timezoneOf, UnprocessableError,
 } from "./context";
-import { listFilter } from "./custom-fields";
+import { enforceWithin, listFilter } from "./custom-fields";
 import { layoutForNew } from "./proposal-templates";
 import { admitDate, requireImport } from "./history";
 import { estimateScopeFilter, estimateBranchFilter } from "./scope";
@@ -56,11 +56,22 @@ const DECIDABLE = ["draft", "sent", "viewed", "expired"] as const;
  * is a client that will, and the version reference is what keeps a document
  * saying what it said after a price rise.
  */
-export async function create(ctx: ServiceContext, input: z.infer<typeof createEstimate.input>) {
+export async function create(
+  ctx: ServiceContext, input: z.infer<typeof createEstimate.input>, options: { requireFields?: boolean } = {},
+) {
   return guardedWrite(ctx, "estimate:write", async (tx) => {
     if (ctx.idempotencyKey) {
       const seen = await seenBefore(tx, ctx.idempotencyKey, "estimate");
       if (seen) return loadEstimate(tx, ctx, seen);
+    }
+    /**
+     * The company's required fields are asked for when a person or an
+     * integration writes the estimate (the route, the new estimate screen).
+     * An estimate the product writes itself (an AI draft, a quote for an
+     * inspection finding, a migration) starts with none.
+     */
+    if (options.requireFields) {
+      await enforceWithin(tx, ctx.actor.organizationId, "estimate", input.customFields ?? {});
     }
     return createIn(tx, ctx, input);
   });
@@ -255,6 +266,7 @@ export async function createIn(
       propertyId: input.propertyId,
       jobId: input.jobId ?? null,
       title: input.title ?? null,
+      customFields: input.customFields ?? {},
       issuedOn,
       expiresOn: input.expiresOn ?? (input.outcome?.status === "expired" ? input.outcome.on : null),
       status: "draft",

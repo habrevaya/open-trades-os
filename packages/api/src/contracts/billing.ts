@@ -183,6 +183,14 @@ export const createInvoice = defineRoute({
     memo: z.string().max(2000).optional(),
     lines: z.array(InvoiceLineInput).min(1),
     /**
+     * The company's own fields for this invoice (M29), by key. A field the
+     * company marked required has to be here, and a refusal is one sentence
+     * per field at `customFields.<key>`. An invoice the product makes by
+     * itself (from an estimate, a job billed in parts, a contract) starts
+     * with none.
+     */
+    customFields: z.record(z.unknown()).optional(),
+    /**
      * The sales tax rate on the taxable lines. Left off, it is worked out
      * from the company's rates: the address's, else the customer's, else the
      * usual one, at the percentage in force on the invoice's date, and

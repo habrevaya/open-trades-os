@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customFields, jobs } from "@opentradesos/api/services";
+import { can } from "@opentradesos/core";
 import { customFieldsFrom } from "@/lib/custom-field-form";
 import { createJob, scheduleVisit } from "@opentradesos/api/contracts";
 import { attempt, field, fields, parsed, type FormState, refused } from "@/lib/actions";
@@ -73,14 +74,18 @@ export async function addVisit(_previous: FormState, form: FormData): Promise<Fo
   if (window.kind === "invalid") return refused(form, window.message);
 
   const result = await attempt(form, async () => {
+    const c = { actor: user.actor, db: getDb() };
+    const visitFields = can(user.actor, "visit:read") ? await customFields.formFields(c, "visit") : [];
     const input = parsed(scheduleVisit.input, {
       id: jobId,
+      customFields: customFieldsFrom(form, visitFields),
       ...(window.kind === "window" ? { windowStart: window.windowStart, windowEnd: window.windowEnd } : {}),
       estimatedDurationMinutes: Number(field(form, "duration") ?? "60"),
       technicianIds: fields(form, "technicianIds"),
       bookAnyway: form.get("bookAnyway") === "on",
     });
-    await jobs.addVisit({ actor: user.actor, db: getDb() }, input);
+    // A person is booking this one, so the company's required fields are asked for.
+    await jobs.addVisit(c, input, { requireFields: true });
   });
   revalidatePath(`/jobs/${jobId}`);
   return result;
