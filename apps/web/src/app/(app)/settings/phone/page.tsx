@@ -149,7 +149,7 @@ function MenuForm({ menu, choices }: { menu?: phoneMenus.MenuView | undefined; c
         <span>
           Callers can say an option instead of pressing a key
           <span className="block text-xs text-ink-500">
-            They say its name, a word you list beside it, or its number. Keys still work. Twilio writes down what
+            They say what an option is for, a word you list beside it, or its number. Keys still work. Twilio writes down what
             each caller says and charges for it. If it cannot tell what they said, they hear the menu once more.
           </span>
         </span>

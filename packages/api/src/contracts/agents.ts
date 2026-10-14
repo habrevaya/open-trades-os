@@ -20,7 +20,8 @@ import { Uuid } from "./common";
  * model as a tool: an agent cannot drive an agent.
  */
 
-const AgentKind = z.enum(["intake", "chat", "voice", "estimate", "collections", "dispatch"]);
+/** Every agent core knows, the field assistant included: without it the settings screen could not turn that one on. */
+const AgentKind = z.enum(["intake", "chat", "voice", "estimate", "collections", "dispatch", "field"]);
 const Status = z.enum(["proposed", "applied", "dismissed", "failed", "superseded"]);
 
 const Draft = z.object({

@@ -12,7 +12,7 @@ export type AcceptEstimateDraftInput = Record<string, unknown>;
 
 export interface AcceptEstimateDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -787,7 +787,7 @@ export interface ApplyDispatchPlanInput {
 
 export interface ApplyDispatchPlanOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -1211,7 +1211,7 @@ export interface ApproveIntakeDraftInput {
 
 export interface ApproveIntakeDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -2116,7 +2116,7 @@ export interface ConfigureAgentInput {
 }
 
 export interface ConfigureAgentOutput {
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   settings: {
     enabled: boolean;
     mode: "propose" | "auto";
@@ -3086,7 +3086,7 @@ export interface CreateDispatchPlanInput {
 
 export interface CreateDispatchPlanOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -3159,7 +3159,7 @@ export interface CreateEstimateDraftInput {
 
 export interface CreateEstimateDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -3338,7 +3338,7 @@ export interface CreateIntakeDraftInput {
 
 export interface CreateIntakeDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -5662,7 +5662,7 @@ export interface DismissCollectionReminderInput {
 
 export interface DismissCollectionReminderOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -5697,7 +5697,7 @@ export interface DismissDispatchPlanInput {
 
 export interface DismissDispatchPlanOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -5720,7 +5720,7 @@ export interface DismissEstimateDraftInput {
 
 export interface DismissEstimateDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -5743,7 +5743,7 @@ export interface DismissIntakeDraftInput {
 
 export interface DismissIntakeDraftOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -12496,7 +12496,7 @@ export interface ListAccountingRunsOutput {
 export interface ListAgentActivityOutput {
   entries: Array<{
     id: string;
-    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
     kind: string;
     detail: string;
     proposalId: string | null;
@@ -12516,7 +12516,7 @@ export interface ListAgentToolsOutput {
 
 export interface ListAgentsOutput {
   agents: Array<{
-    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
     label: string;
     description: string;
     autoAllowed: boolean;
@@ -13228,7 +13228,7 @@ export interface ListClaimsOutput {
 export interface ListCollectionRemindersOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -14016,7 +14016,7 @@ export interface ListDevicesOutput {
 export interface ListDispatchPlansOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -14169,7 +14169,7 @@ export interface ListEstimateDeliveriesOutput {
 export interface ListEstimateDraftsOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -14491,7 +14491,7 @@ export interface ListInspectionsOutput {
 export interface ListIntakeDraftsOutput {
   drafts: Array<{
     id: string;
-    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+    agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
     action: string;
     status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
     sourceKind: string;
@@ -22275,7 +22275,7 @@ export interface SendCollectionReminderInput {
 
 export interface SendCollectionReminderOutput {
   id: string;
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   action: string;
   status: "proposed" | "applied" | "dismissed" | "failed" | "superseded";
   sourceKind: string;
@@ -28303,7 +28303,7 @@ export interface CompleteVisitParams {
 }
 
 export interface ConfigureAgentParams {
-  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
 }
 
 export interface ConfigureBookableServiceParams {
@@ -29344,7 +29344,7 @@ export interface ListAccountingRunsInput {
 }
 
 export interface ListAgentActivityInput {
-  agent?: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch";
+  agent?: "intake" | "chat" | "voice" | "estimate" | "collections" | "dispatch" | "field";
   limit?: number;
 }
 
