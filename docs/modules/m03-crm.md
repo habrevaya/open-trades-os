@@ -218,8 +218,8 @@ conservative reading of a customer file, chosen because "who told the
 customer that" has to be answerable a year later; the window and the rule
 are in `packages/core/src/customer-notes`.
 
-**What the technician reads.** On the visit, on `/my-day`, under "Notes from
-the office": the notes marked for the field, pinned first, at most twenty,
+**What the technician reads.** On the visit, on `/my-day` and on the phone
+app, under "Notes from the office": the notes marked for the field, pinned first, at most twenty,
 shipped with the day so they are there without signal, and a note marked
 afterwards reaches the phone on its next poll. A technician and a crew lead
 reading a customer's notes through the API get only those too, and the
@@ -408,8 +408,8 @@ that hangs off a customer; there is no "any of these" across fields.
 
 A customer note is never deleted and, after its writer's 15 minutes, never
 changed: a wrong note stays, with its correction beside it. Notes are not
-searched by the customer search box, and the native phone app (`apps/mobile`)
-does not show the notes marked for the field yet; the phone's web day does. A
+searched by the customer search box. The phone app shows the notes marked
+for the field and cannot add, pin or fix one; that is the office's. A
 note is on a customer, not on an address or a job.
 
 A merged or soft deleted customer keeps its tags on its own row and has none in

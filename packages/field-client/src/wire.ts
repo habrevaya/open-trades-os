@@ -86,6 +86,20 @@ export interface FieldVisit {
    * Absent from older servers.
    */
   customerFiles?: FieldCustomerFile[] | undefined;
+  /**
+   * The office's notes on this customer that were marked for the field (M03), pinned first and then newest
+   * first, at most twenty. Read only on the phone. Absent from older servers.
+   */
+  customerNotes?: FieldCustomerNote[] | undefined;
+}
+
+export interface FieldCustomerNote {
+  id: string;
+  body: string;
+  notedAt: string;
+  pinned: boolean;
+  /** Who wrote it, or null for one carried over or brought in from a file. */
+  by: string | null;
 }
 
 export interface FieldCustomerFile {
