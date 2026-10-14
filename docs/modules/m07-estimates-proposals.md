@@ -407,8 +407,13 @@ themselves, which is what `estimate:present` allows.
 ## What is not built
 
 The PDF's font covers Latin, Vietnamese, Greek and Cyrillic, so a letter outside
-them prints as its base letter or "?", and a logo that is an SVG or a WebP is left
-off it. A proposal layout
+them prints as its base letter or "?". The PDF prints a PNG or JPEG logo; a WebP or
+SVG chosen on `/settings` is turned into a PNG by the browser before it is sent
+(see M02), but a WebP kept from before that, or a GIF or ICO logo, is still left
+off it, and the screen says so. The server has no image library to decode a WebP
+with: the only one in the dependency tree is the one Next carries for its own
+image resizing, which the API and the worker (where the PDFs are made) cannot
+reach without a new dependency of their own. A proposal layout
 is a closed set of section kinds, one cover photograph and photographs per
 option; there are no columns, fonts or per section colours, a layout cannot be
 changed on an estimate once it has been sent. Sending by both channels at once goes only to the customer's

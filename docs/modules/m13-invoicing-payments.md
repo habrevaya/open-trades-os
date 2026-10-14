@@ -675,8 +675,9 @@ lender's settlement date. "As low as" uses the plans entered on the connection
 and is not asked of the lender per customer.
 
 The PDFs print the company's logo when it is a PNG or a JPEG (a PNG with
-transparency or a palette included); an SVG or WebP logo is left off and the name
-printed alone. The bundled font covers Latin with every extension, Vietnamese,
+transparency or a palette included). A WebP or SVG logo chosen on `/settings` is
+sent as a PNG (M02), so it prints; a WebP kept from before that, or a GIF or ICO
+logo, is left off and the name printed alone, and `/settings` says so. The bundled font covers Latin with every extension, Vietnamese,
 Greek and Cyrillic; a letter outside those (Chinese, Japanese, Korean, Arabic,
 Hebrew, Thai and the scripts of India) prints as its base letter where it has one
 and as "?" where it does not.

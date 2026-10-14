@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService, acquisition,
-  people as peopleService, setup as setupService,
+  people as peopleService, setup as setupService, documents,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
@@ -38,6 +38,8 @@ export default async function SettingsPage() {
 
   const writes = can(user.actor, "settings:write");
   const brand = await brandingService.current(ctx).catch(() => null);
+  /** Whether the PDFs can print the logo kept now; asked only when there is one. */
+  const logoPrints = brand?.hasLogo ? await documents.logoPrints(ctx).catch(() => true) : true;
   const details = writes ? await setupService.details(ctx) : null;
 
   /**
@@ -93,6 +95,7 @@ export default async function SettingsPage() {
         <Branding
           color={brand.color} on={brand.on} text={brand.text}
           hasLogo={brand.hasLogo} hasFavicon={brand.hasFavicon} version={brand.version}
+          logoPrints={logoPrints}
         />
       )}
 
