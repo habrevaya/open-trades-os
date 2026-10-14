@@ -128,7 +128,7 @@ export default async function FacilitiesPage() {
               <p className="text-sm text-ink-700">{facility.hoursText}. {facility.feeText}. {facility.tipMinutes} minutes there.</p>
               {facility.holidays.length > 0 ? (
                 <p className="text-sm text-ink-700">
-                  Closed on {facility.holidays
+                  Closed on {[...facility.holidays.filter((h) => !h.yearly), ...facility.holidays.filter((h) => h.yearly)]
                     .map((h) => `${h.yearly ? `every ${h.date.slice(5)}` : h.date}${h.name ? ` (${h.name})` : ""}`).join(", ")}.
                 </p>
               ) : null}
