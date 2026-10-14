@@ -579,7 +579,7 @@ export async function fromElsewhere(
         input.propertyId !== undefined ? eq(schema.equipment.propertyId, input.propertyId) : undefined,
         propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.equipment.propertyId}`),
       ))
-      .orderBy(asc(schema.equipment.sourceId), asc(schema.equipment.id))
+      .orderBy(asc(schema.equipment.createdAt), asc(schema.equipment.id))
       .limit(1000);
     return rows.map((row) => ({ ...shape(row, today), depth: 0 }));
   });
