@@ -36,6 +36,19 @@ export interface TileResult {
   measure?: { key: string; label: string; type: string };
   /** The dimension it is drawn against, for anything that is not a number. */
   dimension?: { key: string; label: string; type: string; sortPrefix?: boolean };
+  /**
+   * The report's second grouping, which each bar or column is cut by, and how
+   * the parts are set out. Only on a tile that is broken down.
+   */
+  breakdown?: {
+    key: string; label: string; type: string; sortPrefix?: boolean;
+    arrange: reporting.ChartArrangement;
+  };
+  /**
+   * Whether the measure drawn adds up (a count or a sum), which is what lets
+   * the chart stack it. Said by the catalogue, not guessed by the screen.
+   */
+  additive?: boolean;
   result?: ReportResult;
   /**
    * The report the tile drew, so a bar or a number can open the records
@@ -114,6 +127,8 @@ async function drawTile(
 
   const measure = entry.report.measures.find((m) => m.key === entry.measure)!;
   const dimension = entry.report.dimensions[0];
+  /** `checkShape` has already held a tile broken down to exactly two groupings. */
+  const split = entry.tile.breakdown ? entry.report.dimensions[1] : undefined;
 
   try {
     const result = await run(ctx, entry.tile.definition);
@@ -128,6 +143,16 @@ async function drawTile(
             },
           }
         : {}),
+      ...(split && entry.tile.breakdown
+        ? {
+            breakdown: {
+              key: split.key, label: split.label, type: split.type,
+              ...(split.sortPrefix ? { sortPrefix: true } : {}),
+              arrange: entry.tile.breakdown,
+            },
+          }
+        : {}),
+      additive: dashboard.addsUp(measure.kind),
       result,
       definition: entry.tile.definition,
     };
@@ -169,10 +194,17 @@ export interface StoredTile {
   /** Overrides the report's own name on this dashboard. Optional. */
   title?: string;
   caption?: string;
+  /**
+   * Cut each bar or column by the report's second grouping, stacked or side
+   * by side. How the tile is drawn, like `kind`, and so stored on the tile
+   * rather than on the report it points at.
+   */
+  breakdown?: reporting.ChartArrangement;
 }
 
 const WIDTHS = [3, 6, 12] as const;
 const KINDS: dashboard.TileKind[] = ["number", "bars", "trend"];
+const BREAKDOWNS: reporting.ChartArrangement[] = ["stacked", "grouped"];
 
 /** What a stored tile resolves to: a name and a definition, or nothing. */
 interface Source {
@@ -274,6 +306,9 @@ export async function setTiles(
       if (!WIDTHS.includes(tile.width as 3 | 6 | 12)) {
         throw new ConflictError(`A tile is 3, 6 or 12 columns wide, not ${tile.width}.`);
       }
+      if (tile.breakdown !== undefined && !BREAKDOWNS.includes(tile.breakdown)) {
+        throw new ConflictError(`A tile is broken down stacked or side by side, not "${String(tile.breakdown)}".`);
+      }
       if (seen.has(tile.key)) {
         // Keys address a tile for removal and reordering. Two tiles with one
         // key means a remove takes both of them.
@@ -295,7 +330,10 @@ export async function setTiles(
       const dataset = (await catalogueFor(tx, ctx.actor.organizationId)).find((d) => d.key === source.definition.dataset);
       if (!dataset) throw new ConflictError("That tile's report is about something this company no longer has.");
       const decision = dashboard.checkShape(
-        { key: tile.key, title: tile.title ?? source.title, kind: tile.kind, width: tile.width, definition: source.definition },
+        {
+          key: tile.key, title: tile.title ?? source.title, kind: tile.kind, width: tile.width, definition: source.definition,
+          ...(tile.breakdown ? { breakdown: tile.breakdown } : {}),
+        },
         dataset,
       );
       if (!decision.ok) throw new ConflictError(decision.detail);
@@ -357,6 +395,7 @@ export async function getSaved(
       width: tile.width,
       definition: source.definition,
       ...(tile.caption ? { caption: tile.caption } : {}),
+      ...(tile.breakdown ? { breakdown: tile.breakdown } : {}),
     });
   }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
-import type { Actor } from "@opentradesos/core";
+import { reporting, type Actor } from "@opentradesos/core";
 import * as dashboards from "../src/services/dashboards";
 import * as reports from "../src/services/reports";
 import { ConflictError } from "../src/services/context";
@@ -435,5 +435,88 @@ run("a dashboard somebody assembled", () => {
 
     const { tiles } = await dashboards.getSaved(dispatcher(), { id: made.id });
     expect(tiles.map((t) => t.key)).toEqual(["work"]);
+  });
+});
+
+run("a tile broken down by its report's second grouping", () => {
+  const fresh = async (name: string) => dashboards.create(owner(), { name });
+  const byMonthAndAge = (measure: string) => reports.save(owner(), {
+    name: `Invoiced by month and age, ${measure}`,
+    definition: { dataset: "invoices", dimensions: ["month", "aging"], measures: [measure] },
+  });
+
+  it("draws the first grouping cut by the second, with the parts that add up to each bar", async () => {
+    const report = await byMonthAndAge("total");
+    const made = await fresh("Broken down");
+    await dashboards.setTiles(owner(), {
+      id: made.id,
+      tiles: [{ key: "t", kind: "trend", width: 12, reportId: report.id, breakdown: "stacked" }],
+    });
+
+    const [tile] = (await dashboards.getSaved(owner(), { id: made.id })).tiles;
+    expect(tile!.problem).toBeUndefined();
+    expect(tile!.dimension!.key).toBe("month");
+    expect(tile!.breakdown).toMatchObject({ key: "aging", label: "Age", arrange: "stacked", sortPrefix: true });
+    expect(tile!.additive).toBe(true);
+
+    /**
+     * Worked by hand from the fixture: January is the one invoice of $400 over
+     * ninety days; March is $900 at 31 to 60, $1,200 at 1 to 30 and $150
+     * current, which stack to $2,250.
+     */
+    const chart = reporting.chartFor(
+      { columns: tile!.result!.columns, rows: tile!.result!.rows },
+      { split: "aging", arrange: "stacked", prefer: "columns", additive: () => tile!.additive! },
+    );
+    expect(chart.ok).toBe(true);
+    if (!chart.ok) return;
+    const months = Object.fromEntries(chart.plan.points.map((p) => [String(p.key), p]));
+    expect(reporting.normalizeDecimal(months["2026-01"]!.exact)).toBe("400");
+    expect(reporting.normalizeDecimal(months["2026-03"]!.exact)).toBe("2250");
+    expect(months["2026-03"]!.parts!.map((part) => reporting.normalizeDecimal(part.exact)).sort())
+      .toEqual(["1200", "150", "900"]);
+  });
+
+  it("refuses to stack an average, and draws it side by side", async () => {
+    const report = await byMonthAndAge("average");
+    const made = await fresh("Averages");
+    await expect(dashboards.setTiles(owner(), {
+      id: made.id, tiles: [{ key: "t", kind: "trend", width: 12, reportId: report.id, breakdown: "stacked" }],
+    })).rejects.toThrow(/Average invoice cannot be stacked.*side by side/);
+
+    await dashboards.setTiles(owner(), {
+      id: made.id, tiles: [{ key: "t", kind: "trend", width: 12, reportId: report.id, breakdown: "grouped" }],
+    });
+    const [tile] = (await dashboards.getSaved(owner(), { id: made.id })).tiles;
+    expect(tile!.problem).toBeUndefined();
+    expect(tile!.breakdown!.arrange).toBe("grouped");
+    expect(tile!.additive).toBe(false);
+  });
+
+  it("refuses two groupings with no breakdown in words that say how to draw them, and a breakdown of one", async () => {
+    const report = await byMonthAndAge("total");
+    const made = await fresh("Two groupings");
+    await expect(dashboards.setTiles(owner(), {
+      id: made.id, tiles: [{ key: "t", kind: "trend", width: 12, reportId: report.id }],
+    })).rejects.toThrow(/grouped by month and age: break it down, stacked or side by side/);
+
+    await expect(dashboards.setTiles(owner(), {
+      id: made.id, tiles: [{ key: "t", kind: "bars", width: 6, builtIn: "jobs-by-status", breakdown: "stacked" }],
+    })).rejects.toThrow(/needs to be grouped by two things/);
+
+    await expect(dashboards.setTiles(owner(), {
+      id: made.id,
+      tiles: [{ key: "t", kind: "bars", width: 6, builtIn: "visits-by-technician", breakdown: "sideways" as "grouped" }],
+    })).rejects.toThrow(/stacked or side by side, not "sideways"/);
+  });
+
+  it("ships one: open jobs by type, stacked by status", async () => {
+    const { tiles } = await dashboards.get(owner(), { slug: "operations" });
+    const tile = tiles.find((t) => t.key === "open-jobs-by-type")!;
+    expect(tile.problem).toBeUndefined();
+    expect(tile.breakdown).toMatchObject({ key: "status", arrange: "stacked" });
+    // The fixture's one job is a lead with no type: one bar, one part.
+    expect(tile.result!.rows).toEqual([expect.objectContaining({ job_type: "None", status: "lead" })]);
+    expect(String(tile.result!.rows[0]!["count"])).toBe("1");
   });
 });

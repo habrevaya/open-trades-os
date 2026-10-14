@@ -119,27 +119,39 @@ function Body({ tile, drill }: { tile: TileResult; drill: Drill }) {
   if (rows.length === 0) return <Nothing />;
 
   /**
-   * The tile's one grouping, drawn by the report chart. Columns for a date,
+   * The tile's grouping, drawn by the report chart. Columns for a date,
    * because a month is a bucket and a line between two of them implies values
-   * between that do not exist; nothing here has a second grouping to add up.
+   * between that do not exist. A tile broken down is cut by its report's
+   * second grouping, stacked or side by side, exactly as the report screen
+   * cuts it, with the legend naming every colour and each part opening the
+   * records of that bar and that value together.
    */
+  const breakdown = tile.breakdown;
   return (
     <ReportChart
       result={{
         ...tile.result!,
         /**
          * The columns the tile resolved, which are the ones it was drawn from:
-         * its one grouping and its one measure, with the label and the sort
-         * prefix the catalogue gave them.
+         * its grouping (and the one it is broken down by) and its one measure,
+         * with the label and the sort prefix the catalogue gave them.
          */
         columns: [
           ...(tile.dimension ? [{ ...tile.dimension, role: "dimension" as const }] : []),
+          ...(breakdown
+            ? [{
+                key: breakdown.key, label: breakdown.label, type: breakdown.type, role: "dimension" as const,
+                ...(breakdown.sortPrefix ? { sortPrefix: true } : {}),
+              }]
+            : []),
           { key: measure.key, label: measure.label, type: measure.type, role: "measure" as const },
         ],
       }}
       measure={measure.key}
       prefer="columns"
-      additive={() => false}
+      split={breakdown?.key}
+      arrange={breakdown?.arrange}
+      additive={() => tile.additive ?? false}
       drill={drill ?? undefined}
       title={tile.title}
       withTable

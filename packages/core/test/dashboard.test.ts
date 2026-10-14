@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveDashboard, checkShape, proportion } from "../src/dashboard/index.js";
+import { resolveDashboard, checkShape, proportion, addsUp } from "../src/dashboard/index.js";
 import type { DashboardDefinition, Tile } from "../src/dashboard/index.js";
 import type { Dataset } from "../src/reporting/index.js";
 import type { Permission } from "../src/access/permissions.js";
@@ -180,5 +180,77 @@ describe("how long a bar is", () => {
 
   it("never draws past the end", () => {
     expect(proportion(150, 100)).toBe(1);
+  });
+});
+
+describe("a tile broken down by its report's second grouping", () => {
+  const AVERAGED: Dataset = {
+    ...INVOICES,
+    measures: [...INVOICES.measures, { key: "average", label: "Average invoice", kind: "avg", sql: "invoice.total", type: "money" }],
+  };
+  const twoWays = (over: Partial<Tile>): Tile => tile({
+    kind: "bars",
+    definition: { dataset: "invoices", dimensions: ["customer", "status"], measures: ["total"] },
+    ...over,
+  });
+
+  it("draws a report grouped by two things, stacked or side by side", () => {
+    expect(checkShape(twoWays({ breakdown: "stacked" }), INVOICES).ok).toBe(true);
+    expect(checkShape(twoWays({ breakdown: "grouped" }), INVOICES).ok).toBe(true);
+  });
+
+  it("still refuses two groupings with no breakdown, and says how to draw them", () => {
+    // Before, the words only counted the groupings. Now they say the way out.
+    const decision = checkShape(twoWays({}), INVOICES);
+    expect(decision.ok).toBe(false);
+    expect(decision.ok === false && decision.detail).toMatch(/grouped by customer and status: break it down/);
+  });
+
+  it("needs exactly two groupings to break down: one to draw and one to cut by", () => {
+    for (const dimensions of [["customer"], ["customer", "status", "month"]]) {
+      const decision = checkShape(
+        twoWays({ breakdown: "grouped", definition: { dataset: "invoices", dimensions, measures: ["total"] } }),
+        INVOICES,
+      );
+      expect(decision.ok, dimensions.join("+")).toBe(false);
+    }
+  });
+
+  it("refuses to stack an average, whose parts do not add up to the bar, and offers side by side", () => {
+    /**
+     * Two average invoices stacked draw a bar as long as their sum, which is
+     * no figure at all and looks exactly like a total.
+     */
+    const averaged = twoWays({ definition: { dataset: "invoices", dimensions: ["customer", "status"], measures: ["average"] } });
+    const stacked = checkShape({ ...averaged, breakdown: "stacked" }, AVERAGED);
+    expect(stacked.ok).toBe(false);
+    expect(stacked.ok === false && stacked.detail).toMatch(/Average invoice cannot be stacked.*Set status side by side/);
+    expect(checkShape({ ...averaged, breakdown: "grouped" }, AVERAGED).ok).toBe(true);
+  });
+
+  it("judges the measure the tile draws, not only the report's first", () => {
+    const both = twoWays({
+      breakdown: "stacked", measure: "average",
+      definition: { dataset: "invoices", dimensions: ["customer", "status"], measures: ["total", "average"] },
+    });
+    expect(checkShape(both, AVERAGED).ok).toBe(false);
+    expect(checkShape({ ...both, measure: "total" }, AVERAGED).ok).toBe(true);
+  });
+
+  it("keeps a trend's first grouping a date", () => {
+    expect(checkShape(twoWays({
+      kind: "trend", breakdown: "stacked",
+      definition: { dataset: "invoices", dimensions: ["month", "status"], measures: ["total"] },
+    }), INVOICES).ok).toBe(true);
+    const decision = checkShape(twoWays({ kind: "trend", breakdown: "stacked" }), INVOICES);
+    expect(decision.ok === false && decision.detail).toMatch(/Customer/);
+  });
+
+  it("refuses a number tile broken down, which has nothing to cut", () => {
+    expect(checkShape(tile({ kind: "number", breakdown: "stacked" }), INVOICES).ok).toBe(false);
+  });
+
+  it("adds up a count and a sum, and nothing else", () => {
+    expect(["count", "sum", "avg", "min", "max"].map(addsUp)).toEqual([true, true, false, false, false]);
   });
 });

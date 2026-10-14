@@ -34,6 +34,7 @@ export function keyFor(source: string, existing: StoredTile[]): string {
 
 const KINDS = new Set(["number", "bars", "trend"]);
 const WIDTHS = new Set([3, 6, 12]);
+const BREAKDOWNS = new Set(["stacked", "grouped"]);
 
 /**
  * The add form to a tile.
@@ -54,6 +55,13 @@ export function tileFromForm(
   const width = Number(form.get("width") ?? 6);
   if (!KINDS.has(shape) || !WIDTHS.has(width)) return null;
 
+  /**
+   * Broken down or not. Blank, or anything that is not one of the two ways,
+   * is not broken down: the server then refuses a report grouped by two
+   * things in words that say to break it down, rather than this guessing.
+   */
+  const breakdown = String(form.get("breakdown") ?? "");
+
   const title = String(form.get("title") ?? "").trim();
   return {
     key: keyFor(value, existing),
@@ -63,6 +71,7 @@ export function tileFromForm(
     // Left off when blank, so the tile shows the report's own name and keeps
     // showing it when the report is renamed.
     ...(title ? { title } : {}),
+    ...(BREAKDOWNS.has(breakdown) ? { breakdown: breakdown as NonNullable<StoredTile["breakdown"]> } : {}),
   };
 }
 

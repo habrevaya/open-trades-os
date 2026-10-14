@@ -138,3 +138,21 @@ describe("moving a tile", () => {
     expect(keys(tiles)).toEqual(["a", "b", "c"]);
   });
 });
+
+describe("a tile broken down", () => {
+  it("keeps the way it is broken down, stacked or side by side", () => {
+    expect(tileFromForm(form({ report: "builtIn:visits-by-technician", kind: "bars", width: "6", breakdown: "stacked" }), []))
+      .toEqual({ key: "visits-by-technician", kind: "bars", width: 6, builtIn: "visits-by-technician", breakdown: "stacked" });
+    expect(tileFromForm(form({ report: "builtIn:visits-by-technician", kind: "bars", width: "6", breakdown: "grouped" }), [])!.breakdown)
+      .toBe("grouped");
+  });
+
+  it("leaves it off for No, or for anything that is not one of the two ways", () => {
+    // Not broken down; the server then refuses a report grouped by two things
+    // in words that say to break it down, rather than this form guessing how.
+    for (const breakdown of ["", "sideways"]) {
+      expect(tileFromForm(form({ report: "builtIn:ar-aging", kind: "bars", width: "6", breakdown }), []), breakdown)
+        .not.toHaveProperty("breakdown");
+    }
+  });
+});
