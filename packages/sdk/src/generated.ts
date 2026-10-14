@@ -250,6 +250,27 @@ export interface AddOnboardingTemplateItemOutput {
   documentTitle: string | null;
 }
 
+export interface AddPortalFileInput {
+  token: string;
+  jobId: string;
+  visitId?: string;
+  fileName: string;
+  contentType?: string;
+  bytes: string;
+}
+
+export interface AddPortalFileOutput {
+  id: string;
+  fileName: string | null;
+  contentType: string | null;
+  sizeBytes: number | null;
+  addedAt: string;
+  jobId: string;
+  jobLabel: string;
+  seen: boolean;
+  removable: boolean;
+}
+
 export interface AddProjectPhaseInput {
   name: string;
   description?: string | null;
@@ -518,7 +539,7 @@ export interface AnswerPortalVisitChangeProposalOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -1244,7 +1265,7 @@ export interface ApproveVisitChangeRequestOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -5047,7 +5068,7 @@ export interface DeclineVisitChangeRequestOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -5949,6 +5970,20 @@ export interface ExportPayerInvoicesOutput {
   format: "csv" | "xml";
   body: string;
   invoiceCount: number;
+}
+
+export interface ExtendEstimateExpiryInput {
+  expiresOn: string;
+  reason: string;
+}
+
+export interface ExtendEstimateExpiryOutput {
+  id: string;
+  number: number;
+  status: "draft" | "sent" | "viewed" | "approved" | "declined" | "expired" | "converted";
+  expiresOn: string;
+  previousExpiresOn: string;
+  linkExpiresAt: string | null;
 }
 
 export interface FailUploadInput {
@@ -7907,6 +7942,13 @@ export interface GetFieldSnapshotOutput {
         label: string;
         value: string;
       }>;
+    }>;
+    customerFiles?: Array<{
+      id: string;
+      fileName: string | null;
+      contentType: string | null;
+      storageKey: string;
+      addedAt: string;
     }>;
   }>;
   priceBook: Array<{
@@ -12220,6 +12262,8 @@ export interface ListAttachmentsOutput {
     phase: string | null;
     createdAt: string;
     sharedWithCustomerAt?: string | null;
+    addedByCustomer?: boolean;
+    seenAt?: string | null;
   }>;
 }
 
@@ -14854,6 +14898,29 @@ export interface ListPortalCardsOutput {
   canSaveBank: boolean;
 }
 
+export interface ListPortalFilesOutput {
+  targets: Array<{
+    jobId: string;
+    visitId: string | null;
+    label: string;
+  }>;
+  files: Array<{
+    id: string;
+    fileName: string | null;
+    contentType: string | null;
+    sizeBytes: number | null;
+    addedAt: string;
+    jobId: string;
+    jobLabel: string;
+    seen: boolean;
+    removable: boolean;
+  }>;
+  limits: {
+    maxFileMegabytes: number;
+    maxFilesPerJob: number;
+  };
+}
+
 export interface ListPortalSignInsOutput {
   attempts: Array<{
     id: string;
@@ -16362,7 +16429,7 @@ export interface ListVisitChangeRequestsOutput {
     visitId: string;
     jobId: string;
     kind: "reschedule" | "cancel";
-    status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+    status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
     reason: string | null;
     requestedDate: string | null;
     requestedStart: string | null;
@@ -16892,6 +16959,13 @@ export interface MapPlatformCampaignOutput {
   id: string;
   campaignId: string | null;
   moved: number;
+}
+
+export type MarkAttachmentSeenInput = Record<string, unknown>;
+
+export interface MarkAttachmentSeenOutput {
+  id: string;
+  seenAt: string | null;
 }
 
 export type MarkConversationReadInput = Record<string, unknown>;
@@ -18021,7 +18095,7 @@ export interface ProposeVisitChangeTimeOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -19696,6 +19770,15 @@ export interface RemovePortalCardOutput {
   ok: true;
 }
 
+export interface RemovePortalFileInput {
+  token: string;
+}
+
+export interface RemovePortalFileOutput {
+  id: string;
+  removed: boolean;
+}
+
 export type RemovePriceBookCategoryInput = Record<string, unknown>;
 
 export interface RemovePriceBookCategoryOutput {
@@ -20047,7 +20130,7 @@ export interface RequestPortalVisitChangeOutput {
   visitId: string;
   jobId: string;
   kind: "reschedule" | "cancel";
-  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   reason: string | null;
   requestedDate: string | null;
   requestedStart: string | null;
@@ -25871,6 +25954,8 @@ export interface UploadAttachmentOutput {
   phase: string | null;
   createdAt: string;
   sharedWithCustomerAt?: string | null;
+  addedByCustomer?: boolean;
+  seenAt?: string | null;
   entityType: "customer" | "property" | "job" | "visit" | "estimate" | "invoice";
   entityId: string;
   alreadyHeld: boolean;
@@ -26682,6 +26767,33 @@ export interface WithdrawTimeOffOutput {
   standing: "requested" | "approved" | "declined";
 }
 
+export interface WithdrawVisitChangeOfferInput {
+  response?: string;
+}
+
+export interface WithdrawVisitChangeOfferOutput {
+  id: string;
+  visitId: string;
+  jobId: string;
+  kind: "reschedule" | "cancel";
+  status: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
+  reason: string | null;
+  requestedDate: string | null;
+  requestedStart: string | null;
+  requestedEnd: string | null;
+  previousStart: string | null;
+  previousEnd: string | null;
+  response: string | null;
+  notified: string | null;
+  decidedAt: string | null;
+  proposedDate: string | null;
+  proposedStart: string | null;
+  proposedEnd: string | null;
+  answeredAt: string | null;
+  answer: string | null;
+  createdAt: string;
+}
+
 export interface WriteOffInvoiceInput {
   reason: string;
 }
@@ -27283,6 +27395,10 @@ export interface ExportCustomRecordsInput {
 
 export interface ExportPayerInvoicesParams {
   customerId: string;
+}
+
+export interface ExtendEstimateExpiryParams {
+  id: string;
 }
 
 export interface FailUploadParams {
@@ -28639,6 +28755,10 @@ export interface ListPortalCardsInput {
   token: string;
 }
 
+export interface ListPortalFilesInput {
+  token: string;
+}
+
 export interface ListPortalSignInsInput {
   customerId?: string;
   limit?: number;
@@ -28929,7 +29049,7 @@ export interface ListVendorReturnsInput {
 export type ListVendorsInput = Record<string, never>;
 
 export interface ListVisitChangeRequestsInput {
-  status?: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down";
+  status?: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   jobId?: string;
 }
 
@@ -28996,6 +29116,10 @@ export interface MapImportParams {
 }
 
 export interface MapPlatformCampaignParams {
+  id: string;
+}
+
+export interface MarkAttachmentSeenParams {
   id: string;
 }
 
@@ -29352,6 +29476,10 @@ export interface RemovePlanPortalLayoutParams {
 
 export interface RemovePortalCardParams {
   cardId: string;
+}
+
+export interface RemovePortalFileParams {
+  id: string;
 }
 
 export interface RemovePriceBookCategoryParams {
@@ -30218,6 +30346,10 @@ export interface WithdrawTimeOffParams {
   id: string;
 }
 
+export interface WithdrawVisitChangeOfferParams {
+  id: string;
+}
+
 export interface WriteOffInvoiceParams {
   id: string;
 }
@@ -30238,6 +30370,7 @@ export interface OperationTypes {
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
   addOnboardingTemplateItem: { input: AddOnboardingTemplateItemInput; output: AddOnboardingTemplateItemOutput };
+  addPortalFile: { input: AddPortalFileInput; output: AddPortalFileOutput };
   addProjectPhase: { input: AddProjectPhaseParams & AddProjectPhaseInput; output: AddProjectPhaseOutput };
   addPurchaseApprovalRule: { input: AddPurchaseApprovalRuleInput; output: AddPurchaseApprovalRuleOutput };
   addRentableAsset: { input: AddRentableAssetInput; output: AddRentableAssetOutput };
@@ -30454,6 +30587,7 @@ export interface OperationTypes {
   exportCustomRecords: { input: ExportCustomRecordsInput; output: ExportCustomRecordsOutput };
   exportPayPeriod: { input: ExportPayPeriodInput; output: ExportPayPeriodOutput };
   exportPayerInvoices: { input: ExportPayerInvoicesParams & ExportPayerInvoicesInput; output: ExportPayerInvoicesOutput };
+  extendEstimateExpiry: { input: ExtendEstimateExpiryParams & ExtendEstimateExpiryInput; output: ExtendEstimateExpiryOutput };
   failUpload: { input: FailUploadParams & FailUploadInput; output: FailUploadOutput };
   fileClaim: { input: FileClaimInput; output: FileClaimOutput };
   filePriceBookItems: { input: FilePriceBookItemsInput; output: FilePriceBookItemsOutput };
@@ -30792,6 +30926,7 @@ export interface OperationTypes {
   listPlatformCampaigns: { input: ListPlatformCampaignsInput; output: ListPlatformCampaignsOutput };
   listPlugins: { input: ListPluginsInput; output: ListPluginsOutput };
   listPortalCards: { input: ListPortalCardsInput; output: ListPortalCardsOutput };
+  listPortalFiles: { input: ListPortalFilesInput; output: ListPortalFilesOutput };
   listPortalSignIns: { input: ListPortalSignInsInput; output: ListPortalSignInsOutput };
   listPriceBook: { input: ListPriceBookInput; output: ListPriceBookOutput };
   listPriceBookCategories: { input: ListPriceBookCategoriesInput; output: ListPriceBookCategoriesOutput };
@@ -30894,6 +31029,7 @@ export interface OperationTypes {
   makeContactPrimary: { input: MakeContactPrimaryParams & MakeContactPrimaryInput; output: MakeContactPrimaryOutput };
   mapImport: { input: MapImportParams & MapImportInput; output: MapImportOutput };
   mapPlatformCampaign: { input: MapPlatformCampaignParams & MapPlatformCampaignInput; output: MapPlatformCampaignOutput };
+  markAttachmentSeen: { input: MarkAttachmentSeenParams & MarkAttachmentSeenInput; output: MarkAttachmentSeenOutput };
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
   markExternalWorkOrderPushed: { input: MarkExternalWorkOrderPushedParams & MarkExternalWorkOrderPushedInput; output: MarkExternalWorkOrderPushedOutput };
@@ -31019,6 +31155,7 @@ export interface OperationTypes {
   removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
   removePlanPortalLayout: { input: RemovePlanPortalLayoutParams & RemovePlanPortalLayoutInput; output: RemovePlanPortalLayoutOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
+  removePortalFile: { input: RemovePortalFileParams & RemovePortalFileInput; output: RemovePortalFileOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
   removePurchaseApprovalRule: { input: RemovePurchaseApprovalRuleParams & RemovePurchaseApprovalRuleInput; output: RemovePurchaseApprovalRuleOutput };
   removeRecordingPolicy: { input: RemoveRecordingPolicyParams & RemoveRecordingPolicyInput; output: RemoveRecordingPolicyOutput };
@@ -31323,6 +31460,7 @@ export interface OperationTypes {
   withdrawMyContinuingEducation: { input: WithdrawMyContinuingEducationParams & WithdrawMyContinuingEducationInput; output: WithdrawMyContinuingEducationOutput };
   withdrawPortalCardAgreement: { input: WithdrawPortalCardAgreementParams & WithdrawPortalCardAgreementInput; output: WithdrawPortalCardAgreementOutput };
   withdrawTimeOff: { input: WithdrawTimeOffParams & WithdrawTimeOffInput; output: WithdrawTimeOffOutput };
+  withdrawVisitChangeOffer: { input: WithdrawVisitChangeOfferParams & WithdrawVisitChangeOfferInput; output: WithdrawVisitChangeOfferOutput };
   writeOffInvoice: { input: WriteOffInvoiceParams & WriteOffInvoiceInput; output: WriteOffInvoiceOutput };
   writeOffStockUnits: { input: WriteOffStockUnitsInput; output: WriteOffStockUnitsOutput };
 }
@@ -31344,6 +31482,7 @@ export const OPERATIONS = {
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   addOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  addPortalFile: { method: "POST", path: "/v1/portal/files", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   addProjectPhase: { method: "POST", path: "/v1/projects/{projectId}/phases", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   addPurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   addRentableAsset: { method: "POST", path: "/v1/rentable-assets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -31560,6 +31699,7 @@ export const OPERATIONS = {
   exportCustomRecords: { method: "GET", path: "/v1/custom-objects/{key}/export", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read"] },
   exportPayPeriod: { method: "POST", path: "/v1/payroll/exports", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   exportPayerInvoices: { method: "POST", path: "/v1/payers/{customerId}/invoice-export", pathParams: ["customerId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
+  extendEstimateExpiry: { method: "POST", path: "/v1/estimates/{id}/expiry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   failUpload: { method: "POST", path: "/v1/field/uploads/{clientId}/failed", pathParams: ["clientId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   fileClaim: { method: "POST", path: "/v1/claims", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   filePriceBookItems: { method: "POST", path: "/v1/pricebook/item-categories", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -31898,6 +32038,7 @@ export const OPERATIONS = {
   listPlatformCampaigns: { method: "GET", path: "/v1/marketing/platform-campaigns", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listPlugins: { method: "GET", path: "/v1/plugins", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: [] },
   listPortalCards: { method: "GET", path: "/v1/portal/cards", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  listPortalFiles: { method: "GET", path: "/v1/portal/files", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   listPortalSignIns: { method: "GET", path: "/v1/portal-sign-ins", pathParams: [], queryParams: ["customerId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listPriceBook: { method: "GET", path: "/v1/pricebook/items", pathParams: [], queryParams: ["cursor","limit","q","kind","categoryId","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["pricebook:read"] },
   listPriceBookCategories: { method: "GET", path: "/v1/pricebook/categories", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
@@ -32000,6 +32141,7 @@ export const OPERATIONS = {
   makeContactPrimary: { method: "POST", path: "/v1/contacts/{id}/primary", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   mapImport: { method: "POST", path: "/v1/imports/{id}/mapping", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   mapPlatformCampaign: { method: "PATCH", path: "/v1/marketing/platform-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
+  markAttachmentSeen: { method: "POST", path: "/v1/attachments/{id}/seen", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   markExternalWorkOrderPushed: { method: "POST", path: "/v1/external-work-orders/{id}/pushed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -32125,6 +32267,7 @@ export const OPERATIONS = {
   removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   removePlanPortalLayout: { method: "POST", path: "/v1/agreement-plans/{id}/portal-layout/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  removePortalFile: { method: "POST", path: "/v1/portal/files/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   removePurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeRecordingPolicy: { method: "DELETE", path: "/v1/recording-policies/{jurisdiction}", pathParams: ["jurisdiction"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -32429,6 +32572,7 @@ export const OPERATIONS = {
   withdrawMyContinuingEducation: { method: "POST", path: "/v1/me/continuing-education/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   withdrawPortalCardAgreement: { method: "POST", path: "/v1/portal/cards/{cardId}/agreement/withdraw", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   withdrawTimeOff: { method: "POST", path: "/v1/time-off/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
+  withdrawVisitChangeOffer: { method: "POST", path: "/v1/visit-change-requests/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   writeOffInvoice: { method: "POST", path: "/v1/invoices/{id}/write-off", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:writeoff"] },
   writeOffStockUnits: { method: "POST", path: "/v1/stock/write-offs", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
 } as const;
@@ -32572,6 +32716,15 @@ export abstract class GeneratedOperations {
    */
   addOnboardingTemplateItem(input: AddOnboardingTemplateItemInput, options?: CallOptions): Promise<AddOnboardingTemplateItemOutput> {
     return this.call("addOnboardingTemplateItem", input, options);
+  }
+
+  /**
+   * Add a photograph or a PDF to one of the customer's own jobs or visits.
+   *
+   * POST /v1/portal/files.
+   */
+  addPortalFile(input: AddPortalFileInput, options?: CallOptions): Promise<AddPortalFileOutput> {
+    return this.call("addPortalFile", input, options);
   }
 
   /**
@@ -34516,6 +34669,15 @@ export abstract class GeneratedOperations {
    */
   exportPayerInvoices(input: ExportPayerInvoicesParams & ExportPayerInvoicesInput, options?: CallOptions): Promise<ExportPayerInvoicesOutput> {
     return this.call("exportPayerInvoices", input, options);
+  }
+
+  /**
+   * Move a sent estimate's good until date later, with a reason.
+   *
+   * POST /v1/estimates/{id}/expiry. Needs estimate:write.
+   */
+  extendEstimateExpiry(input: ExtendEstimateExpiryParams & ExtendEstimateExpiryInput, options?: CallOptions): Promise<ExtendEstimateExpiryOutput> {
+    return this.call("extendEstimateExpiry", input, options);
   }
 
   /**
@@ -37561,6 +37723,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The files a signed in customer added, and where they can add one.
+   *
+   * GET /v1/portal/files.
+   */
+  listPortalFiles(input: ListPortalFilesInput, options?: CallOptions): Promise<ListPortalFilesOutput> {
+    return this.call("listPortalFiles", input, options);
+  }
+
+  /**
    * Customers asking for sign in codes, and what became of each.
    *
    * GET /v1/portal-sign-ins. Needs portal:read.
@@ -38476,6 +38647,15 @@ export abstract class GeneratedOperations {
    */
   mapPlatformCampaign(input: MapPlatformCampaignParams & MapPlatformCampaignInput, options?: CallOptions): Promise<MapPlatformCampaignOutput> {
     return this.call("mapPlatformCampaign", input, options);
+  }
+
+  /**
+   * Say somebody in the company has opened a file the customer added.
+   *
+   * POST /v1/attachments/{id}/seen. Needs document:read.
+   */
+  markAttachmentSeen(input: MarkAttachmentSeenParams & MarkAttachmentSeenInput, options?: CallOptions): Promise<MarkAttachmentSeenOutput> {
+    return this.call("markAttachmentSeen", input, options);
   }
 
   /**
@@ -39601,6 +39781,15 @@ export abstract class GeneratedOperations {
    */
   removePortalCard(input: RemovePortalCardParams & RemovePortalCardInput, options?: CallOptions): Promise<RemovePortalCardOutput> {
     return this.call("removePortalCard", input, options);
+  }
+
+  /**
+   * Take back a file the customer added, before the company has opened it.
+   *
+   * POST /v1/portal/files/{id}/remove.
+   */
+  removePortalFile(input: RemovePortalFileParams & RemovePortalFileInput, options?: CallOptions): Promise<RemovePortalFileOutput> {
+    return this.call("removePortalFile", input, options);
   }
 
   /**
@@ -42337,6 +42526,15 @@ export abstract class GeneratedOperations {
    */
   withdrawTimeOff(input: WithdrawTimeOffParams & WithdrawTimeOffInput, options?: CallOptions): Promise<WithdrawTimeOffOutput> {
     return this.call("withdrawTimeOff", input, options);
+  }
+
+  /**
+   * Take back a time offered to the customer, before they answer.
+   *
+   * POST /v1/visit-change-requests/{id}/withdraw. Needs visit:reschedule.
+   */
+  withdrawVisitChangeOffer(input: WithdrawVisitChangeOfferParams & WithdrawVisitChangeOfferInput, options?: CallOptions): Promise<WithdrawVisitChangeOfferOutput> {
+    return this.call("withdrawVisitChangeOffer", input, options);
   }
 
   /**
