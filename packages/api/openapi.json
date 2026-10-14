@@ -19515,7 +19515,7 @@
       "post": {
         "operationId": "holdCall",
         "summary": "Put the caller on hold",
-        "description": "Only for the person who has the caller now, on a call that came in. The caller's leg is moved to a queue of its own with music, which ends the browser's call to them; ringing hold:{id} from the browser phone takes them back. Asking again while they are on hold answers with the same hold. A caller left on hold fifteen minutes goes to voicemail and the office gets a task to call them.\n\nRequires a session holding: call:place.",
+        "description": "Only for the person who has the caller now: on a call that came in, or one they placed from the browser phone once the person called has picked up. The other person's leg is moved to a queue of its own with music, which ends the browser's call to them; ringing hold:{id} from the browser phone takes them back. Asking again while they are on hold answers with the same hold. A caller left on hold fifteen minutes goes to voicemail and the office gets a task to call them.\n\nRequires a session holding: call:place.",
         "tags": [
           "M18"
         ],
@@ -122229,7 +122229,7 @@
       "get": {
         "operationId": "getSoftphoneCall",
         "summary": "The call you have now",
-        "description": "A call that came in and that you picked up, or that was passed to you, while it lasts: whether you are talking, have the caller on hold, or are talking to a colleague first. Null when you have none.\n\nRequires a session holding: call:place.",
+        "description": "A call that came in and that you picked up, one you placed from the browser phone once the person called has picked up, or one that was passed to you, while it lasts: whether you are talking, have the other person on hold, or are talking to a colleague first. Null when you have none.\n\nRequires a session holding: call:place.",
         "tags": [
           "M18"
         ],
@@ -200116,6 +200116,13 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ]
+              },
               "from": {
                 "type": "string"
               },
@@ -200160,6 +200167,7 @@
             },
             "required": [
               "id",
+              "direction",
               "from",
               "customerId",
               "customerName",

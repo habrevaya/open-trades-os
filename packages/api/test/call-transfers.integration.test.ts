@@ -339,3 +339,122 @@ run("passing a caller on warm", () => {
     await expect(transfers.targets(tech())).rejects.toThrow();
   });
 });
+
+/**
+ * A call Casey placed from the browser. The person called is on the dial's
+ * child leg, which names itself through the dial's status callback; that
+ * leg is the one held and passed on, and its end is the call's end.
+ */
+run("a call placed from the browser", () => {
+  /** The callers the tests above left on hold are over, so the call Casey has is the one she places here. */
+  beforeAll(async () => {
+    await raw`update public.call set status = 'completed', ended_at = now() where organization_id = ${ORG} and ended_at is null`;
+  });
+
+  /** Casey rings a number from the browser, and the carrier names the person called's leg as it rings. */
+  async function caseyCalls(to: string) {
+    const parent = `CAout${randomBytes(6).toString("hex")}`;
+    const child = `CAcallee${randomBytes(6).toString("hex")}`;
+    const placed = await webhook("softphone", { CallSid: parent, From: browserOf(CASEY), To: to });
+    const leg = attribute(placed.twiml!, "Number", "statusCallback");
+    const [row] = await raw<{ id: string }[]>`select id from public.call where provider_call_id = ${`twilio:${parent}`}`;
+    expect(leg).toBe(`${BASE}/api/webhooks/voice/${TOKEN}/softphone-leg?c=${row!.id}`);
+    expect(placed.twiml).toContain('statusCallbackEvent="initiated answered completed"');
+    await webhook("softphone-leg", { CallSid: child, ParentCallSid: parent, CallStatus: "initiated" }, queryOf(leg));
+    return { parent, child, id: row!.id, leg: queryOf(leg), dial: queryOf(attribute(placed.twiml!, "Dial", "action")) };
+  }
+  const pickUp = (call: Awaited<ReturnType<typeof caseyCalls>>) =>
+    webhook("softphone-leg", { CallSid: call.child, ParentCallSid: call.parent, CallStatus: "in-progress" }, call.leg);
+
+  it("is Casey's to hold only once the person called picks up, and only Casey's", async () => {
+    const call = await caseyCalls("+15125559181");
+    expect(await transfers.current(casey())).toBeNull();
+    await expect(transfers.hold(casey(), { id: call.id }, deps)).rejects.toThrow(/have not picked up yet/);
+    await pickUp(call);
+    expect(await transfers.current(casey())).toMatchObject({
+      id: call.id, direction: "outbound", from: "+15125559181", state: "talking", transferId: null,
+    });
+    await expect(transfers.hold(lee(), { id: call.id }, deps)).rejects.toThrow(/not yours to move/);
+    await webhook("softphone-leg", { CallSid: call.child, ParentCallSid: call.parent, CallStatus: "completed", CallDuration: "12" }, call.leg);
+    expect(await transfers.current(casey())).toBeNull();
+  });
+
+  it("keeps the first leg it was told of, and ignores a leg of some other call", async () => {
+    const call = await caseyCalls("+15125559182");
+    await webhook("softphone-leg", { CallSid: "CAstranger", ParentCallSid: call.parent, CallStatus: "in-progress" }, call.leg);
+    const fresh = await caseyCalls("+15125559183");
+    await webhook("softphone-leg", { CallSid: "CAstranger2", ParentCallSid: "CAnotthisone", CallStatus: "initiated" }, fresh.leg);
+    const rows = await raw<{ id: string; callee_leg_sid: string; answered_at: Date | null }[]>`
+      select id, callee_leg_sid, answered_at from public.call where id in (${call.id}, ${fresh.id})`;
+    expect(rows.find((r) => r.id === call.id)).toMatchObject({ callee_leg_sid: call.child, answered_at: null });
+    expect(rows.find((r) => r.id === fresh.id)!.callee_leg_sid).toBe(fresh.child);
+    for (const c of [call, fresh]) {
+      await webhook("softphone-leg", { CallSid: c.child, ParentCallSid: c.parent, CallStatus: "no-answer" }, c.leg);
+    }
+  });
+
+  it("holds the person called on their own leg, and the browser's side ending does not end the call", async () => {
+    const call = await caseyCalls("+15125559184");
+    await pickUp(call);
+    asked.length = 0;
+    const held = await transfers.hold(casey(), { id: call.id }, deps);
+    const moved = lastMove()!;
+    expect(moved.url).toContain(`/Calls/${call.child}.json`);
+    expect(moved.body.get("Url")).toBe(`${BASE}/api/webhooks/voice/${TOKEN}/hold?c=${call.id}`);
+
+    const queued = await webhook("hold", { CallSid: call.child }, `?c=${call.id}`);
+    expect(queued.twiml).toContain(`>ots-hold-${call.id}</Enqueue>`);
+    /** The browser's dial and its own leg end because the person called was moved out of them. */
+    expect((await webhook("softphone-dialed", { CallSid: call.parent, DialCallStatus: "completed", DialCallDuration: "40" }, call.dial)).twiml)
+      .toContain("<Hangup/>");
+    await webhook("status", { CallSid: call.parent, CallStatus: "completed", CallDuration: "45" });
+    const [row] = await raw<{ status: string; ended_at: Date | null }[]>`select status, ended_at from public.call where id = ${call.id}`;
+    expect(row).toMatchObject({ status: "in_progress", ended_at: null });
+    expect(await transfers.current(casey())).toMatchObject({ id: call.id, state: "holding", transferId: held.id });
+
+    const back = await webhook("softphone", { CallSid: "CAcaseyback2", From: browserOf(CASEY), To: `hold:${call.id}` });
+    expect(back.twiml).toContain(`>ots-hold-${call.id}</Queue></Dial>`);
+    await webhook("hold-pickup", { CallSid: call.child, DequeingCallSid: "CAcaseyback2" }, queryOf(attribute(back.twiml!, "Queue", "url")));
+    expect(await transfers.current(casey())).toMatchObject({ id: call.id, state: "talking" });
+    await webhook("softphone-leg", { CallSid: call.child, ParentCallSid: call.parent, CallStatus: "completed", CallDuration: "60" }, call.leg);
+    expect(await transfers.current(casey())).toBeNull();
+  });
+
+  it("passes the person called on to the billing group, where Lee picks up, and their leg ending ends the call", async () => {
+    const call = await caseyCalls("+15125559185");
+    await pickUp(call);
+    asked.length = 0;
+    const sent = await transfers.transfer(casey(), { id: call.id, to: { kind: "ring_group", id: billingId } }, deps);
+    expect(lastMove()!.url).toContain(`/Calls/${call.child}.json`);
+    expect(await transfers.current(casey())).toBeNull();
+
+    const rung = await webhook("transfer", { CallSid: call.child }, `?t=${sent.id}`);
+    expect(rung.twiml).toContain(`<Number>${LEE_PHONE}</Number>`);
+    const [routedRow] = await raw<{ routed_because: string }[]>`select routed_because from public.call where id = ${call.id}`;
+    expect(routedRow!.routed_because).toContain("Passed on by Casey Office to the Billing ring group.");
+    await webhook("whisper", { CallSid: "CAleeout", ParentCallSid: call.child, To: LEE_PHONE });
+    expect(await transfers.current(lee())).toMatchObject({ id: call.id, direction: "outbound", from: "+15125559185", state: "talking" });
+    expect((await callbacks.busyUsers(db(), ORG, new Date(clock))).has(LEE)).toBe(true);
+
+    await webhook("softphone-leg", { CallSid: call.child, ParentCallSid: call.parent, CallStatus: "completed", CallDuration: "95" }, call.leg);
+    const [row] = await raw<{ status: string; duration_seconds: number; answered_by_user_id: string | null; handled_by_user_id: string }[]>`
+      select status, duration_seconds, answered_by_user_id, handled_by_user_id from public.call where id = ${call.id}`;
+    expect(row).toMatchObject({ status: "completed", duration_seconds: 95, answered_by_user_id: null, handled_by_user_id: LEE });
+    expect(await transfers.current(lee())).toBeNull();
+  });
+
+  it("tells Lee who the call is with on a warm pass, and a person called left on hold gets a call back task", async () => {
+    const call = await caseyCalls("+15125559186");
+    await pickUp(call);
+    const pass = await transfers.transfer(casey(), { id: call.id, to: { kind: "person", userId: LEE }, warm: true }, deps);
+    expect(lastMove()!.url).toContain(`/Calls/${call.child}.json`);
+    const told = await webhook("transfer-answered", { CallSid: "CAleewarm", ParentCallSid: "CAconsultout" }, `?t=${pass.id}`);
+    expect(told.twiml).toContain("Casey Office would like to pass you a call with 5 1 2, 5 5 5, 9 1 8 6.");
+    await transfers.cancel(casey(), { id: pass.id }, deps);
+
+    const done = await webhook("hold-done", { CallSid: call.child, QueueResult: "leave", QueueTime: String(transfers.HOLD_MAX_SECONDS) }, `?c=${call.id}`);
+    expect(done.twiml).toContain("<Record ");
+    const [task] = await raw<{ priority: string }[]>`select priority from public.task where organization_id = ${ORG} and title = 'Call back +15125559186'`;
+    expect(task!.priority).toBe("high");
+  });
+});

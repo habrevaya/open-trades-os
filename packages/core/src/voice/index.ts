@@ -57,6 +57,13 @@ export type Verb =
       /** Set only when the recording check said yes. Never defaulted. */
       recordingCallback?: string | undefined;
       callerId?: string | undefined;
+      /**
+       * Where the carrier says how each leg the dial rings started, was
+       * answered and ended, naming that leg's own id. A call placed from the
+       * browser phone sets it, because the person called is on that leg, and
+       * it is the leg hold and passing on have to move.
+       */
+      statusCallback?: string | undefined;
     }
   | { verb: "record"; action: string; recordingCallback: string; maxSeconds: number }
   | { verb: "redirect"; url: string }
@@ -107,7 +114,11 @@ function verbXml(v: Verb): string {
       const numbers = (typeof v.to === "string" ? [v.to] : v.to).map((to) => {
         const noun = isClientAddress(to) ? "Client" : "Number";
         const name = isClientAddress(to) ? to.slice("client:".length) : to;
-        return `<${noun}${v.whisperUrl ? attr("url", v.whisperUrl) : ""}>${escapeXml(name)}</${noun}>`;
+        const status = v.statusCallback
+          ? `${attr("statusCallback", v.statusCallback)}${attr("statusCallbackMethod", "POST")}`
+            + `${attr("statusCallbackEvent", "initiated answered completed")}`
+          : "";
+        return `<${noun}${v.whisperUrl ? attr("url", v.whisperUrl) : ""}${status}>${escapeXml(name)}</${noun}>`;
       }).join("");
       return `<Dial${attr("action", v.action)}${attr("method", "POST")}${attr("timeout", v.timeoutSeconds)}`
         + `${attr("answerOnBridge", "true")}${v.callerId ? attr("callerId", v.callerId) : ""}${recording}>`

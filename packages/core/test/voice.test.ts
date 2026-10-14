@@ -36,6 +36,14 @@ describe("the instructions handed to the carrier", () => {
     expect(xml).toContain('<Number url="https://x/w">+15125550100</Number>');
   });
 
+  it("asks for each leg's start, answer and end on the leg itself, only when a status address is given", () => {
+    const xml = twiml([{ verb: "dial", to: "+15125550100", action: "a", timeoutSeconds: 30, statusCallback: "https://x/leg?c=1&d=2" }]);
+    expect(xml).toContain(
+      '<Number statusCallback="https://x/leg?c=1&amp;d=2" statusCallbackMethod="POST" statusCallbackEvent="initiated answered completed">+15125550100</Number>',
+    );
+    expect(twiml([{ verb: "dial", to: "+15125550100", action: "a", timeoutSeconds: 30 }])).not.toContain("statusCallback");
+  });
+
   it("asks the recording question inside a gather, so a key press reaches the next step", () => {
     const xml = twiml([{ verb: "gather", action: "https://x/c", numDigits: 1, timeoutSeconds: 6, say: RECORDING_QUESTION }]);
     expect(xml).toMatch(/^<\?xml/);

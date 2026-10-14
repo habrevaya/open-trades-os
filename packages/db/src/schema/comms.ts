@@ -902,6 +902,13 @@ export const call = pgTable("call", {
    */
   handledByUserId: uuid("handled_by_user_id").references(() => user.id, { onDelete: "set null" }),
   /**
+   * On a call placed from the browser phone, the carrier's id for the leg of
+   * the person called: the dial's child call, named by its own status
+   * callbacks. Kept because that leg is the one hold and passing on move,
+   * as the caller's own leg is on a call that came in.
+   */
+  calleeLegSid: text("callee_leg_sid"),
+  /**
    * The waiting line the caller was held in, when one was: when they joined
    * it, when its group was last rung for them and how many times, and how
    * they left it (`bridged`, `leave`, `hangup`, as the carrier says).
@@ -940,6 +947,8 @@ export const call = pgTable("call", {
   orgIdx: index("call_org_idx").on(t.organizationId, t.startedAt),
   customerIdx: index("call_customer_idx").on(t.customerId),
   numberIdx: index("call_number_idx").on(t.organizationId, t.receivedOnE164),
+  /** A carrier request from the person called's leg finds its call by this. */
+  calleeLegIdx: index("call_callee_leg_idx").on(t.calleeLegSid).where(sql`${t.calleeLegSid} is not null`),
   /** Full text over the redacted words, for searching the call log. */
   transcriptSearchIdx: index("call_transcript_search_idx")
     .using("gin", sql`to_tsvector('english', coalesce(${t.transcriptText}, ''))`),

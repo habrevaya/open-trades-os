@@ -116,6 +116,12 @@ held caller or a colleague, and the API key it uses needs no more than it
 already has: moving calls is done with the account's auth token, from this
 installation.
 
+On a call placed from the browser, the person called is on the leg Twilio's
+`Dial` creates. The dial asks Twilio to report that leg's start, pick up and
+end (`statusCallback` on its `Number`) to `/softphone-leg` beneath the voice
+URL, which keeps the leg's id on the call; that leg is the one moved. Nothing
+needs setting up for this beyond the browser phone itself.
+
 ## The phone assistant and the voice relay
 
 The phone assistant (M27) is the company's own model answering a call. Twilio

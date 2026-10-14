@@ -11536,6 +11536,7 @@ export interface GetSkillStandingOutput {
 export interface GetSoftphoneCallOutput {
   call: {
     id: string;
+    direction: "inbound" | "outbound";
     from: string;
     customerId: string | null;
     customerName: string | null;
