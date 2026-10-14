@@ -96450,7 +96450,7 @@
       "post": {
         "operationId": "applyChangeOrderScheduleDays",
         "summary": "Apply a change order's days to the schedule, as proposed",
-        "description": "A person applies exactly the proposal they were shown: send back its `key`. The proposal is worked out again against the schedule as it stands, and if somebody has moved a phase since, nothing is applied and the call says so. Applied once: a retry, or a second person, gets back what was done and moves nothing further. Phases already booked are not moved, and the schedule flags anyone left booked twice.\n\nRequires a session holding: job:write.",
+        "description": "A person applies exactly the proposal they were shown: send back its `key`. The proposal is worked out again against the schedule as it stands, and if somebody has moved a phase since, nothing is applied and the call says so. Applied once: a retry, or a second person, gets back what was done and moves nothing further. The visits the proposal showed moving are moved, the people on them told through the visit's notices and the customer through the visit change notice, saying the change order moved it; moving them needs `visit:reschedule` as well. The visits it showed staying stay, named on the change order. The schedule still flags anyone left booked twice.\n\nRequires a session holding: job:write.",
         "tags": [
           "M12"
         ],
@@ -96582,7 +96582,7 @@
       "get": {
         "operationId": "getChangeOrderScheduleDays",
         "summary": "What the days on a change order would do to the schedule",
-        "description": "A proposal, and nothing moves. For an agreed change order with days, the phase the work lands on (or the one named in `phaseId`) ends later by those days and every phase waiting for it moves by the same days and keeps its length, with the finish date before and after. Says why when it cannot be applied: not agreed yet, no days, no phase named, a complete phase, a complete follower, or already applied.\n\nRequires a session holding: job:read.",
+        "description": "A proposal, and nothing moves. For an agreed change order with days, the phase the work lands on (or the one named in `phaseId`) ends later by those days and every phase waiting for it moves by the same days and keeps its length, with the finish date before and after. Each visit booked on a phase that moves, still to come, goes by the same days at the same time of day, listed with its old and new time; one whose person is off or booked on another visit at the new time, that has started, or whose time has gone by, is listed as left where it is, with why. The phase the days land on keeps its start, so its own visits stay. Says why when it cannot be applied: not agreed yet, no days, no phase named, a complete phase, a complete follower, or already applied.\n\nRequires a session holding: job:read.",
         "tags": [
           "M12"
         ],
@@ -143981,13 +143981,100 @@
                     "endsOn"
                   ]
                 }
+              },
+              "visits": {
+                "type": "object",
+                "properties": {
+                  "moved": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "wasEnd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "start": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "end": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "notified": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "wasStart",
+                        "wasEnd",
+                        "start",
+                        "end",
+                        "notified"
+                      ]
+                    }
+                  },
+                  "left": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "wasStart",
+                        "reason"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "moved",
+                  "left"
+                ]
               }
             },
             "required": [
               "at",
               "phaseId",
               "days",
-              "changes"
+              "changes",
+              "visits"
             ]
           },
           "canApply": {
@@ -144061,6 +144148,113 @@
               "statement": {
                 "type": "string"
               },
+              "visits": {
+                "type": "object",
+                "properties": {
+                  "moves": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "phaseId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "people": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "wasEnd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "start": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "end": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "phaseId",
+                        "label",
+                        "people",
+                        "wasStart",
+                        "wasEnd",
+                        "start",
+                        "end"
+                      ]
+                    }
+                  },
+                  "left": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "phaseId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "wasEnd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "phaseId",
+                        "label",
+                        "wasStart",
+                        "wasEnd",
+                        "reason"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "moves",
+                  "left"
+                ]
+              },
               "key": {
                 "type": "string"
               }
@@ -144070,6 +144264,7 @@
               "finishBefore",
               "finishAfter",
               "statement",
+              "visits",
               "key"
             ]
           },
@@ -175683,13 +175878,100 @@
                     "endsOn"
                   ]
                 }
+              },
+              "visits": {
+                "type": "object",
+                "properties": {
+                  "moved": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "wasEnd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "start": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "end": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "notified": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "wasStart",
+                        "wasEnd",
+                        "start",
+                        "end",
+                        "notified"
+                      ]
+                    }
+                  },
+                  "left": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "wasStart",
+                        "reason"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "moved",
+                  "left"
+                ]
               }
             },
             "required": [
               "at",
               "phaseId",
               "days",
-              "changes"
+              "changes",
+              "visits"
             ]
           },
           "canApply": {
@@ -175763,6 +176045,113 @@
               "statement": {
                 "type": "string"
               },
+              "visits": {
+                "type": "object",
+                "properties": {
+                  "moves": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "phaseId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "people": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "wasEnd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "start": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "end": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "phaseId",
+                        "label",
+                        "people",
+                        "wasStart",
+                        "wasEnd",
+                        "start",
+                        "end"
+                      ]
+                    }
+                  },
+                  "left": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "phaseId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "wasStart": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "wasEnd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "phaseId",
+                        "label",
+                        "wasStart",
+                        "wasEnd",
+                        "reason"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "moves",
+                  "left"
+                ]
+              },
               "key": {
                 "type": "string"
               }
@@ -175772,6 +176161,7 @@
               "finishBefore",
               "finishAfter",
               "statement",
+              "visits",
               "key"
             ]
           }

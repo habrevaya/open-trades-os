@@ -1,4 +1,5 @@
 import * as m from "../money/index.js";
+import { dateIn, instantOfLocal, startOfDayIn, visitSpan } from "../time/index.js";
 
 /**
  * M12. THE ARITHMETIC OF A PROJECT, WITH NO DATABASE IN IT.
@@ -1097,4 +1098,114 @@ export function waiverChecklist(
     }
     return { ...payment, conditional, unconditional, notes };
   });
+}
+
+/* --------------------------------- visits on the phases a change order moves */
+
+/**
+ * VISITS ALREADY BOOKED ON THE PHASES A CHANGE ORDER'S DAYS MOVE.
+ *
+ * A phase that starts later by five days takes its booked visits with it:
+ * each at the same time of day, five days on, in the company's calendar, so a
+ * visit at eight on a Tuesday is at eight on the Sunday after, not at eight
+ * in UTC. The phase the days land on starts where it did, so its own visits
+ * stay where they are.
+ *
+ * A visit is left where it is, and named with the reason, when it cannot
+ * simply go: somebody on it is off at the new time or booked on another
+ * visit then (one that is not moving with it), it has started, or its time,
+ * or the time it would move to, has already gone by. Leaving it is the
+ * careful answer: who goes instead is a decision for the dispatch board, not
+ * for a change order.
+ */
+export interface BookedVisit {
+  id: string;
+  phaseId: string;
+  /** What the office calls it: the customer and the job. */
+  label: string;
+  status: string;
+  start: Date;
+  end: Date | null;
+  minutes: number;
+  /** Everybody on it, a crew's members included. */
+  people: readonly { id: string; name: string }[];
+}
+
+export interface VisitMove {
+  id: string; phaseId: string; label: string; people: string[];
+  wasStart: Date; wasEnd: Date | null; start: Date; end: Date | null;
+}
+
+export interface VisitLeft {
+  id: string; phaseId: string; label: string; wasStart: Date; wasEnd: Date | null;
+  /** Why it stays, in a sentence. */
+  reason: string;
+}
+
+/** Statuses a visit can be moved from: booked and not yet under way. */
+const MOVABLE_VISIT = new Set(["unassigned", "scheduled", "dispatched"]);
+/** Under way: never moved by a plan, and said. */
+const STARTED_VISIT = new Set(["en_route", "working"]);
+
+/** An instant moved by whole days, at the same time of day in a zone. */
+export function shiftInstant(at: Date, days: number, timeZone: string): Date {
+  const date = dateIn(at, timeZone);
+  const minutes = Math.round((at.getTime() - startOfDayIn(date, timeZone).getTime()) / 60_000);
+  return instantOfLocal(shiftDate(date, days), minutes, timeZone);
+}
+
+export function planVisitMoves(input: {
+  visits: readonly BookedVisit[];
+  /** Days each moved phase's start moved by. A phase absent or at nought takes nothing with it. */
+  shiftDays: ReadonlyMap<string, number>;
+  timeZone: string;
+  now: Date;
+  /** Approved time off, by person. */
+  away: readonly { personId: string; start: Date; end: Date }[];
+  /** Everybody's other visits that hold their time, by person. */
+  busy: readonly { personId: string; visitId: string; start: Date; end: Date }[];
+}): { moves: VisitMove[]; left: VisitLeft[] } {
+  const moves: VisitMove[] = [];
+  const left: VisitLeft[] = [];
+  const moving = new Set(input.visits.filter((v) => (input.shiftDays.get(v.phaseId) ?? 0) !== 0).map((v) => v.id));
+  const ordered = [...input.visits].sort((a, b) => a.start.getTime() - b.start.getTime() || (a.id < b.id ? -1 : 1));
+  for (const visit of ordered) {
+    const days = input.shiftDays.get(visit.phaseId) ?? 0;
+    if (days === 0) continue;
+    const base = { id: visit.id, phaseId: visit.phaseId, label: visit.label, wasStart: visit.start, wasEnd: visit.end };
+    if (STARTED_VISIT.has(visit.status)) {
+      left.push({ ...base, reason: "It has started, so it stays where it is." });
+      continue;
+    }
+    if (!MOVABLE_VISIT.has(visit.status)) continue;
+    if (visit.start.getTime() <= input.now.getTime()) {
+      left.push({ ...base, reason: "Its time has gone by, so it stays for the office to sort out." });
+      continue;
+    }
+    const start = shiftInstant(visit.start, days, input.timeZone);
+    const end = visit.end ? new Date(start.getTime() + (visit.end.getTime() - visit.start.getTime())) : null;
+    if (start.getTime() <= input.now.getTime()) {
+      left.push({ ...base, reason: "It would move to a time that has already gone by, so it stays where it is." });
+      continue;
+    }
+    const span = visitSpan(start, end, visit.minutes)!;
+    const meets = (s: { start: Date; end: Date }) => s.start < span.end && s.end > span.start;
+    let reason: string | null = null;
+    for (const person of visit.people) {
+      if (input.away.some((a) => a.personId === person.id && meets(a))) {
+        reason = `${person.name} is off at the new time, so it stays where it is.`;
+        break;
+      }
+      if (input.busy.some((b) => b.personId === person.id && !moving.has(b.visitId) && meets(b))) {
+        reason = `${person.name} is booked on another visit at the new time, so it stays where it is.`;
+        break;
+      }
+    }
+    if (reason) {
+      left.push({ ...base, reason });
+      continue;
+    }
+    moves.push({ ...base, people: visit.people.map((p) => p.name), start, end });
+  }
+  return { moves, left };
 }

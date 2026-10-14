@@ -651,6 +651,23 @@ export interface ApplyChangeOrderScheduleDaysOutput {
       startsOn: string;
       endsOn: string;
     }>;
+    visits: {
+      moved: Array<{
+        id: string;
+        label: string;
+        wasStart: string;
+        wasEnd: string | null;
+        start: string;
+        end: string | null;
+        notified: string;
+      }>;
+      left: Array<{
+        id: string;
+        label: string;
+        wasStart: string;
+        reason: string;
+      }>;
+    };
   } | null;
   canApply: boolean;
   reason: string | null;
@@ -666,6 +683,26 @@ export interface ApplyChangeOrderScheduleDaysOutput {
     finishBefore: string | null;
     finishAfter: string | null;
     statement: string;
+    visits: {
+      moves: Array<{
+        id: string;
+        phaseId: string;
+        label: string;
+        people: string[];
+        wasStart: string;
+        wasEnd: string | null;
+        start: string;
+        end: string | null;
+      }>;
+      left: Array<{
+        id: string;
+        phaseId: string;
+        label: string;
+        wasStart: string;
+        wasEnd: string | null;
+        reason: string;
+      }>;
+    };
     key: string;
   } | null;
   alreadyApplied: boolean;
@@ -6892,6 +6929,23 @@ export interface GetChangeOrderScheduleDaysOutput {
       startsOn: string;
       endsOn: string;
     }>;
+    visits: {
+      moved: Array<{
+        id: string;
+        label: string;
+        wasStart: string;
+        wasEnd: string | null;
+        start: string;
+        end: string | null;
+        notified: string;
+      }>;
+      left: Array<{
+        id: string;
+        label: string;
+        wasStart: string;
+        reason: string;
+      }>;
+    };
   } | null;
   canApply: boolean;
   reason: string | null;
@@ -6907,6 +6961,26 @@ export interface GetChangeOrderScheduleDaysOutput {
     finishBefore: string | null;
     finishAfter: string | null;
     statement: string;
+    visits: {
+      moves: Array<{
+        id: string;
+        phaseId: string;
+        label: string;
+        people: string[];
+        wasStart: string;
+        wasEnd: string | null;
+        start: string;
+        end: string | null;
+      }>;
+      left: Array<{
+        id: string;
+        phaseId: string;
+        label: string;
+        wasStart: string;
+        wasEnd: string | null;
+        reason: string;
+      }>;
+    };
     key: string;
   } | null;
 }

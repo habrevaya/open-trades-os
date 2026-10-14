@@ -6,6 +6,7 @@ import { priceBook, projectChangeOrders, projectSchedule, NotFoundError } from "
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
+import { formatIn } from "@/lib/dates";
 import { TextField } from "@/components/ActionForm";
 import { ChangeOrderForm } from "../../../ChangeOrderForms";
 import { CHANGE_ORDER_STATUS, CHANGE_ORDER_TONE } from "../../../ChangeOrderLabels";
@@ -25,8 +26,10 @@ const PRICE_SOURCE: Record<string, string> = {
  * comes through their link.
  *
  * Once it is agreed, the days it adds are a proposal here: what would move,
- * and the finish before and after. A person presses Apply, and what moves is
- * exactly what they were shown. Nothing moves on its own.
+ * the visits booked on the phases that move with their times before and
+ * after (and any left where they are, with why), and the finish before and
+ * after. A person presses Apply, and what moves is exactly what they were
+ * shown. Nothing moves on its own.
  */
 export default async function ChangeOrderPage({ params, searchParams }: {
   params: Promise<{ id: string; changeOrderId: string }>;
@@ -103,6 +106,12 @@ export default async function ChangeOrderPage({ params, searchParams }: {
                 They are not applied twice.
               </p>
               <DayChanges changes={days.applied.changes} />
+              <VisitMoves
+                timezone={user.organizationTimezone}
+                moves={days.applied.visits.moved.map((v) => ({ ...v, people: [] }))}
+                left={days.applied.visits.left.map((v) => ({ ...v, wasEnd: null }))}
+                done
+              />
             </>
           ) : (
             <>
@@ -125,9 +134,25 @@ export default async function ChangeOrderPage({ params, searchParams }: {
                 <div className="mt-3 rounded-md border border-steel-200 bg-canvas p-4">
                   <p className="text-sm font-medium">{days.proposal.statement}</p>
                   <DayChanges changes={days.proposal.changes} />
-                  <p className="mt-2 text-xs text-ink-500">Visits already booked stay where they are. The schedule marks anyone left booked twice.</p>
-                  {can(user.actor, "job:write") && (
+                  <VisitMoves
+                    timezone={user.organizationTimezone}
+                    moves={days.proposal.visits.moves.map((v) => ({
+                      ...v, wasStart: v.wasStart.toISOString(), wasEnd: v.wasEnd?.toISOString() ?? null,
+                      start: v.start.toISOString(), end: v.end?.toISOString() ?? null,
+                    }))}
+                    left={days.proposal.visits.left.map((v) => ({
+                      ...v, wasStart: v.wasStart.toISOString(), wasEnd: v.wasEnd?.toISOString() ?? null,
+                    }))}
+                    done={false}
+                  />
+                  <p className="mt-2 text-xs text-ink-500">
+                    Each customer whose visit moves is told by text or email. The schedule marks anyone left booked twice.
+                  </p>
+                  {can(user.actor, "job:write") && (days.proposal.visits.moves.length === 0 || can(user.actor, "visit:reschedule")) && (
                     <ChangeOrderForm submit="Apply to the schedule" hidden={{ ...hidden, op: "apply-days", phaseId: days.phaseId ?? "", proposalKey: days.proposal.key }} />
+                  )}
+                  {can(user.actor, "job:write") && days.proposal.visits.moves.length > 0 && !can(user.actor, "visit:reschedule") && (
+                    <p className="mt-2 text-sm text-ink-700">This moves booked visits, so somebody who can move visits on the schedule has to apply it.</p>
                   )}
                 </div>
               ) : (
@@ -245,6 +270,52 @@ export default async function ChangeOrderPage({ params, searchParams }: {
             <TextField label="Why" name="reason" required />
           </ChangeOrderForm>
         </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The booked visits a proposal would move, or did, with their time before and
+ * after, and the ones left where they are with why. Nothing when there are none.
+ */
+function VisitMoves({ moves, left, timezone, done }: {
+  moves: { id: string; label: string; people: string[]; wasStart: string; start: string }[];
+  left: { id: string; label: string; wasStart: string; reason: string }[];
+  timezone: string;
+  done: boolean;
+}) {
+  if (moves.length === 0 && left.length === 0) return null;
+  return (
+    <div className="mt-3">
+      {moves.length > 0 && (
+        <div className="overflow-x-auto rounded-md border border-steel-200">
+          <table className="w-full text-sm" aria-label={done ? "Visits moved" : "Visits that move"}>
+            <thead className="bg-steel-100 text-left text-ink-700">
+              <tr>
+                <th className="px-3 py-2 font-medium">Visit</th>
+                <th className="px-3 py-2 font-medium">{done ? "Was" : "Now"}</th>
+                <th className="px-3 py-2 font-medium">{done ? "Moved to" : "After"}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-steel-200 bg-canvas">
+              {moves.map((visit) => (
+                <tr key={visit.id}>
+                  <td className="px-3 py-2">{visit.label}{visit.people.length > 0 ? `, ${visit.people.join(" and ")}` : ""}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatIn(visit.wasStart, timezone)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatIn(visit.start, timezone)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {left.length > 0 && (
+        <ul className="mt-2 space-y-1 text-sm text-ink-700" aria-label={done ? "Visits left where they were" : "Visits that stay"}>
+          {left.map((visit) => (
+            <li key={visit.id}>{visit.label}, {formatIn(visit.wasStart, timezone)}: {visit.reason}</li>
+          ))}
+        </ul>
       )}
     </div>
   );
