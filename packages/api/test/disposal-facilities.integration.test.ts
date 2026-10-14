@@ -255,10 +255,16 @@ run("a driver's day through the facility", () => {
   const optimise = (extra: { facilityId?: string } = {}) => dispatchMap.optimise(owner(), { date: day, technicianId: driverId, ...extra });
 
   it("plans the tip at the facility when it is the default, and the yard when no facility is", async () => {
-    await raw`update public.disposal_facility set is_default = false where organization_id = ${ORG}`;
+    /**
+     * No facility to tip at: every one closed. (A day is now planned among every
+     * active facility on the map, default or not, so having no default no longer
+     * means the yard tips.)
+     */
+    await raw`update public.disposal_facility set is_default = false, active = false where organization_id = ${ORG}`;
     const without = await optimise();
     expect(without.truck).toMatchObject({ facility: null, facilityRuns: [], currentYardRuns: 1 });
 
+    await raw`update public.disposal_facility set active = true where id = ${facilityId}`;
     await facilities.updateFacility(owner(), { id: facilityId, isDefault: true });
     const through = await optimise();
     expect(through.truck!.facility).toMatchObject({ id: facilityId, name: "Day Plan Landfill", used: true, tipMinutes: 15 });
@@ -276,6 +282,8 @@ run("a driver's day through the facility", () => {
     const asked = await optimise({ facilityId: other.id });
     expect(asked.truck!.facility).toMatchObject({ id: other.id, name: "Asked For Pit", used: true });
     await expect(optimise({ facilityId: fixtureId("df:missing") })).rejects.toThrow(/Disposal facility/);
+    /** Stopped using, so the days that follow are planned around the default alone again. */
+    await facilities.closeFacility(owner(), { id: other.id });
   });
 
   it("refuses a run that reaches the facility after it has closed, in words", async () => {

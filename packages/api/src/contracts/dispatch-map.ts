@@ -165,7 +165,7 @@ export const getRouteProposal = defineRoute({
   path: "/v1/dispatch/optimise",
   summary: "Propose a better order for one technician's day",
   description:
-    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
+    "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at a disposal facility on the map: for each run, the nearest one by road that is open when the truck gets there (one shut that day by its hours or its own holidays is skipped), or only the `facilityId` asked for. It goes yard to customer to facility to the next stop, with the time at the gate counted, each run saying which facility it goes to and why, and any run that reaches a closed gate named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({ date: z.string().date(), technicianId: Uuid, facilityId: Uuid.optional() }),
@@ -219,9 +219,9 @@ export const getRouteProposal = defineRoute({
       /** Stops about a container this truck does not lift, ordered as plain driving: they need another truck. */
       notCarried: z.array(Uuid),
       /**
-       * The disposal facility the day tips at (`facilityId`, or the company's default), with
-       * its address and hours. `used` is false when it is not on the map, and the day was planned
-       * as if the yard tips.
+       * The disposal facility the day is named for (`facilityId` when asked, otherwise the company's
+       * default), with its address and hours. `used` is false when it is not on the map, and it was
+       * left out of the plan: with no facility on the map the day was planned as if the yard tips.
        */
       facility: z.object({
         id: Uuid, name: z.string(), address: z.string(), hoursText: z.string(),
@@ -239,6 +239,21 @@ export const getRouteProposal = defineRoute({
         arriveAt: z.string().datetime(),
         waitMinutes: z.number().int(),
         closed: z.string().nullable(),
+        /** The facility this run goes to, chosen among those on the map for this haul. */
+        facilityId: Uuid.nullable(),
+        facilityName: z.string().nullable(),
+        /** Minutes by road from where the truck is when it sets off for it. */
+        driveMinutes: z.number().int().nullable(),
+        /** Why this one: the nearest open when the truck gets there, what was passed over and for what. */
+        why: z.string().nullable(),
+      })),
+      /**
+       * Every facility the day was planned among: those on the map, and those left out because they
+       * are not (they cannot be driven to). `closedToday` says why one is shut all day, a holiday it
+       * keeps or a day its hours leave out.
+       */
+      facilities: z.array(z.object({
+        id: Uuid, name: z.string(), onTheMap: z.boolean(), closedToday: z.string().nullable(), isDefault: z.boolean(),
       })),
       /** Runs to the yard in the middle of the day in the order it has now (not the one at the end). */
       currentYardRuns: z.number().int().nullable(),

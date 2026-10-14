@@ -43980,7 +43980,7 @@
       "get": {
         "operationId": "getRouteProposal",
         "summary": "Propose a better order for one technician's day",
-        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
+        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at a disposal facility on the map: for each run, the nearest one by road that is open when the truck gets there (one shut that day by its hours or its own holidays is skipped), or only the `facilityId` asked for. It goes yard to customer to facility to the next stop, with the time at the gate counted, each run saying which facility it goes to and why, and any run that reaches a closed gate named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -45355,7 +45355,7 @@
       "post": {
         "operationId": "createDisposalFacility",
         "summary": "Record a landfill or transfer station",
-        "description": "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.\n\nRequires a session holding: asset:write.",
+        "description": "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. Holidays are the days it is shut whatever its week says (a yearly one repeats every year), and win over the hours. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.\n\nRequires a session holding: asset:write.",
         "tags": [
           "M22"
         ],
@@ -45838,7 +45838,7 @@
       "get": {
         "operationId": "getDisposalFacilityOpen",
         "summary": "Whether a facility takes loads at a time",
-        "description": "In the company's own clock. When it is closed, `why` says so in words, with the day, the time and the hours it keeps. A facility with no hours recorded is reported open with `hoursKnown: false`, because unknown is never a reason to refuse a trip.\n\nRequires a session holding: asset:read.",
+        "description": "In the company's own clock. When it is closed, `why` says so in words, with the day, the time and the hours it keeps, or the holiday it keeps that day. A facility with no hours recorded is reported open with `hoursKnown: false`, because unknown is never a reason to refuse a trip.\n\nRequires a session holding: asset:read.",
         "tags": [
           "M22"
         ],
@@ -156044,6 +156044,34 @@
             },
             "maxItems": 7
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            },
+            "maxItems": 60
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -156187,6 +156215,33 @@
           "hoursText": {
             "type": "string"
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            }
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -156246,6 +156301,7 @@
           "onTheMap",
           "hours",
           "hoursText",
+          "holidays",
           "feeBasis",
           "feeAmount",
           "minimumFee",
@@ -198951,6 +199007,31 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "facilityId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "facilityName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "driveMinutes": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "why": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -198959,7 +199040,45 @@
                     "tipped",
                     "arriveAt",
                     "waitMinutes",
-                    "closed"
+                    "closed",
+                    "facilityId",
+                    "facilityName",
+                    "driveMinutes",
+                    "why"
+                  ]
+                }
+              },
+              "facilities": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "onTheMap": {
+                      "type": "boolean"
+                    },
+                    "closedToday": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "isDefault": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "onTheMap",
+                    "closedToday",
+                    "isDefault"
                   ]
                 }
               },
@@ -199040,6 +199159,7 @@
               "notCarried",
               "facility",
               "facilityRuns",
+              "facilities",
               "currentYardRuns",
               "yardRuns",
               "startLoad"
@@ -213295,6 +213415,33 @@
                 "hoursText": {
                   "type": "string"
                 },
+                "holidays": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "date": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 80
+                      },
+                      "yearly": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "date",
+                      "name",
+                      "yearly"
+                    ]
+                  }
+                },
                 "feeBasis": {
                   "type": [
                     "string",
@@ -213354,6 +213501,7 @@
                 "onTheMap",
                 "hours",
                 "hoursText",
+                "holidays",
                 "feeBasis",
                 "feeAmount",
                 "minimumFee",
@@ -271811,6 +271959,34 @@
             },
             "maxItems": 7
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            },
+            "maxItems": 60
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -271954,6 +272130,33 @@
           "hoursText": {
             "type": "string"
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            }
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -272013,6 +272216,7 @@
           "onTheMap",
           "hours",
           "hoursText",
+          "holidays",
           "feeBasis",
           "feeAmount",
           "minimumFee",

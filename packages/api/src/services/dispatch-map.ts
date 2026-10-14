@@ -17,7 +17,7 @@ import { assign as assignCrew, crewRefusals } from "./crews";
 import { remember, replayed } from "./once";
 import { rentalDispatchOf } from "./rental-billing";
 import { truckOf } from "./trucks";
-import { facilityForPlan, addressText } from "./disposal-facilities";
+import { facilitiesForPlan, addressText } from "./disposal-facilities";
 import { priorityWithin } from "./agreements";
 
 /**
@@ -642,7 +642,7 @@ export async function map(ctx: ServiceContext, input: { date: string }) {
 const START = "start";
 const END = "end";
 const YARD = "yard";
-const FACILITY = "facility";
+const facilityKey = (id: string) => `facility:${id}`;
 
 export type Points = Map<string, { place: Place | null; routeId: string | null }>;
 
@@ -769,14 +769,20 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
   /** Every stop's can, the ones done today too, so the truck's load after them is known by size. */
   const sizeOfStop = containers ? await containerSizes(ctx, stops.map((v) => v.id)) : new Map<string, number | null>();
   /**
-   * THE DISPOSAL FACILITY the day tips at: the one asked for, or the company's
-   * default. A full can is tipped there and not at the yard, so the route goes
-   * yard to customer to facility to the next stop, but only when the facility
-   * is on the map, because a run to somewhere unknown cannot be measured.
+   * THE DISPOSAL FACILITIES the day tips at: the one asked for alone, or every
+   * active one the company has that is on the map, each run going to the nearest
+   * that is open when the truck gets there (`routing.pickFacility`). A full can
+   * is tipped there and not at the yard, so the route goes yard to customer to
+   * facility to the next stop. One not on the map cannot be measured and is left
+   * out, and said to be. The facility the answer NAMES is the one asked for, or
+   * the company's default.
    */
-  const facility = containers
-    ? await guardedRead(ctx, "visit:read", (tx) => facilityForPlan(tx, ctx.actor.organizationId, input.facilityId ?? null))
-    : null;
+  const known = containers
+    ? await guardedRead(ctx, "visit:read", (tx) => facilitiesForPlan(tx, ctx.actor.organizationId, input.facilityId ?? null))
+    : [];
+  const placed_ = known.map((f) => ({ row: f, place: placeOf(f) }));
+  const candidates = placed_.filter((f) => f.place !== null);
+  const facility = (input.facilityId ? known[0] : known.find((f) => f.isDefault)) ?? null;
   const facilityPlace = facility ? placeOf(facility) : null;
 
   const points: Points = new Map();
@@ -785,7 +791,7 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
   points.set(END, end);
   /** Where a roll off truck tips a full can and loads an empty: where the driver's day starts. */
   points.set(YARD, { place: technician.start?.place ?? null, routeId: null });
-  points.set(FACILITY, { place: facilityPlace, routeId: null });
+  for (const f of candidates) points.set(facilityKey(f.row.id), { place: f.place, routeId: null });
   const startKnown = start.place !== null;
 
   const { travel, declared, matrix } = await travelOver(ctx, day, points);
@@ -804,9 +810,11 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     yardMinutes: truck.yardMinutes,
     sizes: truck.sizes,
     perSize: truck.perSize,
-    facility: facility && facilityPlace ? {
-      key: FACILITY, minutes: facility.tipMinutes, hours: facilityHours(day, facility.hours),
-    } : null,
+    facilities: candidates.map(({ row }) => ({
+      key: facilityKey(row.id), minutes: row.tipMinutes, hours: facilityHours(day, row.hours, row.holidays),
+      name: row.name, preferred: row.isDefault,
+      ...(rt.shutAllDayWhy(row.hours, row.holidays, day.date) ? { closedWhy: rt.shutAllDayWhy(row.hours, row.holidays, day.date)! } : {}),
+    })),
     load: locked.length > 0
       ? loadAfter(locked.map((v) => ({ work: v.truckWork, size: sizeOfStop.get(v.id) ?? null })), { capacity: truck.containers, perSize: truck.perSize })
       : null,
@@ -859,7 +867,7 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
     truck: containers ? {
       byTruck,
       note: byTruck
-        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${carryWords(truck)} at a time, ${truck.yardMinutes} minutes at the yard to ${truckPlan?.facility && facility ? `load empties, and full ones tipped at ${facility.name}` : "tip and load"}.${
+        ? `Ordered by what is on the truck${driven.truck ? `, ${driven.truck.label} (${driven.truck.kindName})` : ""}: ${carryWords(truck)} at a time, ${truck.yardMinutes} minutes at the yard to ${truckPlan?.facilities?.length ? `load empties, and full ones tipped at ${candidates.length === 1 ? candidates[0]!.row.name : "the nearest facility that is open"}` : "tip and load"}.${
           truckResult && truckResult.notCarried.length > 0
             ? ` ${truckResult.notCarried.length === 1 ? "One stop is" : `${truckResult.notCarried.length} stops are`} for a container this truck does not lift, so ${truckResult.notCarried.length === 1 ? "it needs" : "they need"} another truck.`
             : ""}`
@@ -885,25 +893,48 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
         address: addressText(facility),
         hoursText: rt.hoursWords(facility.hours),
         tipMinutes: facility.tipMinutes,
-        used: Boolean(truckPlan?.facility),
+        used: candidates.some((c) => c.row.id === facility.id) && Boolean(truckPlan?.facilities?.length),
         note: !facilityPlace
-          ? `${facility.name} is not on the map yet, so this day was planned as if the yard tips. Place its pin on Disposal facilities.`
-          : truckPlan?.facility
-            ? `Full containers are tipped at ${facility.name}, ${addressText(facility) || "on the map"}. ${rt.hoursWords(facility.hours)}.`
+          ? `${facility.name} is not on the map yet, so it was left out of this day. ${candidates.length > 0 && truckPlan
+            ? `The day was planned among the ${candidates.length === 1 ? "other facility" : "other facilities"} that are on the map.`
+            : "The day was planned as if the yard tips."} Place its pin on Disposal facilities.`
+          : truckPlan?.facilities?.length
+            ? candidates.length === 1
+              ? `Full containers are tipped at ${facility.name}, ${addressText(facility) || "on the map"}. ${rt.hoursWords(facility.hours)}.`
+              : `Each full container goes to the nearest of ${candidates.length} facilities that is open when the truck gets there: ${candidates.map((c) => c.row.name).join(", ")}.`
             : `${facility.name} is the facility, but the day's start is not on the map, so it was not planned through.`,
       } : null,
-      /** The runs to the facility the proposed order takes, with the sentence for any that arrive after it has closed. */
-      facilityRuns: (truckResult?.proposed.facilityRuns ?? []).map((r) => ({
-        afterVisitId: r.afterId,
-        beforeVisitId: r.beforeId,
-        tipped: r.tipped,
-        arriveAt: clockOf(day, r.arriveAt),
-        waitMinutes: r.waitMinutes,
-        closed: r.closedBy > 0 && facility
-          ? rt.closedWords(facility.name, facility.hours, rt.weekdayOf(day.date), Math.min(1439, r.arriveAt))
-            ?? `${facility.name} is closed when this day reaches it.`
-          : null,
+      /** Every facility the day knew of, on the map or not, and whether each is shut all day. */
+      facilities: known.map((f) => ({
+        id: f.id, name: f.name, onTheMap: placeOf(f) !== null, isDefault: f.isDefault,
+        closedToday: rt.shutAllDayWhy(f.hours, f.holidays, day.date),
       })),
+      /**
+       * The runs to a facility the proposed order takes, each saying which one and why, with the
+       * sentence for any that arrive after it has closed or on a day it is shut.
+       */
+      facilityRuns: (truckResult?.proposed.facilityRuns ?? []).map((r) => {
+        const went = candidates.find((c) => facilityKey(c.row.id) === r.facilityKey)?.row ?? null;
+        const describe = (key: string) => {
+          const other = candidates.find((c) => facilityKey(c.row.id) === key)?.row;
+          return { name: other?.name ?? "Another facility", shutWhy: other ? rt.shutAllDayWhy(other.hours, other.holidays, day.date) : null };
+        };
+        return {
+          afterVisitId: r.afterId,
+          beforeVisitId: r.beforeId,
+          tipped: r.tipped,
+          arriveAt: clockOf(day, r.arriveAt),
+          waitMinutes: r.waitMinutes,
+          closed: r.closedBy > 0 && went
+            ? rt.closedOnWords(went.name, went.hours, went.holidays, day.date, Math.min(1439, r.arriveAt))
+              ?? `${went.name} is closed when this day reaches it.`
+            : null,
+          facilityId: went?.id ?? null,
+          facilityName: went?.name ?? null,
+          driveMinutes: r.choice ? Math.round(r.choice.driveMinutes) : null,
+          why: went && r.choice ? rt.chosenWords(went.name, r.choice, describe) : null,
+        };
+      }),
       /** Runs in the middle of the day; the one at the end to tip the last can is not a choice. */
       currentYardRuns: truckResult ? truckResult.current.yardRuns.filter((r) => r.beforeId !== null).length : null,
       yardRuns: (truckResult?.proposed.yardRuns ?? []).map((r) => ({
@@ -925,7 +956,9 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
  * shut, and null when nobody recorded its hours, which is never a reason to
  * refuse a trip.
  */
-function facilityHours(day: Day, hours: rt.DayHours[]): routing.TruckFacility["hours"] {
+function facilityHours(day: Day, hours: rt.DayHours[], holidays: rt.FacilityHoliday[]): routing.TruckFacility["hours"] {
+  /** A holiday it keeps beats its week, even when nobody recorded the week. */
+  if (rt.holidayOn(holidays, day.date)) return "closed";
   if (hours.length === 0) return null;
   const open = rt.openingOn(hours, rt.weekdayOf(day.date));
   if (open === null) return "closed";

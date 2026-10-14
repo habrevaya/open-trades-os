@@ -1,0 +1,1 @@
+ALTER TABLE "disposal_facility" ADD COLUMN "holidays" jsonb DEFAULT '[]'::jsonb NOT NULL;

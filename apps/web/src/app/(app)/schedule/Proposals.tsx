@@ -71,10 +71,20 @@ export function RoutePreview({
           {proposal.truck.facility && proposal.truck.byTruck && (
             <p className={proposal.truck.facility.used ? "mt-1 text-ink-700" : "mt-1 text-amber-700"}>{proposal.truck.facility.note}</p>
           )}
+          {(proposal.truck.facilities ?? []).filter((f) => f.closedToday).length > 0 && (
+            <ul aria-label="Facilities shut today" className="mt-1 space-y-0.5 text-amber-700">
+              {(proposal.truck.facilities ?? []).filter((f) => f.closedToday).map((f) => (
+                <li key={f.id}>{f.name} is {f.closedToday} today, so no run goes there.</li>
+              ))}
+            </ul>
+          )}
           {proposal.truck.facilityRuns.length > 0 && (
             <ul aria-label="Runs to the disposal facility" className="mt-1 space-y-0.5 text-ink-700">
               {proposal.truck.facilityRuns.map((r, i) => (
-                <li key={i} className={r.closed ? "rounded bg-red-tint px-2 py-1 text-red-600" : undefined}>{facilityRunText(r, name, proposal.truck?.facility?.name ?? "the facility")}</li>
+                <li key={i} className={r.closed ? "rounded bg-red-tint px-2 py-1 text-red-600" : undefined}>
+                  {facilityRunText(r, name, r.facilityName ?? proposal.truck?.facility?.name ?? "the facility")}
+                  {r.why ? <span className="block text-xs text-ink-500">{r.why}</span> : null}
+                </li>
               ))}
             </ul>
           )}

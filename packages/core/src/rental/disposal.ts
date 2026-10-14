@@ -16,8 +16,11 @@ import * as m from "../money/index.js";
  * refusing every trip to a facility because nobody typed its hours would be
  * a planner that stops working the day somebody adds one.
  *
- * Holidays are not here. A facility closed for Thanksgiving looks open to this
- * on that Thursday, which the doc says.
+ * HOLIDAYS ARE A LIST OF DAYS. A transfer station shut on Thanksgiving is shut
+ * on that Thursday whatever its week says, and a day on the list wins over the
+ * hours, even for a facility whose hours nobody has recorded: a person who
+ * typed a closure knows it. A holiday can repeat every year, because a landfill
+ * keeps Christmas every year and nobody should retype it each January.
  */
 
 export interface DayHours {
@@ -119,6 +122,130 @@ export function closedWords(
       + "If its hours are wrong, correct them on the facility.";
   }
   return null;
+}
+
+/* ----------------------------------------------------------------- holidays */
+
+/** A day a facility is shut whatever its week says. */
+export interface FacilityHoliday {
+  /** The calendar date, "2026-11-26". For a yearly one, the year it was first typed. */
+  date: string;
+  /** What it is, "Thanksgiving", for the sentence that says why a facility was skipped. */
+  name: string | null;
+  /** Shut on this month and day every year, rather than on this date alone. */
+  yearly: boolean;
+}
+
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function realDate(date: string): boolean {
+  const found = DATE.exec(date);
+  if (!found) return false;
+  const when = new Date(`${date}T12:00:00Z`);
+  return !Number.isNaN(when.getTime()) && when.toISOString().slice(0, 10) === date;
+}
+
+/**
+ * The holidays as typed, checked: a real date each, a name that is short, and
+ * no day twice (a yearly one counts as its month and day, so "Dec 25 every
+ * year" and "Dec 25 2026" are the same closure said twice). The sentence says
+ * which one is wrong.
+ */
+export function checkHolidays(input: readonly FacilityHoliday[]):
+  { ok: true; holidays: FacilityHoliday[] } | { ok: false; message: string } {
+  if (input.length > 60) return { ok: false, message: "A facility can keep up to 60 holidays. Remove ones that have passed." };
+  const cleaned: FacilityHoliday[] = [];
+  for (const entry of input) {
+    if (!realDate(entry.date)) {
+      return { ok: false, message: `${entry.date || "A holiday"} is not a date. Give it as year, month and day, like 2026-11-26.` };
+    }
+    const name = entry.name?.trim() || null;
+    if (name !== null && name.length > 80) return { ok: false, message: `${entry.date}: the name is at most 80 letters.` };
+    /**
+     * The same closure said twice: the same date, or a month and day that a
+     * yearly one already covers (or that this yearly one covers), however
+     * the two were typed.
+     */
+    const twice = cleaned.some((other) => other.date === entry.date
+      || ((other.yearly || entry.yearly) && other.date.slice(5) === entry.date.slice(5)));
+    if (twice) return { ok: false, message: `${entry.date} is listed twice.` };
+    cleaned.push({ date: entry.date, name, yearly: entry.yearly });
+  }
+  return { ok: true, holidays: cleaned.sort((a, b) => a.date.localeCompare(b.date)) };
+}
+
+/** The holiday a facility keeps on a calendar date, or null. */
+export function holidayOn(holidays: readonly FacilityHoliday[], date: string): FacilityHoliday | null {
+  return holidays.find((h) => h.date === date || (h.yearly && h.date.slice(5) === date.slice(5))) ?? null;
+}
+
+/**
+ * Whether the gate is open at a minute of a date, and the sentence when it is
+ * not: a holiday first, because it beats the week, then the week's hours as
+ * `closedWords` says them. Null when it is open, and null when it keeps no
+ * holiday that day and records no hours.
+ */
+export function closedOnWords(
+  name: string, hours: readonly DayHours[], holidays: readonly FacilityHoliday[], date: string, minute: number,
+): string | null {
+  const holiday = holidayOn(holidays, date);
+  if (holiday) {
+    return `${name} is closed on ${WEEKDAYS[weekdayOf(date)]} ${date}${holiday.name ? ` for ${holiday.name}` : ""}. `
+      + "If that is wrong, take the day off the facility's holidays.";
+  }
+  return closedWords(name, hours, weekdayOf(date), minute);
+}
+
+/** Why a facility is shut all day on a date, in a few words, or null when its hours keep it open that day. */
+export function shutAllDayWhy(hours: readonly DayHours[], holidays: readonly FacilityHoliday[], date: string): string | null {
+  const holiday = holidayOn(holidays, date);
+  if (holiday) return holiday.name ? `closed for ${holiday.name}` : "closed for a holiday it keeps";
+  if (hours.length > 0 && openingOn(hours, weekdayOf(date)) === null) return `closed on ${WEEKDAYS[weekdayOf(date)]}s`;
+  return null;
+}
+
+/* ----------------------------------------------------- which facility, why */
+
+/** What `routing.pickFacility` says about a run, as far as the words need it. */
+export interface FacilityChoiceFacts {
+  basis: "only_one" | "nearest_open" | "opens_soonest" | "none_open";
+  driveMinutes: number;
+  others: readonly {
+    key: string; driveMinutes: number;
+    standing: "open" | "opens_later" | "closed_by_then" | "closed_all_day";
+    opensAt: number | null; closesAt: number | null;
+  }[];
+}
+
+/**
+ * WHY A HAUL GOES WHERE IT GOES, in a dispatcher's words: which facility, how
+ * far, and what was passed over and for what reason. A day's plan that sent a
+ * can to a farther landfill with no reason given would be taken for a mistake.
+ */
+export function chosenWords(
+  name: string, choice: FacilityChoiceFacts,
+  describe: (key: string) => { name: string; shutWhy: string | null },
+): string {
+  const drive = `${Math.max(0, Math.round(choice.driveMinutes))} min by road`;
+  const head = {
+    only_one: `${name} is the only facility on the map, ${drive}.`,
+    nearest_open: `${name} is the nearest one open when the truck gets there, ${drive}.`,
+    opens_soonest: `None is open yet when the truck gets there. ${name} opens first, ${drive}, so the truck waits at its gate.`,
+    none_open: `Every facility is shut when the truck would get there. ${name} is the nearest, ${drive}, so the run is refused.`,
+  }[choice.basis];
+  const passed = choice.others.flatMap((o) => {
+    const who = describe(o.key);
+    if (o.standing === "closed_all_day") return [`${who.name} is ${who.shutWhy ?? "closed that day"}.`];
+    if (o.standing === "closed_by_then") {
+      return [`${who.name} would be closed by then${o.closesAt !== null ? ` (it closes at ${clockWords(o.closesAt)})` : ""}.`];
+    }
+    if (o.standing === "opens_later" && choice.basis !== "opens_soonest") {
+      return [`${who.name} does not open until ${o.opensAt !== null ? clockWords(o.opensAt) : "later"}.`];
+    }
+    return [];
+  });
+  const fartherOpen = choice.basis === "nearest_open" && choice.others.some((o) => o.standing === "open");
+  return [head, ...passed, ...(fartherOpen ? ["The others are farther."] : [])].join(" ");
 }
 
 /* ---------------------------------------------------------------------- fee */

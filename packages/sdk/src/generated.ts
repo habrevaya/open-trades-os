@@ -3117,6 +3117,11 @@ export interface CreateDisposalFacilityInput {
     opens: string;
     closes: string;
   }>;
+  holidays?: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis?: "per_ton" | "per_load" | null;
   feeAmount?: string | null;
   minimumFee?: string | null;
@@ -3145,6 +3150,11 @@ export interface CreateDisposalFacilityOutput {
     closes: string;
   }>;
   hoursText: string;
+  holidays: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis: "per_ton" | "per_load" | null;
   feeAmount: string | null;
   minimumFee: string | null;
@@ -11333,6 +11343,17 @@ export interface GetRouteProposalOutput {
       arriveAt: string;
       waitMinutes: number;
       closed: string | null;
+      facilityId: string | null;
+      facilityName: string | null;
+      driveMinutes: number | null;
+      why: string | null;
+    }>;
+    facilities: Array<{
+      id: string;
+      name: string;
+      onTheMap: boolean;
+      closedToday: string | null;
+      isDefault: boolean;
     }>;
     currentYardRuns: number | null;
     yardRuns: Array<{
@@ -14070,6 +14091,11 @@ export interface ListDisposalFacilitiesOutput {
       closes: string;
     }>;
     hoursText: string;
+    holidays: Array<{
+      date: string;
+      name: string | null;
+      yearly: boolean;
+    }>;
     feeBasis: "per_ton" | "per_load" | null;
     feeAmount: string | null;
     minimumFee: string | null;
@@ -25834,6 +25860,11 @@ export interface UpdateDisposalFacilityInput {
     opens: string;
     closes: string;
   }>;
+  holidays?: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis?: "per_ton" | "per_load" | null;
   feeAmount?: string | null;
   minimumFee?: string | null;
@@ -25863,6 +25894,11 @@ export interface UpdateDisposalFacilityOutput {
     closes: string;
   }>;
   hoursText: string;
+  holidays: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis: "per_ton" | "per_load" | null;
   feeAmount: string | null;
   minimumFee: string | null;
