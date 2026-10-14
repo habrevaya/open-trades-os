@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { getDb } from "@/lib/db";
 import { forms } from "@opentradesos/api/services";
+import { submitForm } from "@opentradesos/api/contracts";
 
 /**
  * Hand the submission to the same service the public API route reaches,
@@ -17,8 +18,12 @@ export async function submitHosted(input: {
   visitorId?: string | undefined;
   landingQuery?: string | undefined;
   referrer?: string | undefined;
+  files?: { field: string; fileName: string; contentType?: string | undefined; bytes: string }[] | undefined;
 }): Promise<{ ok: true; accepted: boolean; refusals: { field: string; message: string }[]; thankYou: string | null } | { ok: false; message: string }> {
   const asked = await headers();
+  /** The files through the route's own schema, so this page is exactly as strict as the API. */
+  const files = submitForm.input.shape.files.safeParse(input.files);
+  if (!files.success) return { ok: false, message: "Those files could not be read. Pick them again, or give us a call." };
   try {
     const outcome = await forms.submit(getDb(), {
       organizationSlug: input.organizationSlug,
@@ -28,6 +33,7 @@ export async function submitHosted(input: {
       visitorId: input.visitorId?.slice(0, 64) ?? null,
       landingQuery: input.landingQuery?.slice(0, 4000) ?? null,
       referrer: input.referrer?.slice(0, 2000) ?? null,
+      files: files.data,
     }, { ip: asked.get("x-forwarded-for")?.split(",")[0]?.trim() });
     /**
      * Spam is thanked like a person, as core asks: telling a script which

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, marketing as mk, tracking, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, files as fileRules, marketing as mk, tracking, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, NotFoundError, ConflictError, OrganizationSuspendedError,
   DemoReadOnlyError, type RequestMeta, type ServiceContext,
@@ -11,6 +11,8 @@ import * as consent from "./consent";
 import * as email from "./email";
 import { sendTransactional } from "./comms-send";
 import { LIMITS, throttle } from "./website-tracking";
+import { attach, decode, put } from "./files";
+import { render } from "../lib/render";
 
 /**
  * LEAD FORMS
@@ -78,7 +80,12 @@ export interface FormInput {
   fields: mk.FormField[];
   minimumFillSeconds?: number | undefined;
   settings?: FormSettings | undefined;
+  /** The pages, when the form is split. Absent or one is a form on one page. */
+  pages?: mk.FormPage[] | undefined;
 }
+
+/** The kind a file sent with a lead form is kept under, apart from what a signed in customer adds. */
+export const FORM_FILE_KIND = "form_file";
 
 /** Twelve url safe characters: unguessable enough that the forms are not a list anybody can walk. */
 const newPublicKey = () => randomBytes(9).toString("base64url");
@@ -105,13 +112,16 @@ function cleanSettings(input: FormSettings | undefined): Record<string, string> 
  */
 export async function save(ctx: ServiceContext, input: FormInput) {
   return guardedWrite(ctx, "adspend:write", async (tx) => {
+    /** One page is no split at all, and is stored as none so the hosted page draws no heading for it. */
+    const pages = (input.pages ?? []).map((p) => ({ title: p.title.trim() }));
     const definition: mk.FormDefinition = {
       key: input.slug,
       title: input.title,
-      fields: input.fields,
+      fields: pages.length > 1 ? input.fields : input.fields.map(({ page: _page, ...field }) => field),
       ...(input.minimumFillSeconds === undefined
         ? {}
         : { minimumFillSeconds: input.minimumFillSeconds }),
+      ...(pages.length > 1 ? { pages } : {}),
     };
 
     const verdict = mk.checkForm(definition);
@@ -130,6 +140,22 @@ export async function save(ctx: ServiceContext, input: FormInput) {
 
     /** Absent means unchanged on an edit: an API caller replacing the fields has not said to drop the confirmation. */
     const settings = input.settings === undefined ? undefined : cleanSettings(input.settings);
+
+    /**
+     * The confirmation's placeholders against these fields, including a
+     * confirmation kept from before when only the fields changed: removing the
+     * question `{{ name }}` names would otherwise leave "Thanks , we will ring"
+     * going out to every lead.
+     */
+    const [kept] = settings ? [] : await tx.select({ settings: schema.webForm.settings }).from(schema.webForm)
+      .where(and(eq(schema.webForm.slug, input.slug), isNull(schema.webForm.deletedAt))).limit(1);
+    const said = (settings ?? (kept?.settings ?? {})) as FormSettings;
+    const placeholders = mk.confirmationProblems(definition, [
+      said.thankYou, said.confirmationText, said.confirmationEmailSubject, said.confirmationEmailBody,
+    ]);
+    if (placeholders.length > 0) {
+      throw new ConflictError(`The words after a submission cannot be saved: ${placeholders.join(" ")}`);
+    }
     const [row] = await tx.insert(schema.webForm).values({
       organizationId: ctx.actor.organizationId,
       slug: input.slug,
@@ -161,6 +187,14 @@ export async function save(ctx: ServiceContext, input: FormInput) {
     await audit(tx, ctx, "web_form.saved", "web_form", row!.id, null, { slug: input.slug });
     return { id: row!.id, slug: row!.slug, title: row!.title, source: row!.source, publicKey: row!.publicKey! };
   });
+}
+
+/** One file posted with a submission, base64 as every upload here is. */
+export interface FormFileInput {
+  field: string;
+  fileName: string;
+  contentType?: string | undefined;
+  bytes: string;
 }
 
 export interface SubmitOutcome {
@@ -294,6 +328,16 @@ async function customerFor(
  *
  * Throttled per address and per form before anything is written, because
  * this is the one page in the product that a script can post to all day.
+ *
+ * FILES COME IN THE SAME POST, and are held to the rules a customer's own
+ * upload and a reply by email are (`files.planFormUpload`, then
+ * `files.checkFormUpload`): counted against this address's hourly ceiling
+ * before a byte is read, refused as a program by name and claimed type before
+ * they are decoded, then by their bytes, and held to a count and a total for
+ * the submission. A refused file is a refusal on its field like any other, so
+ * the person is told which file and why, and the row keeps its name. Bytes are
+ * kept only for an accepted submission, on the customer the lead is: a
+ * refused or spam submission keeps none.
  */
 export async function submit(
   db: Database,
@@ -305,6 +349,7 @@ export async function submit(
     visitorId?: string | null;
     landingQuery?: string | null;
     referrer?: string | null;
+    files?: FormFileInput[] | undefined;
   },
   meta?: RequestMeta,
 ): Promise<SubmitOutcome> {
@@ -320,8 +365,18 @@ export async function submit(
   // Nor is one stored for the demo company, which every visitor can read.
   if (org.demoUserId) throw new DemoReadOnlyError();
 
-  await throttle(db, `form:ip:${org.id}:${meta?.ip?.slice(0, 64) || "unknown"}`, LIMITS.formPerAddress);
+  const address = meta?.ip?.slice(0, 64) || "unknown";
+  await throttle(db, `form:ip:${org.id}:${address}`, LIMITS.formPerAddress);
   await throttle(db, `form:f:${org.id}:${input.formSlug}`, LIMITS.formPerForm);
+  /**
+   * Every file counted against the address's hourly ceiling before a byte of
+   * it is looked at, so a refused file counts too and a script learns nothing
+   * by sending programs until one passes.
+   */
+  const posted = (input.files ?? []).slice(0, fileRules.FORM_UPLOADS.maxFiles + 1);
+  for (let i = 0; i < posted.length; i++) {
+    await throttle(db, `form-file:ip:${org.id}:${address}`, fileRules.FORM_UPLOADS.perAddressPerHour, 3600);
+  }
 
   const ctx: ServiceContext = { actor: formActor(org.id), db };
   const outcome = await inTenant(ctx, async (tx) => {
@@ -350,7 +405,10 @@ export async function submit(
           return {
             outcome: {
               accepted: row.state === "accepted", submissionId: row.id, refusals: row.refusals,
-              customerId: row.customerId, thankYou: row.state === "accepted" ? thankYouOf(form) : null,
+              customerId: row.customerId,
+              thankYou: row.state === "accepted"
+                ? thankYouOf(form, toDefinition(form), (row.clean ?? {}) as Record<string, mk.CleanValue>)
+                : null,
             },
             email: null,
           };
@@ -359,10 +417,77 @@ export async function submit(
     }
 
     const definition = toDefinition(form);
-    const decision = mk.checkSubmission(definition, {
-      values: input.values,
+
+    /**
+     * A file field's value is the names of the files that came for it, put
+     * here from what was posted, never what the page typed in the slot: a
+     * page cannot claim a file it did not send.
+     */
+    const fileFields = new Set(definition.fields.filter((f) => f.type === "file").map((f) => f.key));
+    const values: Record<string, unknown> = { ...input.values };
+    for (const key of fileFields) delete values[key];
+    const fileRefusals: { field: string; reason: string; message: string }[] = [];
+    const planned: FormFileInput[] = [];
+    posted.forEach((file, i) => {
+      if (!fileFields.has(file.field)) {
+        fileRefusals.push({
+          field: file.field, reason: "unknown_field",
+          message: `This form has no place for files called "${file.field}". It may have been changed since the page was opened: reload and try again.`,
+        });
+        return;
+      }
+      values[file.field] = [...((values[file.field] as string[] | undefined) ?? []), file.fileName];
+      const plan = i >= fileRules.FORM_UPLOADS.maxFiles
+        ? { ok: false as const, reason: `${fileRules.displayName(file.fileName)} was not sent: you can send up to ${fileRules.FORM_UPLOADS.maxFiles} files with this form.` }
+        : fileRules.planFormUpload({ fileName: file.fileName, contentType: file.contentType, encodedLength: file.bytes.length });
+      if (plan.ok) planned.push(file);
+      else fileRefusals.push({ field: file.field, reason: "bad_file", message: plan.reason });
+    });
+
+    let decision = mk.checkSubmission(definition, {
+      values,
       ...(input.startedAt ? { startedAt: input.startedAt } : {}),
     });
+
+    /**
+     * The bytes are decoded only now, and only for a submission that is not
+     * spam: what a script sent is never read past its name.
+     */
+    const kept: { field: string; fileName: string; contentType: string | undefined; bytes: Uint8Array }[] = [];
+    if (!(!decision.ok && decision.reason === "spam")) {
+      let bytesSoFar = 0;
+      for (const file of planned) {
+        let bytes: Uint8Array;
+        try {
+          bytes = decode(file.bytes);
+        } catch {
+          fileRefusals.push({
+            field: file.field, reason: "bad_file",
+            message: `${fileRules.displayName(file.fileName)} did not arrive whole. Pick it again and send the form again.`,
+          });
+          continue;
+        }
+        const verdict = fileRules.checkFormUpload(
+          { fileName: file.fileName, contentType: file.contentType, bytes },
+          { filesAlreadyAdded: kept.length, bytesAlreadyAdded: bytesSoFar },
+        );
+        if (!verdict.ok) {
+          fileRefusals.push({ field: file.field, reason: "bad_file", message: verdict.reason });
+          continue;
+        }
+        bytesSoFar += bytes.length;
+        kept.push({ field: file.field, fileName: file.fileName, contentType: file.contentType, bytes });
+      }
+      if (fileRefusals.length > 0) {
+        decision = {
+          ok: false, reason: "invalid",
+          refusals: [
+            ...fileRefusals.map((r) => ({ ...r, reason: r.reason as mk.FieldRefusalReason })),
+            ...(decision.ok ? [] : decision.refusals),
+          ],
+        };
+      }
+    }
 
     /**
      * The touch is recorded whatever the decision, and before the outcome is
@@ -404,9 +529,10 @@ export async function submit(
        * Exactly what arrived, whatever it was. A rejected submission whose
        * raw values were discarded cannot be read back, and reading it back
        * is the only way anybody finds out the phone field is rejecting a
-       * leading 1.
+       * leading 1. A file field holds the names of the files sent, never
+       * their bytes.
        */
-      raw: input.values as Record<string, unknown>,
+      raw: values,
       clean: decision.ok ? (decision.values as unknown as Record<string, unknown>) : null,
       refusals,
       touchId: touch.id,
@@ -436,6 +562,44 @@ export async function submit(
       await marketingService.claimReferral(tx, org.id, customer.id);
     }
 
+    /**
+     * The files, on the customer the lead is. Kept under their own kind, apart
+     * from what a customer adds from their own sign in: whoever filled in the
+     * form gave this customer's phone or email, which is not the same as being
+     * signed in as them, so the office sees where each came from. Never shown
+     * to the customer and never on a job link. The same bytes sent twice are
+     * one file.
+     */
+    const target = customer ? { type: "customer", id: customer.id } : { type: "form_submission", id: row!.id };
+    const attached: string[] = [];
+    for (const file of kept) {
+      const { file: stored } = await put(tx, org.id, {
+        bytes: file.bytes, claimedType: file.contentType, maxBytes: fileRules.FORM_UPLOADS.maxFileBytes,
+      });
+      const [same] = await tx.select({ id: schema.attachment.id }).from(schema.attachment)
+        .where(and(
+          eq(schema.attachment.entityType, target.type), eq(schema.attachment.entityId, target.id),
+          eq(schema.attachment.storageKey, stored.storageKey), isNull(schema.attachment.deletedAt),
+        )).limit(1);
+      if (same) continue;
+      const extension = stored.storageKey.split(".").pop() ?? "bin";
+      const { id } = await attach(tx, org.id, {
+        entityType: target.type,
+        entityId: target.id,
+        storageKey: stored.storageKey,
+        kind: FORM_FILE_KIND,
+        fileName: fileRules.downloadName(file.fileName, extension),
+        contentType: stored.contentType,
+        sizeBytes: stored.sizeBytes,
+        uploadedByUserId: null,
+      });
+      attached.push(id);
+      await audit(tx, ctx, "attachment.form_added", "attachment", id, null, {
+        entityType: target.type, entityId: target.id, formId: form.id, submissionId: row!.id,
+        storageKey: stored.storageKey, contentType: stored.contentType, sizeBytes: stored.sizeBytes,
+      });
+    }
+
     for (const field of definition.fields) {
       if (field.type !== "consent" || !field.consentFor || decision.values[field.key] !== true) continue;
       const address = field.consentFor.channel === "sms" ? mk.callerKey(contact.phone) : contact.email;
@@ -459,6 +623,9 @@ export async function submit(
       body: definition.fields
         .filter((f) => decision.values[f.key] !== undefined && f.type !== "consent" && f.type !== "hidden")
         .map((f) => `${f.label}: ${formatValue(decision.values[f.key]!)}`)
+        .concat(attached.length > 0
+          ? [customer ? "The files they sent are on their customer page." : "The files they sent are kept with the submission."]
+          : [])
         .join("\n"),
       priority: "high",
       entityType: customer ? "customer" : "form_submission",
@@ -467,18 +634,32 @@ export async function submit(
       dueAt: new Date(Date.now() + 2 * 3_600_000),
     });
 
+    /**
+     * The confirmation in their own words where it names an answer, filled
+     * by the one renderer, with each answer made safe for a message first
+     * (`confirmationScope`): it goes to whatever number or address was typed.
+     */
     const settings = (form.settings ?? {}) as FormSettings;
+    const scope = mk.confirmationScope(definition, decision.values, "message");
     const caller = mk.callerKey(contact.phone);
     if (settings.confirmationText && caller) {
       await sendTransactional(tx, {
-        organizationId: org.id, address: caller, body: settings.confirmationText, customerId: customer?.id ?? null,
+        organizationId: org.id, address: caller, body: render(settings.confirmationText, scope), customerId: customer?.id ?? null,
       });
     }
 
     return {
-      outcome: { accepted: true, submissionId: row!.id, refusals: [], customerId: customer?.id ?? null, thankYou: thankYouOf(form) },
+      outcome: {
+        accepted: true, submissionId: row!.id, refusals: [], customerId: customer?.id ?? null,
+        thankYou: thankYouOf(form, definition, decision.values),
+      },
       email: settings.confirmationEmailSubject && settings.confirmationEmailBody && contact.email
-        ? { to: contact.email, subject: settings.confirmationEmailSubject, text: settings.confirmationEmailBody, customerId: customer?.id ?? null }
+        ? {
+          to: contact.email,
+          subject: render(settings.confirmationEmailSubject, scope),
+          text: render(settings.confirmationEmailBody, scope),
+          customerId: customer?.id ?? null,
+        }
         : null,
     };
   });
@@ -499,8 +680,18 @@ export async function submit(
   return outcome.outcome;
 }
 
-const thankYouOf = (form: typeof schema.webForm.$inferSelect): string =>
-  ((form.settings ?? {}) as FormSettings).thankYou ?? "Thank you. We have your details and will be in touch shortly.";
+/**
+ * The sentence the page shows, with any answers it names. The page goes only
+ * to the person who sent the form, and draws it as words, so an answer there
+ * is cut to a line rather than to a few words.
+ */
+function thankYouOf(
+  form: typeof schema.webForm.$inferSelect, definition: mk.FormDefinition, values: Record<string, mk.CleanValue>,
+): string {
+  const written = ((form.settings ?? {}) as FormSettings).thankYou;
+  if (!written) return "Thank you. We have your details and will be in touch shortly.";
+  return render(written, mk.confirmationScope(definition, values, "page"));
+}
 
 function formatValue(value: mk.CleanValue): string {
   if (Array.isArray(value)) return value.join(", ");
@@ -533,6 +724,13 @@ export async function hosted(db: Database, input: { key: string }) {
     title: row.form.title,
     fields: definition.fields,
     thankYou: ((row.form.settings ?? {}) as FormSettings).thankYou ?? null,
+    pages: definition.pages ?? [],
+    uploads: {
+      maxFiles: fileRules.FORM_UPLOADS.maxFiles,
+      maxFileMegabytes: Math.round(fileRules.FORM_UPLOADS.maxFileBytes / (1024 * 1024)),
+      maxTotalMegabytes: Math.round(fileRules.FORM_UPLOADS.maxTotalBytes / (1024 * 1024)),
+      types: [...fileRules.FORM_UPLOADS.types],
+    },
   };
 }
 
@@ -547,6 +745,7 @@ export async function definitionOf(ctx: ServiceContext, slug: string) {
       id: row.id, slug: row.slug, title: row.title, source: row.source, publicKey: row.publicKey,
       fields: definition.fields, minimumFillSeconds: definition.minimumFillSeconds ?? null,
       settings: (row.settings ?? {}) as FormSettings,
+      pages: definition.pages ?? [],
     };
   });
 }
@@ -640,7 +839,7 @@ export const handlers = {
   saveForm: (ctx: ServiceContext, input: {
     slug: string; title: string; source?: string | undefined;
     fields: readonly unknown[]; minimumFillSeconds?: number | undefined;
-    settings?: FormSettings | undefined;
+    settings?: FormSettings | undefined; pages?: mk.FormPage[] | undefined;
   }): Promise<{ id: string; slug: string; title: string; source: string; publicKey: string }> =>
     save(ctx, { ...input, fields: input.fields as mk.FormField[] }),
 
@@ -653,6 +852,7 @@ export const handlers = {
     values: Record<string, unknown>;
     startedAt?: string | undefined; visitorId?: string | undefined;
     landingQuery?: string | undefined; referrer?: string | undefined;
+    files?: FormFileInput[] | undefined;
   }, meta?: RequestMeta): Promise<SubmitOutcome> => submit(db, {
     organizationSlug: input.organizationSlug,
     formSlug: input.formSlug,
@@ -661,6 +861,7 @@ export const handlers = {
     visitorId: input.visitorId ?? null,
     landingQuery: input.landingQuery ?? null,
     referrer: input.referrer ?? null,
+    files: input.files,
   }, meta),
 
   listSubmissions: async (ctx: ServiceContext, input: {

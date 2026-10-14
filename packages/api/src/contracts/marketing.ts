@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
+import { files as fileRules, marketing as mk } from "@opentradesos/core";
 import { Uuid, MoneyString, RateString } from "./common";
 
 /**
@@ -267,7 +268,7 @@ export const listUnplacedSources = defineRoute({
 export const FormFieldType = z.enum([
   "text", "long_text", "email", "phone", "service_address",
   "choice", "multi_choice", "number", "date", "consent",
-  "hidden", "honeypot",
+  "hidden", "honeypot", "file",
 ]);
 
 export const FormField = z.object({
@@ -293,6 +294,24 @@ export const FormField = z.object({
     channel: z.enum(["sms", "email"]),
     purpose: z.enum(["marketing", "transactional"]),
   }).optional(),
+  /** The page the field is on, from 0, when the form is split into pages. Absent is the first. */
+  page: z.number().int().min(0).max(mk.MAX_FORM_PAGES - 1).optional(),
+});
+
+/** One page of a form split into pages: the heading it shows. */
+export const FormPage = z.object({ title: z.string().max(120) });
+
+/**
+ * A file sent with a lead form, as base64 like every other upload here. Its
+ * field names the form's file field it answers. The name and the claimed type
+ * are read to refuse a program before the bytes are; the type kept is decided
+ * from the bytes.
+ */
+export const FormFile = z.object({
+  field: z.string().min(1).max(60),
+  fileName: z.string().min(1).max(255),
+  contentType: z.string().max(100).optional(),
+  bytes: z.string().min(1).max(fileRules.FORM_UPLOAD_MAX_BASE64 + 200),
 });
 
 /** What happens after a good submission, as the office set it. */
@@ -304,6 +323,10 @@ export const FormSettings = z.object({
   confirmationEmailSubject: z.string().max(200).optional(),
   confirmationEmailBody: z.string().max(4000).optional(),
 });
+/*
+ * Every one of the four may repeat a short answer by its field's key, as
+ * `{{ name }}`; a name that is not one is refused when the form is saved.
+ */
 
 export const listForms = defineRoute({
   method: "get",
@@ -346,6 +369,8 @@ export const saveForm = defineRoute({
      */
     minimumFillSeconds: z.number().int().min(0).max(300).optional(),
     settings: FormSettings.optional(),
+    /** The pages, each with its heading, when the form is split. Absent or one is a form on one page. */
+    pages: z.array(FormPage).max(mk.MAX_FORM_PAGES).optional(),
   }),
   output: z.object({
     id: Uuid, slug: z.string(), title: z.string(), source: z.string(), publicKey: z.string(),
@@ -362,6 +387,7 @@ export const getForm = defineRoute({
   output: z.object({
     id: Uuid, slug: z.string(), title: z.string(), source: z.string(), publicKey: z.string().nullable(),
     fields: z.array(FormField), minimumFillSeconds: z.number().int().nullable(), settings: FormSettings,
+    pages: z.array(FormPage),
   }),
 });
 
@@ -381,6 +407,12 @@ export const getHostedForm = defineRoute({
     organizationName: z.string(), organizationSlug: z.string(),
     formSlug: z.string(), title: z.string(), fields: z.array(FormField),
     thankYou: z.string().nullable(),
+    pages: z.array(FormPage),
+    /** What a file field takes, for the page to say before anybody picks a file. */
+    uploads: z.object({
+      maxFiles: z.number().int(), maxFileMegabytes: z.number().int(), maxTotalMegabytes: z.number().int(),
+      types: z.array(z.string()),
+    }),
   }),
 });
 
@@ -403,6 +435,8 @@ export const submitForm = defineRoute({
     visitorId: z.string().max(200).optional(),
     landingQuery: z.string().max(4000).optional(),
     referrer: z.string().max(2000).optional(),
+    /** Photos and PDFs for the form's file fields, all in this one post. */
+    files: z.array(FormFile).max(fileRules.FORM_UPLOADS.maxFiles).optional(),
   }),
   output: z.object({
     accepted: z.boolean(),

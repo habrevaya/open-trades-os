@@ -237,6 +237,53 @@ person, so a script learns nothing. A good one, in one transaction:
   confirmation email after the lead is saved, so a refused email never loses
   the lead.
 
+**Photos and PDFs.** A field of the kind "Photos or PDFs" (`file`) takes up to
+five files and four megabytes in all, posted with the rest of the form in one
+`POST /v1/public/forms/{formSlug}` (base64, under `files`). They are held to
+the rules a signed in customer's upload and a reply by email are held to, in
+this order: every file is counted against the address's own ceiling (twenty
+files an hour) before anything about it is read; a program is refused by its
+name and its claimed type before it is decoded (`files.planFormUpload`), then
+by its bytes, and only a photo (JPEG, PNG, HEIC or WebP) or a PDF decided from
+the bytes is kept (`files.checkFormUpload`); the count and the total hold for
+the submission. A refused file is a refusal on its field in words ("leak.jpg
+was not sent: it is a program or a script, and those are never kept"), and the
+submission row keeps the names it was sent, never the bytes. Nothing of a spam
+or refused submission is decoded or kept. An accepted one's files go on the
+customer the lead matched or made, under their own kind (`form_file`), apart
+from what a customer adds from their own sign in: whoever filled the form in
+gave that customer's phone or email, which is not signing in as them, so the
+customer page shows them under "Sent with a lead form" and says so. They are
+private to the company, never on a job link and never shown to the customer.
+The call back task lists their names. The hosted page makes a photograph
+smaller before it sends it, as the technician's camera does.
+
+**Pages.** The builder's "Split into pages" gives a form two or more pages (at
+most six), each with a heading, and every question says which page it is on.
+Pages must come in order and none may be empty, checked by core when the form
+is saved. The hosted page shows one page at a time with Back and Next; Next
+checks the page with core's own field checks (`marketing.checkPage`), so the
+person hears what Send would have said while they are still on that page, and
+going Back keeps what they typed. Nothing is posted until the last page, and
+the server checks the whole form again: a page skipped in a browser is still
+refused, and a refusal on an earlier page takes the person back to it.
+
+**Their answers in the confirmation.** The sentence the page shows, the text
+and the email may repeat an answer by its question's key, as `{{ name }}` or
+`{{ system }}`, filled by the one renderer the product has. Only the short
+answers can be repeated (short answer, email, phone, pick one, pick several,
+number, date and address; a choice reads as its label, a phone as "(512)
+555-0134"); a long answer, a tick box, a hidden value, the spam trap and the
+files cannot, and a name that is not a usable question on the form is refused
+when the form is saved, including a confirmation kept from before when only
+the questions changed. The renderer makes one pass, so an answer that itself
+says `{{ phone }}` is never filled, and braces are taken out of answers anyway.
+Because the text and the email go to whatever number or address was typed, a
+stranger could aim them at somebody else, so in a message an answer is one
+line of at most sixty characters and an answer with a web address or an email
+address in it is left out altogether. The page is shown only to the person who
+sent it and draws answers as words, never as markup.
+
 ## Referrals
 
 Every customer has a referral code, minted the first time anybody asks, and a
@@ -1061,7 +1108,9 @@ most real use:
   `PATCH /v1/marketing/website-tracking` for number insertion.
 - `GET /v1/marketing/forms/{slug}/definition`, `PUT /v1/marketing/forms/{slug}`,
   `GET /v1/public/hosted-forms/{key}` and `POST /v1/public/forms/{formSlug}` for
-  lead forms.
+  lead forms (pages in the definition, files in the post). The files a form
+  brought are read with `GET /v1/attachments` for the customer, under
+  `document:read`.
 - `GET /v1/marketing/referrals`, `PUT /v1/marketing/referral-settings`,
   `POST /v1/marketing/referral-rewards/{id}/settle`,
   `GET /v1/customers/{id}/referral`, `PUT /v1/customers/{id}/referrer` and
@@ -1234,10 +1283,17 @@ sample and therefore not a test of anything.
   site's own script is swapped at the next renewal, a few minutes on. One pool
   number is held per visitor, not per source, so a large site needs a pool as
   large as its concurrent visitors.
-- **Hosted forms' limits.** No file upload field, no multi page form, no
-  third party captcha (the spam trap, the timing check and the per address
-  ceiling are what there is). A confirmation goes as written, with no
-  placeholders.
+- **Hosted forms' limits.** No third party captcha (the spam trap, the timing
+  check and the per address ceilings are what there is). Files arrive only in
+  the one post at the end, so a form takes at most five files and four
+  megabytes in all, and a PDF is not made smaller; a person whose files are
+  refused picks them again rather than resuming. A page cannot be skipped or
+  shown only for some answers: every page is shown, in order. A confirmation
+  repeats answers only from the closed list of short kinds, cut short and with
+  links left out in a text or an email; there is no first name of its own
+  (`{{ name }}` is the whole answer). Files sent with a form are matched to a
+  customer only by the phone or email typed, the same as the lead itself, and
+  cannot be moved onto a job from the customer page.
 - **Referral rewards' limits.** One reward per referred customer, on their
   first paid job. A reward paid as owed is marked paid by hand; nothing pays it.
   A credit note reward is not applied to an invoice until somebody applies it.

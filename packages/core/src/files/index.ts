@@ -375,6 +375,85 @@ export function checkCustomerUpload(
   return verdict;
 }
 
+/* ------------------------------------------- files that come with a lead form */
+
+/**
+ * WHAT A STRANGER MAY SEND WITH A LEAD FORM
+ *
+ * A photograph of the leak, the PDF of last year's quote. Nobody is signed in:
+ * the hosted form is on the open internet, so the rules are the customer
+ * upload's (never a program, by name, claimed type or bytes; a photograph or a
+ * PDF decided from the bytes) and the limits are smaller.
+ *
+ * Five files on one submission and four megabytes in all, because the whole
+ * form goes in one post through a server action capped at six, and base64 makes
+ * four megabytes a little over five. The page makes a photograph smaller before
+ * it sends it, so five pictures of one fault fit with room to spare. Twenty
+ * files an hour from one address, counted before a byte is read, so a script
+ * cannot fill the company's disk one submission at a time.
+ */
+export const FORM_UPLOADS = {
+  maxFiles: 5,
+  maxFileBytes: 4 * 1024 * 1024,
+  maxTotalBytes: 4 * 1024 * 1024,
+  perAddressPerHour: 20,
+  types: CUSTOMER_UPLOADS.types,
+} as const;
+
+/** The longest base64 a file within the limit can be, for a check made before decoding. */
+export const FORM_UPLOAD_MAX_BASE64 = Math.ceil(FORM_UPLOADS.maxFileBytes / 3) * 4;
+
+/**
+ * Whether a file named on a lead form is worth reading at all, from what the
+ * page said about it: not a program by its name or its claimed type, and not
+ * said to be larger than one file may be. Decided before the bytes are
+ * decoded, so a program that says what it is costs nothing.
+ */
+export function planFormUpload(
+  file: { fileName: string; contentType?: string | null | undefined; encodedLength: number },
+): { ok: true } | { ok: false; reason: string } {
+  const name = displayName(file.fileName);
+  if (isProgramName(file.fileName, file.contentType)) {
+    return { ok: false, reason: `${name} was not sent: it is a program or a script, and those are never kept. Send a photo or a PDF.` };
+  }
+  if (file.encodedLength > FORM_UPLOAD_MAX_BASE64) {
+    return { ok: false, reason: `${name} was not sent: a file can be up to ${megabytes(FORM_UPLOADS.maxFileBytes)} MB.` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Whether one file sent with a lead form may be kept: not a program by its
+ * bytes either, within what is left of the submission's count and total, and
+ * a photograph or a PDF by its bytes. The words are for the person filling the
+ * form in, so they say what to do instead.
+ */
+export function checkFormUpload(
+  file: { fileName: string; contentType?: string | null | undefined; bytes: Uint8Array },
+  options: { filesAlreadyAdded: number; bytesAlreadyAdded: number },
+): FileVerdict {
+  const name = displayName(file.fileName);
+  if (isProgramName(file.fileName, file.contentType) || isProgramBytes(file.bytes)) {
+    return { ok: false, reason: `${name} was not sent: it is a program or a script, and those are never kept. Send a photo or a PDF.` };
+  }
+  if (options.filesAlreadyAdded >= FORM_UPLOADS.maxFiles) {
+    return { ok: false, reason: `${name} was not sent: you can send up to ${FORM_UPLOADS.maxFiles} files with this form.` };
+  }
+  if (file.bytes.length > FORM_UPLOADS.maxFileBytes) {
+    return { ok: false, reason: `${name} was not sent: a file can be up to ${megabytes(FORM_UPLOADS.maxFileBytes)} MB and that one is ${megabytes(file.bytes.length)} MB.` };
+  }
+  if (options.bytesAlreadyAdded + file.bytes.length > FORM_UPLOADS.maxTotalBytes) {
+    return { ok: false, reason: `${name} was not sent: the files sent with this form can come to ${megabytes(FORM_UPLOADS.maxTotalBytes)} MB in all.` };
+  }
+  const verdict = checkFile(file.bytes, {
+    maxBytes: FORM_UPLOADS.maxFileBytes, ...(file.contentType ? { claimedType: file.contentType } : {}),
+  });
+  if (!verdict.ok || !FORM_UPLOADS.types.includes(verdict.contentType)) {
+    return { ok: false, reason: `${name} was not sent: only a photo (JPEG, PNG, HEIC or WebP) or a PDF can be sent.` };
+  }
+  return verdict;
+}
+
 /**
  * A name somebody else chose, made safe to show and to offer as a download:
  * no folders, no control characters, no quotes, at most a hundred characters,
