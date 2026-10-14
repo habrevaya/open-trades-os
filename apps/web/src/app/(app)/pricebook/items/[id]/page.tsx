@@ -11,6 +11,7 @@ import { formatIn, todayIn } from "@/lib/dates";
 import { PRICE_BOOK_KIND, label } from "@/lib/labels";
 import { FEE_ROLES, KINDS, PriceFields, shelfOptions } from "../ItemFields";
 import { actOnItem } from "../actions";
+import { percentOf } from "@/lib/commission-rate";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,8 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
   const writes = can(user.actor, "pricebook:write");
   const publishes = can(user.actor, "pricebook:publish");
   const seesCost = can(user.actor, "pricebook.cost:read");
+  /** A commission rate is a pay term: seen with `commission:read`, set with `commission:configure`. */
+  const setsCommission = can(user.actor, "commission:configure") && "commissionRate" in item;
   const readsVendors = can(user.actor, "vendor:read");
   const writesVendors = can(user.actor, "vendor:write");
   const [shelves, links, vendors] = await Promise.all([
@@ -84,6 +87,27 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
           </p>
           <ActionForm action={actOnItem} submit="Save as a new version" hidden={{ ...hidden, op: "revise" }} className="mt-3 space-y-3">
             <PriceFields item={item} seesCost={seesCost} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <TextField label="Picture (a web address starting with https://)" name="imageUrl" type="url" maxLength={2000}
+                           defaultValue={item.imageUrl ?? ""} placeholder="https://" />
+                <input type="hidden" name="imageUrlWas" value={item.imageUrl ?? ""} />
+                <p className="mt-1 text-xs text-ink-500">
+                  Kept with this version of the item and shown by nothing yet. Empty takes it off.
+                </p>
+              </div>
+              {setsCommission ? (
+                <div>
+                  <TextField label="Commission on this item, percent" name="commissionPercent" inputMode="decimal"
+                             defaultValue={percentOf("commissionRate" in item ? item.commissionRate : null)} placeholder="8" />
+                  <input type="hidden" name="commissionPercentWas" value={percentOf("commissionRate" in item ? item.commissionRate : null)} />
+                  <p className="mt-1 text-xs text-ink-500">
+                    Kept with this version. Pay is not worked out from it yet: commission still follows each person&apos;s
+                    own plan. Empty means no rate on this item.
+                  </p>
+                </div>
+              ) : null}
+            </div>
             <TextField label="Takes effect (leave empty for now)" name="effectiveOn" type="date"
                        min={todayIn(user.organizationTimezone)} className="block w-56" />
           </ActionForm>

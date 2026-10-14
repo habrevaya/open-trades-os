@@ -21266,6 +21266,8 @@ export interface RevisePriceBookItemInput {
     itemId: string;
     quantity: number;
   }>;
+  imageUrl?: string | null;
+  commissionRate?: string | null;
   effectiveFrom?: string;
 }
 

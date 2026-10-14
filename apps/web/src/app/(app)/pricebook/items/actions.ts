@@ -10,6 +10,7 @@ import {
 } from "@opentradesos/api/contracts";
 import { time } from "@opentradesos/core";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { shareOf } from "@/lib/commission-rate";
 
 const session = async () => {
   const user = await requireSetupUser();
@@ -61,8 +62,23 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
         const on = field(form, "effectiveOn");
         const start = on ? time.startOfDayIn(on, timezone) : null;
         const from = start && start.getTime() > Date.now() ? on : undefined;
+        /**
+         * The picture and the commission rate are sent only when they were changed
+         * on the form: an item that came in with a picture address the revise route
+         * would not take now, or an editor who may not set commission, must still be
+         * able to raise a price. Empty takes either off (the commission going back to
+         * the person's own plan), through the route's null.
+         */
+        const picture = field(form, "imageUrl") ?? null;
+        const pictureChanged = form.has("imageUrl") && picture !== (field(form, "imageUrlWas") ?? null);
+        const commission = shareOf(field(form, "commissionPercent"));
+        if (!commission.ok) throw new ConflictError(commission.error);
+        const commissionChanged = form.has("commissionPercent")
+          && commission.share !== (shareOf(field(form, "commissionPercentWas")) as { share: string | null }).share;
         await priceBook.revise(ctx, parsed(revisePriceBookItem.input, {
           id,
+          ...(pictureChanged ? { imageUrl: picture } : {}),
+          ...(commissionChanged ? { commissionRate: commission.share } : {}),
           name: field(form, "name"),
           description: String(form.get("description") ?? "").trim(),
           price: amount(field(form, "price")),

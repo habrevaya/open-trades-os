@@ -105,7 +105,7 @@ export const revisePriceBookItem = defineRoute({
   method: "post",
   path: "/v1/pricebook/items/{id}/revise",
   summary: "Revise a price book item",
-  description: "Creates a new version, from now or from `effectiveFrom`: the name, description, price, cost, labour minutes, tax, warranty and a kit's parts, each carried forward when left off. Existing documents keep the version they were priced against.",
+  description: "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate and a kit's parts, each carried forward when left off. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.",
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -126,6 +126,18 @@ export const revisePriceBookItem = defineRoute({
      * kit that contains it.
      */
     components: z.array(KitComponent).max(100).optional(),
+    /**
+     * The item's picture, as an https address, written into the new version like any other field. `null`
+     * takes the picture off; left off, it carries forward. Only https, so a stored address can never be
+     * a script or a file on somebody's phone if a screen ever draws it.
+     */
+    imageUrl: z.string().max(2000).regex(/^https:\/\/[^\s]+$/, "Use a web address that starts with https://").nullable().optional(),
+    /**
+     * What a seller is paid on this item, as a share of the line (0.08 is eight per cent, never above 1),
+     * replacing the technician's plan for it. `null` goes back to the plan; left off, it carries forward.
+     * Setting it is a pay term, so it needs `commission:configure` as well.
+     */
+    commissionRate: z.string().regex(/^(0(\.\d{1,6})?|1(\.0{1,6})?)$/, "A share from 0 to 1, like 0.08 for eight per cent").nullable().optional(),
     effectiveFrom: z.string().datetime().optional(),
   }),
   output: PriceBookItem,

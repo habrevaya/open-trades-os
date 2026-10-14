@@ -89,6 +89,23 @@ points at any of those. The item can be retired or sold again, and the
 vendors who sell it to us are listed with their part numbers (M16).
 `/pricebook` can include retired items.
 
+**A picture and a commission rate**, in the same "Change the price or wording" form,
+are versioned like everything else there (`imageUrl` and `commissionRate` on
+`POST /v1/pricebook/items/{id}/revise`): left alone they carry forward through a price
+change, a kit change and a bulk change, whoever makes it; empty takes the picture off or
+puts the commission back to "no rate on this item". The picture is a web address that
+starts with `https://` (at most 2,000 characters, no spaces); nothing else is taken, so
+a stored address can never be a script or a file on somebody's phone if a screen ever
+draws it. The commission is typed as a percent ("8.5") and kept as a share of the line
+("0.085", never above 1). A commission rate is a pay term, so it is shown only to
+somebody who may read commission (`commission:read`), and setting or clearing one needs
+`commission:configure` as well as `pricebook:write`: an editor of the price book without
+it can still raise a price, change the picture and revise everything else, and the form
+does not show them the box. Both are in the audit line of the revision, before and after.
+Neither is used by anything else yet: no screen draws an item's picture, and
+commission is still worked out from the person's own plan, so a rate set here is
+recorded and not paid (the form says so).
+
 **What is in the kit**, on the same screen, lists a kit's parts by code with how
 many of each, and saves a changed list as a new version, now or from a day ahead,
 exactly like a price change (`components` on the revise call): an estimate already
@@ -245,8 +262,10 @@ different permission from editing the book.
 
 An item with a revision already scheduled is left out of a bulk change, dated
 ahead or not, rather than given a version beside it. A bulk change reaches at most
-two thousand items at a time. The item screen does not edit an image or a
-commission rate; those carry forward through a revision unchanged. A kit's price is
+two thousand items at a time. Nothing yet draws an item's picture, and nothing yet pays commission from an item's rate: the first is stored and offered on the API and the item screen, the second is a
+recorded rate that commission (M17) does not read, because which of the item's rate
+and the person's plan wins, on a line with both, is an accounting and pay decision the
+product owner has not made. A kit's price is
 its own and is not worked out from its parts. Whether an item is taxed is a yes or
 a no: an item taxed at a reduced rate has that rate chosen on the line by the office. A revision dated ahead is staged from the start of that day
 in the company's calendar; a time of day is an API call.
