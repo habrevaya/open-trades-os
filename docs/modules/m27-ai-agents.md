@@ -117,8 +117,9 @@ is work for the office, read by the people who could read the message it came fr
    items whose price it may say out loud. Collections takes up to six steps by days past
    the due date, each with how it should sound and whether it goes by email or text. The
    phone assistant takes what it says after its disclosure, its own questions and answers
-   and published prices, the most replies on one call, and the ring group it puts callers
-   through to (or voicemail).
+   and published prices, the most replies on one call, the ring group it puts callers
+   through to (or voicemail), and up to six other places it may send a caller (waiting
+   lines and phone menus, each with what it is for).
 3. For the website chat, nothing else to paste: the website snippet from
    `/settings/website` shows the chat button once the chat agent is on.
 4. For the phone assistant, run the voice relay beside the web app and set
@@ -176,6 +177,26 @@ has heard nothing three times, when its person can no longer do what it needs, w
 spend ceiling or its runs a day stop it, when the model fails, and when an answer would
 have said a price the company has not published, which is never said. A caller put
 through goes to the ring group on its settings, or voicemail.
+
+**Speaking as it thinks.** With a model connection that streams (Anthropic and OpenAI do
+here; Google's sends a tool call's arguments whole, so it is asked for the whole answer),
+a reply is said a sentence at a time while the model is still writing the rest: each
+sentence goes to ConversationRelay as soon as it is finished, as a text token with `last`
+false, and the rest of the answer follows with `last` true once the whole of it has been
+read and checked. Each sentence is held to the same rules as a whole answer before it is
+said: made speakable, and a sentence naming a price the company has not published is
+never said, nor anything after it, and the caller is put through. Only a reply is said
+this way; what goes with a booking, a message, a goodbye or putting the caller through is
+said once that has been done. What was said is what is written down.
+
+**Sending a caller on.** Besides its ring group, the owner can give the assistant up to six
+places on `/settings/agents`, each a waiting line or a phone menu with what it is for in
+their own words ("Questions about a bill or a payment"). The assistant is told them, and
+when one fits what the caller needs better than a person it sends them there: "Let me send
+you to the right place." A place it was not given is refused, logged, and the caller is put
+through to a person instead. The place is read again against the settings when the caller
+is sent, so one taken off the list or deleted since is not used. A line or menu on the list
+cannot be deleted until it is taken off.
 
 Card numbers and security codes the caller reads out are removed before their words are
 written down or shown to the model. On the call screen it shows everything it heard and
@@ -352,21 +373,25 @@ this category has enough of those.
 The phone assistant has not been tried on a live phone line. It is built from Twilio's
 ConversationRelay documentation and tested against a WebSocket client playing the
 carrier's part, so the carrier's real timing, speech recognition and signature on the
-handshake are untested. It needs the voice relay deployed as its own process; with no
-relay, calls sent to it are put through instead, and a relay restarted mid call puts that
-caller through. Each answer is one whole model call with no streaming, so the caller hears
-nothing until the answer is complete, and it speaks and hears English only. It keeps what
+handshake are untested, and so is how the carrier paces text tokens sent with `last`
+false. It needs the voice relay deployed as its own process; with no relay, calls sent to
+it are put through instead, and a relay restarted mid call puts that caller through. A
+reply is spoken as it is written only on Anthropic and OpenAI connections, and only a
+reply: on a Google connection, and for everything that goes with a booking or a message,
+the caller hears nothing until the answer is complete. A sentence is spoken only once it
+is finished, so the first words wait for the first full stop. It speaks and hears English
+only. It keeps what
 the caller said on the strength of the disclosure it opens with, not on a press 1 yes
 like a recording; a company whose advice says that is not enough for its callers should
-not send calls to it. Its part of the call is never recorded as audio. It cannot move a
-caller to a waiting line or another menu itself, only to its one ring group or voicemail,
-and it takes one booking request a call. There is no LiveKit path. The field assistant finds what to give the
+not send calls to it. Its part of the call is never recorded as audio. It sends a caller
+only to its ring group, voicemail, or one of the places the owner listed for it, and it
+takes one booking request a call. There is no LiveKit path. The field assistant finds what to give the
 model by matching the words of the question against the records and notes, not by
 meaning, so a question in words no note uses finds nothing and says so; it reads the
 equipment and notes of one address and the price book, not the photographs, the
-manufacturer's literature or another customer's history, and it needs a signal. No
-streaming: every model call is one request and one response, so the chat answers a
-message at a time. The intake agent books through online booking's services and
+manufacturer's literature or another customer's history, and it needs a signal. Only the phone
+assistant streams: every other agent's model call is one request and one response, so the
+chat answers a message at a time. The intake agent books through online booking's services and
 windows only; a company with none set up gets the summary and books by hand, and an
 intake booking's visit goes on the board unassigned rather than onto a technician's
 day. The chat widget is reached through the website snippet or its own script tag;

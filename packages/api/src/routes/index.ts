@@ -23,7 +23,7 @@ import {
   portalSignIn, portalSettings, savedCards, tips, portalAccount,
   portalAccess, portalBlocks, portalBooking, portalFiles, cardOnFile, portalLayout,
   setup, team, branches, tradePacks,
-  phoneMenus, transcription, callQueues, softphone, voiceAgent,
+  phoneMenus, transcription, callQueues, softphone, voiceAgent, callTransfers,
   ads, marketplaceLeads, leadEmails, directMail,
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
@@ -1013,6 +1013,7 @@ export const handlers = {
   // Waiting lines, the browser phone and the phone assistant's calls (M18, M27)
   ...callQueues.handlers,
   ...softphone.handlers,
+  ...callTransfers.handlers,
   ...voiceAgent.handlers,
   recordPublicTouch: websiteTracking.handlers.recordPublicTouch,
   getVisitorNumber: websiteTracking.handlers.getVisitorNumber,

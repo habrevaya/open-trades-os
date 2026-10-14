@@ -418,6 +418,13 @@ export const voiceAgentSession = pgTable("voice_agent_session", {
   messageTaken: boolean("message_taken").notNull().default(false),
   /** Why the caller was put through, in words, for the call screen and the office. */
   transferReason: text("transfer_reason"),
+  /**
+   * Where the caller is sent instead of a person, when the assistant chose
+   * one of the places the company allowed it: `{ kind: "queue", id }` or
+   * `{ kind: "menu", id }`. Read again against the settings when the caller
+   * is sent, so a place taken off the list since is not used.
+   */
+  transferTo: jsonb("transfer_to").$type<{ kind: "queue" | "menu"; id: string; label: string } | null>(),
   /** What the carrier says before doing what the assistant decided: the goodbye, or "putting you through". */
   closingWords: text("closing_words"),
   /** `transfer` or `hang_up`, decided by the assistant, read by the carrier's next request. */

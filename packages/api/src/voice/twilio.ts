@@ -212,6 +212,10 @@ export function createTwilioVoice(
         To: input.to, From: input.from, Url: input.url, Method: "POST",
         Timeout: String(Math.max(5, Math.min(60, Math.round(input.timeoutSeconds)))),
       });
+      if (input.statusUrl) {
+        form.set("StatusCallback", input.statusUrl);
+        form.set("StatusCallbackMethod", "POST");
+      }
       return call(`${account}/Calls.json`, { method: "POST", form }, (payload) => ({
         callSid: String(payload["sid"] ?? ""),
       }));
@@ -243,6 +247,22 @@ export function createTwilioVoice(
       return call(target, { method: "POST", form }, (payload) => ({
         applicationSid: String(payload["sid"] ?? input.applicationSid ?? ""),
       }));
+    },
+
+    redirectCall(input) {
+      return call(
+        `${account}/Calls/${encodeURIComponent(input.callSid)}.json`,
+        { method: "POST", form: new URLSearchParams({ Url: input.url, Method: "POST" }) },
+        () => ({}),
+      );
+    },
+
+    endCall(callSid) {
+      return call(
+        `${account}/Calls/${encodeURIComponent(callSid)}.json`,
+        { method: "POST", form: new URLSearchParams({ Status: "completed" }) },
+        () => ({}),
+      );
     },
 
     deleteRecording(recordingId) {

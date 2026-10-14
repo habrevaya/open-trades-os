@@ -172,7 +172,10 @@ export function voicePrompt(input: {
   facts: ChatFacts; turns: VoiceTurnLine[];
   caller: { number: string | null; candidates: CustomerCandidate[]; lookedUp: boolean };
   bookingTaken: boolean; messageTaken: boolean;
+  /** The places the company lets the assistant send a caller, by id and what each is for. */
+  places?: readonly { id: string; label: string }[] | undefined;
 }): Prompt {
+  const places = input.places ?? [];
   const transcript = input.turns.map((turn) => turn.from === "caller"
     ? `<customer>\n${quoteCustomer(turn.text, 1000)}\n</customer>`
     : `You: ${turn.text}`).join("\n");
@@ -190,6 +193,9 @@ export function voicePrompt(input: {
       "- If the caller wants somebody to call them back, use take_message.",
       "- Use transfer when the caller asks for a person, is upset, describes danger (gas smell, flooding, sparks, no heat for somebody vulnerable), or you are unsure.",
       "- Use end_call only when the caller is done and says goodbye.",
+      places.length > 0
+        ? "- When one of the places listed fits what the caller needs better than a person (for example a billing line for a billing question), use transfer with that place's id as place. Never name any other place."
+        : "",
       input.bookingTaken ? "- A booking request has already been taken on this call. Do not take a second one." : "",
       input.messageTaken ? "- A message has already been taken on this call." : "",
     ].filter(Boolean).join("\n"),
@@ -206,6 +212,7 @@ export function voicePrompt(input: {
       "",
       input.facts.windows.length > 0 ? block("Open windows (only these may be offered)", input.facts.windows) : "No windows are open to book right now.",
       "",
+      ...(places.length > 0 ? [block("Places you may send the caller (id and what it is for)", places), ""] : []),
       `The caller is calling from ${input.caller.number ?? "a number that was withheld"}.`,
       input.caller.candidates.length > 0
         ? block(input.caller.lookedUp ? "Customers found from what the caller said" : "Customers with that number", input.caller.candidates)

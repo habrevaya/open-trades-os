@@ -110,8 +110,9 @@ export async function startVoiceRelay(options: RelayOptions): Promise<RelayServe
     let live: voiceAgent.Live | null = null;
     let over = false;
     let chain: Promise<void> = Promise.resolve();
-    const speak = async (text: string) => {
-      if (ws.readyState === ws.OPEN) ws.send(relayText(text));
+    /** A piece of an answer still being written goes with `last` false; the carrier says it at once. */
+    const speak = async (text: string, last = true) => {
+      if (ws.readyState === ws.OPEN) ws.send(relayText(text, last));
     };
     const end = (reason: string) => {
       if (over) return;

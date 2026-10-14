@@ -249,9 +249,57 @@ the line allows (thirty seconds to thirty minutes) the caller goes where it
 overflows to, voicemail unless the owner chose otherwise, and the call says how
 long they waited. A caller who hangs up while waiting is a missed call.
 
+Somebody already on a call is left out of each round: the next person in turn
+who is free, or everybody free at once. This product knows a person is on a
+call when it saw them pick up (in the browser, from a waiting line, a
+callback, or on a number that whispers) or place one from the browser, until
+the carrier says the call is over; somebody who answered a plain forwarded call
+on their own phone is not seen picking up, so they are still rung. A call the
+carrier never reported the end of stops counting after three hours. The first
+round's call says who was left out ("Not rung, already on a call").
+
+**Saying how long.** With "Tell callers how long callers have lately waited"
+on, a caller is told once, as they join, "Most callers lately have been
+answered within about 3 minutes": the longer end of the waits of the last
+twenty callers this line put through in the past three hours (three in four of
+them were answered within it), rounded up to whole minutes. With fewer than
+five answered lately nothing is said at all, and it is said as what happened
+lately, never as a promise about this call. Off on lines made before it; on by
+default on the form for a new line.
+
+**Being called back.** With "Let callers press 1 to be called back" on (off
+unless the owner turns it on), every turn of the music offers it, and the
+caller can press 1 at any moment of the music. They are told "We will call you
+back on" their own number, read back a digit at a time, and hang up. Only the
+number they called from is rung, and a caller whose number was withheld is
+never offered it. They keep their place: the next person free in the line's
+ring group (and anybody already on a call is not rung) is given whichever of
+the callers still on hold and the callers waiting to be called back joined
+the line first, and a caller on hold behind a callback hears that there is a
+caller ahead of them. That person is rung first; when they pick up they hear
+"A Service line caller asked to be called back. Calling them now." and the
+caller is rung from the company's number with them already on the line. The
+callback is logged as a call the office placed, by that person, and is never
+recorded, because nobody on it was asked. Two people picking up at once
+cannot both ring the same caller: the callback is claimed first. A caller who
+does not pick up is tried once more five minutes later; after that, or if
+nobody in the group was free within an hour of asking, it becomes a high
+priority task on the office's queue ("Call back +1 512 ..."), on the customer
+when there is one, and only then is the caller's call a missed call, which is
+what the missed call text back listens for. Deleting a line turns its waiting
+callbacks into tasks the same way. The caller's own call says, under "Where it
+went", when they asked, who rang them back and whether they picked up.
+
+When nobody is on hold, the group is rung for the callback at the front of
+each line by the carrier's own reports: a call ending anywhere at the company
+(somebody perhaps coming free), and the last call of a round ending (the next
+round's cue). The worker does the same on its passes, and hands to the office
+the callbacks that have waited an hour.
+
 `GET /v1/call-queues`, `POST /v1/call-queues`, `PUT /v1/call-queues/{id}` and
 `DELETE /v1/call-queues/{id}`, `settings:read` to read and `settings:write` to
-change, the same as menus. A line, and the group it rings, cannot be deleted
+change, the same as menus; `offerCallback` and `announceWait` are the two
+settings above. A line, and the group it rings, cannot be deleted
 while something still sends callers to it.
 
 ### The phone assistant
@@ -262,8 +310,10 @@ answering the call, through Twilio's ConversationRelay, which turns speech into
 text and back. It says first, in words no model wrote and that cannot be talked
 over, that it is an automated assistant and that the call is written down. What
 it may do, who it acts as and the log of what it did are M27's; on the call
-screen it shows what it heard, what it said and what it did. When it puts a
-caller through, they go to the ring group chosen on its settings, or voicemail.
+screen it shows what it heard, what it said and what it did. It says its
+replies a sentence at a time as the model writes them. When it puts a caller
+through, they go to the ring group chosen on its settings, or voicemail, or to
+one of the waiting lines and menus the owner allowed it when that fits better.
 When it is switched off, or this installation runs no relay, a call sent to it
 goes there too, with the reason under "Where it went".
 
@@ -278,6 +328,35 @@ within two and a half minutes. Each call is logged with who placed it or picked
 it up. A call placed from the browser on a number that records calls asks the
 person called to press 1 before anything is recorded, the same question a
 caller is asked on the way in, and recording starts only on their yes.
+
+**Hold and passing a caller on.** While somebody has a caller they picked up
+in the browser (or that was passed to them), `/phone` shows "Your call" with
+"Put on hold" and "Pass the caller on". On hold, the caller hears "Please
+hold." and music, and the person's own call ends; "Take them back" on the
+phone rings the caller's hold from the browser and picks them up again. A
+caller can be passed to a colleague (rung in the browser when they are taking
+calls there, on their phone otherwise), a ring group or a waiting line,
+straight away, in which case the person's call ends and the caller goes there
+as a menu option would send them (to voicemail if nobody picks up), or, to a
+colleague only, after talking to them first: the caller is held, "Ring" calls
+the colleague from the browser, who is told who is passing them a caller and
+from which number, and "Hand over the caller" joins the colleague to the
+caller and ends the person's call; "Do not pass them on" ends the colleague's
+call and keeps the caller on hold. A caller left on hold fifteen minutes goes
+to voicemail and the office gets a high priority task to call them back. Only
+the person who has the caller now can hold or pass them, whatever their role,
+and the caller's call says under "Where it went" who passed them on, to where,
+and who they were handed to. Whoever has the caller now is who a waiting line
+counts as busy.
+
+`GET /v1/softphone/call` (the call you have now),
+`GET /v1/softphone/transfer-targets` (colleagues who can be rung, and the ring
+groups and waiting lines by name), `POST /v1/calls/{id}/hold`,
+`POST /v1/calls/{id}/transfer`, `POST /v1/call-transfers/{id}/complete` and
+`POST /v1/call-transfers/{id}/cancel`, all `call:place`. On the carrier, the
+caller's leg is moved with Twilio's REST API: to a queue of its own for hold,
+or to where they are passed; "Hand over" moves the colleague's leg to the
+caller's queue.
 
 An owner sets it up once on `/settings/phone`: an API key made in the Twilio
 console (its SID, and the name of the secret in this installation's secret
@@ -366,9 +445,9 @@ template is a standing decision about what the company says.
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | Reads and sends, manages consent and suppression, calls from the browser |
-| Dispatcher | Reads and sends, so they can text a customer about the day, calls from the browser |
-| CSR | Reads and sends, calls from the browser |
+| Office manager | Reads and sends, manages consent and suppression, calls from the browser, holds and passes on their own callers |
+| Dispatcher | Reads and sends, so they can text a customer about the day, calls from the browser, holds and passes on their own callers |
+| CSR | Reads and sends, calls from the browser, holds and passes on their own callers |
 | Technician | Reads and sends, scoped to their own conversations |
 | Accountant | Neither |
 
@@ -400,6 +479,12 @@ holds `message:send` because they text from the field. Without that scope,
 | `GET /v1/softphone` | `call:place` |
 | `POST /v1/softphone/token` | `call:place` |
 | `PUT /v1/softphone/presence` | `call:place` |
+| `GET /v1/softphone/call` | `call:place` |
+| `GET /v1/softphone/transfer-targets` | `call:place` |
+| `POST /v1/calls/{id}/hold` | `call:place` |
+| `POST /v1/calls/{id}/transfer` | `call:place` |
+| `POST /v1/call-transfers/{id}/complete` | `call:place` |
+| `POST /v1/call-transfers/{id}/cancel` | `call:place` |
 | `GET /v1/public/unsubscribe/{token}` | nothing: the token is the authority |
 | `POST /v1/public/unsubscribe/{token}` | nothing |
 
@@ -430,15 +515,34 @@ hours or holidays of its own. JustCall has no voice adapter.
 
 Waiting lines: the longest wait and the caller's place are checked each time
 the hold music finishes, so a long track lets a caller wait past the limit by
-up to its length. There is no estimated wait, no offer to be called back
-instead of waiting, and nobody is skipped for being on another call already:
-everybody in the round is rung, and each round is an outbound call on the
-company's carrier bill.
+up to its length. Each round is an outbound call per phone on the company's
+carrier bill, and so is each round rung for a callback, for up to an hour. A
+person on a call is skipped only when this product saw them pick up or place
+it (see Waiting lines above); one who answered a plain forwarded call on their
+own phone is still rung. The callback offer is said inside the carrier's wait
+for a key with the music, and taking the caller out of the line on a 1 is
+Twilio's documented `Leave` from a key press: like the rest of the line it has
+been tested against a fake carrier, not a live one. A caller is rung back only
+on the number they called from; they cannot type another. A callback is never
+recorded. The estimate is the same for every caller in the line whatever
+their place, said once as they join, and it is not said at all from fewer than
+five answered callers in the last three hours.
 
 Browser phone: a call lasts only as long as the `/phone` page stays open, so
-somebody taking calls keeps it in a tab of its own. There is no transfer to a
-colleague, no hold, no conference and no second call while on one (a second
-call to the browser is declined and rings the rest of the group). A browser
+somebody taking calls keeps it in a tab of its own. Hold and passing a caller
+on work only for calls that came in: on a call placed from the browser the
+person called is on a leg the carrier names only when the call ends, so it
+cannot be moved, and the screen does not offer it. Hold and passing on move
+the caller's leg with Twilio's REST API, built from its documentation and
+tested against a fake carrier, not a live line: in particular, that moving the
+caller out of a ring group's dial does not also run what the dial does when it
+ends is Twilio's documented behaviour, and the step here ignores that result
+while a caller is held, but has not been seen on a real call. Talking to a
+colleague first is to one colleague, never a ring group or a waiting line,
+and that call to the colleague is not on the call log. There is no conference
+of three and no second call while on one (a second call to the browser is
+declined and rings the rest of the group); somebody taking a caller back from
+hold, or a colleague handed one, picks them up as a new call in the browser. A browser
 whose page was closed without switching off may be rung for up to two and a
 half minutes before its owner's phone is rung again. The technician app has no
 browser phone. Nothing here limits which countries a browser may ring beyond

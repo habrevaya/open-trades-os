@@ -82,6 +82,7 @@ export * as voice from "./voice";
 export * as phoneMenus from "./phone-menus";
 export * as callQueues from "./call-queues";
 export * as softphone from "./softphone";
+export * as callTransfers from "./call-transfers";
 export * as voiceAgent from "./voice-agent";
 export * as transcription from "./transcription";
 export * as emailInbound from "./email-inbound";

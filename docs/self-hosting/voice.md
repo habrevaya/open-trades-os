@@ -92,12 +92,37 @@ any other. Pick a hold track of a minute or two: the longest wait is checked
 only between plays, so a ten minute track lets a caller wait ten minutes past
 the limit.
 
+A line that offers callbacks says the offer inside a `Gather` around the
+music; a caller pressing 1 reaches `/queue-callback`, is taken out of the
+Twilio queue with `Leave`, and hears at `/queue-done` that they will be called
+back. The group is then rung for them by outbound calls that carry a status
+callback (`/queue-leg`), so the end of one round is the cue for the next, and
+whoever answers is connected to the caller by a `Dial` from the company's
+number (`/callback-dialed` says how it went). Between calls the worker rings
+for waiting callbacks on its passes and hands to the office those that have
+waited an hour, so run the worker if you turn callbacks on. Every round is an
+outbound call per phone on the company's Twilio bill.
+
+## Hold and passing a caller on
+
+From `/phone`, the person with a caller can put them on hold or pass them on.
+This installation asks Twilio's REST API to move the caller's leg of the call
+(`POST /Calls/{sid}.json` with a new address): to `/hold` beneath the voice
+URL, which puts them in a Twilio queue of their own with music, or to
+`/transfer`, which sends them where they were passed. Taking them back, or a
+colleague being handed them, is a `Dial` to that queue. The browser phone's
+application must be set up (Settings, Phone menus) for the browser to ring a
+held caller or a colleague, and the API key it uses needs no more than it
+already has: moving calls is done with the account's auth token, from this
+installation.
+
 ## The phone assistant and the voice relay
 
 The phone assistant (M27) is the company's own model answering a call. Twilio
 holds the call with ConversationRelay, turns the caller's speech into text and
 sends it over a WebSocket; the answer goes back as text and Twilio reads it
-aloud. The web app cannot hold a WebSocket open (a Next.js route handler
+aloud, a sentence at a time while the model is still writing when the model
+connection streams (Anthropic and OpenAI). The web app cannot hold a WebSocket open (a Next.js route handler
 answers a request and is done), so the conversations go to the **voice
 relay**, a small process of its own:
 

@@ -219,9 +219,92 @@ export const callQueue = pgTable("call_queue", {
   announcePosition: boolean("announce_position").notNull().default(true),
   holdMusicUrl: text("hold_music_url"),
   overflowTo: jsonb("overflow_to").$type<StoredDestination>().notNull(),
+  /** Whether a caller may press 1 to be called back instead of waiting, keeping their place. */
+  offerCallback: boolean("offer_callback").notNull().default(false),
+  /** Whether a caller is told how long callers have lately waited, when enough were answered to say. */
+  announceWait: boolean("announce_wait").notNull().default(false),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("call_queue_org_idx").on(t.organizationId),
+}));
+
+/**
+ * A CALLER WHO ASKED TO BE CALLED BACK INSTEAD OF WAITING.
+ *
+ * They pressed 1 while on hold and hung up. Their place is kept: `joined_at`
+ * is when they joined the line, and the next person free in the line's ring
+ * group is given whichever of the callers still waiting and the callbacks
+ * joined first. That person is rung first, then the caller, from the
+ * company's number, so nobody is ever put through to a ringing phone with
+ * nobody on the other end.
+ *
+ * `waiting` until somebody picks up, `calling` while the caller is being
+ * rung, then `done` when they answered, or `given_up` with the reason in
+ * `outcome` and a task for the office to call them by hand.
+ */
+export const queueCallback = pgTable("queue_callback", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** Null once the line is deleted, when a waiting callback is handed to the office as a task. */
+  queueId: uuid("queue_id").references(() => callQueue.id, { onDelete: "set null" }),
+  /** The call the caller asked on. One callback per call. */
+  callId: uuid("call_id").notNull().references(() => call.id, { onDelete: "cascade" }),
+  /** The number they called from, which is the only number they are rung back on. */
+  callbackE164: text("callback_e164").notNull(),
+  /** When they joined the line: the place they keep. */
+  joinedAt: timestamp("joined_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("waiting"),
+  /** How many times the caller has been rung back. */
+  attempts: integer("attempts").notNull().default(0),
+  /** When the group was last rung for this callback, how many rounds, and how many of those calls are still ringing. */
+  rungAt: timestamp("rung_at", { withTimezone: true }),
+  rings: integer("rings").notNull().default(0),
+  legsOut: integer("legs_out").notNull().default(0),
+  /** Not rung for again before this: the pause after a ring the caller did not answer. */
+  notBefore: timestamp("not_before", { withTimezone: true }),
+  answeredByUserId: uuid("answered_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** The call that rang the caller back, logged like any call the office places. */
+  callbackCallId: uuid("callback_call_id").references(() => call.id, { onDelete: "set null" }),
+  outcome: text("outcome"),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  callIdx: uniqueIndex("queue_callback_call_idx").on(t.callId),
+  waitingIdx: index("queue_callback_waiting_idx").on(t.organizationId, t.joinedAt)
+    .where(sql`${t.status} in ('waiting', 'calling')`),
+}));
+
+/**
+ * A CALLER PUT ON HOLD OR PASSED ON FROM THE BROWSER PHONE.
+ *
+ * `kind` is `hold`, `cold` (passed on at once) or `warm` (the person talks
+ * to the colleague first, with the caller on hold). One row is open at a time
+ * per call: `holding`, `consulting` while the colleague is rung and talked
+ * to, and `handing_over` once "Hand over" moved the colleague's leg. It ends
+ * `taken_back`, `handed_over`, `sent` (a cold pass, which ends as it starts),
+ * `caller_gone`, `timed_out` (left on hold too long), `replaced` (a hold
+ * that became a cold pass), or `failed` (the carrier would not move the call).
+ */
+export const callTransfer = pgTable("call_transfer", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  callId: uuid("call_id").notNull().references(() => call.id, { onDelete: "cascade" }),
+  /** The person who held or passed the caller on. */
+  fromUserId: uuid("from_user_id").references(() => user.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  /** Where the caller is passed: a colleague, a ring group or a waiting line. Null for a hold. */
+  toDestination: jsonb("to_destination").$type<StoredDestination | null>(),
+  /** The colleague, when it is one. */
+  toUserId: uuid("to_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** The colleague's leg of a warm pass once they pick up, which "Hand over" moves to the caller. */
+  consultLegSid: text("consult_leg_sid"),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  callIdx: index("call_transfer_call_idx").on(t.callId),
+  openIdx: uniqueIndex("call_transfer_open_idx").on(t.callId)
+    .where(sql`${t.status} in ('holding', 'consulting', 'handing_over')`),
 }));
 
 /**
@@ -803,6 +886,12 @@ export const call = pgTable("call", {
    */
   placedByUserId: uuid("placed_by_user_id").references(() => user.id, { onDelete: "set null" }),
   /**
+   * Who has the caller now: whoever picked them up, and after they are
+   * passed on, whoever took them. Kept apart from `answered_by_user_id`,
+   * which stays the first person to answer.
+   */
+  handledByUserId: uuid("handled_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
    * The waiting line the caller was held in, when one was: when they joined
    * it, when its group was last rung for them and how many times, and how
    * they left it (`bridged`, `leave`, `hangup`, as the carrier says).
@@ -812,6 +901,10 @@ export const call = pgTable("call", {
   queueRungAt: timestamp("queue_rung_at", { withTimezone: true }),
   queueRings: integer("queue_rings").notNull().default(0),
   queueResult: text("queue_result"),
+  /** How many times the hold music has come round, so what is said only once is said the first time. */
+  queueTurns: integer("queue_turns").notNull().default(0),
+  /** How long they waited in the line, as the carrier counted it when they left. What the estimated wait is made from. */
+  queueWaitSeconds: integer("queue_wait_seconds"),
   /** What the call was: booked, quote requested, wrong number, spam. */
   disposition: text("disposition"),
   attributionSource: text("attribution_source"),

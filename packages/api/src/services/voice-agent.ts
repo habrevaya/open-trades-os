@@ -77,6 +77,27 @@ async function transferDestination(tx: Database, organizationId: string, setting
   return group ? { kind: "ring_group", id: group.id } : { kind: "voicemail", box: "main" };
 }
 
+/**
+ * A place the assistant chose, as a destination, only while it is still on
+ * the company's list and still exists. Anything else is null, and the caller
+ * goes where the assistant puts callers through.
+ */
+async function placeNow(
+  tx: Database, organizationId: string, settings: a.AgentSettings, chosen: a.VoicePlace | null,
+): Promise<{ to: Destination; label: string } | null> {
+  if (!chosen) return null;
+  const place = (settings.voice.places ?? []).find((p) => p.kind === chosen.kind && p.id === chosen.id);
+  if (!place) return null;
+  if (place.kind === "queue") {
+    const [line] = await tx.select({ id: schema.callQueue.id, name: schema.callQueue.name }).from(schema.callQueue)
+      .where(and(eq(schema.callQueue.organizationId, organizationId), eq(schema.callQueue.id, place.id))).limit(1);
+    return line ? { to: { kind: "queue", id: line.id }, label: `the ${line.name} waiting line` } : null;
+  }
+  const [menu] = await tx.select({ id: schema.phoneMenu.id, name: schema.phoneMenu.name }).from(schema.phoneMenu)
+    .where(and(eq(schema.phoneMenu.organizationId, organizationId), eq(schema.phoneMenu.id, place.id))).limit(1);
+  return menu ? { to: { kind: "ivr", menu: menu.id }, label: `the ${menu.name} menu` } : null;
+}
+
 export type Begun =
   | { ok: true; verb: voice.Verb }
   | { ok: false; why: string; to: Destination };
@@ -251,7 +272,10 @@ export type Heard =
  * the carrier's next step rather than over the relay, so they are heard in
  * full whatever the WebSocket does after it is told to end.
  */
-async function ending(db: Database, live: Live, how: "transfer" | "hang_up", words: string, reason: string | null): Promise<Heard> {
+async function ending(
+  db: Database, live: Live, how: "transfer" | "hang_up", words: string, reason: string | null,
+  place: a.VoicePlace | null = null,
+): Promise<Heard> {
   await append(db, live, { from: "assistant", text: words });
   await inTenant(carrierCtx(db, live.organizationId), async (tx) => {
     await tx.update(schema.voiceAgentSession).set({
@@ -259,10 +283,15 @@ async function ending(db: Database, live: Live, how: "transfer" | "hang_up", wor
       status: how === "transfer" ? "transferred" : "ended",
       closingWords: words.slice(0, 600),
       ...(reason ? { transferReason: reason.slice(0, 500) } : {}),
+      transferTo: place,
       updatedAt: new Date(),
     }).where(eq(schema.voiceAgentSession.id, live.sessionId));
   });
-  if (how === "transfer") await act(db, live, "transfer", `Put the caller through: ${reason ?? "they asked"}`);
+  if (how === "transfer") {
+    await act(db, live, "transfer", place
+      ? `Sent the caller to ${place.label} (${place.kind === "queue" ? "a waiting line" : "a phone menu"}): ${reason ?? "it fitted what they needed"}`
+      : `Put the caller through: ${reason ?? "they asked"}`);
+  }
   return { kind: "end", reason: how };
 }
 
@@ -318,8 +347,15 @@ async function candidates(tx: Database, ctx: ServiceContext, query: {
  * after it. The caller's words are written down first, so they are on the
  * call whatever happens next.
  */
+/**
+ * Words for the carrier to read aloud. `last` false is a piece of an answer
+ * still being written, said at once, with more to follow; left out, or true,
+ * the answer is complete.
+ */
+export type Speak = (text: string, last?: boolean) => Promise<void>;
+
 export async function hear(
-  db: Database, live: Live, utterance: string, speak: (text: string) => Promise<void>,
+  db: Database, live: Live, utterance: string, speak: Speak,
   deps: AiDeps = base.DEFAULT_AGENT_DEPS,
 ): Promise<Heard> {
   const said = utterance.trim();
@@ -344,7 +380,7 @@ export async function hear(
   return turn(db, live, acting, speak, deps, { lookedUp: false, found: null });
 }
 
-async function say(db: Database, live: Live, text: string, speak: (text: string) => Promise<void>) {
+async function say(db: Database, live: Live, text: string, speak: Speak) {
   await append(db, live, { from: "assistant", text });
   await speak(text);
 }
@@ -352,7 +388,7 @@ async function say(db: Database, live: Live, text: string, speak: (text: string)
 /** One model turn, and what it becomes. At most two per thing the caller says: a look up, then its answer. */
 async function turn(
   db: Database, live: Live, acting: Extract<base.Acting, { ok: true }>,
-  speak: (text: string) => Promise<void>, deps: AiDeps,
+  speak: Speak, deps: AiDeps,
   look: { lookedUp: boolean; found: a.CustomerCandidate[] | null },
 ): Promise<Heard> {
   const { ctx, settings } = acting;
@@ -386,32 +422,71 @@ async function turn(
       "Knew the number it was called from as a member's, so it offered the windows held for members. It said nothing to the caller about it.");
   }
 
+  const places = settings.voice.places ?? [];
   const prompt = a.voicePrompt({
     company: context.company, tone: settings.tone, facts: context.facts,
     turns: context.session.turns.map((t) => ({ from: t.from, text: t.text })),
     caller: { number: live.callerNumber, candidates: context.found, lookedUp: look.lookedUp },
     bookingTaken: context.session.bookingRequestId !== null, messageTaken: context.session.messageTaken,
+    places: places.map((p) => ({ id: p.id, label: p.label })),
   });
-  const result = await base.ask(acting, "voice", prompt, "voice:call", deps);
-  await inTenant(carrierCtx(db, live.organizationId), (tx) => tx.update(schema.voiceAgentSession)
-    .set({ agentTurns: sql`${schema.voiceAgentSession.agentTurns} + 1`, updatedAt: new Date() })
-    .where(eq(schema.voiceAgentSession.id, live.sessionId)));
-  if (!result.ok) return ending(db, live, "transfer", a.UNSURE, `The assistant could not answer: ${result.reason}`);
-
   const allowed = [
     ...context.facts.services.flatMap((s) => (s.price ? [s.price] : [])),
     ...context.facts.publicPrices.map((p) => p.price),
   ];
+
+  /**
+   * SPOKEN AS IT IS WRITTEN. While the model writes a reply, each finished
+   * sentence is said at once, held to the same rules as a whole answer first
+   * (core's `streamReply`): the caller hears the first sentence while the rest
+   * is still being written, and a sentence naming a price nobody published is
+   * never said, nor anything after it. Only a reply is said this way: what
+   * goes with a booking or a message is said once it has been done.
+   */
+  let streamed = a.STREAM_START;
+  let speaking: Promise<void> = Promise.resolve();
+  const writing = (action: string, partialJson: string) => {
+    if (action !== "reply") return;
+    const written = a.partialString(partialJson, "text");
+    if (written === null) return;
+    const next = a.streamReply(streamed, written, allowed);
+    streamed = next.state;
+    for (const piece of next.speak) speaking = speaking.then(() => speak(piece, false));
+  };
+  const result = await base.ask(acting, "voice", prompt, "voice:call", deps, writing);
+  await speaking;
+  await inTenant(carrierCtx(db, live.organizationId), (tx) => tx.update(schema.voiceAgentSession)
+    .set({ agentTurns: sql`${schema.voiceAgentSession.agentTurns} + 1`, updatedAt: new Date() })
+    .where(eq(schema.voiceAgentSession.id, live.sessionId)));
+  /** What was already said aloud is written down as said, whatever the whole answer turns out to be. */
+  const keepSaid = async () => {
+    if (streamed.said) await append(db, live, { from: "assistant", text: streamed.said });
+  };
+  if (!result.ok) {
+    await keepSaid();
+    return ending(db, live, "transfer", a.UNSURE, `The assistant could not answer: ${result.reason}`);
+  }
+
   let decision = a.decideVoice({
     action: result.action.name, args: result.input, allowedPrices: allowed, windows: context.facts.windows,
     callerNumber: live.callerNumber, bookingTaken: context.session.bookingRequestId !== null,
     messageTaken: context.session.messageTaken, lookedUp: look.lookedUp,
+    places: places.map((p) => ({ id: p.id, label: p.label })),
   });
   if (decision.kind === "refused") {
     const reason = decision.reason;
     await inTenant(ctx, (tx) => base.note(tx, ctx, { agent: "voice", kind: "refused", detail: reason }));
     decision = decision.then;
   }
+
+  if (streamed.said && decision.kind === "say") {
+    /** The rest of the reply, after what was said while it was written, closes the answer. */
+    const rest = streamed.stopped ? "" : a.restOfReply(streamed, typeof result.input["text"] === "string" ? result.input["text"] : "");
+    await append(db, live, { from: "assistant", text: [streamed.said, rest].filter(Boolean).join(" ") });
+    await speak(rest, true);
+    return { kind: "go_on" };
+  }
+  if (streamed.said) await keepSaid();
 
   switch (decision.kind) {
     case "say":
@@ -479,8 +554,10 @@ async function turn(
       return { kind: "go_on" };
     }
 
-    case "transfer":
-      return ending(db, live, "transfer", decision.text, decision.reason);
+    case "transfer": {
+      const place = decision.place ? places.find((p) => p.id === decision.place!.id) ?? null : null;
+      return ending(db, live, "transfer", decision.text, decision.reason, place);
+    }
 
     case "hang_up":
       await act(db, live, "goodbye", "Said goodbye when the caller was done.");
@@ -555,6 +632,13 @@ export async function afterRelay(tx: Database, ctx: ServiceContext, call: CallRo
   }
   if (session.ending === "transfer") {
     await finish(tx, ctx, session.id);
+    const place = await placeNow(tx, organizationId, settings, session.transferTo);
+    if (place) {
+      return {
+        say: session.closingWords, then: "transfer", to: place.to,
+        why: `The phone assistant sent the caller to ${place.label}: ${session.transferReason ?? "it fitted what they needed"}`,
+      };
+    }
     return { say: session.closingWords, then: "transfer", to, why: `The phone assistant put the caller through: ${session.transferReason ?? "they asked"}` };
   }
 

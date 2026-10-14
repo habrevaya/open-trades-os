@@ -62,7 +62,24 @@ export interface VoiceConfig {
    * the assistant is unsure. Null puts them through to voicemail.
    */
   transferRingGroupId: string | null;
+  /**
+   * Other places the company lets the assistant send a caller when one fits
+   * better than a person: a waiting line or a phone menu, each with what it
+   * is for in the owner's words, which is how the assistant chooses. Only
+   * these, never anywhere else. Empty unless the owner adds some.
+   */
+  places?: VoicePlace[] | undefined;
 }
+
+export interface VoicePlace {
+  kind: "queue" | "menu";
+  id: string;
+  /** What it is for, as the assistant is told: "Billing questions". */
+  label: string;
+}
+
+/** Six places at most: a short list the assistant can choose from on a live call. */
+export const MAX_VOICE_PLACES = 6;
 
 export interface AgentSettings {
   enabled: boolean;
@@ -120,7 +137,7 @@ export function defaultSettings(kind: AgentKind): AgentSettings {
     },
     intake: { texts: true, emails: true, calls: true, forms: true },
     collections: { steps: DEFAULT_STEPS.map((step) => ({ ...step })) },
-    voice: { transferRingGroupId: null },
+    voice: { transferRingGroupId: null, places: [] },
   };
 }
 
@@ -221,6 +238,14 @@ export function readSettings(kind: AgentKind, raw: unknown): AgentSettings {
     voice: {
       transferRingGroupId: typeof voice["transferRingGroupId"] === "string" && UUID.test(voice["transferRingGroupId"])
         ? voice["transferRingGroupId"] : null,
+      places: Array.isArray(voice["places"])
+        ? (voice["places"] as unknown[]).map(obj).flatMap((place): VoicePlace[] => {
+            const kind = place["kind"] === "queue" || place["kind"] === "menu" ? place["kind"] : null;
+            const id = typeof place["id"] === "string" && UUID.test(place["id"]) ? place["id"] : null;
+            const label = typeof place["label"] === "string" ? place["label"].trim().slice(0, 80) : "";
+            return kind && id && label ? [{ kind, id, label }] : [];
+          }).slice(0, MAX_VOICE_PLACES)
+        : [],
     },
   };
 }
@@ -282,6 +307,21 @@ export function checkSettings(kind: AgentKind, input: AgentSettings): SettingsVe
   }
   if (input.voice.transferRingGroupId !== null && !UUID.test(input.voice.transferRingGroupId)) {
     return { ok: false, reason: "Choose a ring group for the assistant to put callers through to, or voicemail." };
+  }
+  const places = input.voice.places ?? [];
+  if (places.length > MAX_VOICE_PLACES) {
+    return { ok: false, reason: `The assistant can be given at most ${MAX_VOICE_PLACES} places to send callers.` };
+  }
+  for (const place of places) {
+    if ((place.kind !== "queue" && place.kind !== "menu") || !UUID.test(place.id)) {
+      return { ok: false, reason: "Each place the assistant may send callers is a waiting line or a phone menu." };
+    }
+    if (place.label.trim() === "" || place.label.trim().length > 80) {
+      return { ok: false, reason: "Say what each place is for, in up to 80 characters, such as \"Billing questions\". The assistant chooses by it." };
+    }
+  }
+  if (new Set(places.map((p) => p.id)).size !== places.length) {
+    return { ok: false, reason: "The same place is on the list twice." };
   }
   return {
     ok: true,

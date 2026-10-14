@@ -151,6 +151,8 @@ export async function saveQueue(_previous: FormState, form: FormData): Promise<F
       ringGroupId: field(form, "ringGroupId") ?? "",
       maxWaitSeconds: Number(field(form, "maxWaitSeconds") ?? 300),
       announcePosition: form.get("announcePosition") === "on",
+      announceWait: form.get("announceWait") === "on",
+      offerCallback: form.get("offerCallback") === "on",
       holdMusicUrl: field(form, "holdMusicUrl") ?? null,
       overflowTo: destination(field(form, "overflowTo"), field(form, "overflowNumber")) ?? { kind: "voicemail", box: "main" },
     });

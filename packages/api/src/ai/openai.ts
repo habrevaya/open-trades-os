@@ -1,8 +1,8 @@
 import {
-  registerAiProvider, fetchTransport, withoutSecret, retryableStatus,
+  registerAiProvider, fetchTransport, withoutSecret, retryableStatus, streamed,
   asArray, asObject, num, str, rateFromSettings,
   type AiContent, type AiProvider, type CompletionOutcome, type CompletionRequest,
-  type HttpTransport, type ModelListOutcome, type ModelRate, type StopReason,
+  type HttpTransport, type ModelListOutcome, type ModelRate, type StopReason, type StreamListener,
 } from "./provider";
 
 /**
@@ -176,6 +176,120 @@ export function openAiProvider(
     };
   };
 
+  const bodyOf = (request: CompletionRequest): Record<string, unknown> => ({
+    model: request.model,
+    messages: messagesFor(request.system, request.messages),
+    /** Not `max_tokens`: the current models reject that field outright. */
+    max_completion_tokens: request.maxOutputTokens,
+    ...(request.tools && request.tools.length > 0
+      ? {
+          tools: request.tools.map((tool) => ({
+            type: "function",
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.inputSchema,
+            },
+          })),
+        }
+      : {}),
+  });
+
+  const parsed = (text: string): Record<string, unknown> => {
+    try {
+      return asObject(JSON.parse(text)) ?? {};
+    } catch {
+      return { error: { message: clean(text).slice(0, 500) } };
+    }
+  };
+
+  function read(status: number, json: Record<string, unknown>, request: CompletionRequest): CompletionOutcome {
+    if (status < 200 || status >= 300) return failure(status, json);
+
+    const choice = asObject(asArray(json["choices"])[0]);
+    const message = asObject(choice?.["message"]);
+    if (!message) {
+      return {
+        ok: false,
+        code: "no_choice",
+        message: "OpenAI accepted the request and returned no answer to read.",
+        retryable: false,
+      };
+    }
+
+    const content: AiContent[] = [];
+    const text = str(message["content"]);
+    if (text) content.push({ type: "text", text });
+
+    for (const raw of asArray(message["tool_calls"])) {
+      const row = asObject(raw);
+      const fn = asObject(row?.["function"]);
+      const id = str(row?.["id"]);
+      const name = str(fn?.["name"]);
+      if (!id || !name) continue;
+
+      /**
+       * The arguments are a STRING a model wrote, so they are parsed rather
+       * than trusted, and a failure is reported rather than smoothed over.
+       *
+       * An unparseable call handed up as an empty input would be a tool
+       * invoked with none of the arguments the model intended, which for a
+       * tool that takes an optional filter means it runs against everything.
+       */
+      let input: Record<string, unknown> | null = null;
+      try {
+        input = asObject(JSON.parse(str(fn?.["arguments"]) ?? "{}"));
+      } catch {
+        input = null;
+      }
+      if (!input) {
+        return {
+          ok: false,
+          code: "unreadable_tool_arguments",
+          message:
+            `OpenAI asked to call ${name} with arguments that are not a JSON object. `
+            + "The call was not run, because running it with no arguments is not the same request.",
+          retryable: false,
+        };
+      }
+
+      content.push({ type: "toolCall", callId: id, name, input });
+    }
+
+    const usage = asObject(json["usage"]);
+    const inputTokens = num(usage?.["prompt_tokens"]);
+    const outputTokens = num(usage?.["completion_tokens"]);
+    if (inputTokens === null || outputTokens === null) {
+      return {
+        ok: false,
+        code: "no_usage",
+        message: "OpenAI answered without reporting token usage, so this call cannot be costed.",
+        retryable: false,
+      };
+    }
+
+    /**
+     * A refusal is its own field on this vendor, separate from the finish
+     * reason, and it is a stronger signal: the model declined rather than
+     * being cut off by a filter after the fact.
+     */
+    const refused = str(message["refusal"]) !== null;
+
+    return {
+      ok: true,
+      completion: {
+        model: str(json["model"]) ?? request.model,
+        content,
+        stop: refused ? "refused" : stopFrom(str(choice?.["finish_reason"])),
+        usage: {
+          inputTokens,
+          outputTokens,
+          cachedInputTokens: num(asObject(usage?.["prompt_tokens_details"])?.["cached_tokens"]),
+        },
+      },
+    };
+  }
+
   return {
     name: "openai",
     toolCallIdentity: { kind: "vendor" },
@@ -204,109 +318,82 @@ export function openAiProvider(
     },
 
     async complete(request: CompletionRequest): Promise<CompletionOutcome> {
-      const { status, json } = await call("/chat/completions", "POST", {
-        model: request.model,
-        messages: messagesFor(request.system, request.messages),
-        /** Not `max_tokens`: the current models reject that field outright. */
-        max_completion_tokens: request.maxOutputTokens,
-        ...(request.tools && request.tools.length > 0
-          ? {
-              tools: request.tools.map((tool) => ({
-                type: "function",
-                function: {
-                  name: tool.name,
-                  description: tool.description,
-                  parameters: tool.inputSchema,
-                },
-              })),
-            }
-          : {}),
-      });
+      const { status, json } = await call("/chat/completions", "POST", bodyOf(request));
+      return read(status, json, request);
+    },
 
-      if (status < 200 || status >= 300) return failure(status, json);
-
-      const choice = asObject(asArray(json["choices"])[0]);
-      const message = asObject(choice?.["message"]);
-      if (!message) {
-        return {
-          ok: false,
-          code: "no_choice",
-          message: "OpenAI accepted the request and returned no answer to read.",
-          retryable: false,
-        };
-      }
-
-      const content: AiContent[] = [];
-      const text = str(message["content"]);
-      if (text) content.push({ type: "text", text });
-
-      for (const raw of asArray(message["tool_calls"])) {
-        const row = asObject(raw);
-        const fn = asObject(row?.["function"]);
-        const id = str(row?.["id"]);
-        const name = str(fn?.["name"]);
-        if (!id || !name) continue;
-
-        /**
-         * The arguments are a STRING a model wrote, so they are parsed rather
-         * than trusted, and a failure is reported rather than smoothed over.
-         *
-         * An unparseable call handed up as an empty input would be a tool
-         * invoked with none of the arguments the model intended, which for a
-         * tool that takes an optional filter means it runs against everything.
-         */
-        let input: Record<string, unknown> | null = null;
-        try {
-          input = asObject(JSON.parse(str(fn?.["arguments"]) ?? "{}"));
-        } catch {
-          input = null;
-        }
-        if (!input) {
-          return {
-            ok: false,
-            code: "unreadable_tool_arguments",
-            message:
-              `OpenAI asked to call ${name} with arguments that are not a JSON object. `
-              + "The call was not run, because running it with no arguments is not the same request.",
-            retryable: false,
-          };
-        }
-
-        content.push({ type: "toolCall", callId: id, name, input });
-      }
-
-      const usage = asObject(json["usage"]);
-      const inputTokens = num(usage?.["prompt_tokens"]);
-      const outputTokens = num(usage?.["completion_tokens"]);
-      if (inputTokens === null || outputTokens === null) {
-        return {
-          ok: false,
-          code: "no_usage",
-          message: "OpenAI answered without reporting token usage, so this call cannot be costed.",
-          retryable: false,
-        };
-      }
-
-      /**
-       * A refusal is its own field on this vendor, separate from the finish
-       * reason, and it is a stronger signal: the model declined rather than
-       * being cut off by a filter after the fact.
-       */
-      const refused = str(message["refusal"]) !== null;
-
-      return {
-        ok: true,
-        completion: {
-          model: str(json["model"]) ?? request.model,
-          content,
-          stop: refused ? "refused" : stopFrom(str(choice?.["finish_reason"])),
-          usage: {
-            inputTokens,
-            outputTokens,
-            cachedInputTokens: num(asObject(usage?.["prompt_tokens_details"])?.["cached_tokens"]),
-          },
+    /**
+     * The same request with `stream: true` and usage asked for on the last
+     * chunk. The chunks are put back together into the answer `complete`
+     * would have had, and read by the same function, so the arguments are
+     * still parsed rather than trusted and usage is still required.
+     */
+    async stream(request: CompletionRequest, listen: StreamListener): Promise<CompletionOutcome> {
+      const response = await transport(`${base}/chat/completions`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json",
+          ...(settings.organization ? { "openai-organization": settings.organization } : {}),
         },
-      };
+        body: JSON.stringify({ ...bodyOf(request), stream: true, stream_options: { include_usage: true } }),
+      });
+      const answer = await streamed(response);
+      if (answer.kind === "whole") return read(response.status, parsed(answer.text), request);
+
+      let model: unknown = null;
+      let usage: unknown = null;
+      let finish: unknown = null;
+      let text = "";
+      let refusal: string | null = null;
+      const calls: { id: string; name: string; arguments: string }[] = [];
+      for await (const event of answer.events) {
+        if (event.data.trim() === "[DONE]") break;
+        let chunk: Record<string, unknown> | null = null;
+        try { chunk = asObject(JSON.parse(event.data)); } catch { chunk = null; }
+        if (!chunk) continue;
+        if (chunk["error"]) return failure(500, chunk);
+        model = chunk["model"] ?? model;
+        if (chunk["usage"]) usage = chunk["usage"];
+        const choice = asObject(asArray(chunk["choices"])[0]);
+        if (!choice) continue;
+        if (choice["finish_reason"]) finish = choice["finish_reason"];
+        const delta = asObject(choice["delta"]) ?? {};
+        const words = str(delta["content"]);
+        if (words) {
+          text += words;
+          listen({ type: "text", text: words });
+        }
+        const refused = str(delta["refusal"]);
+        if (refused) refusal = `${refusal ?? ""}${refused}`;
+        for (const raw of asArray(delta["tool_calls"])) {
+          const row = asObject(raw);
+          const index = num(row?.["index"]) ?? 0;
+          const fn = asObject(row?.["function"]);
+          const call = calls[index] ?? (calls[index] = { id: "", name: "", arguments: "" });
+          if (str(row?.["id"])) call.id = str(row?.["id"])!;
+          if (str(fn?.["name"])) {
+            call.name = str(fn?.["name"])!;
+            listen({ type: "toolStart", index, name: call.name });
+          }
+          const piece = typeof fn?.["arguments"] === "string" ? fn["arguments"] : "";
+          if (piece) {
+            call.arguments += piece;
+            listen({ type: "toolInput", index, partialJson: piece });
+          }
+        }
+      }
+      return read(200, {
+        model, usage,
+        choices: [{
+          finish_reason: finish,
+          message: {
+            content: text || null,
+            refusal,
+            tool_calls: calls.filter(Boolean).map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } })),
+          },
+        }],
+      }, request);
     },
 
     async models(): Promise<ModelListOutcome> {

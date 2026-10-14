@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { agents, ai, team, priceBook, phoneMenus } from "@opentradesos/api/services";
+import { agents, ai, team, priceBook, phoneMenus, callQueues } from "@opentradesos/api/services";
 import { can, type agents as coreAgents } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { PageHeader, Empty } from "@/components/Table";
@@ -67,13 +67,19 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   }
 
   const writes = can(user.actor, "agent:configure");
-  const [listed, status, roster, items, ringGroups] = await Promise.all([
+  const [listed, status, roster, items, ringGroups, lines, menus] = await Promise.all([
     agents.list(ctx),
     ai.status(ctx),
     can(user.actor, "user:read") ? team.roster(ctx) : Promise.resolve([]),
     can(user.actor, "pricebook:read") ? priceBook.list(ctx, { limit: 200, includeInactive: false }).then((r) => r.data) : Promise.resolve([]),
     can(user.actor, "settings:read") ? phoneMenus.listRingGroups(ctx) : Promise.resolve([]),
+    can(user.actor, "settings:read") ? callQueues.listQueues(ctx) : Promise.resolve([]),
+    can(user.actor, "settings:read") ? phoneMenus.listMenus(ctx) : Promise.resolve([]),
   ]);
+  const places = [
+    ...lines.map((q) => ({ key: `queue:${q.id}`, kind: "queue" as const, id: q.id, name: `The ${q.name} waiting line` })),
+    ...menus.map((m) => ({ key: `menu:${m.id}`, kind: "menu" as const, id: m.id, name: `The ${m.name} menu` })),
+  ];
   const filter = listed.agents.some((x) => x.agent === params.agent) ? params.agent as coreAgents.AgentKind : undefined;
   const log = await agents.activity(ctx, { agent: filter, limit: 100 });
   const people = roster.filter((m) => m.active);
@@ -209,6 +215,29 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                             { value: "", label: "Voicemail" },
                             ...ringGroups.map((g) => ({ value: g.id, label: `The ${g.name} ring group` })),
                           ]} />
+                  {places.length > 0 ? (
+                    <fieldset className="space-y-2">
+                      <legend className="text-sm font-medium text-ink-700">
+                        Other places it may send a caller, when one fits better than a person (up to 6)
+                      </legend>
+                      {places.map((place) => {
+                        const chosen = (agent.settings.voice.places ?? []).find((p) => p.kind === place.kind && p.id === place.id);
+                        return (
+                          <div key={place.key} className="flex flex-wrap items-end gap-3">
+                            <label className="flex h-10 items-center gap-2 text-sm">
+                              <input type="checkbox" name="place" value={place.key} defaultChecked={Boolean(chosen)} />
+                              {place.name}
+                            </label>
+                            <TextField label={`What ${place.name.toLowerCase()} is for`} name={`placeLabel:${place.key}`}
+                                       defaultValue={chosen?.label ?? ""} placeholder="Billing questions" />
+                          </div>
+                        );
+                      })}
+                      <p className="text-xs text-ink-500">
+                        The assistant chooses by what you write here, and can send a caller nowhere else.
+                      </p>
+                    </fieldset>
+                  ) : null}
                   <p className="text-sm text-ink-500">
                     It always says first that it is an automated assistant and that the call is written down, and puts
                     the caller through when they ask for a person or press 0. Send calls to it from a menu option or after

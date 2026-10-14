@@ -147,7 +147,8 @@ export type VoiceDecision =
   | { kind: "look_up"; query: { phone: string | null; name: string | null; postalCode: string | null }; text: string }
   | { kind: "book"; request: BookingAsked; window: OpenWindow; text: string }
   | { kind: "message"; callerName: string | null; callbackNumber: string | null; message: string; text: string }
-  | { kind: "transfer"; reason: string; text: string }
+  /** `place` is one of the places the company allowed, when the assistant chose one over a person. */
+  | { kind: "transfer"; reason: string; text: string; place?: { id: string; label: string } | undefined }
   | { kind: "hang_up"; text: string }
   /** Something the model said that is not said, and the reason for the log. */
   | { kind: "refused"; reason: string; then: Exclude<VoiceDecision, { kind: "refused" }> };
@@ -170,6 +171,8 @@ export function decideVoice(input: {
   messageTaken: boolean;
   /** Whether this turn already looked somebody up. One look per turn: the second is a loop. */
   lookedUp: boolean;
+  /** The places the company lets it send a caller. Any other place named is refused. */
+  places?: readonly { id: string; label: string }[] | undefined;
 }): VoiceDecision {
   const words = (key: string) => (typeof input.args[key] === "string" ? speakable(input.args[key] as string) : "");
   const said = words("text");
@@ -253,8 +256,20 @@ export function decideVoice(input: {
       };
     }
 
-    case "transfer":
-      return { kind: "transfer", reason: String(input.args["reason"] ?? "The assistant asked for a person."), text: said || PUTTING_THROUGH };
+    case "transfer": {
+      const reason = String(input.args["reason"] ?? "The assistant asked for a person.");
+      const named = typeof input.args["place"] === "string" ? input.args["place"].trim() : "";
+      if (named === "") return { kind: "transfer", reason, text: said || PUTTING_THROUGH };
+      const place = (input.places ?? []).find((p) => p.id === named);
+      if (!place) {
+        return {
+          kind: "refused",
+          reason: `The assistant tried to send a caller to "${named.slice(0, 64)}", which is not one of the places it may send callers. It put them through to a person instead.`,
+          then: { kind: "transfer", reason, text: PUTTING_THROUGH },
+        };
+      }
+      return { kind: "transfer", reason, text: said || "Of course. Let me send you to the right place. Please hold.", place };
+    }
 
     case "end_call":
       return { kind: "hang_up", text: said || "Thanks for calling. Goodbye." };
@@ -266,4 +281,113 @@ export function decideVoice(input: {
         then: { kind: "transfer", reason: "The assistant was unsure.", text: UNSURE },
       };
   }
+}
+
+/* ------------------------------------------------- speaking as it writes */
+
+/**
+ * The words of a string field in JSON that is still being written, as far as
+ * they have got, or null before the field has begun. Only a field at the top
+ * of the object counts, and an escape cut off at the end is left for the next
+ * piece rather than guessed at.
+ */
+export function partialString(json: string, key: string): string | null {
+  let depth = 0;
+  let i = 0;
+  const n = json.length;
+  const readString = (from: number): { text: string; end: number; done: boolean } => {
+    let text = "";
+    let j = from;
+    while (j < n) {
+      const c = json[j]!;
+      if (c === "\"") return { text, end: j + 1, done: true };
+      if (c === "\\") {
+        const e = json[j + 1];
+        if (e === undefined) return { text, end: j, done: false };
+        if (e === "u") {
+          const hex = json.slice(j + 2, j + 6);
+          if (hex.length < 4) return { text, end: j, done: false };
+          text += String.fromCharCode(parseInt(hex, 16));
+          j += 6;
+          continue;
+        }
+        text += ({ n: "\n", t: "\t", r: "\r", b: "\b", f: "\f" } as Record<string, string>)[e] ?? e;
+        j += 2;
+        continue;
+      }
+      text += c;
+      j += 1;
+    }
+    return { text, end: j, done: false };
+  };
+  while (i < n) {
+    const c = json[i]!;
+    if (c === "{" || c === "[") { depth += 1; i += 1; continue; }
+    if (c === "}" || c === "]") { depth -= 1; i += 1; continue; }
+    if (c === "\"") {
+      const name = readString(i + 1);
+      if (!name.done) return null;
+      let k = name.end;
+      while (k < n && /\s/.test(json[k]!)) k += 1;
+      if (depth === 1 && json[k] === ":" && name.text === key) {
+        k += 1;
+        while (k < n && /\s/.test(json[k]!)) k += 1;
+        if (json[k] !== "\"") return null;
+        return readString(k + 1).text;
+      }
+      i = name.end;
+      continue;
+    }
+    i += 1;
+  }
+  return null;
+}
+
+/** How far a reply has been spoken while the model was still writing it. */
+export interface Streamed {
+  /** How much of the written words has been dealt with. */
+  upTo: number;
+  /** What has been said aloud so far. */
+  said: string;
+  /** A sentence named a price nobody published: nothing more is said from this answer. */
+  stopped: boolean;
+}
+
+export const STREAM_START: Streamed = { upTo: 0, said: "", stopped: false };
+
+/**
+ * The whole sentences written since the last ones spoken, each ready to say,
+ * as the model writes a reply.
+ *
+ * A sentence is spoken only once it is finished (its stop and the space after
+ * it have been written), so a price is never cut in half, and each is held to
+ * the same rules as a whole answer before it is said: made speakable, and
+ * stopped at the first one naming a price the company has not published,
+ * which is never said. Everything after a stop is left to the whole answer's
+ * check, which puts the caller through. At most the length a whole answer may
+ * have is said this way.
+ */
+export function streamReply(state: Streamed, written: string, allowedPrices: readonly string[]): { state: Streamed; speak: string[] } {
+  if (state.stopped) return { state, speak: [] };
+  const speak: string[] = [];
+  let { upTo, said } = state;
+  const boundary = /[.!?]+["')\]]*\s+/g;
+  boundary.lastIndex = upTo;
+  for (let match = boundary.exec(written); match; match = boundary.exec(written)) {
+    const end = match.index + match[0].length;
+    const piece = speakable(written.slice(upTo, end));
+    if (piece && unlistedPrices(piece, allowedPrices).length > 0) return { state: { upTo, said, stopped: true }, speak };
+    if (piece && said.length + piece.length > 600) break;
+    if (piece) {
+      speak.push(piece);
+      said = said ? `${said} ${piece}` : piece;
+    }
+    upTo = end;
+  }
+  return { state: { upTo, said, stopped: false }, speak };
+}
+
+/** The rest of a reply once it is whole, after what was already said while it was written. */
+export function restOfReply(state: Streamed, whole: string): string {
+  return speakable(whole.slice(state.upTo));
 }

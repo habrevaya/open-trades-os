@@ -1,12 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { softphone, telephony } from "@opentradesos/api/services";
+import { softphone, telephony, callTransfers } from "@opentradesos/api/services";
 import { assertCan, can } from "@opentradesos/core";
 import { Chip, Phone as PhoneNumber } from "@opentradesos/ui";
 import { PageHeader, Empty, Table, Th, Td } from "@/components/Table";
+import { ActionForm, Select } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
-import { Softphone } from "./Softphone";
-import { softphoneToken, takeCalls } from "./actions";
+import { Softphone, type Handover } from "./Softphone";
+import { softphoneToken, takeCalls, holdCaller, passCaller, handOver, callOff } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,15 @@ export default async function PhonePage() {
   assertCan(user.actor, "call:place");
   const ctx = { actor: user.actor, db: getDb() };
   const status = await softphone.status(ctx);
+  const [current, targets] = await Promise.all([callTransfers.current(ctx), callTransfers.targets(ctx)]);
+  const who = current ? current.customerName ?? current.from : "";
+  const handover: Handover | null = !current || !current.transferId
+    ? null
+    : current.state === "holding"
+      ? { kind: "holding", callId: current.id, who }
+      : current.state === "consulting" && !current.consultAnswered
+        ? { kind: "consulting", consult: `transfer:${current.transferId}`, name: current.consultWith ?? "your colleague" }
+        : null;
   const recent = can(user.actor, "message:read")
     ? (await telephony.callsFor(ctx, { limit: 50 }))
       .filter((c) => c.placedByUserId === user.actor.userId || c.answeredByUserId === user.actor.userId)
@@ -42,9 +52,51 @@ export default async function PhonePage() {
         page open in a tab of its own while you are taking calls: leaving it ends the call you are on.
       </p>
 
+      {current ? (
+        <section aria-labelledby="your-call" className="mt-6 max-w-md rounded-md border border-steel-300 p-4">
+          <h2 id="your-call" className="text-base font-semibold">Your call</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            {current.state === "talking" ? `On a call with ${who}.` : null}
+            {current.state === "holding" ? `${who} is on hold. Take them back with the phone below, or pass them on.` : null}
+            {current.state === "consulting"
+              ? `${who} is on hold while you talk to ${current.consultWith ?? "your colleague"}.${current.consultAnswered ? "" : " Ring them with the phone below."}`
+              : null}
+            {current.state === "handing_over" ? `Handing ${who} over to ${current.consultWith ?? "your colleague"}.` : null}
+          </p>
+          {current.state === "talking" ? (
+            <ActionForm action={holdCaller} submit="Put on hold" tone="quiet" hidden={{ id: current.id }} className="mt-3" />
+          ) : null}
+          {current.state === "talking" || current.state === "holding" ? (
+            <ActionForm action={passCaller} submit="Pass the caller on" hidden={{ id: current.id }} className="mt-4 space-y-3">
+              <Select label="Pass them to" name="to" options={[
+                ...targets.people.map((p) => ({ value: `person:${p.userId}`, label: p.takingCalls ? `${p.name} (in the browser)` : p.name })),
+                ...targets.ringGroups.map((g) => ({ value: `ring_group:${g.id}`, label: `The ${g.name} ring group` })),
+                ...targets.queues.map((q) => ({ value: `queue:${q.id}`, label: `The ${q.name} waiting line` })),
+              ]} />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="warm" />
+                Talk to them first (a colleague only)
+              </label>
+              <p className="text-xs text-ink-500">
+                Without talking first, the caller goes straight there and your call ends. Talking first puts the caller
+                on hold while you ring your colleague, then you hand them over.
+              </p>
+            </ActionForm>
+          ) : null}
+          {current.state === "consulting" && current.transferId ? (
+            <div className="mt-3 flex flex-wrap gap-3">
+              {current.consultAnswered ? (
+                <ActionForm action={handOver} submit="Hand over the caller" hidden={{ id: current.transferId }} className="" />
+              ) : null}
+              <ActionForm action={callOff} submit="Do not pass them on" tone="quiet" hidden={{ id: current.transferId }} className="" />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {status.ready ? (
         <Softphone callerId={status.callerId ?? ""} takingCalls={status.takingCalls}
-                   getToken={softphoneToken} setTakingCalls={takeCalls} />
+                   getToken={softphoneToken} setTakingCalls={takeCalls} handover={handover} />
       ) : (
         <Empty title="Not ready">{status.reason}</Empty>
       )}

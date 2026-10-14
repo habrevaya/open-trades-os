@@ -12,6 +12,7 @@ import { memberActor } from "./session";
 import { agentTurn, type AiDeps } from "./ai";
 import { companyPeople } from "./report-delivery";
 import "../ai/index";
+import type { StreamDelta } from "../ai/provider";
 
 /**
  * THE AGENTS, ON THE SEAM
@@ -175,6 +176,14 @@ export async function configure(ctx: ServiceContext, input: ConfigureInput) {
           eq(schema.ringGroup.id, settings.voice.transferRingGroupId),
         )).limit(1);
       if (!group) throw new ConflictError("The ring group the assistant puts callers through to no longer exists. Choose another, or voicemail.");
+    }
+    for (const place of input.agent === "voice" ? settings.voice.places ?? [] : []) {
+      const table = place.kind === "queue" ? schema.callQueue : schema.phoneMenu;
+      const [found] = await tx.select({ id: table.id }).from(table)
+        .where(and(eq(table.organizationId, ctx.actor.organizationId), eq(table.id, place.id))).limit(1);
+      if (!found) {
+        throw new ConflictError(`"${place.label}" is a ${place.kind === "queue" ? "waiting line" : "phone menu"} that no longer exists. Take it off the assistant's list.`);
+      }
     }
 
     const [before] = await tx.select().from(schema.aiAgentSetting)
@@ -349,6 +358,13 @@ export const DEFAULT_AGENT_DEPS: AiDeps = {};
 export async function ask(
   acting: Extract<Acting, { ok: true }>, kind: a.AgentKind,
   prompt: a.Prompt, purpose: string, deps: AiDeps,
+  /**
+   * Handed the first action of the answer as it is written: its name and its
+   * arguments so far, as JSON text not yet whole. Only an action this agent
+   * was offered is ever handed on, and only while it is being written: what
+   * it amounts to is still decided by the checks below, on the whole answer.
+   */
+  writing?: (action: string, partialJson: string) => void,
 ): Promise<Answer> {
   const { ctx, settings } = acting;
   for (const permission of a.AGENTS[kind].basePermissions) assertCan(ctx.actor, permission);
@@ -362,6 +378,16 @@ export async function ask(
   }
 
   const offered = a.offeredActions(kind, ctx.actor);
+  const names = new Set(offered.map((action) => action.name));
+  let first: { index: number; name: string; json: string } | null = null;
+  const listen = writing
+    ? (delta: StreamDelta) => {
+        if (delta.type === "toolStart" && first === null) first = { index: delta.index, name: delta.name, json: "" };
+        if (delta.type !== "toolInput" || first === null || delta.index !== first.index) return;
+        first.json += delta.partialJson;
+        if (names.has(first.name)) writing(first.name, first.json);
+      }
+    : undefined;
   let turn;
   try {
     turn = await agentTurn(ctx, {
@@ -375,7 +401,7 @@ export async function ask(
       })),
       maxOutputTokens: settings.limits.maxOutputTokens,
       purpose,
-    }, deps);
+    }, deps, listen);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "The model could not be reached.";
     await inTenant(ctx, (tx) => note(tx, ctx, { agent: kind, kind: "failed", detail: reason }));
