@@ -3,9 +3,11 @@ import { Money } from "@opentradesos/ui";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { kpis, ConflictError, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, reporting } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Empty, PageHeader, Table, Th, Td } from "@/components/Table";
+import { Pager } from "@/components/Pager";
+import { pageHref } from "@/lib/drill";
 import { formatDay } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +50,9 @@ export default async function KpiRecordsPage({
   let drilled: kpis.KpiDrill | null = null;
   let refusal: string | null = null;
   try {
-    drilled = await kpis.drill({ actor: user.actor, db: getDb() }, { key, half, from, to });
+    drilled = await kpis.drill({ actor: user.actor, db: getDb() }, {
+      key, half, from, to, page: reporting.askedPage(one("page")),
+    });
   } catch (error) {
     if (error instanceof NotFoundError) notFound();
     if (!(error instanceof ConflictError)) throw error;
@@ -88,17 +92,17 @@ export default async function KpiRecordsPage({
                 <Td className="text-right font-mono tabular-nums">{shown(record.value)}</Td>
               </tr>
             ))}
+            {/* Over every record on every page, which is the half the scorecard shows. */}
             <tr>
               <Td className="font-medium">Total</Td>
               <Td />
               <Td className="text-right font-mono font-medium tabular-nums">{shown(drilled.total)}</Td>
             </tr>
           </Table>
-          {drilled.truncated ? (
-            <p className="mt-2 text-sm text-ink-500">
-              The first thousand of {drilled.count} are listed. The total covers every one of them.
-            </p>
-          ) : null}
+          <Pager
+            page={drilled.page} pages={drilled.pages} perPage={drilled.perPage} count={drilled.count}
+            noun="records" href={(page) => pageHref("/reports/scorecard/records", params, page)}
+          />
         </>
       ) : null}
     </div>

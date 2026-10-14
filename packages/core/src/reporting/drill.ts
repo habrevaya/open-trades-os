@@ -87,6 +87,8 @@ export type DrillMatch = Record<string, string | null>;
 export interface DrillRequest {
   definition: ReportDefinition;
   match: DrillMatch;
+  /** Which thousand of the records to list, from one. The totals are over all of them whichever it is. */
+  page?: number | undefined;
 }
 
 export type DrillDecision =
@@ -312,4 +314,54 @@ function divideDecimal(value: string, by: number): string {
   const scaled = rescale(parsed, parsed.scale + places);
   const quotient = scaled / BigInt(by);
   return roundDecimal(decimalText(quotient, parsed.scale + places), places);
+}
+
+/**
+ * THE RECORDS BEHIND A NUMBER, A THOUSAND AT A TIME.
+ *
+ * A drill used to stop at a thousand and say so, with the totals over every
+ * record. That kept the number honest and left the records past the first
+ * thousand unreachable except by narrowing the dates, which for a year of
+ * completed jobs is twelve visits to the same report. So the list is read in
+ * pages of a thousand, in the order the first page was in, and the totals on
+ * every page are still over every record: the number that was clicked, never
+ * the page's own sum.
+ *
+ * Shared by the report drill and the records behind a KPI, so the two lists
+ * page the same way. Pure: the service counts the records and asks this
+ * which page it is on.
+ */
+export const DRILL_PAGE_SIZE = 1000;
+
+export interface DrillPage {
+  /** Which page this is, from one. */
+  page: number;
+  /** How many pages the records fill. One for none at all, so there is always a page to be on. */
+  pages: number;
+  /** Records to a page. */
+  perPage: number;
+  /** The records to skip to reach this page. */
+  offset: number;
+}
+
+/**
+ * A page asked for, read leniently: it arrives on a URL anybody can write, so
+ * anything that is not a whole number from one is the first page rather than
+ * an error. Asked before the records are counted.
+ */
+export function askedPage(value: unknown): number {
+  const page = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(page) && page >= 1 ? page : 1;
+}
+
+/**
+ * The page a list of `count` records is on, given the page asked for. A page
+ * past the last is the last, because a link to page four of a list that has
+ * since shrunk to three should show the end of the list and not an empty one
+ * that reads as "nothing behind this number".
+ */
+export function drillPage(count: number, asked: number, perPage: number = DRILL_PAGE_SIZE): DrillPage {
+  const pages = Math.max(1, Math.ceil(Math.max(0, count) / perPage));
+  const page = Math.min(askedPage(asked), pages);
+  return { page, pages, perPage, offset: (page - 1) * perPage };
 }

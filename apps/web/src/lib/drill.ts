@@ -63,3 +63,19 @@ export function safeBack(value: string | string[] | undefined): string {
   const back = Array.isArray(value) ? value[0] : value;
   return back && back.startsWith("/") && !back.startsWith("//") && !back.startsWith("/\\") ? back : "/reports";
 }
+
+/**
+ * The same list on another page: every parameter it was opened with, kept as
+ * it came (the report, the pins, the way back), and the page changed. The
+ * first page is the address without one, so the link a number opens and the
+ * link back to page one are the same address.
+ */
+export function pageHref(path: string, params: Params, page: number): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "page" || value === undefined) continue;
+    for (const one of Array.isArray(value) ? value : [value]) query.append(key, one);
+  }
+  if (page > 1) query.set("page", String(page));
+  return `${path}?${query.toString()}`;
+}
