@@ -45,7 +45,8 @@ export default async function CataloguePage() {
       <p className="mt-2 max-w-prose text-sm text-ink-700">
         A supplier who sells by the box: add a pack column (how many in one, like 25) and a unit column (box). The cost
         is then their price for the box, and the price book is costed for one. Price breaks go in pairs of columns,
-        like Break 1 Qty and Break 1 Price, counted in their boxes.
+        like Break 1 Qty and Break 1 Price, counted in their boxes. If the box has a number of its own, repeat the
+        part&apos;s number on the box&apos;s row and give the box&apos;s number in a Pack Part Number column.
       </p>
       <div className="mt-6">
         {vendors.length === 0 ? (

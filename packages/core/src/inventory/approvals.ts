@@ -1,4 +1,4 @@
-import { type Money, compare, format } from "../money/index.js";
+import { type Money, compare, format, round, sum } from "../money/index.js";
 
 /**
  * WHO HAS TO SAY YES BEFORE AN ORDER GOES TO A VENDOR
@@ -48,6 +48,24 @@ export interface ApprovalRule {
   readonly locationId?: string | null | undefined;
   /** The scope in words for a sentence: "orders from Ferguson". Empty for every order. */
   readonly scopeLabel?: string | undefined;
+  /**
+   * What the amount is counted on. `order` (or absent) is the whole order's
+   * total, the safe reading. `matching_lines` is only the lines the step's
+   * category and location pick out, so a step can say "over five hundred
+   * dollars of refrigerant" or "over two thousand for the Houston
+   * warehouse" while the rest of the order is somebody else's concern.
+   */
+  readonly amountOf?: "order" | "matching_lines" | undefined;
+}
+
+/** One line of an order, as far as a step cares: what it is, which shelf and place, and what it costs. */
+export interface OrderLineShare {
+  readonly id: string;
+  /** The item's name, for telling an approver which lines brought the step in. */
+  readonly label: string;
+  readonly categoryId: string | null;
+  readonly locationId: string;
+  readonly amount: Money;
 }
 
 /** What an order is, for deciding which scoped steps apply to it. */
@@ -57,6 +75,43 @@ export interface OrderScope {
   readonly categoryIds: readonly string[];
   /** Where every line is going. */
   readonly locationIds: readonly string[];
+  /**
+   * Every line with what it costs. Needed only by a step that counts part of
+   * the order: without it such a step falls back to the whole order's total,
+   * which asks for more approval, never less.
+   */
+  readonly lines?: readonly OrderLineShare[] | undefined;
+}
+
+/** True for a step that counts only the lines it is for. */
+export const countsPartOfOrder = (rule: Pick<ApprovalRule, "amountOf" | "categoryId" | "locationId">): boolean =>
+  rule.amountOf === "matching_lines" && Boolean(rule.categoryId || rule.locationId);
+
+/**
+ * The lines a step is for: from its category and going to its location,
+ * whichever of the two it names. A vendor is a fact about the whole order, so
+ * it picks no lines. A step naming neither a category nor a location is for
+ * every line.
+ */
+export function linesFor(
+  rule: Pick<ApprovalRule, "categoryId" | "locationId">, lines: readonly OrderLineShare[],
+): OrderLineShare[] {
+  return lines.filter((l) =>
+    (!rule.categoryId || l.categoryId === rule.categoryId) && (!rule.locationId || l.locationId === rule.locationId));
+}
+
+/**
+ * The amount a step is compared with, and the lines that make it up when the
+ * step is for part of the order. A whole-order step compares the total and
+ * names no lines. A step that counts part of the order and has no line detail
+ * to count from compares the total: that is the safe mistake.
+ */
+export function stepAmount(
+  rule: ApprovalRule, total: Money, order: OrderScope | undefined,
+): { amount: Money; lines: OrderLineShare[]; partial: boolean } {
+  if (!countsPartOfOrder(rule) || !order?.lines) return { amount: total, lines: [], partial: false };
+  const lines = linesFor(rule, order.lines);
+  return { amount: round(sum(lines.map((l) => l.amount)), 2), lines, partial: true };
 }
 
 /**
@@ -80,6 +135,12 @@ export interface ApprovalRecord {
   readonly decidedByUserId: string | null;
   readonly roleLabel: string;
   readonly minimumTotal: Money;
+  /**
+   * The amount the step compared when it was decided: the order's total, or
+   * the share a part-of-order step counted. Absent on a decision made before
+   * steps could count part of an order, which counted the total.
+   */
+  readonly countedAmount?: Money | undefined;
 }
 
 export interface ApprovalStep {
@@ -92,6 +153,12 @@ export interface ApprovalStep {
   readonly state: "approved" | "rejected" | "waiting" | "later";
   readonly decidedByUserId: string | null;
   readonly scopeLabel: string;
+  /** What the step's amount is counted on: the whole order, or only the lines the step is for. */
+  readonly amountOf: "order" | "matching_lines";
+  /** The amount compared with `minimumTotal` now: the order's total, or the lines' share of it. */
+  readonly amount: Money;
+  /** The lines that brought the step in, when it counts part of the order. Empty for a whole-order step. */
+  readonly lines: readonly OrderLineShare[];
 }
 
 export interface ApprovalPlan {
@@ -122,14 +189,25 @@ export function approvalPlan(input: {
   /** The order's vendor, categories and locations, for scoped steps. Without it only unscoped steps apply. */
   order?: OrderScope | undefined;
 }): ApprovalPlan {
+  const measured = new Map(input.rules.map((rule) => [rule.id, stepAmount(rule, input.total, input.order)]));
+  /**
+   * A step for part of the order applies only when at least one line is the
+   * step's, so "over five hundred of refrigerant" never reaches an order
+   * with none, however the amounts fall.
+   */
   const applying = [...input.rules]
-    .filter((rule) => compare(input.total, rule.minimumTotal) >= 0 && ruleCovers(rule, input.order))
+    .filter((rule) => {
+      const counted = measured.get(rule.id)!;
+      return compare(counted.amount, rule.minimumTotal) >= 0 && ruleCovers(rule, input.order)
+        && (!counted.partial || counted.lines.length > 0);
+    })
     .sort((a, b) => a.step - b.step);
   const decided = new Map(input.approvals.map((a) => [a.step, a]));
 
   const byStep = new Map<number, ApprovalStep>();
   for (const rule of applying) {
     const record = decided.get(rule.step);
+    const counted = measured.get(rule.id)!;
     byStep.set(rule.step, {
       step: rule.step,
       ruleId: rule.id,
@@ -140,6 +218,9 @@ export function approvalPlan(input: {
       state: record ? record.decision : "later",
       decidedByUserId: record?.decidedByUserId ?? null,
       scopeLabel: rule.scopeLabel ?? "",
+      amountOf: counted.partial ? "matching_lines" : "order",
+      amount: counted.amount,
+      lines: counted.lines,
     });
   }
   for (const record of input.approvals) {
@@ -147,6 +228,7 @@ export function approvalPlan(input: {
     byStep.set(record.step, {
       step: record.step, ruleId: null, minimumTotal: record.minimumTotal, roleLabel: record.roleLabel,
       role: null, roleId: null, state: record.decision, decidedByUserId: record.decidedByUserId, scopeLabel: "",
+      amountOf: "order", amount: record.countedAmount ?? input.total, lines: [],
     });
   }
 
@@ -173,8 +255,10 @@ export function approvalPlan(input: {
     return {
       state: "waiting", steps, next,
       sentence: `Waiting for ${article(next.roleLabel)} ${next.roleLabel.toLowerCase()} to approve it, step ${done + 1} of ${steps.length}, `
-        + `because it is ${format(input.total)} and anything at or over ${format(next.minimumTotal)}`
-        + `${next.scopeLabel ? ` on ${next.scopeLabel}` : ""} needs one.`,
+        + (next.amountOf === "matching_lines"
+          ? `because ${next.scopeLabel} come to ${format(next.amount)} and anything at or over ${format(next.minimumTotal)} of them needs one.`
+          : `because it is ${format(input.total)} and anything at or over ${format(next.minimumTotal)}`
+            + `${next.scopeLabel ? ` on ${next.scopeLabel}` : ""} needs one.`),
     };
   }
   return {
@@ -242,5 +326,28 @@ export function approvalsUndoneBy(
 ): number[] {
   return decisions
     .filter((d) => d.decision === "approved" && compare(newTotal, d.orderTotal) > 0)
+    .map((d) => d.step);
+}
+
+/**
+ * WHICH APPROVALS AN EDIT UNDOES, STEP BY STEP.
+ *
+ * The same rule as `approvalsUndoneBy`, for steps that count different
+ * amounts: each decision copied the amount its step compared, the order's
+ * total or the share of it a part-of-order step counted, and an edit that
+ * takes THAT amount above what was approved asks that step again. Somebody
+ * who said yes to five hundred dollars of refrigerant did not say yes to
+ * nine hundred, however little the rest of the order moved. A step the order
+ * no longer reaches is left alone, as an edit under every approved amount is.
+ */
+export function approvalsUndoneByAmounts(
+  current: ReadonlyMap<number, Money>,
+  decisions: readonly { step: number; decision: "approved" | "rejected"; amount: Money }[],
+): number[] {
+  return decisions
+    .filter((d) => {
+      const now = current.get(d.step);
+      return d.decision === "approved" && now !== undefined && compare(now, d.amount) > 0;
+    })
     .map((d) => d.step);
 }

@@ -33,6 +33,12 @@ const Rule = z.object({
   categoryId: Uuid.nullable(),
   /** Orders delivering anywhere to this location. Null is any. */
   locationId: Uuid.nullable(),
+  /**
+   * What the amount is counted on. `order` is the whole order's total.
+   * `matching_lines` is only the lines the category and location pick out,
+   * so a step can say "over $500 of refrigerant".
+   */
+  amountOf: z.enum(["order", "matching_lines"]),
   /** The scope in words: "orders from Ferguson, with a line from Refrigerant". Empty for every order. */
   scopeLabel: z.string(),
 });
@@ -52,7 +58,7 @@ export const addPurchaseApprovalRule = defineRoute({
   path: "/v1/purchase-approval-rules",
   summary: "Add an approval step",
   description:
-    "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding; the amount is always the whole order's total. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.",
+    "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding. The amount is the whole order's total unless `amountOf` is `matching_lines`, which counts only the lines from the category and going to the location, as in over $500 of refrigerant or over $2,000 for the Houston warehouse; that needs a category or a location, because a vendor picks no lines. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.",
   module: "M16",
   permissions: ["settings:write"],
   idempotent: true,
@@ -64,6 +70,7 @@ export const addPurchaseApprovalRule = defineRoute({
     vendorId: Uuid.nullable().optional(),
     categoryId: Uuid.nullable().optional(),
     locationId: Uuid.nullable().optional(),
+    amountOf: z.enum(["order", "matching_lines"]).optional(),
   }),
   output: Rule,
 });

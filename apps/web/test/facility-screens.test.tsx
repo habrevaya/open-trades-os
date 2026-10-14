@@ -64,3 +64,23 @@ describe("the route through the disposal facility", () => {
     expect(html).toContain("not on the map yet");
   });
 });
+
+describe("the route among several disposal facilities", () => {
+  it("names the facility each run goes to and why, and the facilities shut today", () => {
+    const html = show(proposal({
+      facilities: [
+        { id: V1, name: "Austin Transfer", onTheMap: true, isDefault: true, closedToday: "closed for Thanksgiving" },
+        { id: V2, name: "Round Rock Landfill", onTheMap: true, isDefault: false, closedToday: null },
+      ],
+      facilityRuns: [{
+        afterVisitId: V1, beforeVisitId: V2, tipped: 1, arriveAt: "2026-10-05T16:30:00.000Z", waitMinutes: 0, closed: null,
+        facilityId: V2, facilityName: "Round Rock Landfill", driveMinutes: 25,
+        why: "Round Rock Landfill is the nearest one open when the truck gets there, 25 min by road. Austin Transfer is closed for Thanksgiving.",
+      }],
+    }));
+    expect(html).toContain("Austin Transfer is closed for Thanksgiving today, so no run goes there.");
+    expect(html).toContain("After Dana Whitfield: to Round Rock Landfill to tip the full container");
+    expect(html).toContain("Round Rock Landfill is the nearest one open when the truck gets there, 25 min by road.");
+  });
+});
+

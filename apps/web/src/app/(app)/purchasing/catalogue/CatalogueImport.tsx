@@ -143,6 +143,8 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
                         ? <span className="text-ink-700">: {row.itemCode} {row.itemName}</span> : null}
                       {row.action === "pack" && row.pairsWith !== null
                         ? <span className="text-ink-500"> (with line {row.pairsWith})</span> : null}
+                      {row.action === "pack" && row.packSku && row.packSku !== row.packSkuBefore
+                        ? <span className="text-ink-500"> (their number for it: <span className="font-mono">{row.packSku}</span>{row.packSkuBefore ? `, was ${row.packSkuBefore}` : ""})</span> : null}
                       {row.action === "update" && row.partNumberBefore !== row.sku ? (
                         <span className="text-ink-500"> (was {row.partNumberBefore})</span>
                       ) : null}

@@ -4,7 +4,7 @@ import { disposalFacilities } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Empty, PageHeader } from "@/components/Table";
-import { ActionForm, Select, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import {
   addFacilityAction, changeFacilityAction, closeFacilityAction, defaultFacilityAction, pinFacilityAction,
 } from "./actions";
@@ -47,6 +47,25 @@ function HoursBoxes({ hours }: { hours?: Facility["hours"] }) {
   );
 }
 
+/** Holidays as two boxes of lines: one off days with a year, and days that repeat every year. */
+function HolidayBoxes({ holidays }: { holidays?: Facility["holidays"] }) {
+  const once = (holidays ?? []).filter((h) => !h.yearly).map((h) => `${h.date}${h.name ? ` ${h.name}` : ""}`).join("\n");
+  const yearly = (holidays ?? []).filter((h) => h.yearly).map((h) => `${h.date.slice(5)}${h.name ? ` ${h.name}` : ""}`).join("\n");
+  return (
+    <fieldset className="sm:col-span-4">
+      <legend className="text-sm font-medium text-ink-700">Days it is closed</legend>
+      <p className="text-xs text-ink-500">
+        A day listed here is closed whatever its hours say, and a day plan never sends a truck there.
+        One line for each day.
+      </p>
+      <div className="mt-1 grid gap-3 sm:grid-cols-2">
+        <TextArea label="Closed on these dates (like 2026-11-26 Thanksgiving)" name="holidaysOnce" rows={3} defaultValue={once} />
+        <TextArea label="Closed every year on (like 12-25 Christmas)" name="holidaysYearly" rows={3} defaultValue={yearly} />
+      </div>
+    </fieldset>
+  );
+}
+
 function RateBoxes({ facility }: { facility?: Facility }) {
   return (
     <>
@@ -66,9 +85,9 @@ function RateBoxes({ facility }: { facility?: Facility }) {
  *
  * The landfills and transfer stations a full container is tipped at. Each has an
  * address (put on the map for you, or pinned by hand), the days and hours it takes
- * loads, and what it charges. Optimise route runs a driver's day through the
- * default one: yard to customer to facility to the next stop, and says when a day
- * would reach it after it has closed.
+ * loads, the days it is closed, and what it charges. Optimise route sends each
+ * full container to the nearest one that is open when the truck gets there: yard to
+ * customer to facility to the next stop, and says which one and why.
  */
 export default async function FacilitiesPage() {
   const user = await requireSetupUser();
@@ -89,9 +108,10 @@ export default async function FacilitiesPage() {
       <Crumb href="/fleet/containers">Containers</Crumb>
       <PageHeader title="Disposal facilities" count={facilities.length} />
       <p className="mt-2 max-w-prose text-sm text-ink-700">
-        Where a full container is tipped. Optimise route plans a driver&apos;s day through the default one, counts the time
-        at its gate, and tells you when a day would arrive after it closes. Public holidays are not known: check the
-        gate before a holiday.
+        Where a full container is tipped. Optimise route sends each full container to the nearest facility that is
+        open when the truck gets there, counts the time at its gate, and says which one it chose and why. A facility
+        closed that day, by its hours or a day you list as closed, is skipped. Public holidays are not known: add the
+        days each facility is closed. The default one wins a tie.
       </p>
 
       {facilities.length === 0 ? (
@@ -106,6 +126,12 @@ export default async function FacilitiesPage() {
               </div>
               <p className="text-sm text-ink-700">{facility.address || "No address yet"}</p>
               <p className="text-sm text-ink-700">{facility.hoursText}. {facility.feeText}. {facility.tipMinutes} minutes there.</p>
+              {facility.holidays.length > 0 ? (
+                <p className="text-sm text-ink-700">
+                  Closed on {[...facility.holidays.filter((h) => !h.yearly), ...facility.holidays.filter((h) => h.yearly)]
+                    .map((h) => `${h.yearly ? `every ${h.date.slice(5)}` : h.date}${h.name ? ` (${h.name})` : ""}`).join(", ")}.
+                </p>
+              ) : null}
               <p className={`text-sm ${facility.onTheMap ? "text-ink-700" : "text-amber-700"}`}>
                 {facility.onTheMap
                   ? `On the map${facility.locationSource === "manual" ? ", pinned by hand" : ""}.`
@@ -121,6 +147,7 @@ export default async function FacilitiesPage() {
                     <TextField label="ZIP" name="postalCode" defaultValue={facility.postalCode ?? ""} />
                     <RateBoxes facility={facility} />
                     <HoursBoxes hours={facility.hours} />
+                    <HolidayBoxes holidays={facility.holidays} />
                   </ActionForm>
                   <div className="flex flex-wrap items-end gap-3">
                     {!facility.isDefault ? (
@@ -158,6 +185,7 @@ export default async function FacilitiesPage() {
             <span />
             <RateBoxes />
             <HoursBoxes />
+            <HolidayBoxes />
           </ActionForm>
         </section>
       ) : null}

@@ -16,6 +16,15 @@ const DayHours = z.object({
   closes: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
 });
 
+const Holiday = z.object({
+  /** "2026-11-26". For a yearly one, any year it falls in. */
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** What it is, "Thanksgiving". */
+  name: z.string().max(80).nullable(),
+  /** Shut on this month and day every year. */
+  yearly: z.boolean(),
+});
+
 const FeeBasis = z.enum(["per_ton", "per_load"]);
 
 const Facility = z.object({
@@ -38,6 +47,8 @@ const Facility = z.object({
   /** The days it takes loads. A day not listed is a day it is closed; none listed means the hours are not recorded. */
   hours: z.array(DayHours),
   hoursText: z.string(),
+  /** Days it is shut whatever its week says. They win over the hours. */
+  holidays: z.array(Holiday),
   feeBasis: FeeBasis.nullable(),
   feeAmount: MoneyString.nullable(),
   minimumFee: MoneyString.nullable(),
@@ -58,6 +69,7 @@ const Figures = {
   state: z.string().max(50).nullable().optional(),
   postalCode: z.string().max(20).nullable().optional(),
   hours: z.array(DayHours).max(7).optional(),
+  holidays: z.array(Holiday).max(60).optional(),
   feeBasis: FeeBasis.nullable().optional(),
   feeAmount: MoneyString.nullable().optional(),
   minimumFee: MoneyString.nullable().optional(),
@@ -83,7 +95,7 @@ export const createDisposalFacility = defineRoute({
   path: "/v1/disposal-facilities",
   summary: "Record a landfill or transfer station",
   description:
-    "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.",
+    "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. Holidays are the days it is shut whatever its week says (a yearly one repeats every year), and win over the hours. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.",
   module: "M22",
   permissions: ["asset:write"],
   idempotent: true,
@@ -120,7 +132,7 @@ export const getDisposalFacilityOpen = defineRoute({
   path: "/v1/disposal-facilities/{id}/open",
   summary: "Whether a facility takes loads at a time",
   description:
-    "In the company's own clock. When it is closed, `why` says so in words, with the day, the time and the hours it keeps. A facility with no hours recorded is reported open with `hoursKnown: false`, because unknown is never a reason to refuse a trip.",
+    "In the company's own clock. When it is closed, `why` says so in words, with the day, the time and the hours it keeps, or the holiday it keeps that day. A facility with no hours recorded is reported open with `hoursKnown: false`, because unknown is never a reason to refuse a trip.",
   module: "M22",
   permissions: ["asset:read"],
   input: z.object({ id: Uuid, at: z.string().datetime({ offset: true }) }),

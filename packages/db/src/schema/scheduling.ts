@@ -336,6 +336,12 @@ export const disposalFacility = pgTable("disposal_facility", {
   ...geocodeColumns(),
   /** Days it takes loads: `{ day: 0 to 6 from Sunday, opens: "07:00", closes: "16:30" }`. */
   hours: jsonb("hours").$type<{ day: number; opens: string; closes: string }[]>().notNull().default([]),
+  /**
+   * Days it is shut whatever its week says: `{ date: "2026-11-26", name: "Thanksgiving", yearly: false }`.
+   * A yearly one is shut on that month and day every year. A day listed here
+   * wins over the hours, even for a facility whose hours nobody has recorded.
+   */
+  holidays: jsonb("holidays").$type<{ date: string; name: string | null; yearly: boolean }[]>().notNull().default([]),
   feeBasis: disposalFeeBasis("fee_basis"),
   /** Per ton or per load, as `fee_basis` says. */
   feeAmount: money("fee_amount"),

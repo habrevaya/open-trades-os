@@ -25,8 +25,11 @@ import { placePin, clearPin } from "./geocoding";
  * stop, counting the time at the gate, and naming any run that reaches it
  * after it has closed.
  *
- * HOLIDAYS ARE NOT HERE. A facility shut for Thanksgiving looks open on that
- * Thursday, and the doc says so.
+ * HOLIDAYS ARE A LIST ON THE FACILITY. One shut for Thanksgiving is shut on
+ * that Thursday whatever its week says, for the planner, for "is it open" and
+ * for the day's choice among facilities. The list is the company's own: no
+ * calendar of public holidays is assumed, because a transfer station keeps its
+ * own.
  *
  * A FACILITY IS CLOSED, NEVER DELETED. Every haul that went there keeps
  * pointing at it, and the scale ticket reconciliation is against its name.
@@ -40,6 +43,7 @@ export interface FacilityInput {
   state?: string | null | undefined;
   postalCode?: string | null | undefined;
   hours?: rt.DayHours[] | undefined;
+  holidays?: rt.FacilityHoliday[] | undefined;
   feeBasis?: rt.FeeBasis | null | undefined;
   feeAmount?: string | null | undefined;
   minimumFee?: string | null | undefined;
@@ -74,6 +78,8 @@ export interface FacilityView {
   onTheMap: boolean;
   hours: rt.DayHours[];
   hoursText: string;
+  /** Days it is shut whatever its week says. */
+  holidays: rt.FacilityHoliday[];
   feeBasis: rt.FeeBasis | null;
   feeAmount: string | null;
   minimumFee: string | null;
@@ -104,7 +110,7 @@ export const viewOf = (row: Row): FacilityView => ({
   latitude: row.latitude, longitude: row.longitude,
   locationPrecision: row.locationPrecision, locationSource: row.locationSource,
   onTheMap: row.latitude !== null && row.longitude !== null,
-  hours: row.hours, hoursText: rt.hoursWords(row.hours),
+  hours: row.hours, hoursText: rt.hoursWords(row.hours), holidays: row.holidays,
   feeBasis: row.feeBasis, feeAmount: row.feeAmount, minimumFee: row.minimumFee,
   feeText: feeText(row),
   tipMinutes: row.tipMinutes, isDefault: row.isDefault, active: row.active, notes: row.notes,
@@ -124,6 +130,9 @@ function checked(input: FacilityInput, before?: Row) {
   const hours = input.hours !== undefined ? input.hours : before?.hours ?? [];
   const verdict = rt.checkHours(hours);
   if (!verdict.ok) throw new ConflictError(verdict.message);
+
+  const closures = rt.checkHolidays(input.holidays !== undefined ? input.holidays : before?.holidays ?? []);
+  if (!closures.ok) throw new ConflictError(closures.message);
 
   const basis = input.feeBasis !== undefined ? input.feeBasis : before?.feeBasis ?? null;
   const amount = input.feeAmount !== undefined ? input.feeAmount : before?.feeAmount ?? null;
@@ -146,7 +155,7 @@ function checked(input: FacilityInput, before?: Row) {
   const text = (value: string | null | undefined, kept: string | null | undefined) =>
     value === undefined ? kept ?? null : value?.trim() || null;
   return {
-    name, hours: verdict.hours, feeBasis: basis, feeAmount: amount === null ? null : m.toString(m.money(amount)),
+    name, hours: verdict.hours, holidays: closures.holidays, feeBasis: basis, feeAmount: amount === null ? null : m.toString(m.money(amount)),
     minimumFee: minimum === null ? null : m.toString(m.money(minimum)), tipMinutes: tip,
     addressLine1: text(input.addressLine1, before?.addressLine1), addressLine2: text(input.addressLine2, before?.addressLine2),
     city: text(input.city, before?.city), state: text(input.state, before?.state), postalCode: text(input.postalCode, before?.postalCode),
@@ -254,24 +263,31 @@ export function openAt(ctx: ServiceContext, input: { id: string; at: string }) {
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const instant = new Date(input.at);
     const date = time.dateIn(instant, zone);
-    const why = rt.closedWords(facility.name, facility.hours, rt.weekdayOf(date), time.minutesInDay(instant, zone));
-    return { id: facility.id, name: facility.name, at: instant.toISOString(), open: why === null, why, hoursKnown: facility.hours.length > 0 };
+    const why = rt.closedOnWords(facility.name, facility.hours, facility.holidays, date, time.minutesInDay(instant, zone));
+    return {
+      id: facility.id, name: facility.name, at: instant.toISOString(), open: why === null, why,
+      hoursKnown: facility.hours.length > 0 || rt.holidayOn(facility.holidays, date) !== null,
+    };
   });
 }
 
 /**
- * The facility a day is planned around: the one asked for, or the company's
- * default, or none. Closed facilities are never planned around.
+ * The facilities a day is planned among: the one asked for alone, or every
+ * active facility the company has, nearest open one chosen for each haul by the
+ * planner. The company's default breaks a tie on drive time and is the one the
+ * answer names when the day cannot tell them apart. Closed facilities are never
+ * planned around. Asking for one that does not exist is a refusal.
  */
-export async function facilityForPlan(tx: Database, organizationId: string, id: string | null): Promise<Row | null> {
-  const [row] = await tx.select().from(schema.disposalFacility)
+export async function facilitiesForPlan(tx: Database, organizationId: string, id: string | null): Promise<Row[]> {
+  const rows = await tx.select().from(schema.disposalFacility)
     .where(and(
       eq(schema.disposalFacility.organizationId, organizationId),
       eq(schema.disposalFacility.active, true),
-      id ? eq(schema.disposalFacility.id, id) : eq(schema.disposalFacility.isDefault, true),
-    )).limit(1);
-  if (!row && id) throw new NotFoundError("Disposal facility");
-  return row ?? null;
+      ...(id ? [eq(schema.disposalFacility.id, id)] : []),
+    ))
+    .orderBy(asc(schema.disposalFacility.name));
+  if (id && rows.length === 0) throw new NotFoundError("Disposal facility");
+  return rows;
 }
 
 export interface FeeFigure {

@@ -29,6 +29,27 @@ function hoursOf(form: FormData) {
   return hours;
 }
 
+/**
+ * The two boxes of closed days as a list: "2026-11-26 Thanksgiving" lines, and
+ * "12-25 Christmas" lines that repeat every year (kept with the leap year 2000
+ * so 02-29 is a real date). A line that is not a date is refused by the service
+ * in words that name it.
+ */
+function holidaysOf(form: FormData) {
+  const lines = (name: string) => String(form.get(name) ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const split = (line: string) => {
+    const [date = "", ...rest] = line.split(/\s+/);
+    return { date, name: rest.join(" ") || null };
+  };
+  return [
+    ...lines("holidaysOnce").map((line) => ({ ...split(line), yearly: false })),
+    ...lines("holidaysYearly").map((line) => {
+      const { date, name } = split(line);
+      return { date: /^\d{2}-\d{2}$/.test(date) ? `2000-${date}` : date, name, yearly: true };
+    }),
+  ];
+}
+
 /** What the form says about the rate, with a rate left empty meaning none recorded. */
 function rateOf(form: FormData) {
   const basis = field(form, "feeBasis");
@@ -50,6 +71,7 @@ export async function addFacilityAction(_previous: FormState, form: FormData): P
       state: field(form, "state") ?? null,
       postalCode: field(form, "postalCode") ?? null,
       hours: hoursOf(form),
+      holidays: holidaysOf(form),
       ...rateOf(form),
       tipMinutes: Number(field(form, "tipMinutes") ?? 20),
     }));
@@ -68,6 +90,7 @@ export async function changeFacilityAction(_previous: FormState, form: FormData)
       state: field(form, "state") ?? null,
       postalCode: field(form, "postalCode") ?? null,
       hours: hoursOf(form),
+      holidays: holidaysOf(form),
       ...rateOf(form),
       tipMinutes: Number(field(form, "tipMinutes") ?? 20),
     });

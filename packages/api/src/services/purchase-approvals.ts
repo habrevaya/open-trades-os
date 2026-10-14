@@ -7,6 +7,7 @@ import {
 import * as once from "./once";
 import * as email from "./email";
 import { raiseWithin } from "./staff-notices";
+import { inForceAt } from "./pricebook";
 
 /**
  * WHO HAS TO SAY YES BEFORE AN ORDER GOES OUT
@@ -36,6 +37,11 @@ export interface ApprovalRuleView {
   vendorId: string | null;
   categoryId: string | null;
   locationId: string | null;
+  /**
+   * What the amount is counted on: the whole order, or only the lines the
+   * category and location pick out ("over $500 of refrigerant").
+   */
+  amountOf: "order" | "matching_lines";
   /** The scope in words: "orders from Ferguson, with a line from Refrigerant". Empty for every order. */
   scopeLabel: string;
 }
@@ -64,12 +70,29 @@ async function rulesWithin(tx: Database): Promise<ApprovalRuleView[]> {
     vendorId: rule.vendorId,
     categoryId: rule.categoryId,
     locationId: rule.locationId,
-    scopeLabel: scopeLabel({ vendorName, categoryName, locationName }),
+    amountOf: rule.amountOf,
+    scopeLabel: scopeLabel(
+      { vendorName, categoryName, locationName },
+      inv.countsPartOfOrder({ amountOf: rule.amountOf, categoryId: rule.categoryId, locationId: rule.locationId }),
+    ),
   }));
 }
 
-/** "orders from Ferguson, with a line from Refrigerant, for North yard", or empty for every order. */
-function scopeLabel(scope: { vendorName: string | null; categoryName: string | null; locationName: string | null }): string {
+/**
+ * "orders from Ferguson, with a line from Refrigerant, for North yard", or
+ * empty for every order. A step that counts only its own lines reads as
+ * those lines: "the Refrigerant lines for North yard, on orders from
+ * Ferguson", which is the phrase "come to $540" follows in a sentence.
+ */
+function scopeLabel(
+  scope: { vendorName: string | null; categoryName: string | null; locationName: string | null },
+  partOfOrder = false,
+): string {
+  if (partOfOrder) {
+    return `the ${scope.categoryName ? `${scope.categoryName} lines` : "lines"}`
+      + `${scope.locationName ? ` for ${scope.locationName}` : ""}`
+      + `${scope.vendorName ? ` on orders from ${scope.vendorName}` : ""}`;
+  }
   const parts = [
     scope.vendorName ? `from ${scope.vendorName}` : null,
     scope.categoryName ? `with a line from ${scope.categoryName}` : null,
@@ -98,6 +121,7 @@ export function addRule(ctx: ServiceContext, input: {
   vendorId?: string | null | undefined;
   categoryId?: string | null | undefined;
   locationId?: string | null | undefined;
+  amountOf?: "order" | "matching_lines" | undefined;
 }) {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const seen = await once.replayed<ApprovalRuleView>(tx, ctx, "purchase_approval_rule");
@@ -136,6 +160,13 @@ export function addRule(ctx: ServiceContext, input: {
       if (!found) throw new NotFoundError("Location");
     }
     const scoped = vendorId !== null || categoryId !== null || locationId !== null;
+    const amountOf = input.amountOf ?? "order";
+    if (amountOf === "matching_lines" && categoryId === null && locationId === null) {
+      throw new ConflictError(
+        "To count only some lines, say which: a category, a location, or both. "
+        + "A vendor is for the whole order, so there is no part of it to count.",
+      );
+    }
 
     const existing = await rulesWithin(tx);
     const step = input.step ?? (existing.at(-1)?.step ?? 0) + 1;
@@ -173,6 +204,7 @@ export function addRule(ctx: ServiceContext, input: {
       vendorId,
       categoryId,
       locationId,
+      amountOf,
       createdByUserId: ctx.actor.userId,
     }).returning();
     await audit(tx, ctx, "purchase_approval_rule.added", "purchase_approval_rule", row!.id, null, row!);
@@ -221,6 +253,12 @@ export interface PlanView {
     decidedBy: string | null; decidedAt: string | null; note: string | null;
     /** Which orders the step is for, in words. Empty for every order. */
     scopeLabel: string;
+    /** What the amount is counted on: the whole order, or only the lines the step is for. */
+    amountOf: "order" | "matching_lines";
+    /** The amount compared with `minimumTotal`: the order's total, or the share of it the step counts. */
+    amount: string;
+    /** The lines that brought the step in, when it counts part of the order. Empty for a whole-order step. */
+    lines: { id: string; description: string; amount: string }[];
   }[];
 }
 
@@ -233,9 +271,17 @@ export async function planWithin(tx: Database, orderId: string): Promise<{ plan:
     unitPrice: schema.purchaseOrderLine.unitPrice, quantityOrdered: schema.purchaseOrderLine.quantityOrdered,
     packQuantity: schema.purchaseOrderLine.packQuantity, packPrice: schema.purchaseOrderLine.packPrice,
     locationId: schema.purchaseOrderLine.locationId, categoryId: schema.priceBookItem.categoryId,
+    id: schema.purchaseOrderLine.id, itemId: schema.purchaseOrderLine.itemId, itemCode: schema.priceBookItem.code,
   }).from(schema.purchaseOrderLine)
     .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.purchaseOrderLine.itemId))
-    .where(eq(schema.purchaseOrderLine.purchaseOrderId, orderId));
+    .where(eq(schema.purchaseOrderLine.purchaseOrderId, orderId))
+    .orderBy(asc(schema.purchaseOrderLine.sortOrder));
+  /** The name an approver reads is the item's, as it stands today. */
+  const nameRows = lines.length === 0 ? [] : await tx.select({
+    itemId: schema.priceBookItemVersion.itemId, name: schema.priceBookItemVersion.name,
+  }).from(schema.priceBookItemVersion)
+    .where(and(inArray(schema.priceBookItemVersion.itemId, [...new Set(lines.map((l) => l.itemId))]), inForceAt()));
+  const nameOf = new Map(nameRows.map((r) => [r.itemId, r.name] as const));
   const [order] = await tx.select({ vendorId: schema.purchaseOrder.vendorId }).from(schema.purchaseOrder)
     .where(eq(schema.purchaseOrder.id, orderId)).limit(1);
   const total = totalOf(lines);
@@ -250,16 +296,22 @@ export async function planWithin(tx: Database, orderId: string): Promise<{ plan:
       id: r.id, step: r.step, minimumTotal: m.money(r.minimumTotal), roleLabel: r.roleLabel,
       role: r.approverRole, roleId: r.approverRoleId,
       vendorId: r.vendorId, categoryId: r.categoryId, locationId: r.locationId, scopeLabel: r.scopeLabel,
+      amountOf: r.amountOf,
     })),
     order: {
       vendorId: order?.vendorId ?? "",
       categoryIds: [...new Set(lines.map((l) => l.categoryId).filter((id): id is string => id !== null))],
       locationIds: [...new Set(lines.map((l) => l.locationId))],
+      lines: lines.map((l) => ({
+        id: l.id, label: nameOf.get(l.itemId) ?? l.itemCode, categoryId: l.categoryId,
+        locationId: l.locationId, amount: totalOf([l]),
+      })),
     },
     total,
     approvals: decisions.map((d) => ({
       step: d.step, decision: d.decision, decidedByUserId: d.decidedByUserId,
       roleLabel: d.roleLabel, minimumTotal: m.money(d.minimumTotal),
+      countedAmount: m.money(d.countedTotal ?? d.orderTotal),
     })),
   });
 
@@ -281,6 +333,9 @@ export async function planWithin(tx: Database, orderId: string): Promise<{ plan:
           decidedAt: d?.createdAt.toISOString() ?? null,
           note: d?.note ?? null,
           scopeLabel: s.scopeLabel,
+          amountOf: s.amountOf,
+          amount: m.toString(m.round(s.amount, 2)),
+          lines: s.lines.map((l) => ({ id: l.id, description: l.label, amount: m.toString(m.round(l.amount, 2)) })),
         };
       }),
     },
@@ -348,12 +403,13 @@ export function decide(ctx: ServiceContext, input: {
       minimumTotal: m.toString(check.step.minimumTotal),
       roleLabel: check.step.roleLabel,
       orderTotal: m.toString(total),
+      countedTotal: m.toString(check.step.amount),
       decision: input.decision,
       decidedByUserId: ctx.actor.userId,
       note,
     });
     await audit(tx, ctx, `purchase_order.${input.decision}`, "purchase_order", order.id, null, {
-      step: check.step.step, total: m.toString(total), note,
+      step: check.step.step, total: m.toString(total), counted: m.toString(check.step.amount), note,
     });
     /** The next step's approvers are told it is their turn. */
     if (input.decision === "approved") await tellApproversWithin(tx, ctx, order.id);
@@ -368,12 +424,18 @@ export function decide(ctx: ServiceContext, input: {
  * as the record that they were given; the steps ask again. Returns which.
  */
 export async function setAsideAbove(tx: Database, orderId: string): Promise<number[]> {
-  const { total } = await planWithin(tx, orderId);
+  const { plan } = await planWithin(tx, orderId);
   const standing = await tx.select().from(schema.purchaseOrderApproval)
     .where(and(eq(schema.purchaseOrderApproval.purchaseOrderId, orderId), isNull(schema.purchaseOrderApproval.supersededAt)));
-  const steps = inv.approvalsUndoneBy(total, standing.map((d) => ({
-    step: d.step, decision: d.decision, orderTotal: m.money(d.orderTotal),
-  })));
+  /**
+   * Each step against its OWN amount: the total for a whole-order step, the
+   * share of it for a step that counts some lines. A decision made before
+   * steps could count part of an order copied the total and compares it.
+   */
+  const steps = inv.approvalsUndoneByAmounts(
+    new Map(plan.steps.map((s) => [s.step, s.amount] as const)),
+    standing.map((d) => ({ step: d.step, decision: d.decision, amount: m.money(d.countedTotal ?? d.orderTotal) })),
+  );
   if (steps.length > 0) {
     await tx.update(schema.purchaseOrderApproval).set({ supersededAt: new Date(), updatedAt: new Date() })
       .where(and(
@@ -478,11 +540,18 @@ export async function tellApproversWithin(tx: Database, ctx: ServiceContext, ord
       `Purchase order ${order.number} to ${order.vendorName}, for ${m.format(total)}, is waiting for you to approve it.`,
       "",
       plan.sentence,
+      ...(step.lines.length > 0
+        ? ["", "The lines that brought it to you:", ...step.lines.map((l) => `  ${l.label}: ${m.format(m.round(l.amount, 2))}`)]
+        : []),
       "",
       link ? `Open it: ${link}` : `Open it from Purchasing: order ${order.number}.`,
     ].join("\n");
     const html = `<p>Purchase order <strong>${order.number}</strong> to ${escapeHtml(order.vendorName)}, for ${escapeHtml(m.format(total))}, is waiting for you to approve it.</p>`
       + `<p>${escapeHtml(plan.sentence)}</p>`
+      + (step.lines.length > 0
+        ? `<p>The lines that brought it to you:</p><ul>${step.lines
+          .map((l) => `<li>${escapeHtml(l.label)}: ${escapeHtml(m.format(m.round(l.amount, 2)))}</li>`).join("")}</ul>`
+        : "")
       + (link ? `<p><a href="${escapeHtml(link)}">Open the order</a></p>` : `<p>Open it from Purchasing: order ${order.number}.</p>`);
     const outcome = await email.queue(transportContext(ctx, tx), {
       to: person.email, subject, text, html, purpose: "transactional",
@@ -539,6 +608,7 @@ export const handlers = {
     step?: number | undefined; minimumTotal: string;
     approverRole?: string | null | undefined; approverRoleId?: string | null | undefined;
     vendorId?: string | null | undefined; categoryId?: string | null | undefined; locationId?: string | null | undefined;
+    amountOf?: "order" | "matching_lines" | undefined;
   }): Promise<ApprovalRuleView> => addRule(ctx, input),
   removePurchaseApprovalRule: (ctx: ServiceContext, input: { id: string }): Promise<{ id: string; removed: true }> =>
     removeRule(ctx, input),

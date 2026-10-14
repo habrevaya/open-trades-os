@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, can, catalogue, money as m } from "@opentradesos/core";
 import {
@@ -48,20 +48,28 @@ export interface VendorLinkView {
   eachCost: string | null;
   /** The second way they sell it (by the box as well as the each), or null for a part sold one way. */
   secondPack: {
+    /** The vendor's own number for this pack when it is not `partNumber`, or null when they share one. */
+    partNumber: string | null;
     packQuantity: string; purchaseUnit: string | null; cost: string | null;
     priceBreaks: catalogue.PriceBreak[]; eachCost: string | null;
   } | null;
-  /** Both ways to buy it, cheaper per one of ours first: the order a purchase order offers them in. */
-  packs: { packQuantity: string; purchaseUnit: string | null; cost: string | null; eachCost: string | null; second: boolean }[];
+  /**
+   * Both ways to buy it, cheaper per one of ours first: the order a purchase order offers them in.
+   * `partNumber` is the number a purchase order for that pack is sent with.
+   */
+  packs: {
+    packQuantity: string; purchaseUnit: string | null; cost: string | null; eachCost: string | null; second: boolean;
+    partNumber: string;
+  }[];
 }
 
 /** A link's ways to buy the part, as an order chooses between them, first pack first. */
 function packsOf(link: typeof schema.vendorItem.$inferSelect): (catalogue.Pack & { second: boolean })[] {
   return [
-    { quantity: link.packQuantity, unit: link.purchaseUnit, cost: link.cost, breaks: link.priceBreaks, second: false },
+    { quantity: link.packQuantity, unit: link.purchaseUnit, cost: link.cost, breaks: link.priceBreaks, second: false, partNumber: null },
     ...(link.secondPackQuantity ? [{
       quantity: link.secondPackQuantity, unit: link.secondPurchaseUnit, cost: link.secondCost,
-      breaks: link.secondPriceBreaks, second: true,
+      breaks: link.secondPriceBreaks, second: true, partNumber: link.secondPartNumber,
     }] : []),
   ];
 }
@@ -106,6 +114,7 @@ async function linksWithin(
     priceBreaks: r.link.priceBreaks,
     eachCost: r.link.cost ? catalogue.eachCost(r.link.cost, r.link.packQuantity) : null,
     secondPack: r.link.secondPackQuantity ? {
+      partNumber: r.link.secondPartNumber,
       packQuantity: r.link.secondPackQuantity, purchaseUnit: r.link.secondPurchaseUnit, cost: r.link.secondCost,
       priceBreaks: r.link.secondPriceBreaks,
       eachCost: r.link.secondCost ? catalogue.eachCost(r.link.secondCost, r.link.secondPackQuantity) : null,
@@ -113,6 +122,7 @@ async function linksWithin(
     packs: catalogue.cheaperFirst(packsOf(r.link)).map((p) => ({
       packQuantity: p.quantity, purchaseUnit: p.unit, cost: p.cost,
       eachCost: p.cost ? catalogue.eachCost(p.cost, p.quantity) : null, second: p.second,
+      partNumber: p.partNumber ?? r.link.partNumber,
     })),
   }));
 }
@@ -152,6 +162,8 @@ export async function setLink(
     secondPack?: {
       packQuantity: string; purchaseUnit?: string | null | undefined; cost?: string | null | undefined;
       priceBreaks?: readonly catalogue.PriceBreak[] | null | undefined;
+      /** The vendor's number for this pack when it is not the first's. Replaced with the rest of the pack. */
+      partNumber?: string | null | undefined;
     } | null | undefined;
   },
 ): Promise<VendorLinkView> {
@@ -190,8 +202,35 @@ export async function setLink(
       );
     }
 
+    /**
+     * THE SECOND PACK'S OWN NUMBER, replaced with the pack (a pack given without
+     * one has none), kept when the pack is kept, and gone with the pack. The
+     * same number as the first is no second number. It may not be, or be, a
+     * number this vendor has for another link: a line and a receipt find the
+     * item by it, so one number is one part.
+     */
+    const secondNumber = secondQuantity === null ? null
+      : second === undefined ? before?.secondPartNumber ?? null : second?.partNumber ?? null;
+    const secondKept = secondNumber !== null && secondNumber.toLowerCase() === partNumber.toLowerCase() ? null : secondNumber;
+    if (secondNumber !== null && secondKept === null && second === undefined) {
+      throw new ConflictError(
+        `${partNumber} is also the number this vendor has for the second way to buy it. Take that number off the second way first, or keep the old first number.`,
+      );
+    }
+    for (const taken of [partNumber, secondKept]) {
+      if (taken === null) continue;
+      const lower = taken.toLowerCase();
+      const others = await tx.select({ id: schema.vendorItem.id }).from(schema.vendorItem).where(and(
+        eq(schema.vendorItem.vendorId, input.vendorId),
+        ne(schema.vendorItem.itemId, input.itemId),
+        sql`(lower(${schema.vendorItem.partNumber}) = ${lower} or lower(${schema.vendorItem.secondPartNumber}) = ${lower})`,
+      )).limit(1);
+      if (others.length > 0) throw new ConflictError(PART_NUMBER_TAKEN(taken));
+    }
+
     const values = {
       partNumber,
+      secondPartNumber: secondKept,
       description: input.description?.trim() ? input.description.trim() : before?.description ?? null,
       cost: cost === null ? before?.cost ?? null : m.toString(m.money(cost)),
       costUpdatedAt: cost === null ? before?.costUpdatedAt ?? null : new Date(),
@@ -207,11 +246,12 @@ export async function setLink(
       updatedAt: new Date(),
     };
     const [row] = await refusingDuplicate("vendor_item_part_number_idx", PART_NUMBER_TAKEN(partNumber), () =>
-      before
-        ? tx.update(schema.vendorItem).set(values).where(eq(schema.vendorItem.id, before.id)).returning()
-        : tx.insert(schema.vendorItem).values({
-          organizationId: ctx.actor.organizationId, vendorId: input.vendorId, itemId: input.itemId, ...values,
-        }).returning());
+      refusingDuplicate("vendor_item_second_part_number_idx", PART_NUMBER_TAKEN(secondKept ?? partNumber), () =>
+        before
+          ? tx.update(schema.vendorItem).set(values).where(eq(schema.vendorItem.id, before.id)).returning()
+          : tx.insert(schema.vendorItem).values({
+            organizationId: ctx.actor.organizationId, vendorId: input.vendorId, itemId: input.itemId, ...values,
+          }).returning()));
 
     await audit(tx, ctx, before ? "vendor_item.updated" : "vendor_item.created", "vendor_item", row!.id, before ?? null, row!);
     return (await linksWithin(tx, { itemId: input.itemId })).find((l) => l.id === row!.id)!;
@@ -226,6 +266,7 @@ export async function setLink(
 function secondPackOf(input: {
   packQuantity: string; purchaseUnit?: string | null | undefined; cost?: string | null | undefined;
   priceBreaks?: readonly catalogue.PriceBreak[] | null | undefined;
+  partNumber?: string | null | undefined;
 } | null | undefined) {
   if (input === undefined) return undefined;
   if (input === null) return null;
@@ -244,6 +285,7 @@ function secondPackOf(input: {
     purchaseUnit: input.purchaseUnit?.trim() || null,
     cost: cost === null ? null : m.toString(m.money(cost)),
     priceBreaks: breaks?.ok ? breaks.breaks : [],
+    partNumber: input.partNumber?.trim() || null,
   };
 }
 
@@ -336,6 +378,7 @@ async function stateFor(tx: Database, rows: readonly catalogue.CatalogueRow[]): 
       vendorId: l.vendorId, itemId: l.itemId, partNumber: l.partNumber, cost: l.cost, description: l.description,
       packQuantity: l.packQuantity, purchaseUnit: l.purchaseUnit, priceBreaks: l.priceBreaks,
       second: l.secondPackQuantity ? {
+        partNumber: l.secondPartNumber,
         packQuantity: l.secondPackQuantity, purchaseUnit: l.secondPurchaseUnit, cost: l.secondCost, priceBreaks: l.secondPriceBreaks,
       } : null,
     })),
@@ -465,11 +508,12 @@ export async function apply(
       };
     };
     /** The same, for the link's second pack: its quantity and price always, unit and breaks as the file states them. */
-    const secondPacking = (row: { line: number; pack: string; unit: string | null; breaks: catalogue.PriceBreak[]; cost: string }) => {
+    const secondPacking = (row: { line: number; pack: string; unit: string | null; breaks: catalogue.PriceBreak[]; cost: string; packSku: string | null }) => {
       const read = parsedOf.get(row.line);
       return {
         secondPackQuantity: row.pack,
         secondCost: row.cost,
+        secondPartNumber: row.packSku,
         ...(read?.unit !== undefined ? { secondPurchaseUnit: row.unit } : {}),
         ...(read?.breaks !== undefined ? { secondPriceBreaks: row.breaks } : {}),
       };
@@ -564,10 +608,14 @@ export async function apply(
           const target = row.itemId
             ? and(eq(schema.vendorItem.vendorId, vendorId), eq(schema.vendorItem.itemId, row.itemId))
             : and(eq(schema.vendorItem.vendorId, vendorId), sql`lower(${schema.vendorItem.partNumber}) = ${row.sku.trim().toLowerCase()}`);
-          const done = await tx.update(schema.vendorItem)
-            .set({ ...secondPacking(row), costUpdatedAt: now, updatedAt: now })
-            .where(and(target, sql`${schema.vendorItem.packQuantity} <> ${row.pack}`))
-            .returning({ id: schema.vendorItem.id });
+          const done = await refusingDuplicate(
+            "vendor_item_part_number_idx",
+            `${row.packSku ?? row.sku} is already this vendor's number for another of your items. Preview the file again.`,
+            () => tx.update(schema.vendorItem)
+              .set({ ...secondPacking(row), costUpdatedAt: now, updatedAt: now })
+              .where(and(target, sql`${schema.vendorItem.packQuantity} <> ${row.pack}`))
+              .returning({ id: schema.vendorItem.id }),
+          );
           if (done.length > 0) updated += 1;
           break;
         }
@@ -605,30 +653,45 @@ export async function resolvePart(
   itemId: string; partNumber: string | null; cost: string | null;
   /** How the vendor sells it: so many of ours in one of theirs, called what, and their breaks. */
   packQuantity: string; purchaseUnit: string | null; priceBreaks: catalogue.PriceBreak[];
-  /** Every way they sell it: the first pack above, and the second when there is one. */
+  /** Every way they sell it: the first pack above, and the second when there is one, each with its own number when it has one. */
   packs: catalogue.Pack[];
+  /**
+   * The pack the number typed names, when it is the number of the second pack
+   * (the box numbered apart from the each): how many of ours are in it. Null
+   * when the number typed is the link's own, or the part was found another way.
+   */
+  namedPack: string | null;
 }> {
-  const packing = (link: typeof schema.vendorItem.$inferSelect | undefined) => ({
+  const packing = (link: typeof schema.vendorItem.$inferSelect | undefined, namedPack: string | null = null) => ({
     packQuantity: link?.packQuantity ?? "1",
     purchaseUnit: link?.purchaseUnit ?? null,
     priceBreaks: link?.priceBreaks ?? [],
     packs: link ? packsOf(link).map(({ second: _second, ...pack }) => pack) : [],
+    namedPack,
   });
   const typed = line.partNumber?.trim() ?? "";
+  const bySecond = (link: typeof schema.vendorItem.$inferSelect | undefined) =>
+    link?.secondPartNumber && typed !== "" && link.secondPartNumber.toLowerCase() === typed.toLowerCase()
+      ? link.secondPackQuantity : null;
   if (line.itemId) {
     const [link] = await tx.select().from(schema.vendorItem)
       .where(and(eq(schema.vendorItem.vendorId, vendorId), eq(schema.vendorItem.itemId, line.itemId))).limit(1);
-    if (typed !== "" && link && link.partNumber.toLowerCase() !== typed.toLowerCase()) {
-      throw new ConflictError(`${typed} is not this vendor's number for that item: they call it ${link.partNumber}.`);
+    const named = bySecond(link);
+    if (typed !== "" && link && link.partNumber.toLowerCase() !== typed.toLowerCase() && named === null) {
+      throw new ConflictError(`${typed} is not this vendor's number for that item: they call it ${link.partNumber}${link.secondPartNumber ? `, or ${link.secondPartNumber} for the ${link.secondPurchaseUnit ?? "pack"} of ${Number(link.secondPackQuantity)}` : ""}.`);
     }
-    return { itemId: line.itemId, partNumber: link?.partNumber ?? (typed === "" ? null : typed), cost: link?.cost ?? null, ...packing(link) };
+    return { itemId: line.itemId, partNumber: link?.partNumber ?? (typed === "" ? null : typed), cost: link?.cost ?? null, ...packing(link, named) };
   }
   if (typed === "") throw new ConflictError("Every line needs a part: our item, or the vendor's part number.");
 
+  /** The vendor's number for either of its ways to sell the part, found the same way. */
   const [byPart] = await tx.select().from(schema.vendorItem)
-    .where(and(eq(schema.vendorItem.vendorId, vendorId), sql`lower(${schema.vendorItem.partNumber}) = ${typed.toLowerCase()}`))
+    .where(and(
+      eq(schema.vendorItem.vendorId, vendorId),
+      sql`(lower(${schema.vendorItem.partNumber}) = ${typed.toLowerCase()} or lower(${schema.vendorItem.secondPartNumber}) = ${typed.toLowerCase()})`,
+    ))
     .limit(1);
-  if (byPart) return { itemId: byPart.itemId, partNumber: byPart.partNumber, cost: byPart.cost, ...packing(byPart) };
+  if (byPart) return { itemId: byPart.itemId, partNumber: byPart.partNumber, cost: byPart.cost, ...packing(byPart, bySecond(byPart)) };
 
   const byCode = await tx.select({ id: schema.priceBookItem.id }).from(schema.priceBookItem)
     .where(and(isNull(schema.priceBookItem.deletedAt), sql`lower(${schema.priceBookItem.code}) = ${typed.toLowerCase()}`))
@@ -655,6 +718,7 @@ export const handlers = {
     secondPack?: {
       packQuantity: string; purchaseUnit?: string | null | undefined; cost?: string | null | undefined;
       priceBreaks?: readonly { minimum: string; cost: string }[] | null | undefined;
+      partNumber?: string | null | undefined;
     } | null | undefined;
   }) => setLink(ctx, input),
   removeVendorItem: (ctx: ServiceContext, input: { id: string }) => removeLink(ctx, input),

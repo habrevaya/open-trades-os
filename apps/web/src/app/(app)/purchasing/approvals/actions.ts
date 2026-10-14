@@ -9,7 +9,7 @@ import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
-/** A step of approval: orders at or over an amount, of a vendor, category or location when chosen, need somebody holding a role. */
+/** A step of approval: orders at or over an amount, of a vendor, category or location when chosen, need somebody holding a role. The amount is the whole order's, or only the lines the category and location pick out. */
 export async function addRuleAction(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
     const role = field(form, "role") ?? "";
@@ -19,6 +19,7 @@ export async function addRuleAction(_previous: FormState, form: FormData): Promi
       vendorId: field(form, "vendorId") ?? null,
       categoryId: field(form, "categoryId") ?? null,
       locationId: field(form, "locationId") ?? null,
+      amountOf: field(form, "amountOf") === "matching_lines" ? "matching_lines" : "order",
     }));
   });
   if (state?.done) revalidatePath("/purchasing/approvals");

@@ -220,6 +220,36 @@ away, refused when it is the same pack as the first), the vendor's price shows
 takes it off. `GET /v1/vendor-items` returns `secondPack` and `packs`, both
 ways cheaper per one of ours first.
 
+**A box with a number of its own.** Some suppliers number the box differently
+from the each (wire nuts are WN-EA by the each and WN-BX by the box of 25). The
+second pack then carries the vendor's number for it (`secondPack.partNumber` on
+`PUT /v1/vendor-items`, "Their number for that, if it is different" on the
+item's page), and every `packs` entry says the number a purchase order for it is
+sent with. Left empty, the box shares the part's number, as before. The box's
+number is the vendor's alone, in the same way the first is: no other link of
+that vendor may use it as either of its numbers (refused in words; a number
+another vendor uses is no matter), the same number as the first is no second
+number, and it goes when the second way is taken off. A first number and a
+second number cannot both be checked by one index, so a trigger
+(`app.vendor_item_numbers`, in `packages/db/sql/after.sql`) holds the one
+against the other under a lock per vendor, and a unique index holds one box
+number against another. **On an order**, typing the box's number means the
+box: the line is the pack that number names, a quantity that is not whole boxes
+is refused ("Order 25 or 50 by the box of 25, not 30"), and naming a different
+pack with it (`packQuantity`) is refused rather than guessed at. Typing the each's
+number, or naming our item, still lets the quantity decide between the ways, and
+the line is sent with the number of the pack it became: fifty typed as WN-EA
+become two boxes under WN-BX. The number is copied onto the line, so the order,
+its email, its PDF and the vendor's link all carry it, and "Order by part
+number" offers the box's number beside the part's. **In a catalogue file**, a
+row whose part number is the box's number states that link's second pack (the
+pack column, when there is one, has to agree), and a "Pack Part Number" column
+(also "Box SKU", "Case Part Number", "Second SKU") on a second row of the same
+part gives the box its own number, or renumbers it when the supplier did; the
+each's row comes first. A number that is another item's, another line's of the
+same file, or a number given for the same pack as the first, is skipped with the
+reason.
+
 **Vendors the file names.** A vendor the file names that is not set up is
 skipped, unless the person importing ticks "Add the vendors this file names that
 are not set up yet" (`createVendors`, off by default). Then the preview lists the
@@ -389,8 +419,29 @@ order, so "over a thousand, the office manager; over five thousand, the owner
 as well" is two rows, and a six thousand dollar order needs both, the office
 manager first. A step can be for some orders only: to one vendor, with any line
 from one price book category, or delivering to one location, all that are given
-holding. The amount is always the whole order's total, not the share in the
-category, because asking for more approval is the safe mistake. Among steps for
+holding. By default the amount is the whole order's total, not the share in the
+category, because asking for more approval is the safe mistake.
+
+**A step can count only the lines it is for.** A step saved with `amountOf`
+`matching_lines` compares its amount with the lines the category and the
+location pick out, not with the whole order: "over $500 of refrigerant" is a
+step for the refrigerant category counting only its lines, and "over $2,000 for
+the Houston warehouse" one for that location counting only what is going
+there. Given both, a line has to be from the category and going to the
+location. It needs a category or a location, because a vendor is a fact about
+the whole order and picks no lines, and the step is refused otherwise. A step
+that counts part of an order applies only when at least one line is its own,
+even at a zero amount. Such a step sits beside whole-order steps in the same sequence, each compared with its
+own amount, and like any scoped step it is not held to the rule that later
+whole-order steps ask for more. The approver is shown which lines tripped it:
+the order's page lists them under the step with what each costs and what they
+come to together, the sentence for the step says "because the Refrigerant lines
+come to $540.00 and anything at or over $500.00 of them needs one", and the
+email to the approver lists the same lines. An approval copies the amount its
+step counted, so an edit asks that step again only when ITS lines went above
+what was approved: doubling the motors on an order whose refrigerant approval
+was $540 leaves the approval standing, and raising the refrigerant to $600 asks
+again however little the total moved. Among steps for
 every order a later step may not start below an earlier one; a scoped step is
 not held to that order. Nobody decides two steps of one order. A rejection needs a
 reason and ends it: the order is cancelled and a corrected one raised. The
@@ -404,8 +455,9 @@ step waiting, and when an edit asks again. Each attempt is listed on the order
 under "Told by email", including one refused because no email is connected,
 which is how a buyer knows the owner was never asked.
 
-**An edit above what was approved asks again.** Each approval copied the total
-it said yes to. An edit that takes the order above it sets that approval aside
+**An edit above what was approved asks again.** Each approval copied the amount
+its step compared, the order's total or the share a step counted, and it said
+yes to that. An edit that takes the order above it sets that approval aside
 (kept as the record) and the step waits again; an edit at or under every
 approved total leaves them standing. A rejected order is cancelled and raised
 again, not edited.
@@ -556,9 +608,11 @@ A catalogue import reads a CSV, not a spreadsheet file or a supplier's API or
 EDI feed, and at most five thousand rows at a time. It adds the vendors a file
 names only when asked, and then with their name alone; it never matches a near
 spelling to a vendor already set up. A link keeps two ways to buy a part at most,
-both under one part number: a supplier that numbers its box differently from its
-each cannot have both numbers on one link, because one item has one link per
-vendor. An order line is one way to buy it; a quantity that is boxes and some
+each with a number of its own if it has one; a third (a case beside the box and
+the each) is not kept. A catalogue file pairs a box with its each by repeating
+the part's number on the box's row, or by the box's number once the link holds
+it: a file that lists the box under its own number and never says which part it
+belongs to is read as a different part. An order line is one way to buy it; a quantity that is boxes and some
 over is two lines, written by the person.
 
 Stock received outside an order carries whatever total cost was typed, and a
@@ -577,8 +631,9 @@ goes back to is the buyer's word, not something checked. The customer's
 equipment record a returned unit became is left on their register for the
 office to retire.
 
-An approval step's amount is the whole order's total, never the part of it in a
-category or for a location. Approvers are told by email when the company's email
+An approval step counts the whole order's total unless it was saved as counting
+only the lines it is for; a step counting part of an order cannot count by
+vendor, and there is no step on a line's quantity, only its cost. Approvers are told by email when the company's email
 is connected, and by a notice (M34) on the bell, the phone app or a text as each
 of them chose, whether or not it is; somebody holding the role who cannot read
 orders (`po:read`) gets the email and no notice. A notice is not repeated while

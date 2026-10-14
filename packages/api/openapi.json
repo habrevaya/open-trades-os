@@ -43982,7 +43982,7 @@
       "get": {
         "operationId": "getRouteProposal",
         "summary": "Propose a better order for one technician's day",
-        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at the company's default disposal facility, or the `facilityId` asked for, when it is on the map: yard to customer to facility to the next stop, with the time at the gate counted and any run that reaches it after it has closed named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
+        "description": "A suggestion, never a reorder. It keeps arrival windows first and drive time second, starts and ends where the technician's day does, leaves work already under way where it is, and names any window it still cannot meet. A driver's day with container drops, collections and swaps on it is ordered by what is on the truck the driver has that day, with the runs to the yard it needs, when the yard is on the map: how many containers it carries (of each size, when its kind says, checked by size as the load changes), which sizes it lifts and how long the yard takes are those of its kind when the vehicle in the driver's custody has one (`PUT /v1/assets/{assetId}/truck-kind`), the company's otherwise, and the answer says which. A stop about a container the truck does not lift is named rather than ordered as if it could. A full container is tipped at a disposal facility on the map: for each run, the nearest one by road that is open when the truck gets there (one shut that day by its hours or its own holidays is skipped), or only the `facilityId` asked for. It goes yard to customer to facility to the next stop, with the time at the gate counted, each run saying which facility it goes to and why, and any run that reaches a closed gate named in words. Applying it is `POST /v1/dispatch/route` with `applyOrder`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -45357,7 +45357,7 @@
       "post": {
         "operationId": "createDisposalFacility",
         "summary": "Record a landfill or transfer station",
-        "description": "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.\n\nRequires a session holding: asset:write.",
+        "description": "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. Holidays are the days it is shut whatever its week says (a yearly one repeats every year), and win over the hours. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.\n\nRequires a session holding: asset:write.",
         "tags": [
           "M22"
         ],
@@ -45840,7 +45840,7 @@
       "get": {
         "operationId": "getDisposalFacilityOpen",
         "summary": "Whether a facility takes loads at a time",
-        "description": "In the company's own clock. When it is closed, `why` says so in words, with the day, the time and the hours it keeps. A facility with no hours recorded is reported open with `hoursKnown: false`, because unknown is never a reason to refuse a trip.\n\nRequires a session holding: asset:read.",
+        "description": "In the company's own clock. When it is closed, `why` says so in words, with the day, the time and the hours it keeps, or the holiday it keeps that day. A facility with no hours recorded is reported open with `hoursKnown: false`, because unknown is never a reason to refuse a trip.\n\nRequires a session holding: asset:read.",
         "tags": [
           "M22"
         ],
@@ -103689,7 +103689,7 @@
       "post": {
         "operationId": "addPurchaseApprovalRule",
         "summary": "Add an approval step",
-        "description": "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding; the amount is always the whole order's total. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.\n\nRequires a session holding: settings:write.",
+        "description": "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding. The amount is the whole order's total unless `amountOf` is `matching_lines`, which counts only the lines from the category and going to the location, as in over $500 of refrigerant or over $2,000 for the Houston warehouse; that needs a category or a location, because a vendor picks no lines. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M16"
         ],
@@ -134679,7 +134679,7 @@
       "put": {
         "operationId": "setVendorItem",
         "summary": "Say what a vendor calls one of our items, and what they charge",
-        "description": "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks: replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.\n\nRequires a session holding: vendor:write.",
+        "description": "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks, and its own `partNumber` when the box is numbered apart from the each (a number this vendor uses for another of your items, or the same as the first, is refused or ignored): replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.\n\nRequires a session holding: vendor:write.",
         "tags": [
           "M16"
         ],
@@ -143019,6 +143019,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "amountOf": {
+            "type": "string",
+            "enum": [
+              "order",
+              "matching_lines"
+            ]
           }
         },
         "required": [
@@ -143076,6 +143083,13 @@
             ],
             "format": "uuid"
           },
+          "amountOf": {
+            "type": "string",
+            "enum": [
+              "order",
+              "matching_lines"
+            ]
+          },
           "scopeLabel": {
             "type": "string"
           }
@@ -143090,6 +143104,7 @@
           "vendorId",
           "categoryId",
           "locationId",
+          "amountOf",
           "scopeLabel"
         ]
       },
@@ -146353,6 +146368,18 @@
                     "null"
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "packSku": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "packSkuBefore": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "itemId": {
                   "type": [
@@ -156918,6 +156945,34 @@
             },
             "maxItems": 7
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            },
+            "maxItems": 60
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -157061,6 +157116,33 @@
           "hoursText": {
             "type": "string"
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            }
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -157120,6 +157202,7 @@
           "onTheMap",
           "hours",
           "hoursText",
+          "holidays",
           "feeBasis",
           "feeAmount",
           "minimumFee",
@@ -166748,6 +166831,41 @@
                 },
                 "scopeLabel": {
                   "type": "string"
+                },
+                "amountOf": {
+                  "type": "string",
+                  "enum": [
+                    "order",
+                    "matching_lines"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "description",
+                      "amount"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -166758,7 +166876,10 @@
                 "decidedBy",
                 "decidedAt",
                 "note",
-                "scopeLabel"
+                "scopeLabel",
+                "amountOf",
+                "amount",
+                "lines"
               ]
             }
           }
@@ -197723,6 +197844,41 @@
                     },
                     "scopeLabel": {
                       "type": "string"
+                    },
+                    "amountOf": {
+                      "type": "string",
+                      "enum": [
+                        "order",
+                        "matching_lines"
+                      ]
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "description",
+                          "amount"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -197733,7 +197889,10 @@
                     "decidedBy",
                     "decidedAt",
                     "note",
-                    "scopeLabel"
+                    "scopeLabel",
+                    "amountOf",
+                    "amount",
+                    "lines"
                   ]
                 }
               }
@@ -197919,6 +198078,41 @@
                 },
                 "scopeLabel": {
                   "type": "string"
+                },
+                "amountOf": {
+                  "type": "string",
+                  "enum": [
+                    "order",
+                    "matching_lines"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "description",
+                      "amount"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -197929,7 +198123,10 @@
                 "decidedBy",
                 "decidedAt",
                 "note",
-                "scopeLabel"
+                "scopeLabel",
+                "amountOf",
+                "amount",
+                "lines"
               ]
             }
           }
@@ -200272,6 +200469,31 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "facilityId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "facilityName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "driveMinutes": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "why": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -200280,7 +200502,45 @@
                     "tipped",
                     "arriveAt",
                     "waitMinutes",
-                    "closed"
+                    "closed",
+                    "facilityId",
+                    "facilityName",
+                    "driveMinutes",
+                    "why"
+                  ]
+                }
+              },
+              "facilities": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "onTheMap": {
+                      "type": "boolean"
+                    },
+                    "closedToday": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "isDefault": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "onTheMap",
+                    "closedToday",
+                    "isDefault"
                   ]
                 }
               },
@@ -200361,6 +200621,7 @@
               "notCarried",
               "facility",
               "facilityRuns",
+              "facilities",
               "currentYardRuns",
               "yardRuns",
               "startLoad"
@@ -214681,6 +214942,33 @@
                 "hoursText": {
                   "type": "string"
                 },
+                "holidays": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "date": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 80
+                      },
+                      "yearly": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "date",
+                      "name",
+                      "yearly"
+                    ]
+                  }
+                },
                 "feeBasis": {
                   "type": [
                     "string",
@@ -214740,6 +215028,7 @@
                 "onTheMap",
                 "hours",
                 "hoursText",
+                "holidays",
                 "feeBasis",
                 "feeAmount",
                 "minimumFee",
@@ -224094,6 +224383,13 @@
                   ],
                   "format": "uuid"
                 },
+                "amountOf": {
+                  "type": "string",
+                  "enum": [
+                    "order",
+                    "matching_lines"
+                  ]
+                },
                 "scopeLabel": {
                   "type": "string"
                 }
@@ -224108,6 +224404,7 @@
                 "vendorId",
                 "categoryId",
                 "locationId",
+                "amountOf",
                 "scopeLabel"
               ]
             }
@@ -230785,6 +231082,12 @@
                     "null"
                   ],
                   "properties": {
+                    "partNumber": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "packQuantity": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -230831,6 +231134,7 @@
                     }
                   },
                   "required": [
+                    "partNumber",
                     "packQuantity",
                     "purchaseUnit",
                     "cost",
@@ -230869,6 +231173,9 @@
                       },
                       "second": {
                         "type": "boolean"
+                      },
+                      "partNumber": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -230876,7 +231183,8 @@
                       "purchaseUnit",
                       "cost",
                       "eachCost",
-                      "second"
+                      "second",
+                      "partNumber"
                     ]
                   }
                 }
@@ -239441,6 +239749,18 @@
                     "null"
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "packSku": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "packSkuBefore": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "itemId": {
                   "type": [
@@ -265244,6 +265564,13 @@
                   ]
                 },
                 "maxItems": 10
+              },
+              "partNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 100
               }
             },
             "required": [
@@ -265350,6 +265677,12 @@
               "null"
             ],
             "properties": {
+              "partNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "packQuantity": {
                 "type": "string",
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -265396,6 +265729,7 @@
               }
             },
             "required": [
+              "partNumber",
               "packQuantity",
               "purchaseUnit",
               "cost",
@@ -265434,6 +265768,9 @@
                 },
                 "second": {
                   "type": "boolean"
+                },
+                "partNumber": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -265441,7 +265778,8 @@
                 "purchaseUnit",
                 "cost",
                 "eachCost",
-                "second"
+                "second",
+                "partNumber"
               ]
             }
           }
@@ -273831,6 +274169,34 @@
             },
             "maxItems": 7
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            },
+            "maxItems": 60
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -273974,6 +274340,33 @@
           "hoursText": {
             "type": "string"
           },
+          "holidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 80
+                },
+                "yearly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "date",
+                "name",
+                "yearly"
+              ]
+            }
+          },
           "feeBasis": {
             "type": [
               "string",
@@ -274033,6 +274426,7 @@
           "onTheMap",
           "hours",
           "hoursText",
+          "holidays",
           "feeBasis",
           "feeAmount",
           "minimumFee",

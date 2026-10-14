@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
  * thousand, the owner as well. An order under every step goes out on the
  * sender's own approval, as it always has. A step can be for some orders
  * only: to one vendor, with a line from one shelf of the price book, or for
- * one location. Changing these is company policy about who may commit
+ * one location, and its amount can be the whole order or only the lines it is
+ * for ("over $500 of refrigerant"). Changing these is company policy about who may commit
  * money, so it needs `settings:write`.
  */
 export default async function ApprovalStepsPage() {
@@ -52,17 +53,20 @@ export default async function ApprovalStepsPage() {
         An order at or over a step&apos;s amount waits for somebody holding that role to approve it, the steps in order,
         and nobody approves two steps of the same order. An order under every step goes out on the sender&apos;s own
         approval. A rejected order is cancelled and raised again rather than asked twice. A step can be for orders
-        to one vendor, with a line from one category, or for one location; the amount is always the whole order.
-        Whoever a step waits for is emailed when the company&apos;s email is connected.
+        to one vendor, with a line from one category, or for one location. Its amount is the whole order, or
+        only the lines it is for, such as $500 of refrigerant or $2,000 for the Houston warehouse. Whoever a step
+        waits for is told on the bell, the phone or by text as they chose, and by email when the company&apos;s
+        email is connected.
       </p>
       {rules.length === 0 ? (
         <Empty title="No steps">Whoever may approve orders sends any order of any size.</Empty>
       ) : (
-        <Table label="Approval steps" head={<><Th>Step</Th><Th>Orders at or over</Th><Th>Which orders</Th><Th>Approved by</Th><Th /></>}>
+        <Table label="Approval steps" head={<><Th>Step</Th><Th>At or over</Th><Th>Counting</Th><Th>Which orders</Th><Th>Approved by</Th><Th /></>}>
           {rules.map((rule) => (
             <tr key={rule.id}>
               <Td className="tabular-nums">{rule.step}</Td>
               <Td><Money value={rule.minimumTotal} /></Td>
+              <Td className="text-ink-700">{rule.amountOf === "matching_lines" ? "Only those lines" : "The whole order"}</Td>
               <Td className="text-ink-700">{rule.scopeLabel ? rule.scopeLabel.replace(/^orders /, "") : "Every order"}</Td>
               <Td>{rule.roleLabel}</Td>
               <Td>{writes ? <ActionForm action={removeRuleAction} submit="Remove" tone="quiet" className="" hidden={{ id: rule.id }} /> : null}</Td>
@@ -77,6 +81,10 @@ export default async function ApprovalStepsPage() {
           <Select label="Only orders to" name="vendorId" className="w-48" options={[any, ...vendors.map((v) => ({ value: v.id, label: v.name }))]} />
           <Select label="Only with a line from" name="categoryId" className="w-48" options={[any, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
           <Select label="Only for" name="locationId" className="w-48" options={[any, ...places.map((p) => ({ value: p.id, label: p.name }))]} />
+          <Select label="Count the amount on" name="amountOf" className="w-56" options={[
+            { value: "order", label: "The whole order" },
+            { value: "matching_lines", label: "Only the lines from that category or for that place" },
+          ]} />
         </ActionForm>
       ) : null}
     </div>

@@ -36,6 +36,19 @@
  * with the broken windows so the search drives further to avoid it, and named
  * on the proposal. With no facility, the yard tips, exactly as before.
  *
+ * SEVERAL FACILITIES ARE CHOSEN AMONG, HAUL BY HAUL (`TruckPlan.facilities`).
+ * A company with two transfer stations and a landfill does not send every
+ * can to the default: each run goes to the nearest one that is open when the
+ * truck gets there, by the same drive times the rest of the plan uses, from
+ * wherever the truck is at that point of the day. One shut that day (its
+ * hours, or a holiday it keeps) is skipped, and so is one the truck would
+ * reach after it has closed. A gate that has not opened yet counts from when
+ * it opens, so it wins only when waiting for it still gets the can tipped
+ * sooner than driving to another. When none is open the nearest is still
+ * chosen, and the run is refused and named exactly as a single facility is,
+ * so the search drives further to avoid it. Each run says which it chose and
+ * what it passed over, so the day's plan can say why.
+ *
  * EACH TRUCK IS ITS OWN KIND. A hook lift that carries two small cans and
  * a roll off truck that carries one big one are not the same truck, and a
  * company's one figure is only the default for a truck nobody has given a
@@ -78,6 +91,31 @@ export interface TruckFacility {
    * which is never a reason to refuse a trip.
    */
   hours: { opensAt: number; closesAt: number } | "closed" | null;
+  /** What to call it, for the sentence that says why a run went there. */
+  name?: string | undefined;
+  /** Why it is shut all day, when it is ("Thanksgiving"), for the same sentence. */
+  closedWhy?: string | undefined;
+  /** The company's default: it wins a tie on drive time. */
+  preferred?: boolean | undefined;
+}
+
+/** Where a facility stands for a truck that would reach it at a given minute. */
+export type FacilityStanding = "open" | "opens_later" | "closed_by_then" | "closed_all_day";
+
+/**
+ * WHICH FACILITY A RUN WENT TO AND WHY. `basis` says how the one chosen was
+ * picked: `only_one` when it was the only one the plan knew, `nearest_open`
+ * when it was open when the truck got there and no open one was sooner,
+ * `opens_soonest` when none was open yet and its gate opens first, and
+ * `none_open` when every one would be shut and the nearest was taken anyway,
+ * the run refused.
+ */
+export interface FacilityChoice {
+  basis: "only_one" | "nearest_open" | "opens_soonest" | "none_open";
+  /** Minutes by road from where the truck was. */
+  driveMinutes: number;
+  /** Every other facility the plan knew, nearest first, with where it stood. */
+  others: { key: string; driveMinutes: number; standing: FacilityStanding; opensAt: number | null; closesAt: number | null }[];
 }
 
 /** What a stop does to the truck. `none` is any other work on the day. */
@@ -228,6 +266,11 @@ export interface TruckPlan extends DayPlan {
   /** Where a full can is tipped, when the plan knows a facility. Without one the yard tips. */
   facility?: TruckFacility | null | undefined;
   /**
+   * Several facilities, each run going to the nearest that is open (see the
+   * top of this file). Beats `facility` when it has any.
+   */
+  facilities?: readonly TruckFacility[] | undefined;
+  /**
    * What is on the truck as the plan starts. Null when the day starts at
    * the yard, where it is loaded for the stops that follow. A `Deck` says
    * each can's size; counts alone are cans of no known size.
@@ -339,6 +382,64 @@ export interface FacilityRun {
   waitMinutes: number;
   /** Minutes after it closed that the truck arrives. Zero when the gate is open; a whole day when it is shut all day. */
   closedBy: number;
+  /** Which facility it went to, when the plan chose among several. Absent when it had one. */
+  facilityKey?: string;
+  /** Why that one, when the plan chose among several. */
+  choice?: FacilityChoice;
+}
+
+/** How a facility stands for a truck that reaches it at `arriveAt`. */
+function standingAt(f: TruckFacility, arriveAt: number): FacilityStanding {
+  if (f.hours === "closed") return "closed_all_day";
+  if (f.hours === null) return "open";
+  if (arriveAt < f.hours.opensAt) return "opens_later";
+  return arriveAt > f.hours.closesAt ? "closed_by_then" : "open";
+}
+
+/** Whether the plan knows any facility, so a full can is tipped there and not at the yard. */
+const hasFacility = (plan: Pick<TruckPlan, "facility" | "facilities">): boolean =>
+  (plan.facilities !== undefined && plan.facilities.length > 0) || Boolean(plan.facility);
+
+/**
+ * The facility a run goes to from `at` at minute `clock`, and the reasoning.
+ * Deterministic: the same plan always picks the same facility, ties going to
+ * the company's default and then to the key.
+ */
+export function pickFacility(
+  plan: Pick<TruckPlan, "facility" | "facilities" | "travel">, at: string, clock: number,
+): { facility: TruckFacility; choice: FacilityChoice | null } | null {
+  const several = plan.facilities !== undefined && plan.facilities.length > 0;
+  const list = several ? plan.facilities! : plan.facility ? [plan.facility] : [];
+  if (list.length === 0) return null;
+  if (!several) return { facility: list[0]!, choice: null };
+
+  const rows = list.map((f) => {
+    const drive = plan.travel(at, f.key);
+    const standing = standingAt(f, clock + drive);
+    /** When the can would be tipped: at once if open, when the gate opens if not yet. */
+    const tippedAt = standing === "open" ? clock + drive
+      : standing === "opens_later" && f.hours !== null && f.hours !== "closed" ? f.hours.opensAt : Number.POSITIVE_INFINITY;
+    const tier = standing === "open" || standing === "opens_later" ? 0 : standing === "closed_by_then" ? 1 : 2;
+    return { f, drive, standing, tippedAt, tier };
+  }).sort((a, b) =>
+    a.tier - b.tier || a.tippedAt - b.tippedAt || a.drive - b.drive
+    || Number(Boolean(b.f.preferred)) - Number(Boolean(a.f.preferred)) || a.f.key.localeCompare(b.f.key));
+  const chosen = rows[0]!;
+  const basis: FacilityChoice["basis"] = rows.length === 1 ? "only_one"
+    : chosen.standing === "open" ? "nearest_open"
+      : chosen.standing === "opens_later" ? "opens_soonest" : "none_open";
+  return {
+    facility: chosen.f,
+    choice: {
+      basis,
+      driveMinutes: chosen.drive,
+      others: rows.slice(1).map((r) => ({
+        key: r.f.key, driveMinutes: r.drive, standing: r.standing,
+        opensAt: r.f.hours !== null && r.f.hours !== "closed" ? r.f.hours.opensAt : null,
+        closesAt: r.f.hours !== null && r.f.hours !== "closed" ? r.f.hours.closesAt : null,
+      })),
+    },
+  };
 }
 
 export interface TruckEvaluation extends Evaluation {
@@ -408,7 +509,7 @@ const truckOf = (plan: TruckPlan): Deckload => ({ capacity: Math.max(1, Math.flo
 
 export function evaluateTruck(given: TruckPlan, order: readonly string[]): TruckEvaluation {
   const plan = servable(given).plan;
-  const facility = plan.facility ?? null;
+  const facility = hasFacility(plan);
   const truck = truckOf(plan);
   const byId = new Map(plan.stops.map((s) => [s.id, s]));
   const steps = order.map((id) => {
@@ -447,7 +548,8 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
    * still measured and the closure is what the proposal names.
    */
   const toFacility = (beforeId: string | null) => {
-    const f = facility!;
+    const picked = pickFacility(plan, at, clock)!;
+    const f = picked.facility;
     const leg = plan.travel(at, f.key);
     drive += leg;
     clock += leg;
@@ -460,7 +562,10 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
       else if (arriveAt > f.hours.closesAt) closedBy = arriveAt - f.hours.closesAt;
     }
     wait += waited;
-    facilityRuns.push({ afterId: previous, beforeId, tipped: load.fulls.length, arriveAt, waitMinutes: waited, closedBy });
+    facilityRuns.push({
+      afterId: previous, beforeId, tipped: load.fulls.length, arriveAt, waitMinutes: waited, closedBy,
+      ...(picked.choice ? { facilityKey: f.key, choice: picked.choice } : {}),
+    });
     clock += f.minutes;
     /** What was full is empty now, and still on the truck, each can its own size. */
     load = { empties: [...load.empties, ...load.fulls], fulls: [] };
@@ -540,7 +645,7 @@ export function betterTruck(a: TruckEvaluation, b: TruckEvaluation): boolean {
  */
 export function constructTruck(given: TruckPlan): string[] {
   const plan = servable(given).plan;
-  const facility = plan.facility ?? null;
+  const facility = hasFacility(plan);
   const truck = truckOf(plan);
   const remaining = [...plan.stops].sort((a, b) => a.id.localeCompare(b.id));
   const order: string[] = [];
@@ -562,10 +667,11 @@ export function constructTruck(given: TruckPlan): string[] {
     let viaYard = false;
     if (!canServeDeck(step.work, step.size, ld, truck)) {
       if (facility && ld.fulls.length > 0) {
-        time += plan.travel(place, facility.key);
-        if (facility.hours !== null && facility.hours !== "closed" && time < facility.hours.opensAt) time = facility.hours.opensAt;
-        time += facility.minutes;
-        place = facility.key;
+        const f = pickFacility(plan, place, time)!.facility;
+        time += plan.travel(place, f.key);
+        if (f.hours !== null && f.hours !== "closed" && time < f.hours.opensAt) time = f.hours.opensAt;
+        time += f.minutes;
+        place = f.key;
         ld = { empties: [...ld.empties, ...ld.fulls], fulls: [] };
       }
       if (!canServeDeck(step.work, step.size, ld, truck)) {

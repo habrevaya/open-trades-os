@@ -157,14 +157,28 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
         {order.approval.steps.length > 0 ? (
           <ol className="mt-2 space-y-1 text-sm">
             {order.approval.steps.map((step) => (
-              <li key={step.step} className="flex flex-wrap items-center gap-2">
-                <span className="tabular-nums text-ink-500">Step {step.step}</span>
-                <span>
-                  {step.roleLabel}, at or over <Money value={step.minimumTotal} />
-                  {step.scopeLabel ? <span className="text-ink-500"> on {step.scopeLabel}</span> : null}
-                </span>
-                <Chip tone={STEP_TONE[step.state] ?? "neutral"}>{STEP_SAYS[step.state] ?? step.state}</Chip>
-                {step.decidedBy ? <span className="text-ink-500">by {step.decidedBy}{step.note ? `: ${step.note}` : ""}</span> : null}
+              <li key={step.step}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="tabular-nums text-ink-500">Step {step.step}</span>
+                  <span>
+                    {step.roleLabel}, at or over <Money value={step.minimumTotal} />
+                    {step.scopeLabel
+                      ? <span className="text-ink-500">{step.amountOf === "matching_lines" ? " of " : " on "}{step.scopeLabel}</span>
+                      : null}
+                  </span>
+                  <Chip tone={STEP_TONE[step.state] ?? "neutral"}>{STEP_SAYS[step.state] ?? step.state}</Chip>
+                  {step.decidedBy ? <span className="text-ink-500">by {step.decidedBy}{step.note ? `: ${step.note}` : ""}</span> : null}
+                </div>
+                {step.lines.length > 0 ? (
+                  <div className="ml-4 mt-1 text-ink-700">
+                    <p>
+                      These lines brought it in, <Money value={step.amount} /> together:
+                    </p>
+                    <ul className="list-disc pl-5" aria-label={`Lines that brought in step ${step.step}`}>
+                      {step.lines.map((l) => <li key={l.id}>{l.description}, <Money value={l.amount} /></li>)}
+                    </ul>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ol>

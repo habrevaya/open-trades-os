@@ -144,6 +144,17 @@ export const vendorItem = pgTable("vendor_item", {
    */
   secondPackQuantity: quantity("second_pack_quantity"),
   secondPurchaseUnit: text("second_purchase_unit"),
+  /**
+   * THE VENDOR'S OWN NUMBER FOR THE SECOND PACK, when it is not the first's. A
+   * supply house prices wire nuts by the each as WN-25 and by the box as
+   * WN-25-BX: one item, two numbers, and a purchase order for boxes has to say
+   * the box's. Null is the same number as the first pack, as it always was.
+   * Like the first number it names one of our items for this vendor, so no
+   * other link of the vendor may use it as either of its numbers: the unique
+   * index below covers it against other seconds, and `app.vendor_item_numbers`
+   * (after.sql) covers it against firsts.
+   */
+  secondPartNumber: text("second_part_number"),
   /** Their price for one of the second pack. */
   secondCost: money("second_cost"),
   secondPriceBreaks: jsonb("second_price_breaks").$type<{ minimum: string; cost: string }[]>().notNull().default([]),
@@ -161,6 +172,12 @@ export const vendorItem = pgTable("vendor_item", {
   partNumberIdx: uniqueIndex("vendor_item_part_number_idx")
     .on(t.organizationId, t.vendorId, sql`lower(${t.partNumber})`),
   itemIdx: index("vendor_item_item_idx").on(t.organizationId, t.itemId),
+  secondPartNumberIdx: uniqueIndex("vendor_item_second_part_number_idx")
+    .on(t.organizationId, t.vendorId, sql`lower(${t.secondPartNumber})`)
+    .where(sql`${t.secondPartNumber} is not null`),
+  /** A second number belongs to a second pack, and is a different number from the first. */
+  secondNumberCheck: check("vendor_item_second_number",
+    sql`${t.secondPartNumber} is null or (${t.secondPackQuantity} is not null and lower(${t.secondPartNumber}) <> lower(${t.partNumber}))`),
   /** Two ways to buy it are two different packs, or they are one way written twice. */
   twoPacksCheck: check("vendor_item_two_packs",
     sql`${t.secondPackQuantity} is null or ${t.secondPackQuantity} <> ${t.packQuantity}`),
@@ -527,6 +544,8 @@ export const purchaseOrderReceiptCharge = pgTable("purchase_order_receipt_charge
  * two: a custom role replaces the preset on a membership, so a step naming
  * the preset would never match somebody on a custom role.
  */
+export const approvalAmountOf = pgEnum("purchase_approval_amount_of", ["order", "matching_lines"]);
+
 export const purchaseApprovalRule = pgTable("purchase_approval_rule", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -544,6 +563,14 @@ export const purchaseApprovalRule = pgTable("purchase_approval_rule", {
   vendorId: uuid("vendor_id").references(() => vendor.id, { onDelete: "restrict" }),
   categoryId: uuid("category_id").references(() => priceBookCategory.id, { onDelete: "restrict" }),
   locationId: uuid("location_id").references(() => location.id, { onDelete: "restrict" }),
+  /**
+   * WHAT THE AMOUNT IS COUNTED ON. `order` is the whole order's total, the
+   * safe reading and what every step before this column did. `matching_lines`
+   * counts only the lines the category and location pick out, so a step can
+   * say "over $500 of refrigerant". It needs a category or a location: a
+   * vendor is a fact about the whole order and picks no lines.
+   */
+  amountOf: approvalAmountOf("amount_of").notNull().default("order"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
@@ -570,6 +597,13 @@ export const purchaseOrderApproval = pgTable("purchase_order_approval", {
   /** The role the step asked for, in words, as it was named on the day. */
   roleLabel: text("role_label").notNull(),
   orderTotal: money("order_total").notNull(),
+  /**
+   * The amount the step compared when it was decided: the order's total, or
+   * the share a part-of-order step counted. Null on a decision made before
+   * steps could count part of an order, which compared the total. An edit that
+   * takes this amount above what was approved asks the step again.
+   */
+  countedTotal: money("counted_total"),
   decision: approvalDecision("decision").notNull(),
   decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
   note: text("note"),

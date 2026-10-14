@@ -258,18 +258,48 @@ that went there keeps naming it), `PUT /v1/disposal-facilities/{id}/pin` and
 words why not. They need `asset:write` (`asset:read` to look). The first one a
 company records is its default, and a company has one default at a time.
 
-"Optimise route" runs a driver's day through the default facility, or the one
-asked for with `facilityId`: yard to customer to facility to the next stop. A
-full can is tipped there and not at the yard, the empty it leaves with goes
-straight to the next drop, and the yard is still where empties are loaded and
-where a truck leaves one for room. The time at the gate is counted, a truck
-early for it waits, and a run that would arrive after it has closed, or on a day
-it keeps no hours, is refused in words on the proposal (`Austin Transfer is
-closed at 5:40 PM on Tuesday: it is open 7:00 AM to 4:30 PM that day`). The
-search counts a closed gate as a broken promise, so it drives further to avoid
-one where any order could. A facility with no pin on the map cannot be driven to
-in the arithmetic, and the proposal says the day was planned with the yard
-tipping. Public holidays are not known, so a facility shut for one looks open.
+**Which facility a haul goes to.** "Optimise route" does not send every can to
+the default. For each run it picks the nearest facility **by road** (the same
+drive times the rest of the plan uses, from wherever the truck is at that point
+of the day) that is open when the truck gets there, among every active facility
+the company has on the map, or only the `facilityId` asked for. One shut that
+day is skipped: by its hours (a day left out of its week) or by a holiday it
+keeps. So is one the truck would reach after it has closed. A gate that opens a
+little later counts from when it opens, so it wins only when waiting for it still
+gets the can tipped sooner than driving to another; one that opens hours later
+does not. Ties go to the company's default and then to a fixed order, so the same day
+always plans the same way. When none is open the nearest is named anyway and the
+run is refused in words, exactly as a single facility is. The answer says which
+facility each run goes to and why (`facilityRuns[].facilityName`, `driveMinutes`
+and `why`: "Round Rock Landfill is the nearest one open when the truck gets
+there, 25 min by road. Austin Transfer is closed for Thanksgiving."), lists
+every facility the day knew of with whether it is on the map and why it is shut
+(`facilities[].closedToday`), and still names one facility in `facility` (the one
+asked for, else the company's default). The preview on the board prints the
+reason under each run and a line for each facility shut that day. A facility not
+on the map cannot be measured and is left out, and the answer says so; if none
+is on the map the day is planned with the yard tipping. The default facility is
+now a tie breaker and the one named, not the only one used.
+
+**Holidays.** Each facility keeps a list of days it is closed whatever its week
+says (`holidays` on the facility, `PATCH /v1/disposal-facilities/{id}`, and "Days
+it is closed" on `/fleet/containers/facilities`): a date, a name ("Thanksgiving")
+and whether it repeats every year on that month and day. A listed day beats the
+hours, even for a facility whose hours nobody recorded, and `GET
+/v1/disposal-facilities/{id}/open` and the run refusal both say the holiday by
+name. A date that is not a date, the same day twice (a yearly one covers its
+month and day in every year), or more than sixty are refused in words. No
+calendar of public holidays is assumed: each facility's list is the company's
+own.
+
+The time at the gate is counted, a truck early for it waits, and a run that would
+arrive after it has closed, or on a day it keeps no hours, is refused in words on
+the proposal (`Austin Transfer is closed at 5:40 PM on Tuesday: it is open 7:00 AM
+to 4:30 PM that day`). The search counts a closed gate as a broken promise, so it
+drives further to avoid one where any order could. A full can is tipped at the
+facility and not at the yard, the empty it leaves with goes straight to the next
+drop, and the yard is still where empties are loaded and where a truck leaves
+one for room.
 
 A pickup or a swap names the facility the load went to with `facilityId` (the
 screen offers the company's facilities beside the ticket); its name becomes the
@@ -484,10 +514,13 @@ this product's own board first.
   carries is one figure per size, and a mixed load fits by shares: a truck
   that can carry a 10 beside a 20 but not beside a 30, in a way shares do not
   describe, is not said. A swap is assumed to bring back a can of the size it
-  left. The disposal facility is one per day: a
-  day is planned through the default (or the one asked for), not choosing among
-  several by which is nearest or open, and facilities' holidays are not known.
-  The load in the morning is not recorded; for a day already under way it is
+  left. The choice of facility looks only at drive time and opening hours: a
+  queue at one gate, a facility that does not take a material (green waste, tyres,
+  concrete) or one that charges less per ton does not move a haul, and the fee
+  does not enter the choice. A haul is not given a facility the day before, so a
+  can tipped somewhere other than the plan said is recorded as the driver says
+  on the haul. Holidays are the lists the company types, one facility at a
+  time. The load in the morning is not recorded; for a day already under way it is
   worked out from the stops done. The rebalance across people leaves a driver's
   day with containers on it alone (M09).
 - **A disposal fee is passed on at cost.** There is no markup on the facility's

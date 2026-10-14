@@ -386,6 +386,7 @@ export interface AddPurchaseApprovalRuleInput {
   vendorId?: string | null;
   categoryId?: string | null;
   locationId?: string | null;
+  amountOf?: "order" | "matching_lines";
 }
 
 export interface AddPurchaseApprovalRuleOutput {
@@ -398,6 +399,7 @@ export interface AddPurchaseApprovalRuleOutput {
   vendorId: string | null;
   categoryId: string | null;
   locationId: string | null;
+  amountOf: "order" | "matching_lines";
   scopeLabel: string;
 }
 
@@ -1056,6 +1058,8 @@ export interface ApplyVendorCatalogueOutput {
     slot?: "first" | "second";
     pairsWith?: number | null;
     packBefore?: string | null;
+    packSku?: string | null;
+    packSkuBefore?: string | null;
     itemId?: string | null;
     itemCode?: string;
     itemName?: string;
@@ -3165,6 +3169,11 @@ export interface CreateDisposalFacilityInput {
     opens: string;
     closes: string;
   }>;
+  holidays?: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis?: "per_ton" | "per_load" | null;
   feeAmount?: string | null;
   minimumFee?: string | null;
@@ -3193,6 +3202,11 @@ export interface CreateDisposalFacilityOutput {
     closes: string;
   }>;
   hoursText: string;
+  holidays: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis: "per_ton" | "per_load" | null;
   feeAmount: string | null;
   minimumFee: string | null;
@@ -4998,6 +5012,13 @@ export interface DecidePurchaseOrderOutput {
     decidedAt: string | null;
     note: string | null;
     scopeLabel: string;
+    amountOf: "order" | "matching_lines";
+    amount: string;
+    lines: Array<{
+      id: string;
+      description: string;
+      amount: string;
+    }>;
   }>;
 }
 
@@ -10881,6 +10902,13 @@ export interface GetPurchaseOrderApprovalsOutput {
     decidedAt: string | null;
     note: string | null;
     scopeLabel: string;
+    amountOf: "order" | "matching_lines";
+    amount: string;
+    lines: Array<{
+      id: string;
+      description: string;
+      amount: string;
+    }>;
   }>;
 }
 
@@ -10973,6 +11001,13 @@ export interface GetPurchaseOrderOutput {
       decidedAt: string | null;
       note: string | null;
       scopeLabel: string;
+      amountOf: "order" | "matching_lines";
+      amount: string;
+      lines: Array<{
+        id: string;
+        description: string;
+        amount: string;
+      }>;
     }>;
   };
   approvalNotices: Array<{
@@ -11457,6 +11492,17 @@ export interface GetRouteProposalOutput {
       arriveAt: string;
       waitMinutes: number;
       closed: string | null;
+      facilityId: string | null;
+      facilityName: string | null;
+      driveMinutes: number | null;
+      why: string | null;
+    }>;
+    facilities: Array<{
+      id: string;
+      name: string;
+      onTheMap: boolean;
+      closedToday: string | null;
+      isDefault: boolean;
     }>;
     currentYardRuns: number | null;
     yardRuns: Array<{
@@ -14203,6 +14249,11 @@ export interface ListDisposalFacilitiesOutput {
       closes: string;
     }>;
     hoursText: string;
+    holidays: Array<{
+      date: string;
+      name: string | null;
+      yearly: boolean;
+    }>;
     feeBasis: "per_ton" | "per_load" | null;
     feeAmount: string | null;
     minimumFee: string | null;
@@ -15964,6 +16015,7 @@ export interface ListPurchaseApprovalRulesOutput {
     vendorId: string | null;
     categoryId: string | null;
     locationId: string | null;
+    amountOf: "order" | "matching_lines";
     scopeLabel: string;
   }>;
 }
@@ -17260,6 +17312,7 @@ export interface ListVendorItemsOutput {
     }>;
     eachCost: string | null;
     secondPack: {
+      partNumber: string | null;
       packQuantity: string;
       purchaseUnit: string | null;
       cost: string | null;
@@ -17275,6 +17328,7 @@ export interface ListVendorItemsOutput {
       cost: string | null;
       eachCost: string | null;
       second: boolean;
+      partNumber: string;
     }>;
   }>;
 }
@@ -18984,6 +19038,8 @@ export interface PreviewVendorCatalogueOutput {
     slot?: "first" | "second";
     pairsWith?: number | null;
     packBefore?: string | null;
+    packSku?: string | null;
+    packSkuBefore?: string | null;
     itemId?: string | null;
     itemCode?: string;
     itemName?: string;
@@ -24365,6 +24421,7 @@ export interface SetVendorItemInput {
       minimum: string;
       cost: string;
     }> | null;
+    partNumber?: string | null;
   } | null;
 }
 
@@ -24387,6 +24444,7 @@ export interface SetVendorItemOutput {
   }>;
   eachCost: string | null;
   secondPack: {
+    partNumber: string | null;
     packQuantity: string;
     purchaseUnit: string | null;
     cost: string | null;
@@ -24402,6 +24460,7 @@ export interface SetVendorItemOutput {
     cost: string | null;
     eachCost: string | null;
     second: boolean;
+    partNumber: string;
   }>;
 }
 
@@ -26079,6 +26138,11 @@ export interface UpdateDisposalFacilityInput {
     opens: string;
     closes: string;
   }>;
+  holidays?: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis?: "per_ton" | "per_load" | null;
   feeAmount?: string | null;
   minimumFee?: string | null;
@@ -26108,6 +26172,11 @@ export interface UpdateDisposalFacilityOutput {
     closes: string;
   }>;
   hoursText: string;
+  holidays: Array<{
+    date: string;
+    name: string | null;
+    yearly: boolean;
+  }>;
   feeBasis: "per_ton" | "per_load" | null;
   feeAmount: string | null;
   minimumFee: string | null;
