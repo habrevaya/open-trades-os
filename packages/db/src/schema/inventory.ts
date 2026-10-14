@@ -527,6 +527,8 @@ export const purchaseOrderReceiptCharge = pgTable("purchase_order_receipt_charge
  * two: a custom role replaces the preset on a membership, so a step naming
  * the preset would never match somebody on a custom role.
  */
+export const approvalAmountOf = pgEnum("purchase_approval_amount_of", ["order", "matching_lines"]);
+
 export const purchaseApprovalRule = pgTable("purchase_approval_rule", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -544,6 +546,14 @@ export const purchaseApprovalRule = pgTable("purchase_approval_rule", {
   vendorId: uuid("vendor_id").references(() => vendor.id, { onDelete: "restrict" }),
   categoryId: uuid("category_id").references(() => priceBookCategory.id, { onDelete: "restrict" }),
   locationId: uuid("location_id").references(() => location.id, { onDelete: "restrict" }),
+  /**
+   * WHAT THE AMOUNT IS COUNTED ON. `order` is the whole order's total, the
+   * safe reading and what every step before this column did. `matching_lines`
+   * counts only the lines the category and location pick out, so a step can
+   * say "over $500 of refrigerant". It needs a category or a location: a
+   * vendor is a fact about the whole order and picks no lines.
+   */
+  amountOf: approvalAmountOf("amount_of").notNull().default("order"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
@@ -570,6 +580,13 @@ export const purchaseOrderApproval = pgTable("purchase_order_approval", {
   /** The role the step asked for, in words, as it was named on the day. */
   roleLabel: text("role_label").notNull(),
   orderTotal: money("order_total").notNull(),
+  /**
+   * The amount the step compared when it was decided: the order's total, or
+   * the share a part-of-order step counted. Null on a decision made before
+   * steps could count part of an order, which compared the total. An edit that
+   * takes this amount above what was approved asks the step again.
+   */
+  countedTotal: money("counted_total"),
   decision: approvalDecision("decision").notNull(),
   decidedByUserId: uuid("decided_by_user_id").references(() => user.id, { onDelete: "set null" }),
   note: text("note"),

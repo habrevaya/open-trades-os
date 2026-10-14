@@ -367,6 +367,7 @@ export interface AddPurchaseApprovalRuleInput {
   vendorId?: string | null;
   categoryId?: string | null;
   locationId?: string | null;
+  amountOf?: "order" | "matching_lines";
 }
 
 export interface AddPurchaseApprovalRuleOutput {
@@ -379,6 +380,7 @@ export interface AddPurchaseApprovalRuleOutput {
   vendorId: string | null;
   categoryId: string | null;
   locationId: string | null;
+  amountOf: "order" | "matching_lines";
   scopeLabel: string;
 }
 
@@ -4942,6 +4944,13 @@ export interface DecidePurchaseOrderOutput {
     decidedAt: string | null;
     note: string | null;
     scopeLabel: string;
+    amountOf: "order" | "matching_lines";
+    amount: string;
+    lines: Array<{
+      id: string;
+      description: string;
+      amount: string;
+    }>;
   }>;
 }
 
@@ -10734,6 +10743,13 @@ export interface GetPurchaseOrderApprovalsOutput {
     decidedAt: string | null;
     note: string | null;
     scopeLabel: string;
+    amountOf: "order" | "matching_lines";
+    amount: string;
+    lines: Array<{
+      id: string;
+      description: string;
+      amount: string;
+    }>;
   }>;
 }
 
@@ -10826,6 +10842,13 @@ export interface GetPurchaseOrderOutput {
       decidedAt: string | null;
       note: string | null;
       scopeLabel: string;
+      amountOf: "order" | "matching_lines";
+      amount: string;
+      lines: Array<{
+        id: string;
+        description: string;
+        amount: string;
+      }>;
     }>;
   };
   approvalNotices: Array<{
@@ -15801,6 +15824,7 @@ export interface ListPurchaseApprovalRulesOutput {
     vendorId: string | null;
     categoryId: string | null;
     locationId: string | null;
+    amountOf: "order" | "matching_lines";
     scopeLabel: string;
   }>;
 }

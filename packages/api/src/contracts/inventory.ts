@@ -529,6 +529,12 @@ export const PurchaseOrderApprovalState = z.object({
     note: z.string().nullable(),
     /** Which orders the step is for, in words: "orders from Ferguson". Empty for every order. */
     scopeLabel: z.string(),
+    /** What the step's amount is counted on: the whole order, or only the lines the step is for. */
+    amountOf: z.enum(["order", "matching_lines"]),
+    /** The amount compared with `minimumTotal`: the order's total, or the share of it the step counts. */
+    amount: MoneyString,
+    /** The lines that brought the step in, when it counts part of the order. Empty for a whole-order step. */
+    lines: z.array(z.object({ id: Uuid, description: z.string(), amount: MoneyString })),
   })),
 });
 

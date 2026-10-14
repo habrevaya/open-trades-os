@@ -389,8 +389,29 @@ order, so "over a thousand, the office manager; over five thousand, the owner
 as well" is two rows, and a six thousand dollar order needs both, the office
 manager first. A step can be for some orders only: to one vendor, with any line
 from one price book category, or delivering to one location, all that are given
-holding. The amount is always the whole order's total, not the share in the
-category, because asking for more approval is the safe mistake. Among steps for
+holding. By default the amount is the whole order's total, not the share in the
+category, because asking for more approval is the safe mistake.
+
+**A step can count only the lines it is for.** A step saved with `amountOf`
+`matching_lines` compares its amount with the lines the category and the
+location pick out, not with the whole order: "over $500 of refrigerant" is a
+step for the refrigerant category counting only its lines, and "over $2,000 for
+the Houston warehouse" one for that location counting only what is going
+there. Given both, a line has to be from the category and going to the
+location. It needs a category or a location, because a vendor is a fact about
+the whole order and picks no lines, and the step is refused otherwise. A step
+that counts part of an order applies only when at least one line is its own,
+even at a zero amount. Such a step sits beside whole-order steps in the same sequence, each compared with its
+own amount, and like any scoped step it is not held to the rule that later
+whole-order steps ask for more. The approver is shown which lines tripped it:
+the order's page lists them under the step with what each costs and what they
+come to together, the sentence for the step says "because the Refrigerant lines
+come to $540.00 and anything at or over $500.00 of them needs one", and the
+email to the approver lists the same lines. An approval copies the amount its
+step counted, so an edit asks that step again only when ITS lines went above
+what was approved: doubling the motors on an order whose refrigerant approval
+was $540 leaves the approval standing, and raising the refrigerant to $600 asks
+again however little the total moved. Among steps for
 every order a later step may not start below an earlier one; a scoped step is
 not held to that order. Nobody decides two steps of one order. A rejection needs a
 reason and ends it: the order is cancelled and a corrected one raised. The
@@ -404,8 +425,9 @@ step waiting, and when an edit asks again. Each attempt is listed on the order
 under "Told by email", including one refused because no email is connected,
 which is how a buyer knows the owner was never asked.
 
-**An edit above what was approved asks again.** Each approval copied the total
-it said yes to. An edit that takes the order above it sets that approval aside
+**An edit above what was approved asks again.** Each approval copied the amount
+its step compared, the order's total or the share a step counted, and it said
+yes to that. An edit that takes the order above it sets that approval aside
 (kept as the record) and the step waits again; an edit at or under every
 approved total leaves them standing. A rejected order is cancelled and raised
 again, not edited.
@@ -577,8 +599,9 @@ goes back to is the buyer's word, not something checked. The customer's
 equipment record a returned unit became is left on their register for the
 office to retire.
 
-An approval step's amount is the whole order's total, never the part of it in a
-category or for a location. Approvers are told by email when the company's email
+An approval step counts the whole order's total unless it was saved as counting
+only the lines it is for; a step counting part of an order cannot count by
+vendor, and there is no step on a line's quantity, only its cost. Approvers are told by email when the company's email
 is connected, and by a notice (M34) on the bell, the phone app or a text as each
 of them chose, whether or not it is; somebody holding the role who cannot read
 orders (`po:read`) gets the email and no notice. A notice is not repeated while
