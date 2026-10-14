@@ -7,8 +7,8 @@ import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
 import {
-  formatAmount, inspectionPayload, type AssistantAnswer, type BuiltInspection, type FieldInspectionProgram,
-  type KeptReceipt, type Problem, type SyncEngine, type SyncReport,
+  formatAmount, inspectionPayload, type AssistantAnswer, type BuiltInspection, type FieldCustomerFile,
+  type FieldInspectionProgram, type KeptReceipt, type Problem, type SyncEngine, type SyncReport,
 } from "@opentradesos/field-client";
 import type { KeptSignature } from "../lib/sell";
 import type { Session } from "../lib/session";
@@ -22,6 +22,7 @@ import { extensionFor, pngFromDataUrl } from "../lib/bytes";
 import { clearSession, installationId, loadSession, saveSession } from "../platform/session";
 import { fieldClientFor, forgetFieldClients, type FieldClient } from "../platform/field";
 import { keepPhoto, keepSignature } from "../platform/files";
+import { forgetDownloads, openPdf as readPdf } from "../platform/server-files";
 import { startBackgroundSync, stopBackgroundSync } from "../platform/background";
 import { locationPermission, startSharing, stopSharing } from "../platform/location";
 import { shouldTrack, type LocationPermission } from "../lib/location";
@@ -58,6 +59,13 @@ interface FieldState {
   push: PushState;
   /** What the phone's settings allow for sharing location, asked only once sharing is due. */
   locationPermission: LocationPermission;
+  /**
+   * How to read a file the server holds (the customer's photograph) with this phone's sign in:
+   * the address and the headers an image is drawn with. Null when nobody is signed in.
+   */
+  fileRequest(storageKey: string): { url: string; headers: Record<string, string> } | null;
+  /** A PDF the customer sent, downloaded with this phone's sign in and offered to what reads PDFs: a sentence when it could not be, null when it was. */
+  openPdf(file: FieldCustomerFile): Promise<string | null>;
   /** A card payment link for the visit's job, texted to the customer or handed to the share sheet. */
   paymentLink(visitId: string, how: "text" | "share"): Promise<string>;
   signOut(): Promise<void>;
@@ -260,6 +268,8 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
     await stopBackgroundSync();
     await stopSharing();
+    // A customer's document is not for the next person who signs in on this phone.
+    forgetDownloads();
     await c?.positions.clear();
     await clearSession();
     forgetFieldClients();
@@ -442,6 +452,15 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const fileRequest = useCallback<FieldState["fileRequest"]>(
+    (storageKey) => clientRef.current?.api.fileRequest(storageKey) ?? null, [],
+  );
+
+  const openPdf = useCallback<FieldState["openPdf"]>(async (file) => {
+    const request = clientRef.current?.api.fileRequest(file.storageKey);
+    return request ? readPdf(file, request) : "Not signed in.";
+  }, []);
+
   const perform = useCallback<FieldState["perform"]>(async (step) => {
     const c = clientRef.current;
     if (!c) return;
@@ -521,10 +540,10 @@ export function FieldProvider({ children }: { children: ReactNode }) {
   const value = useMemo<FieldState>(() => ({
     status, session, view, syncing, report, signInEnded, push, locationPermission: permission,
     signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
-    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink, perform, keepDrawnSignature, financingLink, ask, takeReceipt,
+    checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink, perform, keepDrawnSignature, financingLink, ask, takeReceipt, fileRequest, openPdf,
   }), [status, session, view, syncing, report, signInEnded, push, permission, signIn, requestCode, signInWithCode, signOut,
     sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
-    perform, keepDrawnSignature, financingLink, ask, takeReceipt]);
+    perform, keepDrawnSignature, financingLink, ask, takeReceipt, fileRequest, openPdf]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

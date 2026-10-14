@@ -79,6 +79,21 @@ export interface FieldVisit {
    * a warranty registration), read only. Absent from older servers.
    */
   records?: FieldRecord[] | undefined;
+  /**
+   * Photographs and PDFs the customer sent from their own account to this visit
+   * or its job, newest first. Each opens with an authenticated read of
+   * `/files/{storageKey}`. Empty for a person who may not read documents.
+   * Absent from older servers.
+   */
+  customerFiles?: FieldCustomerFile[] | undefined;
+}
+
+export interface FieldCustomerFile {
+  id: string;
+  fileName: string | null;
+  contentType: string | null;
+  storageKey: string;
+  addedAt: string;
 }
 
 /** A rate the company charges for work outside its hours or on a holiday, offered and never added. */

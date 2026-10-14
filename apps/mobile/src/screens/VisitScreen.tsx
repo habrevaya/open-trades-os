@@ -6,6 +6,7 @@ import { ETA_CHOICES, photoSummary, telUrl } from "../lib/format";
 import { Button, Notice, Section } from "../components/ui";
 import { ChecklistSection, InspectionsSection, PartsSection, PaymentSection, ReadingsSection, UnitSection } from "./VisitWork";
 import { AskSection, CashTipSection, InvoiceSection, SellSection } from "./VisitSell";
+import { CustomerFilesSection } from "./CustomerFiles";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -123,6 +124,8 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
             ))}
           </Section>
         ) : null}
+
+        <CustomerFilesSection visit={visit} />
 
         {visit.stage === "upcoming" ? (
           <Section title="Tell the customer you are coming">

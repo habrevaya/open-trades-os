@@ -198,6 +198,25 @@ visit (a permit, a warranty registration, M29) come with the day too, of the
 kinds the technician may read, with every field that holds a value, under
 "Records on this job" on the phone and on `/my-day`. They are read only there.
 
+WHAT THE CUSTOMER SENT (M05) is on the visit too, under "From the customer": the
+photographs and PDFs the customer sent from their own account to this visit or its
+job, the broken unit before anybody arrives, newest first (`customerFiles` on each
+visit of `GET /v1/field/snapshot`, sent only to somebody who may read documents).
+On the phone a photograph is a thumbnail that opens full size and a PDF is a line
+that opens in whatever on the phone reads PDFs; on `/my-day` each is a link. The bytes
+are not in the day: the phone reads them from `/files/{storageKey}` when the
+technician looks, with its own sign in as a bearer header, because it is a customer's
+document and the file route is held to the same rule as for a browser, whose cookie
+it used to know alone. The phone's token reads files for the person it belongs to, in
+their own company, with `document:read`; a token that has ended (signed out, a phone
+the office took away, a person deactivated) reads nothing and is never read as a
+cookie; a connected app's token is not a way in. The token travels as a header and
+never in the address. A photograph is drawn straight from the server by the image
+component; a PDF cannot be, because the phone's PDF reader is another app and
+cannot be handed a header, so it is downloaded with the header into the app's cache and
+offered to the share sheet, and that cache is emptied when the person signs out.
+Both need a signal, and the screen says so under the thumbnails when a photograph will not load.
+
 ### Money on site
 
 Cash and checks are `payment.collect`: a fact that always applies, because the
@@ -737,6 +756,15 @@ in they have, or takes `field:sync` from their role. Revoking a browser does
 not end its sign in (a browser's session is the person's whole sign in to the
 office screens, not the day's alone), so the person can still open the rest of
 the product; only their day stops reaching the office.
+
+The files a customer sent are read from the server when the technician looks, so they
+need a signal and are not kept on the phone: a visit opened in a basement shows empty
+squares and a line saying the photos could not be loaded. A photograph is drawn at the
+size the server sent it (up to five megabytes), with no smaller copy made for the
+thumbnail, so a visit with many photographs is slow on a weak signal; the phone shows at
+most twelve and says how many more are on the job. Opening a PDF hands a downloaded copy
+to the phone's share sheet, so what opens it is whatever the person has installed; like
+all of the app, that has been typechecked and its logic tested but not run on a device.
 
 `/my-day` opens with no signal only once it has been opened on that phone
 with one, only in a browser that keeps service workers (any current one, on

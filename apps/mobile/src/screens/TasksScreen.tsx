@@ -34,7 +34,7 @@ export function TasksScreen({ nav, taskId = null, href = null }: { nav: Navigate
   // A task given a moment ago is not in the day the phone holds: ask once for a fresh one.
   const { sync } = field;
   useEffect(() => {
-    if (taskId && missing) void sync(true);
+    if (taskId && missing) void sync();
     // Once, on opening from a notice; not again each time the day is redrawn.
   }, [taskId]);
 
