@@ -26,6 +26,8 @@ import { CardAgreements } from "./CardAgreements";
 import { AdData } from "./AdData";
 import { PreferredDays } from "./PreferredDays";
 import { SalesTax } from "./SalesTax";
+import { Notes } from "./Notes";
+import { Merges } from "./Merges";
 import { dispatchDays, accountingDeletions } from "@opentradesos/api/services";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
@@ -36,12 +38,15 @@ import { CREDIT_STATUS, CREDIT_TONE } from "../../invoices/credit-notes/labels";
 export const dynamic = "force-dynamic";
 
 export default async function CustomerPage({
-  params,
+  params, searchParams,
 }: {
   params: Promise<{ id: string }>;
+  /** `notesBefore`: the page of older notes somebody asked for. */
+  searchParams: Promise<{ notesBefore?: string }>;
 }) {
   const user = await requireSetupUser();
   const { id } = await params;
+  const { notesBefore } = await searchParams;
   const ctx = { actor: user.actor, db: getDb() };
 
   /**
@@ -94,8 +99,9 @@ export default async function CustomerPage({
    * fifty records came back first as things to merge this one into. That is the
    * wrong affordance twice over: the real duplicate is usually not among them, and
    * a dropdown of fifty unrelated people is a dropdown somebody picks the wrong
-   * entry from. A merge is irreversible in practice, so the one mistake this
-   * control must not make easy is joining two different people.
+   * entry from. A merge can be taken back only for 30 days and only while no
+   * money has moved since, so the one mistake this control must not make easy is
+   * joining two different people.
    *
    * `likelyDuplicates` matches instead of listing: a shared phone, a shared email,
    * or a name close enough that a person should look. Each candidate carries WHY,
@@ -215,6 +221,7 @@ export default async function CustomerPage({
       />
       <PreferredDays customerId={id} days={await dispatchDays.preferredDays(ctx, { id })} canWrite={can(user.actor, "customer:write")} />
       <SalesTax ctx={ctx} customer={customer} />
+      <Notes ctx={ctx} customerId={id} timezone={user.organizationTimezone} before={notesBefore} />
 
       {addresses.length > 0 && (
         <div className="mt-10">
@@ -268,6 +275,7 @@ export default async function CustomerPage({
           candidates={mergeable.map((row) => ({ id: row.id, name: row.name, because: row.because }))}
         />
       )}
+      <Merges ctx={ctx} customerId={id} timezone={user.organizationTimezone} />
 
       {contactable ? (
         <Consent

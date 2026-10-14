@@ -121,6 +121,10 @@ const ORDER = [
   "referral_reward",
   /** A customer's tags, one row each, written by a trigger from the customer's own list. */
   "customer_tag",
+  /** A customer's notes point at the customer and at the note each one corrects. */
+  "customer_note",
+  /** A merge's record points at both customers it joined. */
+  "customer_merge",
   "customer_property", "contact", "property", "customer",
   /**
    * The company's sales tax rates. Lines, customers and addresses name them,

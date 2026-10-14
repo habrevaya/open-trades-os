@@ -75,3 +75,5 @@ export * as plugins from "./plugins/index.js";
 export * as imports from "./imports/index.js";
 export * as search from "./search/index.js";
 export * as notices from "./notices/index.js";
+export * as customerNotes from "./customer-notes/index.js";
+export * as customerMerge from "./customer-merge/index.js";

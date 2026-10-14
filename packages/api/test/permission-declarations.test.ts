@@ -92,6 +92,14 @@ const ESCALATES: Record<string, { also: Permission; when: string; service: strin
       + "schedule is the act `visit:reschedule` already governs everywhere else.",
     service: "jobs.ts",
   },
+  scheduleVisit: {
+    also: "data:import",
+    when:
+      "Only when the visit is recorded as already done (`completedAt`), which is bringing in "
+      + "history from another system. Booking a visit takes `visit:write` alone, and declaring "
+      + "both would tell an agent it cannot book a visit without the owner's power to back date.",
+    service: "jobs.ts",
+  },
   visitPaymentLink: {
     also: "invoice:send",
     when:

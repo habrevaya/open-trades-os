@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, contacts, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
+  apps, comms, consent, contacts, customerNotes, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
   dispatchMap, dispatchDays, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
@@ -689,6 +689,8 @@ export const handlers = {
   removeCustomer: customerLifecycle.handlers.removeCustomer,
   mergeCustomers: customerLifecycle.handlers.mergeCustomers,
   getCustomerMergedInto: customerLifecycle.handlers.getCustomerMergedInto,
+  getCustomerMerges: customerLifecycle.handlers.getCustomerMerges,
+  undoCustomerMerge: customerLifecycle.handlers.undoCustomerMerge,
 
   getCustomerStatement: statements.handlers.getCustomerStatement,
   emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
@@ -968,6 +970,10 @@ export const handlers = {
   updateContact: contacts.handlers.updateContact,
   removeContact: contacts.handlers.removeContact,
   makeContactPrimary: contacts.handlers.makeContactPrimary,
+  listCustomerNotes: customerNotes.handlers.listCustomerNotes,
+  addCustomerNote: customerNotes.handlers.addCustomerNote,
+  editCustomerNote: customerNotes.handlers.editCustomerNote,
+  pinCustomerNote: customerNotes.handlers.pinCustomerNote,
 
   // Price book categories and bulk changes (M06)
   listPriceBookCategories: priceCategories.handlers.listPriceBookCategories,

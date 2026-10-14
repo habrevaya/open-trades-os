@@ -288,6 +288,13 @@ export const visit = pgTable("visit", {
   enRouteAt: timestamp("en_route_at", { withTimezone: true }),
   arrivedAt: timestamp("arrived_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  /**
+   * A visit recorded as done from history (a past visit on a past job,
+   * brought in from the company's old system), never booked here. It is
+   * kept out of every commission split and tip share: whatever it earned
+   * was paid in the old system, if it was paid at all.
+   */
+  fromHistory: boolean("from_history").notNull().default(false),
   technicianNotes: text("technician_notes"),
   /**
    * What the customer reads about this visit, chosen by the office.

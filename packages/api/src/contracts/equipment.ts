@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, ExternalRef } from "./common";
+import { Uuid, ExternalRef, ExternalLookup } from "./common";
 
 /** A calendar date, the way every other contract here spells one. */
 const IsoDate = z.string().date();
@@ -62,6 +62,8 @@ const EquipmentFields = {
   /** Whole years, floor. Nobody says a furnace is eleven and a half. */
   ageYears: z.number().nullable(),
   warranty: EquipmentWarranty,
+  /** Where it came from in another system, as `POST /v1/equipment` was given it. Null for a unit recorded here. */
+  externalRef: ExternalRef.nullable(),
 };
 
 /**
@@ -102,12 +104,12 @@ export const EquipmentMove = z.object({
 export const listEquipment = defineRoute({
   method: "get",
   path: "/v1/equipment",
-  summary: "The equipment at one address",
+  summary: "The equipment at one address, or the units brought in from another system",
   description:
-    "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now.",
+    "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address. One of `propertyId`, `externalSource` or `externalId` is needed.",
   module: "M04",
   permissions: ["equipment:read"],
-  input: z.object({ propertyId: Uuid, on: IsoDate.optional() }),
+  input: z.object({ propertyId: Uuid.optional(), on: IsoDate.optional(), ...ExternalLookup }),
   output: z.object({ equipment: z.array(EquipmentView) }),
 });
 

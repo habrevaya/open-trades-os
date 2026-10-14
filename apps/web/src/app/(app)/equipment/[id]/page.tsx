@@ -125,6 +125,8 @@ export default async function EquipmentPage({
           {unit.customer ? <a href={`/customers/${unit.customer.id}`} className="hover:underline">{unit.customer.name}</a> : null}
         </Fact>
         <Fact label="Where">{[unit.address, unit.location].filter(Boolean).join(", ")}</Fact>
+        {/* Said, so somebody matching it to the old system's records knows which one it was. */}
+        <Fact label="Brought in from">{unit.externalRef ? `${unit.externalRef.source}, as ${unit.externalRef.id}` : null}</Fact>
         <Fact label="Installed">
           {unit.installedOn
             ? `${formatDay(unit.installedOn, tz)}${unit.ageYears !== null ? `, ${unit.ageYears} years ago` : ""}${unit.installedByUs ? ", by us" : ""}`

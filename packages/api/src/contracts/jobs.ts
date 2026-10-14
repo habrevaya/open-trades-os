@@ -70,6 +70,8 @@ export const Visit = z.object({
   dispatchedAt: z.string().datetime().nullable(),
   arrivedAt: z.string().datetime().nullable(),
   completedAt: z.string().datetime().nullable(),
+  /** Recorded as done from history, never booked here: counted toward no commission or tip. */
+  fromHistory: z.boolean().optional(),
   technicianNotes: z.string().nullable(),
   /** What the customer reads about the visit on their account, as the office chose to share it. */
   customerNotes: z.string().nullable(),
@@ -357,6 +359,17 @@ export const scheduleVisit = defineRoute({
     status: z.literal("cancelled").optional(),
     /** Book it into time held for members anyway. See `bookAnyway` on a new job's visit. */
     bookAnyway: z.boolean().optional(),
+    /**
+     * RECORD IT AS DONE: a past visit on a job that is already over, brought in
+     * from another system. Needs `data:import` whatever the date, the window
+     * and the technician who went, and a job that is completed, invoiced or
+     * paid. It raises no event, tells nobody, leaves the job's status alone, is
+     * not checked against time off or certificates, and is marked `fromHistory`,
+     * which keeps it out of every commission split and tip share.
+     */
+    completedAt: z.string().datetime().optional(),
+    /** What the technician wrote, on a visit recorded as done. Only with `completedAt`. */
+    technicianNotes: z.string().max(5000).optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
     /**

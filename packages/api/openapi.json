@@ -37599,6 +37599,411 @@
         ]
       }
     },
+    "/v1/customer-merges/{id}/undo": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "undoCustomerMerge",
+        "summary": "Take a merge back",
+        "description": "Moves exactly the rows the merge moved back to the duplicate, puts back the address links it took out as doubles, clears the blank fields it filled where nobody has changed them since, takes off the tags it added, and makes the duplicate a customer of its own again. Anything else written to the record kept since the merge stays with it. Refused with a 409 naming every reason at once when it cannot be done (see `GET /v1/customers/{id}/merges`). Written to the audit log as `customer.merge_undone`. A retry with the same idempotency key returns the first answer.\n\nRequires a session holding: customer:merge.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoCustomerMergeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a merge back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoCustomerMergeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:merge"
+        ]
+      }
+    },
+    "/v1/customer-notes/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "editCustomerNote",
+        "summary": "Fix a note while it is fresh",
+        "description": "Only its author, and only for 15 minutes after writing it: the words, and whether it is for the field. After that, or for anybody else, it is refused with a sentence saying to add a new note that corrects it. A note carried over or brought in from a file is never changed.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditCustomerNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fix a note while it is fresh",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditCustomerNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      }
+    },
+    "/v1/customer-notes/{id}/pin": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "pinCustomerNote",
+        "summary": "Keep a note at the top, or stop",
+        "description": "Anybody who may write notes may pin one, whoever wrote it, because pinning changes where it sits and not what it says. Sending the same answer twice changes nothing.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinCustomerNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Keep a note at the top, or stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinCustomerNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      }
+    },
     "/v1/customer-tags": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -39835,6 +40240,376 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GetCustomerMergedIntoOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:read"
+        ]
+      }
+    },
+    "/v1/customers/{id}/merges": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getCustomerMerges",
+        "summary": "The duplicates merged into a customer, and whether each can be undone",
+        "description": "Newest first. Each says who merged what and when, what moved, and whether it can be undone now: `canUndo`, and when it cannot, `blockedBy` with every reason in words. A merge can be undone for 30 days (`undoableUntil`), and not once money has been written to the record kept since, a record it moved has moved on, work has been booked for the record kept at an address that would go back, or either record has been merged or removed since.\n\nRequires a session holding: customer:merge.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The duplicates merged into a customer, and whether each can be undone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCustomerMergesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:merge"
+        ]
+      }
+    },
+    "/v1/customers/{id}/notes": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "addCustomerNote",
+        "summary": "Write a note on a customer",
+        "description": "Signed by whoever writes it and dated now. `forField` shows it to the technician on the customer's visits; `pinned` keeps it at the top; `correctsNoteId` names the note it corrects. `notedAt` dates it earlier, under the history rules every back dated record follows: a week back for anybody, earlier only with `data:import`, never ahead. With `externalRef` it is a note from another system: marked imported, with no author here, refused a second time for the same reference, and nobody may change it afterwards. A retry with the same idempotency key returns the first answer.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCustomerNoteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Write a note on a customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddCustomerNoteOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      },
+      "get": {
+        "operationId": "listCustomerNotes",
+        "summary": "A customer's notes",
+        "description": "Every pinned note in `pinned`, then the rest newest first in `data`, a page at a time; pinned notes come back on every page. A technician or a crew lead gets only the notes marked for the field, and `fieldOnly` says so. A customer outside the caller's scope is a 404.\n\nRequires a session holding: customer:read.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A customer's notes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCustomerNotesOutput"
                 }
               }
             }
@@ -46093,8 +46868,8 @@
       ],
       "get": {
         "operationId": "listEquipment",
-        "summary": "The equipment at one address",
-        "description": "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now.\n\nRequires a session holding: equipment:read.",
+        "summary": "The equipment at one address, or the units brought in from another system",
+        "description": "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address. One of `propertyId`, `externalSource` or `externalId` is needed.\n\nRequires a session holding: equipment:read.",
         "tags": [
           "M04"
         ],
@@ -46102,7 +46877,7 @@
           {
             "name": "propertyId",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -46116,11 +46891,29 @@
               "type": "string",
               "format": "date"
             }
+          },
+          {
+            "name": "externalSource",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          {
+            "name": "externalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "The equipment at one address",
+            "description": "The equipment at one address, or the units brought in from another system",
             "content": {
               "application/json": {
                 "schema": {
@@ -139726,6 +140519,171 @@
           "portalAccess"
         ]
       },
+      "AddCustomerNoteInput": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "forField": {
+            "type": "boolean"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "correctsNoteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "notedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "AddCustomerNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "string"
+          },
+          "notedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "userId",
+              "name"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "typed",
+              "carried",
+              "imported"
+            ]
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "pinnedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "forField": {
+            "type": "boolean"
+          },
+          "correctsNoteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "editableUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "body",
+          "notedAt",
+          "author",
+          "origin",
+          "pinned",
+          "pinnedAt",
+          "forField",
+          "correctsNoteId",
+          "editedAt",
+          "editableUntil",
+          "externalRef"
+        ]
+      },
       "AddEmergencyContactInput": {
         "type": "object",
         "properties": {
@@ -148602,6 +149560,9 @@
             ],
             "format": "date-time"
           },
+          "fromHistory": {
+            "type": "boolean"
+          },
           "technicianNotes": {
             "type": [
               "string",
@@ -156503,6 +157464,9 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "fromHistory": {
+                  "type": "boolean"
                 },
                 "technicianNotes": {
                   "type": [
@@ -168546,6 +169510,139 @@
           "checked"
         ]
       },
+      "EditCustomerNoteInput": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "forField": {
+            "type": "boolean"
+          }
+        }
+      },
+      "EditCustomerNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "string"
+          },
+          "notedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "userId",
+              "name"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "typed",
+              "carried",
+              "imported"
+            ]
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "pinnedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "forField": {
+            "type": "boolean"
+          },
+          "correctsNoteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "editableUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "body",
+          "notedAt",
+          "author",
+          "origin",
+          "pinned",
+          "pinnedAt",
+          "forField",
+          "correctsNoteId",
+          "editedAt",
+          "editableUntil",
+          "externalRef"
+        ]
+      },
       "EditPurchaseOrderInput": {
         "type": "object",
         "properties": {
@@ -176059,6 +177156,181 @@
           "into"
         ]
       },
+      "GetCustomerMergesOutput": {
+        "type": "object",
+        "properties": {
+          "merges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "keptCustomerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "merged": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                },
+                "mergedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "by": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "name"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "moved": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "n"
+                    ]
+                  }
+                },
+                "filled": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "tagsAdded": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "undone": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "by": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "name"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "by",
+                    "reason"
+                  ]
+                },
+                "undoableUntil": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "canUndo": {
+                  "type": "boolean"
+                },
+                "blockedBy": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "keptCustomerId",
+                "merged",
+                "mergedAt",
+                "by",
+                "reason",
+                "moved",
+                "filled",
+                "tagsAdded",
+                "undone",
+                "undoableUntil",
+                "canUndo",
+                "blockedBy"
+              ]
+            }
+          }
+        },
+        "required": [
+          "merges"
+        ]
+      },
       "GetCustomerReferralOutput": {
         "type": "object",
         "properties": {
@@ -177582,6 +178854,27 @@
               "daysUntilSoonest"
             ]
           },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
           "moves": {
             "type": "array",
             "items": {
@@ -177728,6 +179021,7 @@
           "retired",
           "ageYears",
           "warranty",
+          "externalRef",
           "moves",
           "address",
           "customer",
@@ -180360,6 +181654,41 @@
                       "addedAt"
                     ]
                   }
+                },
+                "customerNotes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "body": {
+                        "type": "string"
+                      },
+                      "notedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "pinned": {
+                        "type": "boolean"
+                      },
+                      "by": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "body",
+                      "notedAt",
+                      "pinned",
+                      "by"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -181615,7 +182944,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -183368,6 +184699,9 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "fromHistory": {
+                  "type": "boolean"
                 },
                 "technicianNotes": {
                   "type": [
@@ -199066,6 +200400,27 @@
                     "daysUntilSoonest"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "address": {
                   "type": "string"
                 },
@@ -199106,6 +200461,7 @@
                 "retired",
                 "ageYears",
                 "warranty",
+                "externalRef",
                 "address",
                 "customer"
               ]
@@ -209056,6 +210412,276 @@
           "total"
         ]
       },
+      "ListCustomerNotesOutput": {
+        "type": "object",
+        "properties": {
+          "pinned": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "notedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "author": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "name"
+                  ]
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "typed",
+                    "carried",
+                    "imported"
+                  ]
+                },
+                "pinned": {
+                  "type": "boolean"
+                },
+                "pinnedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "forField": {
+                  "type": "boolean"
+                },
+                "correctsNoteId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "editedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "editableUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "customerId",
+                "body",
+                "notedAt",
+                "author",
+                "origin",
+                "pinned",
+                "pinnedAt",
+                "forField",
+                "correctsNoteId",
+                "editedAt",
+                "editableUntil",
+                "externalRef"
+              ]
+            }
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "notedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "author": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "name"
+                  ]
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "typed",
+                    "carried",
+                    "imported"
+                  ]
+                },
+                "pinned": {
+                  "type": "boolean"
+                },
+                "pinnedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "forField": {
+                  "type": "boolean"
+                },
+                "correctsNoteId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "editedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "editableUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "customerId",
+                "body",
+                "notedAt",
+                "author",
+                "origin",
+                "pinned",
+                "pinnedAt",
+                "forField",
+                "correctsNoteId",
+                "editedAt",
+                "editableUntil",
+                "externalRef"
+              ]
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "fieldOnly": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pinned",
+          "data",
+          "nextCursor",
+          "hasMore",
+          "fieldOnly"
+        ]
+      },
       "ListCustomerPortalSessionsOutput": {
         "type": "object",
         "properties": {
@@ -210490,6 +212116,27 @@
                     "daysUntilSoonest"
                   ]
                 },
+                "externalRef": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "id"
+                  ]
+                },
                 "depth": {
                   "type": "integer",
                   "minimum": 0
@@ -210512,6 +212159,7 @@
                 "retired",
                 "ageYears",
                 "warranty",
+                "externalRef",
                 "depth"
               ]
             }
@@ -212058,7 +213706,9 @@
                     "jobs",
                     "invoices",
                     "payments",
-                    "estimates"
+                    "estimates",
+                    "notes",
+                    "visits"
                   ]
                 },
                 "name": {
@@ -212118,7 +213768,9 @@
                     "jobs",
                     "invoices",
                     "payments",
-                    "estimates"
+                    "estimates",
+                    "notes",
+                    "visits"
                   ]
                 },
                 "fileName": {
@@ -228921,7 +230573,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -229907,6 +231561,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "mergeRecordId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": "string"
           },
@@ -229933,14 +231591,22 @@
             "items": {
               "type": "string"
             }
+          },
+          "tagsAdded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "keptId",
           "mergedId",
+          "mergeRecordId",
           "name",
           "moved",
-          "filled"
+          "filled",
+          "tagsAdded"
         ]
       },
       "MintSoftphoneTokenInput": {
@@ -231901,6 +233567,137 @@
           "disposalFeePassedOn",
           "disposalFeeAmount",
           "disposalFeeOffer"
+        ]
+      },
+      "PinCustomerNoteInput": {
+        "type": "object",
+        "properties": {
+          "pinned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pinned"
+        ]
+      },
+      "PinCustomerNoteOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "string"
+          },
+          "notedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "author": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "userId",
+              "name"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "typed",
+              "carried",
+              "imported"
+            ]
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "pinnedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "forField": {
+            "type": "boolean"
+          },
+          "correctsNoteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "editableUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "body",
+          "notedAt",
+          "author",
+          "origin",
+          "pinned",
+          "pinnedAt",
+          "forField",
+          "correctsNoteId",
+          "editedAt",
+          "editableUntil",
+          "externalRef"
         ]
       },
       "PinDisposalFacilityInput": {
@@ -250472,6 +252269,14 @@
           "bookAnyway": {
             "type": "boolean"
           },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "technicianNotes": {
+            "type": "string",
+            "maxLength": 5000
+          },
           "externalRef": {
             "type": "object",
             "properties": {
@@ -250594,6 +252399,9 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "fromHistory": {
+            "type": "boolean"
           },
           "technicianNotes": {
             "type": [
@@ -260978,7 +262786,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -261017,7 +262827,9 @@
               "jobs",
               "invoices",
               "payments",
-              "estimates"
+              "estimates",
+              "notes",
+              "visits"
             ]
           },
           "fileName": {
@@ -264256,6 +266068,81 @@
         },
         "required": [
           "plugin"
+        ]
+      },
+      "UndoCustomerMergeInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "UndoCustomerMergeOutput": {
+        "type": "object",
+        "properties": {
+          "mergeRecordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "keptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "restoredId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "restoredName": {
+            "type": "string"
+          },
+          "movedBack": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "label",
+                "n"
+              ]
+            }
+          },
+          "filledCleared": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filledKept": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tagsRemoved": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "mergeRecordId",
+          "keptId",
+          "restoredId",
+          "restoredName",
+          "movedBack",
+          "filledCleared",
+          "filledKept",
+          "tagsRemoved"
         ]
       },
       "UnpinDisposalFacilityInput": {
@@ -269443,6 +271330,9 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "fromHistory": {
+                  "type": "boolean"
                 },
                 "technicianNotes": {
                   "type": [

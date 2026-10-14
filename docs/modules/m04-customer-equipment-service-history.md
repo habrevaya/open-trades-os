@@ -187,6 +187,16 @@ wrong within a month.
 
 ## API
 
+A unit brought in from another system keeps where it came from: every read of
+the register returns its `externalRef` (null for a unit recorded here), the
+unit's page says "Brought in from" with the old system's name and id, and
+`GET /v1/equipment` takes `externalSource` and `externalId` in place of an
+address. With them it finds the units those records became across every
+address the caller may see (a technician only those at addresses they have
+been sent to), retired units included and marked retired, because a unit
+loaded and since retired is still the one that record became; a `propertyId`
+beside them narrows to that address. Without either, the address is needed.
+
 | Call | Needs |
 |---|---|
 | `GET /v1/equipment` | `equipment:read` |

@@ -42,6 +42,7 @@ export * as commsInbound from "./comms-inbound";
 export * as commsOutbox from "./comms-outbox";
 export * as consent from "./consent";
 export * as contacts from "./contacts";
+export * as customerNotes from "./customer-notes";
 export * as phoneNumbers from "./phone-numbers";
 export * as laborSettings from "./labor-settings";
 export * as customerLifecycle from "./customer-lifecycle";

@@ -1,8 +1,10 @@
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { customerMerge, tags as tagRules, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { remember, replayed } from "./once";
 
 /**
  * REMOVING A CUSTOMER, AND JOINING TWO THAT ARE THE SAME PERSON
@@ -77,6 +79,7 @@ const HISTORY: Ref[] = [
   { table: "estimate", column: "customer_id", label: "estimates" },
   { table: "customer_property", column: "customer_id", label: "property links" },
   { table: "contact", column: "customer_id", label: "contacts" },
+  { table: "customer_note", column: "customer_id", label: "notes" },
   { table: "conversation", column: "customer_id", label: "conversations" },
   { table: "call", column: "customer_id", label: "calls" },
   { table: "communication_consent", column: "customer_id", label: "consent records" },
@@ -198,12 +201,19 @@ export async function remove(
  * The loser is soft deleted and points at the survivor, because an id that
  * stops resolving breaks a link somebody emailed, an integration that stored
  * it, and every audit row naming it.
+ *
+ * WHAT MOVED IS WRITTEN DOWN, row by row, in `customer_merge`: the id of every
+ * row re-parented, the address links taken out as doubles (whole), the blank
+ * fields filled and the tags added. That record is what lets `undoMerge` move
+ * exactly those back, and nothing the survivor gained since.
  */
 export async function merge(
   ctx: ServiceContext,
   input: { keepId: string; mergeId: string; reason?: string },
 ) {
   return guardedWrite(ctx, "customer:merge", async (tx) => {
+    const seen = await replayed<MergeAnswer>(tx, ctx, "customer_merge");
+    if (seen) return seen;
     if (input.keepId === input.mergeId) {
       throw new ConflictError("Those are the same record.");
     }
@@ -211,23 +221,31 @@ export async function merge(
     const loser = await load(tx, ctx.actor.organizationId, input.mergeId);
 
     const moved: { label: string; n: number }[] = [];
+    const recorded: MovedRows[] = [];
     for (const ref of [...MOVES, ...HISTORY]) {
-      const rows = await tx.execute(sql`
+      const rows = await tx.execute<{ id: string }>(sql`
         update ${sql.identifier(ref.table)}
         set ${sql.identifier(ref.column)} = ${input.keepId}
         where ${sql.identifier(ref.column)} = ${input.mergeId}
           and organization_id = ${ctx.actor.organizationId}
-        returning 1`);
-      const n = (rows as unknown as unknown[]).length;
-      if (n > 0) moved.push({ label: ref.label, n });
+        returning id`);
+      const ids = [...rows].map((row) => String(row.id));
+      if (ids.length > 0) {
+        moved.push({ label: ref.label, n: ids.length });
+        recorded.push({ table: ref.table, column: ref.column, label: ref.label, ids });
+      }
     }
 
     /**
      * A property linked to both now has the same link twice. Deduplicated
      * here rather than left, because every screen listing a customer's
      * addresses would show the address twice and neither row is wrong.
+     *
+     * Each link taken out is kept whole on the merge's record, with whose it
+     * was before the merge, so an undo can put it back as it was.
      */
-    await tx.execute(sql`
+    const movedLinks = new Set(recorded.find((r) => r.table === "customer_property")?.ids ?? []);
+    const removed = await tx.execute<{ id: string; row: Record<string, unknown> }>(sql`
       delete from customer_property a
       using customer_property b
       where a.organization_id = ${ctx.actor.organizationId}
@@ -235,7 +253,12 @@ export async function merge(
         and b.customer_id = ${input.keepId}
         and a.property_id = b.property_id
         and a.role = b.role
-        and a.id > b.id`);
+        and a.id > b.id
+      returning a.id, to_jsonb(a) as row`);
+    const removedLinks = [...removed].map((r) => ({
+      customerId: movedLinks.has(String(r.id)) ? input.mergeId : input.keepId,
+      row: r.row,
+    }));
 
     /**
      * Fields the survivor is missing are taken from the loser. Never the
@@ -247,8 +270,23 @@ export async function merge(
       if (!keep[field] && loser[field]) filled[field] = loser[field]!;
     }
 
+    /**
+     * The duplicate's tags join the survivor's list, after its own, each
+     * only when the survivor has no tag that compares equal. A merged record
+     * is in no tag count, so a "VIP" on the duplicate would otherwise
+     * vanish from every list the company keeps by tag.
+     */
+    const keys = new Set(keep.tags.map(tagRules.tagKey));
+    const tagsAdded = tagRules.uniqueTags(loser.tags)
+      .filter((tag) => !keys.has(tagRules.tagKey(tag)))
+      .slice(0, Math.max(0, tagRules.MAX_TAGS_PER_CUSTOMER - keep.tags.length));
+
     const [after] = await tx.update(schema.customer)
-      .set({ ...filled, updatedAt: new Date() })
+      .set({
+        ...filled,
+        ...(tagsAdded.length > 0 ? { tags: [...keep.tags, ...tagsAdded] } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.customer.id, input.keepId))
       .returning();
 
@@ -263,19 +301,354 @@ export async function merge(
       updatedAt: new Date(),
     }).where(eq(schema.customer.id, input.mergeId));
 
+    const [record] = await tx.insert(schema.customerMerge).values({
+      organizationId: ctx.actor.organizationId,
+      keptCustomerId: input.keepId,
+      mergedCustomerId: input.mergeId,
+      mergedByUserId: ctx.actor.userId,
+      reason: input.reason?.trim() || null,
+      moved: recorded,
+      removedLinks,
+      filled,
+      tagsAdded,
+    }).returning({ id: schema.customerMerge.id });
+
     await audit(tx, ctx, "customer.merged", "customer", input.keepId, loser, {
-      keptId: input.keepId, mergedId: input.mergeId,
-      moved, filled, reason: input.reason?.trim() || null,
+      keptId: input.keepId, mergedId: input.mergeId, mergeRecordId: record!.id,
+      moved, filled, tagsAdded, reason: input.reason?.trim() || null,
     });
 
-    return {
+    const answer: MergeAnswer = {
       keptId: input.keepId,
       mergedId: input.mergeId,
+      mergeRecordId: record!.id,
       name: after!.name,
       moved,
       /** Which blank fields on the survivor were filled from the duplicate. */
       filled: Object.keys(filled),
+      tagsAdded,
     };
+    await remember(tx, ctx, "customer_merge", record!.id, answer);
+    return answer;
+  });
+}
+
+type MovedRows = { table: string; column: string; label: string; ids: string[] };
+
+export interface MergeAnswer {
+  keptId: string;
+  mergedId: string;
+  /** The merge's own record, which is what undoing it names. */
+  mergeRecordId: string;
+  name: string;
+  moved: { label: string; n: number }[];
+  filled: string[];
+  tagsAdded: string[];
+}
+
+/* ------------------------------------------------------- taking a merge back */
+
+/**
+ * Money that may have been written to the survivor since a merge. Anything
+ * here created after the merge, on the survivor, blocks an undo: an invoice,
+ * a payment or a ledger posting cannot be split back between two customers by
+ * a guess, and putting one on the wrong person's account is worse than a
+ * merge that stands. The ledger is here because a payment, a void or a
+ * refund on an invoice the merge moved posts to it.
+ */
+const MONEY_SINCE: Ref[] = [
+  ...MONEY,
+  { table: "credit_note", column: "customer_id", label: "credit notes" },
+  { table: "credit_note_payout", column: "customer_id", label: "credit payouts" },
+  { table: "card_on_file_charge", column: "customer_id", label: "card charges" },
+  { table: "financing_application", column: "customer_id", label: "financing applications" },
+];
+
+type MergeRow = typeof schema.customerMerge.$inferSelect;
+
+/**
+ * What stands in the way of taking this merge back, as sentences, and the
+ * records it would move back. Read inside the caller's transaction, so the
+ * undo checks exactly what it then does.
+ */
+async function undoPlan(tx: Database, ctx: ServiceContext, merge: MergeRow, now: Date) {
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  const day = (at: Date) => time.dateIn(at, zone);
+  const [kept] = await tx.select().from(schema.customer).where(eq(schema.customer.id, merge.keptCustomerId)).limit(1);
+  const [dupe] = await tx.select().from(schema.customer).where(eq(schema.customer.id, merge.mergedCustomerId)).limit(1);
+  const names = { kept: kept?.name ?? "the record kept", duplicate: dupe?.name ?? "the duplicate" };
+  const blockers: customerMerge.Blockers = {};
+
+  if (merge.undoneAt) blockers.undoneOn = day(merge.undoneAt);
+  if (!customerMerge.withinWindow(merge.createdAt, now)) blockers.tooOld = day(merge.createdAt);
+  if (!kept || kept.deletedAt) {
+    blockers.keptGone = kept?.mergedIntoId
+      ? `${names.kept} has since been merged into another record. Undo that merge first.`
+      : `${names.kept} has since been taken off the books.`;
+  }
+  if (!dupe || !dupe.deletedAt || dupe.mergedIntoId !== merge.keptCustomerId) blockers.duplicateMoved = true;
+
+  if (!merge.undoneAt) {
+    const moneySince: customerMerge.Count[] = [];
+    for (const ref of MONEY_SINCE) {
+      const [row] = await tx.execute<{ n: number }>(sql`
+        select count(*)::int as n from ${sql.identifier(ref.table)}
+        where ${sql.identifier(ref.column)} = ${merge.keptCustomerId}
+          and organization_id = ${ctx.actor.organizationId}
+          and created_at > ${merge.createdAt.toISOString()}::timestamptz`);
+      if (Number(row?.n ?? 0) > 0) moneySince.push({ label: ref.label, n: Number(row!.n) });
+    }
+    blockers.moneySince = moneySince;
+
+    /**
+     * Every row the merge moved has to still be the survivor's. One moved on
+     * since (a contact moved to another customer, a link taken off an
+     * address) is something an undo would have to guess about. A link the
+     * merge itself took out as a double is not expected back here: it is put
+     * back whole.
+     */
+    const removedIds = new Set(merge.removedLinks.map((link) => String(link.row["id"])));
+    const movedAway: customerMerge.Count[] = [];
+    for (const group of merge.moved) {
+      const ids = group.ids.filter((id) => !removedIds.has(id));
+      if (ids.length === 0) continue;
+      const [row] = await tx.execute<{ n: number }>(sql`
+        select count(*)::int as n from ${sql.identifier(group.table)}
+        where id = any(${sql.param(ids)}::uuid[])
+          and ${sql.identifier(group.column)} = ${merge.keptCustomerId}`);
+      const missing = ids.length - Number(row?.n ?? 0);
+      if (missing > 0) movedAway.push({ label: group.label, n: missing });
+    }
+    blockers.movedAway = movedAway;
+
+    /**
+     * Work booked for the survivor since, at an address that goes back with
+     * the duplicate: undone, that job would be the survivor's at a place that
+     * is not theirs. Which customer it was really for is somebody's call.
+     */
+    const returning = await returningAddresses(tx, merge);
+    const work: customerMerge.Count[] = [];
+    if (returning.length > 0) {
+      for (const ref of [
+        { table: "job", label: "jobs" }, { table: "estimate", label: "estimates" },
+      ]) {
+        const [row] = await tx.execute<{ n: number }>(sql`
+          select count(*)::int as n from ${sql.identifier(ref.table)}
+          where customer_id = ${merge.keptCustomerId}
+            and property_id = any(${sql.param(returning)}::uuid[])
+            and created_at > ${merge.createdAt.toISOString()}::timestamptz`);
+        if (Number(row?.n ?? 0) > 0) work.push({ label: ref.label, n: Number(row!.n) });
+      }
+    }
+    blockers.workAtReturningAddress = work;
+  }
+
+  return { reasons: customerMerge.reasons(blockers, names), kept, dupe, names };
+}
+
+/**
+ * The addresses that leave the survivor on an undo: those the duplicate
+ * brought with it that the survivor has no link of its own to.
+ */
+async function returningAddresses(tx: Database, merge: MergeRow): Promise<string[]> {
+  const linkIds = merge.moved.find((g) => g.table === "customer_property")?.ids ?? [];
+  const removedBack = merge.removedLinks.filter((l) => l.customerId === merge.mergedCustomerId)
+    .map((l) => String(l.row["property_id"]));
+  if (linkIds.length === 0 && removedBack.length === 0) return [];
+  const rows = await tx.execute<{ property_id: string }>(sql`
+    select distinct property_id::text as property_id from public.customer_property
+    where id = any(${sql.param(linkIds)}::uuid[])`);
+  const theirs = new Set([...[...rows].map((r) => r.property_id), ...removedBack]);
+  const stays = await tx.execute<{ property_id: string }>(sql`
+    select distinct property_id::text as property_id from public.customer_property
+    where customer_id = ${merge.keptCustomerId}
+      and not (id = any(${sql.param(linkIds)}::uuid[]))`);
+  for (const row of stays) theirs.delete(row.property_id);
+  return [...theirs];
+}
+
+async function loadMerge(tx: Database, ctx: ServiceContext, id: string): Promise<MergeRow> {
+  const [row] = await tx.select().from(schema.customerMerge)
+    .where(and(eq(schema.customerMerge.id, id), eq(schema.customerMerge.organizationId, ctx.actor.organizationId)))
+    .limit(1);
+  if (!row) throw new NotFoundError("Merge");
+  return row;
+}
+
+export interface MergeView {
+  id: string;
+  keptCustomerId: string;
+  merged: { id: string; name: string };
+  mergedAt: string;
+  by: { userId: string; name: string | null } | null;
+  reason: string | null;
+  moved: { label: string; n: number }[];
+  filled: string[];
+  tagsAdded: string[];
+  undone: { at: string; by: { userId: string; name: string | null } | null; reason: string | null } | null;
+  /** Until when it can be undone, whatever else is in the way. */
+  undoableUntil: string;
+  /** Whether it can be undone now, and every reason it cannot. */
+  canUndo: boolean;
+  blockedBy: string[];
+}
+
+/**
+ * The merges into this customer, newest first, each with whether it can be
+ * undone now and, when not, every reason why in words. Behind
+ * `customer:merge`, because it is read to act on.
+ */
+export async function merges(ctx: ServiceContext, input: { id: string }): Promise<{ merges: MergeView[] }> {
+  return guardedRead(ctx, "customer:merge", async (tx) => {
+    const [customer] = await tx.select({ id: schema.customer.id }).from(schema.customer)
+      .where(and(eq(schema.customer.id, input.id), eq(schema.customer.organizationId, ctx.actor.organizationId)))
+      .limit(1);
+    if (!customer) throw new NotFoundError("Customer");
+    const rows = await tx.select().from(schema.customerMerge)
+      .where(and(
+        eq(schema.customerMerge.organizationId, ctx.actor.organizationId),
+        eq(schema.customerMerge.keptCustomerId, input.id),
+      ))
+      .orderBy(desc(schema.customerMerge.createdAt))
+      .limit(50);
+    const people = await tx.execute<{ user_id: string; name: string | null; email: string }>(
+      sql`select user_id, name, email from app.organization_people()`,
+    );
+    const nameOf = new Map([...people].map((p) => [p.user_id, p.name ?? p.email]));
+    const who = (userId: string | null) => (userId ? { userId, name: nameOf.get(userId) ?? null } : null);
+    const now = new Date();
+    const out: MergeView[] = [];
+    for (const row of rows) {
+      const plan = await undoPlan(tx, ctx, row, now);
+      out.push({
+        id: row.id,
+        keptCustomerId: row.keptCustomerId,
+        merged: { id: row.mergedCustomerId, name: plan.names.duplicate },
+        mergedAt: row.createdAt.toISOString(),
+        by: who(row.mergedByUserId),
+        reason: row.reason,
+        moved: row.moved.map((g) => ({ label: g.label, n: g.ids.length })),
+        filled: Object.keys(row.filled),
+        tagsAdded: row.tagsAdded,
+        undone: row.undoneAt
+          ? { at: row.undoneAt.toISOString(), by: who(row.undoneByUserId), reason: row.undoReason }
+          : null,
+        undoableUntil: customerMerge.undoableUntil(row.createdAt).toISOString(),
+        canUndo: plan.reasons.length === 0,
+        blockedBy: plan.reasons,
+      });
+    }
+    return { merges: out };
+  });
+}
+
+export interface UndoAnswer {
+  mergeRecordId: string;
+  keptId: string;
+  /** The duplicate, a customer of its own again. */
+  restoredId: string;
+  restoredName: string;
+  movedBack: { label: string; n: number }[];
+  /** Blank fields the merge filled that were cleared again. */
+  filledCleared: string[];
+  /** Fields the merge filled that somebody has changed since, left as they are. */
+  filledKept: string[];
+  tagsRemoved: string[];
+}
+
+/**
+ * Take a merge back: every row it moved goes back to the duplicate, the
+ * address links it took out as doubles are put back as they were, the blank
+ * fields it filled are blank again where nobody has changed them since, the
+ * tags it added come off, and the duplicate is a customer of its own again.
+ *
+ * Refused, naming every reason at once, when the merge is older than the
+ * window, already undone, or anything has happened since that cannot be put
+ * back: money written to the survivor, a moved record that has moved on,
+ * work booked at an address that would go back, either record merged or
+ * removed since. Anything else written to the survivor since (a note, a new
+ * contact, a job at its own address) stays with the survivor, which is who
+ * it was written to.
+ */
+export async function undoMerge(
+  ctx: ServiceContext, input: { id: string; reason?: string | undefined },
+): Promise<UndoAnswer> {
+  return guardedWrite(ctx, "customer:merge", async (tx) => {
+    const seen = await replayed<UndoAnswer>(tx, ctx, "customer_merge_undo");
+    if (seen) return seen;
+    const merge = await loadMerge(tx, ctx, input.id);
+    /** Taken in a fixed order, so two undos of merges into one customer queue rather than deadlock. */
+    await tx.execute(sql`select id from public.customer where id in (${merge.keptCustomerId}, ${merge.mergedCustomerId}) order by id for update`);
+    const now = new Date();
+    const plan = await undoPlan(tx, ctx, merge, now);
+    if (plan.reasons.length > 0) throw new ConflictError(plan.reasons.join(" "));
+    const kept = plan.kept!;
+
+    const movedBack: { label: string; n: number }[] = [];
+    for (const group of merge.moved) {
+      const rows = await tx.execute<{ id: string }>(sql`
+        update ${sql.identifier(group.table)}
+        set ${sql.identifier(group.column)} = ${merge.mergedCustomerId}
+        where id = any(${sql.param(group.ids)}::uuid[])
+          and ${sql.identifier(group.column)} = ${merge.keptCustomerId}
+          and organization_id = ${ctx.actor.organizationId}
+        returning id`);
+      const n = [...rows].length;
+      if (n > 0) movedBack.push({ label: group.label, n });
+    }
+
+    /** The doubles the merge took out, as they were, each to whose it was. */
+    for (const link of merge.removedLinks) {
+      await tx.execute(sql`
+        insert into public.customer_property
+        select (jsonb_populate_record(null::public.customer_property,
+          ${JSON.stringify({ ...link.row, customer_id: link.customerId })}::jsonb)).*
+        on conflict (id) do nothing`);
+    }
+
+    const filledCleared: string[] = [];
+    const filledKept: string[] = [];
+    const clear: Record<string, null> = {};
+    for (const [field, value] of Object.entries(merge.filled)) {
+      const current = (kept as Record<string, unknown>)[field];
+      if (current === value) {
+        clear[field] = null;
+        filledCleared.push(field);
+      } else {
+        filledKept.push(field);
+      }
+    }
+    const addedKeys = new Set(merge.tagsAdded.map(tagRules.tagKey));
+    const tagsRemoved = kept.tags.filter((tag) => addedKeys.has(tagRules.tagKey(tag)));
+    await tx.update(schema.customer).set({
+      ...clear,
+      ...(tagsRemoved.length > 0 ? { tags: kept.tags.filter((tag) => !addedKeys.has(tagRules.tagKey(tag))) } : {}),
+      updatedAt: now,
+    }).where(eq(schema.customer.id, merge.keptCustomerId));
+
+    const [restored] = await tx.update(schema.customer).set({
+      deletedAt: null, mergedIntoId: null, updatedAt: now,
+    }).where(eq(schema.customer.id, merge.mergedCustomerId)).returning();
+
+    await tx.update(schema.customerMerge).set({
+      undoneAt: now, undoneByUserId: ctx.actor.userId, undoReason: input.reason?.trim() || null, updatedAt: now,
+    }).where(eq(schema.customerMerge.id, merge.id));
+
+    const answer: UndoAnswer = {
+      mergeRecordId: merge.id,
+      keptId: merge.keptCustomerId,
+      restoredId: merge.mergedCustomerId,
+      restoredName: restored!.name,
+      movedBack,
+      filledCleared,
+      filledKept,
+      tagsRemoved,
+    };
+    await audit(tx, ctx, "customer.merge_undone", "customer", merge.keptCustomerId, null, {
+      ...answer, reason: input.reason?.trim() || null, mergedAt: merge.createdAt.toISOString(),
+    });
+    await remember(tx, ctx, "customer_merge_undo", merge.id, answer);
+    return answer;
   });
 }
 
@@ -444,6 +817,11 @@ export const handlers = {
     mergeId: input.mergeId,
     ...(input.reason ? { reason: input.reason } : {}),
   }),
+
+  getCustomerMerges: (ctx: ServiceContext, input: { id: string }) => merges(ctx, input),
+
+  undoCustomerMerge: (ctx: ServiceContext, input: { id: string; reason?: string | undefined }) =>
+    undoMerge(ctx, input),
 
   /**
    * Wrapped in an object rather than returned bare.

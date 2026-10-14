@@ -78,6 +78,13 @@ export const customer = pgTable("customer", {
   discountRate: money("discount_rate"),
   doNotService: boolean("do_not_service").notNull().default(false),
   doNotServiceReason: text("do_not_service_reason"),
+  /**
+   * THE OLD NOTES BOX, EMPTY AND KEPT. Nothing ever read it. Its text was
+   * carried into each customer's first `customer_note` by the migration that
+   * made that table, and the box emptied. Kept as a column only so a copy
+   * taken before notes existed still restores, and the restore carries its
+   * text across the same way. Nothing here writes it.
+   */
   notes: text("notes"),
   /**
    * The days of the week that suit this customer, 0 for Sunday as Postgres
@@ -223,6 +230,97 @@ export const customerTag = pgTable("customer_tag", {
   slotIdx: uniqueIndex("customer_tag_slot_idx").on(t.customerId, t.position),
   /** The filter and the counts: every customer carrying a key, without reading anybody's list. */
   keyIdx: index("customer_tag_key_idx").on(t.organizationId, t.tagKey, t.customerId),
+}));
+
+/**
+ * WHAT SOMEBODY WROTE DOWN ABOUT A CUSTOMER, ON A DAY.
+ *
+ * "Prefers mornings", "disputed the March invoice, Dana agreed $40 off the
+ * next one". Dated and signed, and added to rather than rewritten: its author
+ * may fix a note for a few minutes after writing it (`core/customer-notes`),
+ * and after that a correction is a new note naming the one it corrects. No
+ * row is ever deleted, so there is no `deleted_at`.
+ *
+ * This replaces `customer.notes`, one box nothing read. The migration that
+ * made this table carried every non empty box into a first note marked
+ * `carried`, and emptied the box; a restore of a copy taken before notes
+ * existed does the same (services/restore.ts).
+ */
+export const customerNote = pgTable("customer_note", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  /**
+   * The day the note is about, which is when it was written for a note typed
+   * here and the day a file says for one brought in from another system.
+   * Ordered by, so a note from 2021 brought in today sits in 2021.
+   */
+  notedAt: timestamp("noted_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Who wrote it here. Null for a note carried over or brought in from a file. */
+  authorUserId: uuid("author_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** `typed`, `carried` (the old notes box) or `imported` (a spreadsheet or the toolkit). */
+  origin: text("origin").notNull().default("typed"),
+  /** Kept at the top of the list while set. Anybody who may write notes may pin one. */
+  pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+  pinnedByUserId: uuid("pinned_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * Shown to the technician on the visit. Off unless somebody says so,
+   * because most of what the office writes ("pays late", "asked about
+   * financing") is not the technician's to read at the door.
+   */
+  forField: boolean("for_field").notNull().default(false),
+  /** The note this one corrects, when it is a correction. */
+  correctsNoteId: uuid("corrects_note_id").references((): AnyPgColumn => customerNote.id, { onDelete: "set null" }),
+  /** When its author last changed it, inside the window. Null for a note as first written. */
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  ...sourceRef,
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /** A customer's notes newest first, which is the only way they are read. */
+  customerIdx: index("customer_note_customer_idx").on(t.customerId, t.notedAt),
+  orgIdx: index("customer_note_org_idx").on(t.organizationId),
+  /** A note brought in from a file once, so a second upload of the file finds it. */
+  sourceRefIdx: sourceRefIndex("customer_note_source_ref_idx", t),
+}));
+
+/**
+ * ONE MERGE, AND EXACTLY WHAT IT MOVED.
+ *
+ * A merge re-parents every record of the duplicate onto the record kept. To
+ * take one back means moving exactly those records back, not everything the
+ * kept record has now, so the merge writes down the id of every row it moved,
+ * table by table, the address links it took out as doubles (whole, to put
+ * back), the blank fields it filled on the record kept and the tags it added.
+ * The undo reads this and nothing else (services/customer-lifecycle.ts).
+ *
+ * Kept after an undo, with who undid it and when, because "these two were
+ * joined for a week in March" is part of both customers' history.
+ */
+export const customerMerge = pgTable("customer_merge", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  keptCustomerId: uuid("kept_customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  mergedCustomerId: uuid("merged_customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  mergedByUserId: uuid("merged_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  reason: text("reason"),
+  /** Every row moved: `{ table, column, label, ids }` per column that held the duplicate's id. */
+  moved: jsonb("moved").$type<{ table: string; column: string; label: string; ids: string[] }[]>().notNull().default([]),
+  /** Address links taken out as doubles of one the kept record had, whole, with whose they were. */
+  removedLinks: jsonb("removed_links").$type<{ customerId: string; row: Record<string, unknown> }[]>().notNull().default([]),
+  /** The kept record's blank fields filled from the duplicate, with the value written. */
+  filled: jsonb("filled").$type<Record<string, string>>().notNull().default({}),
+  /** The duplicate's tags added to the kept record's list, exactly as added. */
+  tagsAdded: jsonb("tags_added").$type<string[]>().notNull().default([]),
+  undoneAt: timestamp("undone_at", { withTimezone: true }),
+  undoneByUserId: uuid("undone_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  undoReason: text("undo_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  keptIdx: index("customer_merge_kept_idx").on(t.organizationId, t.keptCustomerId, t.createdAt),
+  mergedIdx: index("customer_merge_merged_idx").on(t.mergedCustomerId),
 }));
 
 export const property = pgTable("property", {

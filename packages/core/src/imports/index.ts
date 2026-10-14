@@ -29,7 +29,9 @@ import { add, compare, money, multiply, round, subtract, sum, toString, isZero, 
  * spreadsheet shows it as text rather than running it.
  */
 
-export const IMPORT_KINDS = ["customers", "equipment", "pricebook", "jobs", "invoices", "payments", "estimates"] as const;
+export const IMPORT_KINDS = [
+  "customers", "equipment", "pricebook", "jobs", "invoices", "payments", "estimates", "notes", "visits",
+] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 
 export const isImportKind = (value: string): value is ImportKind =>
@@ -62,6 +64,15 @@ export const KIND_LABEL: Record<ImportKind, { label: string; row: string; summar
     label: "Past estimates", row: "estimate",
     summary: "One row per estimate, with the customer, its amount, the day it was written and sent, and how it ended: approved, declined or expired.",
   },
+  notes: {
+    label: "Customer notes", row: "note",
+    summary: "One row per note, with the customer it is about, the day it was written and what it says.",
+  },
+  visits: {
+    label: "Past visits", row: "visit",
+    summary: "One row per visit on a finished job: the job, the email of the technician who went, the day, "
+      + "the time they started and, if you have it, the time they finished.",
+  },
   payments: {
     label: "Past payments", row: "payment",
     summary: "One row per invoice a payment paid, with the payment's id, the invoice, the amount and the day. "
@@ -92,7 +103,7 @@ export const BATCH_SIZE = 100;
 export const MAX_KEY_LENGTH = 190;
 
 export type FieldType =
-  | "text" | "money" | "date" | "boolean" | "quantity"
+  | "text" | "money" | "date" | "time" | "boolean" | "quantity"
   | "customerType" | "jobStatus" | "paymentMethod" | "itemKind" | "estimateOutcome";
 
 export interface ImportField {
@@ -219,6 +230,32 @@ export const FIELDS: Record<ImportKind, readonly ImportField[]> = {
     { key: "outcome", label: "How it ended", type: "estimateOutcome", words: ["status", "outcome", "result", "estimate status", "quote status", "stage"] },
     { key: "decidedOn", label: "Decided on", type: "date", words: ["decided", "decided on", "approved on", "declined on", "accepted on", "closed on", "won on", "lost on", "outcome date", "date decided", "date approved", "approved date"] },
     { key: "reason", label: "Why it was declined", type: "text", max: 1000, words: ["reason", "decline reason", "declined reason", "lost reason", "why"] },
+  ],
+  /**
+   * NOTES AND VISITS, the last of a customer's history a file can carry.
+   *
+   * A note is dated by its file and lands as one of the customer's notes,
+   * marked as brought in (M03). A visit goes on a job a jobs file already
+   * brought in, finished: it names the technician by their email, and only
+   * somebody on the board matches, because a visit put on the wrong person, or
+   * on nobody, is worse than a row refused.
+   */
+  notes: [
+    { ...REF, words: [...REF.words, "note id", "comment id"] },
+    CUSTOMER_REF,
+    CUSTOMER_EMAIL,
+    { key: "body", label: "The note", type: "text", required: true, max: 4000, words: ["note", "notes", "comment", "comments", "text", "body", "note text", "details"] },
+    { key: "notedOn", label: "Written on", type: "date", required: true, words: ["date", "note date", "created", "created on", "created at", "written", "written on", "date added", "added on"] },
+    { key: "forField", label: "For the technician", type: "boolean", words: ["for technician", "show technician", "technician note", "field note", "show in field", "for field"] },
+  ],
+  visits: [
+    { ...REF, words: [...REF.words, "visit id", "appointment id"] },
+    { key: "jobRef", label: "Job's id or number", type: "text", required: true, max: MAX_KEY_LENGTH, words: ["job id", "job number", "job", "work order", "work order number", "job no"] },
+    { key: "technicianEmail", label: "Technician's email", type: "text", required: true, max: 254, words: ["technician email", "tech email", "employee email", "assigned to email", "assignee email", "technician", "tech", "assigned to"] },
+    { key: "visitedOn", label: "Day", type: "date", required: true, words: ["date", "visit date", "day", "service date", "appointment date", "scheduled date", "start date"] },
+    { key: "startTime", label: "Started at", type: "time", required: true, words: ["start", "start time", "time", "started", "started at", "arrival", "arrival time", "arrived", "time in"] },
+    { key: "endTime", label: "Finished at", type: "time", words: ["end", "end time", "finish", "finish time", "finished", "finished at", "departed", "time out", "completed at"] },
+    { key: "notes", label: "What the technician wrote", type: "text", max: 5000, words: ["notes", "technician notes", "tech notes", "visit notes", "work done", "description", "comments"] },
   ],
   payments: [
     { ...REF, words: [...REF.words, "payment id", "payment number", "receipt number", "transaction id"] },
@@ -364,6 +401,9 @@ export function mappingProblems(kind: ImportKind, columns: readonly (string | nu
   if (kind === "estimates" && !has("total") && !has("subtotal")) {
     problems.push("No column is set to Total or to Before tax. Every estimate needs an amount.");
   }
+  if (kind === "notes" && !has("customerRef") && !has("customerEmail")) {
+    problems.push("No column is set to Customer's id or Customer's email, so there is no way to tell whose each note is.");
+  }
   if (kind === "estimates" && !has("customerRef") && !has("customerEmail")) {
     problems.push("No column is set to Customer's id or Customer's email, so there is no way to tell whose each estimate is.");
   }
@@ -445,6 +485,34 @@ export function parseDate(raw: string, dayFirst = false): Parsed {
   return no(`"${text}" is not a date this can read. Write it like 2021-03-04 or 3/4/2021.`);
 }
 
+/**
+ * A time of day, as `HH:MM` on a 24 hour clock: "14:30", "2:30 PM", "2pm",
+ * "09:05:00". Read on the company's clock by whoever places it. A time with
+ * no AM or PM is read as a 24 hour clock, so "2:30" is the middle of the
+ * night: a file that writes afternoons without PM says so in every other row.
+ */
+export function parseTime(raw: string): Parsed {
+  const text = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  const match = /^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s?(am|pm|a\.m\.|p\.m\.)?$/.exec(text);
+  if (!match || (match[2] === undefined && match[4] === undefined)) {
+    return no(`"${raw.trim()}" is not a time this can read. Write it like 14:30 or 2:30 PM.`);
+  }
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const half = match[4]?.startsWith("p") ? "pm" : match[4] ? "am" : null;
+  if (minute > 59) return no(`"${raw.trim()}" is not a time on the clock.`);
+  if (half) {
+    if (hour < 1 || hour > 12) return no(`"${raw.trim()}" is not a time on the clock.`);
+    hour = (hour % 12) + (half === "pm" ? 12 : 0);
+  } else if (hour > 23) {
+    return no(`"${raw.trim()}" is not a time on the clock.`);
+  }
+  return ok(`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+}
+
+/** Minutes after midnight of an `HH:MM`. */
+export const minutesOf = (time: string): number => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+
 /** How many: "2", "1.5", "0.25". Above zero, at most four places, and never a guess. */
 export function parseQuantity(raw: string): Parsed {
   const text = raw.trim().replace(/,(?=\d{3}(?:\D|$))/g, "");
@@ -521,6 +589,7 @@ function parseCell(field: ImportField, raw: string, dayFirst: boolean): Parsed {
   switch (field.type) {
     case "money": return parseAmount(raw);
     case "date": return parseDate(raw, dayFirst);
+    case "time": return parseTime(raw);
     case "boolean": return parseYesNo(raw);
     case "quantity": return parseQuantity(raw);
     case "customerType": return parseCustomerType(raw);
@@ -632,6 +701,7 @@ export function readRow(
     case "equipment":
     case "jobs":
     case "estimates":
+    case "notes":
     case "invoices": {
       if (options.line) break;
       if (values["customerRef"] === undefined && values["customerEmail"] === undefined
@@ -677,6 +747,18 @@ export function readRow(
   }
 
   if (kind === "estimates") readEstimate(values, problems, label);
+
+  if (kind === "visits") {
+    const email = values["technicianEmail"];
+    if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      problems.push(`Technician's email: "${email}" is not an email address. A visit finds the technician by the email they sign in with.`);
+    }
+    const start = values["startTime"];
+    const end = values["endTime"];
+    if (start !== undefined && end !== undefined && minutesOf(end) <= minutesOf(start)) {
+      problems.push(`It finished at ${end}, which is not after it started at ${start}. A visit that ran past midnight is not taken: split it at midnight.`);
+    }
+  }
 
   if (kind === "invoices" && values["unitPrice"] !== undefined) {
     /**

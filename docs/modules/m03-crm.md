@@ -200,6 +200,58 @@ their details (not who they belong to, and not whether they are primary),
 `POST /v1/contacts/{id}/remove` takes one off. A technician reads the people at
 the customers they have been sent to and no others.
 
+### Keep notes on a customer
+
+The customer's page has a Notes section: what somebody learned on the phone
+and the next person needs to know. Each note is dated and says who wrote it.
+"Keep it at the top" pins it above the rest, and anybody who may write notes
+may pin or unpin one, whoever wrote it. "Show it to the technician on their
+visits" marks it for the field. The newest twenty five come first, then
+"Older notes" pages back; the address bar carries the page.
+
+**A note is added to, not rewritten.** Its writer can fix a note for 15
+minutes after writing it ("Fix this note"), which changes the words and
+whether the technician sees it, and says it was fixed. After that, and for
+anybody else, the note offers "Add a correction", which writes a new note
+that names the one it corrects. Nothing deletes a note. That is the
+conservative reading of a customer file, chosen because "who told the
+customer that" has to be answerable a year later; the window and the rule
+are in `packages/core/src/customer-notes`.
+
+**What the technician reads.** On the visit, on `/my-day`, under "Notes from
+the office": the notes marked for the field, pinned first, at most twenty,
+shipped with the day so they are there without signal, and a note marked
+afterwards reaches the phone on its next poll. A technician and a crew lead
+reading a customer's notes through the API get only those too, and the
+answer says `fieldOnly: true`. A branch manager is office, and reads every
+note of a customer in their branch.
+
+**Scope.** A note is read and written through its customer, found under the
+caller's customer scope first, so another company's customer, a customer
+outside a branch manager's branch and a customer a technician was never sent
+to are all "not found", on the list and on a note's own routes.
+
+**The old notes box.** `customer.notes` was one box that no route or screen
+read. The migration that made notes carried every box with something in it
+into that customer's first note, dated when the customer was last changed
+(the nearest the row holds to when it was written), marked "Carried over from
+the old notes box" with no writer, and emptied the box. Nobody may change a
+carried note. The column stays only so a copy taken before notes existed
+still restores, and a restore carries its boxes across the same way.
+
+**Notes from another system.** `POST /v1/customers/{id}/notes` takes
+`notedAt`, under the history rules every back dated record follows (a week
+back for anybody, earlier only with `data:import`, never ahead), and
+`externalRef`, which marks the note as brought in, with no writer here, and
+refuses the same reference twice. A note brought in is never changed.
+
+`GET /v1/customers/{id}/notes` lists them (pinned in `pinned`, the rest a
+page at a time in `data`), `POST /v1/customers/{id}/notes` adds one,
+`PATCH /v1/customer-notes/{id}` is the writer's fix, and
+`POST /v1/customer-notes/{id}/pin` pins or unpins. Reading needs
+`customer:read`; the other three need `customer:write`. Every write is in the
+audit log. A merge moves the duplicate's notes to the record kept.
+
 ### Correct an address
 
 `PATCH /v1/properties/{id}`. Gate codes, access notes and the safety flags a
@@ -238,12 +290,18 @@ attached afterwards, which would have sent it to everybody.
 | `GET /v1/customers/{id}/deletability` | `customer:read` |
 | `GET /v1/customers/{id}/merged-into` | `customer:read` |
 | `POST /v1/customers/{keepId}/merge` | `customer:merge` |
+| `GET /v1/customers/{id}/merges` | `customer:merge` |
+| `POST /v1/customer-merges/{id}/undo` | `customer:merge` |
 | `POST /v1/customers/{id}/remove` | `customer:delete` |
 | `GET /v1/customers/{id}/contacts` | `customer:read` |
 | `POST /v1/customers/{id}/contacts` | `customer:write` |
 | `PATCH /v1/contacts/{id}` | `customer:write` |
 | `POST /v1/contacts/{id}/primary` | `customer:write` |
 | `POST /v1/contacts/{id}/remove` | `customer:write` |
+| `GET /v1/customers/{id}/notes` | `customer:read` |
+| `POST /v1/customers/{id}/notes` | `customer:write` |
+| `PATCH /v1/customer-notes/{id}` | `customer:write` |
+| `POST /v1/customer-notes/{id}/pin` | `customer:write` |
 | `GET /v1/customer-tags` | `customer:read` |
 | `POST /v1/customers/{id}/tags` | `customer:write` |
 | `POST /v1/customer-tags/rename` | `customer:write` |
@@ -278,6 +336,57 @@ moved and which blank fields on the survivor were filled in from the duplicate.
 `GET /v1/customers/{id}/merged-into` is where a merged record went, which is
 what makes keeping it worth anything.
 
+The duplicate's tags join the survivor's list after its own, each only when
+the survivor has no tag that compares equal, because a merged record is in no
+tag count and a "VIP" on it would otherwise drop out of every list kept by
+tag.
+
+### Take a merge back
+
+Two people who share a phone number get merged, and somebody notices a week
+later. A merge writes down exactly what it did (`customer_merge`): the id of
+every row it moved, table by table (jobs, invoices, payments, deposits,
+estimates, agreements, contacts, notes, address links, consent records,
+conversations and calls, and the rest of the tables listed in
+`customer-lifecycle.ts`), the address links it took out as doubles of one the
+survivor already had (kept whole), the blank fields it filled and the tags it
+added. Equipment belongs to an address, so it goes with the address links.
+
+The kept record's page lists "Merged into this record": who merged what, when,
+what it brought, and "Undo this merge" with a box for why. Undoing moves those
+rows back and no others, puts the doubled address links back as they were,
+clears a field the merge filled unless somebody has changed it since (then it
+is left, and the answer says so), takes off the tags it added, and makes the
+duplicate a customer with its own page again. Anything written to the
+survivor since the merge (a note, a new person, a job at its own address)
+stays with the survivor, which is who it was written to.
+
+**When it is refused.** Every reason is said at once, in words, on the page
+before anybody clicks and again at the click:
+
+- the merge is more than 30 days old, or already undone;
+- money was written to the survivor since: an invoice, an invoice they pay
+  for, a payment, a deposit, a ledger posting (a payment, a void or a refund
+  on an invoice the merge moved posts one), an agreement, a contract, a credit
+  note, a credit payout, a card charge or a financing application. Money
+  cannot be split back between two customers by a guess, so the merge stands.
+  That is the conservative choice, made because a payment on the wrong
+  person's account is worse than a merge somebody has to untangle by hand;
+- a row the merge moved is no longer the survivor's (a person moved to
+  another customer, a link taken off an address);
+- a job or an estimate was booked for the survivor since at an address that
+  would go back with the duplicate;
+- either record has since been merged into another or taken off the books.
+
+`GET /v1/customers/{id}/merges` lists the merges into a customer with
+`canUndo` and `blockedBy`, and `POST /v1/customer-merges/{id}/undo` takes one
+back. Both need `customer:merge`, the permission the merge needs, because
+taking a merge back is the same decision made the other way. The undo is in
+the audit log as `customer.merge_undone`, and the merge's record keeps who
+undid it, when and why. The merge's answer carries `mergeRecordId`, the id the
+undo names, and a retry of either with the same idempotency key returns the
+first answer.
+
 ### Remove one
 
 `GET /v1/customers/{id}/deletability` says whether it can go and what would go
@@ -297,9 +406,24 @@ fields filter `/customers` and `GET /v1/customers` several at once, every one of
 which has to hold (M29 says how), and reach the report builder on every dataset
 that hangs off a customer; there is no "any of these" across fields.
 
+A customer note is never deleted and, after its writer's 15 minutes, never
+changed: a wrong note stays, with its correction beside it. Notes are not
+searched by the customer search box, and the native phone app (`apps/mobile`)
+does not show the notes marked for the field yet; the phone's web day does. A
+note is on a customer, not on an address or a job.
+
 A merged or soft deleted customer keeps its tags on its own row and has none in
 `customer_tag`, so it is in no tag count and no tag filter; that is deliberate,
-and undoing a merge is not built anyway. The tag table is written only by the
+and an undone merge puts the duplicate's own list back in both.
+
+A merge older than 30 days, or one with money written to the survivor since,
+cannot be undone here: what belongs to the duplicate is moved by hand. A merge
+still does not move every table that names a customer (a project, a credit
+note, a saved card, a statement sent, among others stay on the duplicate,
+whose pointer resolves them), and an undo moves back only what the merge
+moved. Undoing does not mark the two as different people, so they can show as
+a possible duplicate again until somebody says so on the duplicates screen. A
+merge done before merges were recorded has no record and cannot be undone. The tag table is written only by the
 database, so a restore that loads `customer_tag` rows from an export as well as
 customers is loading them twice: the customers' own lists are what to restore.
 
