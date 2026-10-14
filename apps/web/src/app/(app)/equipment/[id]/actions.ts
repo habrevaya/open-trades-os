@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { equipment } from "@opentradesos/api/services";
+import { equipment, ConflictError } from "@opentradesos/api/services";
 import { moveEquipment, updateEquipment } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { parseAttributeLines } from "@/lib/unit-attributes";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -18,12 +19,23 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
  * taken off, as a null is on the route. The address is not here: changing it
  * is a move, which is its own form below, because the move record is what says
  * where the old work happened.
+ *
+ * What it is inside, and its free form details, are here too. The picker always
+ * sends, so no choice there is taking it out of what it was inside; the details
+ * are the lines in the box, with anything the box cannot show kept as it was
+ * (`parseAttributeLines`). Nesting a unit inside itself, or inside something it
+ * already holds, is refused by the service in words.
  */
 export async function editUnit(_previous: FormState, form: FormData): Promise<FormState> {
   const id = field(form, "id") ?? "";
   const state = await attempt(form, async () => {
+    const current = await equipment.get(await ctx(), { id });
+    const details = parseAttributeLines(field(form, "attributes") ?? "", current.attributes as Record<string, unknown>);
+    if (!details.ok) throw new ConflictError(details.error);
     const input = parsed(updateEquipment.input, {
       id,
+      parentEquipmentId: field(form, "parentEquipmentId") ?? null,
+      attributes: details.attributes,
       category: field(form, "category"),
       tag: field(form, "tag") ?? null,
       manufacturer: field(form, "manufacturer") ?? null,
@@ -47,6 +59,8 @@ export async function editUnit(_previous: FormState, form: FormData): Promise<Fo
       ...(input.installedByUs !== undefined ? { installedByUs: input.installedByUs } : {}),
       ...(input.warrantyPartsExpiresOn !== undefined ? { warrantyPartsExpiresOn: input.warrantyPartsExpiresOn } : {}),
       ...(input.warrantyLaborExpiresOn !== undefined ? { warrantyLaborExpiresOn: input.warrantyLaborExpiresOn } : {}),
+      ...(input.parentEquipmentId !== undefined ? { parentEquipmentId: input.parentEquipmentId } : {}),
+      ...(input.attributes !== undefined ? { attributes: input.attributes } : {}),
     });
     return { message: "Saved." };
   });

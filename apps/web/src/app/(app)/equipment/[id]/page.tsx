@@ -7,10 +7,11 @@ import { customFields, equipment, inTenant, properties as propertyService, stock
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
-import { ActionForm, TextField, Select } from "@/components/ActionForm";
+import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
 import { Empty, Table, Th, Td } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import { JOB_STATUS, JOB_TONE, label, tone, enumText } from "@/lib/labels";
+import { attributeLines, keptAsTheyAre } from "@/lib/unit-attributes";
 import { followUp } from "../../customers/warranties/actions";
 import { editUnit, moveUnit } from "./actions";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
@@ -97,6 +98,28 @@ export default async function EquipmentPage({
     destinations.delete(unit.propertyId);
   }
 
+  /**
+   * WHAT IT COULD BE INSIDE: the other live units at this address, never itself or
+   * anything inside it (which would make a loop; the service refuses that too, in
+   * words). The tree comes back nested, so what is inside this unit is the subtree
+   * under it, however deep.
+   */
+  const insideChoices: { value: string; label: string }[] = [];
+  if (canEdit && can(user.actor, "equipment:read")) {
+    const walk = (nodes: Awaited<ReturnType<typeof equipment.atProperty>>, skipping: boolean): void => {
+      for (const node of nodes) {
+        const mine = skipping || node.id === unit.id;
+        if (!mine) insideChoices.push({ value: node.id, label: [node.tag, node.manufacturer, node.model].filter(Boolean).join(" ") || node.category });
+        if (node.children) walk(node.children, mine);
+      }
+    };
+    walk(await equipment.atProperty(ctx, { propertyId: unit.propertyId }), false);
+    if (unit.parent && !insideChoices.some((c) => c.value === unit.parent!.id)) {
+      insideChoices.push({ value: unit.parent.id, label: unit.parent.tag ?? unit.parent.category });
+    }
+  }
+  const unshownDetails = keptAsTheyAre(unit.attributes as Record<string, unknown>);
+
   const name = [unit.tag, unit.manufacturer, unit.model].filter(Boolean).join(" ") || unit.category;
   const days = unit.warranty.daysUntilSoonest;
   const attributes = Object.entries(unit.attributes ?? {}).filter(([, v]) => v !== null && v !== "");
@@ -168,6 +191,19 @@ export default async function EquipmentPage({
                 <input type="checkbox" name="installedByUs" defaultChecked={unit.installedByUs} />
                 We installed it
               </label>
+              <Select label="It is inside" name="parentEquipmentId" defaultValue={unit.parent?.id ?? ""} className="block sm:col-span-2"
+                      options={[{ value: "", label: "Nothing, it stands on its own" }, ...insideChoices]} />
+              <div className="sm:col-span-2">
+                <TextArea label="Other details, one a line" name="attributes" rows={4} maxLength={6000}
+                          defaultValue={attributeLines(unit.attributes as Record<string, unknown>)}
+                          placeholder={"Refrigerant: R-410A\nFilter size: 16x25x1"} />
+                <p className="mt-1 text-xs text-ink-500">
+                  Write each as a name, a colon and a value. A line you take out is taken off.
+                  {unshownDetails > 0
+                    ? ` ${unshownDetails} more ${unshownDetails === 1 ? "detail is" : "details are"} kept as ${unshownDetails === 1 ? "it is" : "they are"}, because this box cannot show ${unshownDetails === 1 ? "it" : "them"}.`
+                    : ""}
+                </p>
+              </div>
               <p className="text-xs text-ink-500 sm:col-span-2">
                 A box left empty takes that detail off. To put it at another address, use &ldquo;Move it
                 to another address&rdquo; below, so the old work still says where it happened.
