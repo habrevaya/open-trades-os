@@ -183,6 +183,7 @@ export * as portalBlocks from "./portal-blocks";
 export * as portalLayout from "./portal-layout";
 export * as portalBooking from "./portal-booking";
 export * as portalFiles from "./portal-files";
+export * as portalChat from "./portal-chat";
 export * as savedCards from "./saved-cards";
 export * as cardOnFile from "./card-on-file";
 export * as tips from "./tips";

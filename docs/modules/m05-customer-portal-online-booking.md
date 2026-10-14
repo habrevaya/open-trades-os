@@ -486,6 +486,31 @@ it. Opening it from the job's page records who opened it and when
 and the page says so. A file the office added is never theirs to remove, and
 is the same not found as a file that does not exist.
 
+### Chat with the company from the account
+
+A signed in customer opens "Chat with us" on their account page
+(`/portal/{slug}/account/chat`) and writes to the company. It is the same
+conversation the office answers in the inbox: a chat on the customer's own
+record (kept per customer, or per contact signed in as them, and carried on each
+time they come back), with "Chat from their account" as its subject. Who is
+writing is the sign in, never what is typed: nobody gives a name, and nothing is
+matched by a phone number or guessed from the words. A reply written in the inbox
+appears on the customer's open page, which asks again every few seconds.
+
+The company's automated chat assistant answers here only when the company ticked
+"Customers signed in to their account" on the chat assistant's settings (off
+until somebody does, a separate decision from the website) and the assistant is
+on with a person to act as, as on the website. It says it is automated first,
+hands over on the website's rules, knows the customer from the sign in and never
+asks their name or contact details, and takes a booking request only for them:
+their name, phone and email come from their record whatever it was told, and the
+address has to be one on their record. Once a person has the conversation the
+assistant stays out of it. With the assistant off, every message waits for a
+person: unread in the inbox, with a task ("Dana Cedar wrote from their account")
+when the conversation goes from read to unread, so it is noticed once rather than
+once a message. Twelve messages a minute and sixty an hour per customer.
+`GET /v1/portal/chat` and `POST /v1/portal/chat/messages`, from a sign in only.
+
 ### Readings in a narrow band
 
 A reading is drawn from zero unless the trade says otherwise. A trade pack can
@@ -767,6 +792,8 @@ in from, and which codes failed, are the office's business.
 | `GET /v1/portal/files` | nothing: a sign in only |
 | `POST /v1/portal/files` | nothing: a sign in only, counted per customer |
 | `POST /v1/portal/files/{id}/remove` | nothing: a sign in only |
+| `GET /v1/portal/chat` | nothing: a sign in only |
+| `POST /v1/portal/chat/messages` | nothing: a sign in only, counted per customer |
 | `POST /v1/attachments/{id}/seen` | `document:read` |
 | `GET /v1/portal-sign-ins` | `portal:read` |
 | `GET /v1/customers/{id}/portal-sessions` | `portal:read` |
@@ -849,6 +876,11 @@ again on the board. Capacity lays a route's stops end to end from the start
 of the day, so a route that starts later is counted as starting then; a
 crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,
-and nothing puts it on the board until somebody does. Agreeing to cancel a
+and nothing puts it on the board until somebody does. The chat from the account
+takes words only, not photos (those go through "Send us a photo or a PDF"); a
+reply from the office is seen only on the open chat page, with no text, email
+or mark on the account page to say one came; the customer cannot close or clear
+a chat; and the automated assistant, once a person has answered, does not take
+the conversation back. Agreeing to cancel a
 job's only visit cancels the visit and leaves the job as it was; whether the
 work is off altogether is the office's decision on the job.

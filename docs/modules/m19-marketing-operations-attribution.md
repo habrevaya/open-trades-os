@@ -237,6 +237,53 @@ person, so a script learns nothing. A good one, in one transaction:
   confirmation email after the lead is saved, so a refused email never loses
   the lead.
 
+**Photos and PDFs.** A field of the kind "Photos or PDFs" (`file`) takes up to
+five files and four megabytes in all, posted with the rest of the form in one
+`POST /v1/public/forms/{formSlug}` (base64, under `files`). They are held to
+the rules a signed in customer's upload and a reply by email are held to, in
+this order: every file is counted against the address's own ceiling (twenty
+files an hour) before anything about it is read; a program is refused by its
+name and its claimed type before it is decoded (`files.planFormUpload`), then
+by its bytes, and only a photo (JPEG, PNG, HEIC or WebP) or a PDF decided from
+the bytes is kept (`files.checkFormUpload`); the count and the total hold for
+the submission. A refused file is a refusal on its field in words ("leak.jpg
+was not sent: it is a program or a script, and those are never kept"), and the
+submission row keeps the names it was sent, never the bytes. Nothing of a spam
+or refused submission is decoded or kept. An accepted one's files go on the
+customer the lead matched or made, under their own kind (`form_file`), apart
+from what a customer adds from their own sign in: whoever filled the form in
+gave that customer's phone or email, which is not signing in as them, so the
+customer page shows them under "Sent with a lead form" and says so. They are
+private to the company, never on a job link and never shown to the customer.
+The call back task lists their names. The hosted page makes a photograph
+smaller before it sends it, as the technician's camera does.
+
+**Pages.** The builder's "Split into pages" gives a form two or more pages (at
+most six), each with a heading, and every question says which page it is on.
+Pages must come in order and none may be empty, checked by core when the form
+is saved. The hosted page shows one page at a time with Back and Next; Next
+checks the page with core's own field checks (`marketing.checkPage`), so the
+person hears what Send would have said while they are still on that page, and
+going Back keeps what they typed. Nothing is posted until the last page, and
+the server checks the whole form again: a page skipped in a browser is still
+refused, and a refusal on an earlier page takes the person back to it.
+
+**Their answers in the confirmation.** The sentence the page shows, the text
+and the email may repeat an answer by its question's key, as `{{ name }}` or
+`{{ system }}`, filled by the one renderer the product has. Only the short
+answers can be repeated (short answer, email, phone, pick one, pick several,
+number, date and address; a choice reads as its label, a phone as "(512)
+555-0134"); a long answer, a tick box, a hidden value, the spam trap and the
+files cannot, and a name that is not a usable question on the form is refused
+when the form is saved, including a confirmation kept from before when only
+the questions changed. The renderer makes one pass, so an answer that itself
+says `{{ phone }}` is never filled, and braces are taken out of answers anyway.
+Because the text and the email go to whatever number or address was typed, a
+stranger could aim them at somebody else, so in a message an answer is one
+line of at most sixty characters and an answer with a web address or an email
+address in it is left out altogether. The page is shown only to the person who
+sent it and draws answers as words, never as markup.
+
 ## Referrals
 
 Every customer has a referral code, minted the first time anybody asks, and a
@@ -884,7 +931,7 @@ unknown field into nothing. A campaign can start from a message template
 (`templateCode`), whose words are copied in. The preview shows the message as
 the first person on the list will read it.
 
-### Test two ways of saying it
+### Test two ways of saying it, or up to four
 
 A text or an email campaign can carry a second version of its body (and, for an
 email, its subject): `variantBBody` and `variantBSubject` on `POST /v1/campaigns`
@@ -897,16 +944,34 @@ under version A's, so the words alone can be tested. Both versions can be
 changed only before the campaign goes, like the rest of it, and `variantBBody:
 null` takes the test off a draft.
 
-**The split.** When the send selects its recipients, each person's half is a
+**More than two versions, and chosen shares.** A campaign can carry up to four
+versions: `variantCBody` and `variantDBody` (with `variantCSubject` and
+`variantDSubject` for an email), on create and update, or "Version C words" and
+"Version D words" on the form. Each needs the one before it (no version C
+without B), each is checked as version A is, and no two versions may say the
+same thing. A null body takes that version off and every one after it.
+`variantShares` gives each version its share of the list in whole percent,
+version A first, adding up to a hundred, each at least five: `[90, 10]` sends
+the new words to one person in ten, which is how a careful owner tries new
+words without risking the list on them. Absent or null is an even split, and
+shares that are all equal are stored as none. Shares kept from before that no
+longer fit the versions after an edit are refused rather than guessed at. The
+campaign reads back `versions`, `variantShares` and `splitInWords` ("90% get
+version A and 10% get version B.").
+
+**The split.** When the send selects its recipients, each person's version is a
 stable hash of the campaign id and the customer id (`campaign.variantFor`, in
 whole numbers, no library): random as far as anything about the customer goes,
-and the same person gets the same half on every run. It is written on the
-recipient row (`campaign_recipient.variant`), so a send that carries on the next
-day under a carrier's cap never moves anybody, and the results read what was
-sent. It is a half and a half, not a choice of shares, and the halves are close
-to even rather than exactly even. The hash includes the campaign, so the same
-people are not always version A. A preview of a saved test shows both versions as
-the first person on the list would read them.
+and the same person gets the same version on every run. With shares, the hash
+picks one of a hundred buckets and the shares say which buckets go to which
+version; two even versions keep the exact halves every test has used. It is
+written on the recipient row (`campaign_recipient.variant`, `a` to `d`), so a
+send that carries on the next day under a carrier's cap never moves anybody,
+and the results read what was sent. The parts are close to the shares rather
+than exactly them. The hash includes the campaign, so the same people are not
+always version A. A preview of a saved test shows every version as the first
+person on the list would read them (`renderedVersions`), with the split in
+words.
 
 **Counting clicks by version.** A click is credited to a campaign by its utm
 tag. `{{ campaign.utm }}` in either body writes the tag and the version
@@ -918,7 +983,9 @@ neither column: it is shown as "followed the link without a version on it".
 
 **What the results show.** `GET /v1/campaigns/{id}/results` returns `abTest`
 beside the campaign's own figures (and "Compare the versions" shows it on the
-screen), with the two versions' counts side by side:
+screen), with every version's counts side by side and its `share`, because with
+ninety and ten the second version's counts are of a tenth of the list and the
+test compares rates, never totals:
 
 - **Sent to**: recipients queued with that version (skipped ones are counted
   apart).
@@ -954,6 +1021,20 @@ rarely proves anything about bookings; the screen says so rather than leaning
 toward whichever half looks better. Whether to act on a result is the owner's
 call: the product names a winner only to say the difference is more than luck,
 not that the better version will do as well next time.
+
+**More than two versions are each compared with the first.** Version A is the
+words the company already sends, and the owner's question is whether a new
+version beats them, so B, C and D are each compared with A (`campaign.judgeVersions`;
+each measure in `measures` names the version it compares with A as `against`),
+never with each other: comparing every pair would be six comparisons for four
+versions. The same conservative bar is spread over everything compared, five in
+a hundred divided by the measures times the versions compared with A, so a test
+of four versions on three measures asks each comparison to clear five in nine
+hundred. A version is named the winner only when it did clearly better than A
+on something, A did clearly better than it on nothing, and no other version
+also beat A (two that each beat A have not been compared with each other, and
+the headline says so). A is named only when it did clearly better than every
+other version on something and nothing beat it.
 
 ### What is deliberately not returned
 
@@ -1061,7 +1142,9 @@ most real use:
   `PATCH /v1/marketing/website-tracking` for number insertion.
 - `GET /v1/marketing/forms/{slug}/definition`, `PUT /v1/marketing/forms/{slug}`,
   `GET /v1/public/hosted-forms/{key}` and `POST /v1/public/forms/{formSlug}` for
-  lead forms.
+  lead forms (pages in the definition, files in the post). The files a form
+  brought are read with `GET /v1/attachments` for the customer, under
+  `document:read`.
 - `GET /v1/marketing/referrals`, `PUT /v1/marketing/referral-settings`,
   `POST /v1/marketing/referral-rewards/{id}/settle`,
   `GET /v1/customers/{id}/referral`, `PUT /v1/customers/{id}/referrer` and
@@ -1234,21 +1317,31 @@ sample and therefore not a test of anything.
   site's own script is swapped at the next renewal, a few minutes on. One pool
   number is held per visitor, not per source, so a large site needs a pool as
   large as its concurrent visitors.
-- **Hosted forms' limits.** No file upload field, no multi page form, no
-  third party captcha (the spam trap, the timing check and the per address
-  ceiling are what there is). A confirmation goes as written, with no
-  placeholders.
+- **Hosted forms' limits.** No third party captcha (the spam trap, the timing
+  check and the per address ceilings are what there is). Files arrive only in
+  the one post at the end, so a form takes at most five files and four
+  megabytes in all, and a PDF is not made smaller; a person whose files are
+  refused picks them again rather than resuming. A page cannot be skipped or
+  shown only for some answers: every page is shown, in order. A confirmation
+  repeats answers only from the closed list of short kinds, cut short and with
+  links left out in a text or an email; there is no first name of its own
+  (`{{ name }}` is the whole answer). Files sent with a form are matched to a
+  customer only by the phone or email typed, the same as the lead itself, and
+  cannot be moved onto a job from the customer page.
 - **Referral rewards' limits.** One reward per referred customer, on their
   first paid job. A reward paid as owed is marked paid by hand; nothing pays it.
   A credit note reward is not applied to an invoice until somebody applies it.
 - **An outbound campaign's own phone number.** A text campaign's credit comes
   from a click on its utm tag, not from a reply to a dedicated number.
-- **A/B tests are two versions, halved.** Two versions of one campaign, split
-  evenly by hash; not three or more, not uneven shares (nine tenths to the old
-  words, one tenth to the new), no sending the winner to the rest of the list
-  automatically, and the audience is split once at send time. A click is counted
-  by version only when the link carries `{{ campaign.utm }}` (or its own
-  `utm_content` of `a` or `b`), a reply to an email only when the company's mail
-  has a reply domain, and a booking only when the click on the tag was recorded.
-  Significance is a plain two proportion test with a conservative bar, tested
-  with unit tests and a fake list, not tuned against real campaigns.
+- **A/B tests' limits.** Up to four versions, in shares of whole percents of at
+  least five each, split by hash once at send time. There is no sending the
+  winner to the rest of the list: that needs part of the list held back until a
+  result is in, and deciding when a result is good enough to act on for the
+  owner is a judgement the product does not make, so the owner reads the result
+  and writes a new campaign. Versions after the first are compared only with the
+  first, never with each other. A click is counted by version only when the
+  link carries `{{ campaign.utm }}` (or its own `utm_content` of `a` to `d`), a
+  reply to an email only when the company's mail has a reply domain, and a
+  booking only when the click on the tag was recorded. Significance is a plain
+  two proportion test with a conservative bar, tested with unit tests and a
+  fake list, not tuned against real campaigns.

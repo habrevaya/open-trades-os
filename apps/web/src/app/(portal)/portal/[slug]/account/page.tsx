@@ -97,6 +97,9 @@ export default async function SignedInAccountPage({
             {session.contact && (
               <p className="mt-1 text-sm text-ink-500">Signed in as {session.contact.name}</p>
             )}
+            <a href={`${base}/account/chat`} className="mt-2 inline-block text-sm text-blue-600 underline underline-offset-4">
+              Chat with us
+            </a>
             <form action={signOut.bind(null, slug)} className="mt-2">
               <button type="submit" className="text-sm text-ink-700 underline underline-offset-4">
                 Sign out

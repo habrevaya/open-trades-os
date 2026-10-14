@@ -27,10 +27,9 @@ export default async function HostedFormPage({ params }: { params: Promise<{ key
       <HostedForm
         organizationSlug={form.organizationSlug}
         formSlug={form.formSlug}
-        fields={form.fields.map((f) => ({
-          key: f.key, label: f.label, type: f.type, required: f.required,
-          help: f.help ?? null, options: f.options ?? [],
-        }))}
+        fields={JSON.parse(JSON.stringify(form.fields)) as typeof form.fields}
+        pages={form.pages}
+        uploads={form.uploads}
       />
     </div>
   );

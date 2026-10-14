@@ -116,9 +116,15 @@ export interface ChatFacts {
 }
 
 export function chatPrompt(input: {
-  company: Company; tone: string; channel: "web" | "text";
+  company: Company; tone: string; channel: "web" | "text" | "portal";
   facts: ChatFacts; turns: ChatTurn[]; bookingTaken: boolean;
+  /**
+   * In the portal, who the customer is, from their sign in, and the addresses
+   * on their record: the only places a booking from there may be for.
+   */
+  signedIn?: { name: string; addresses: string[] } | undefined;
 }): Prompt {
+  const portal = input.channel === "portal" && input.signedIn !== undefined;
   const transcript = input.turns.map((turn) => turn.from === "customer"
     ? `<customer>\n${quoteCustomer(turn.text, 2000)}\n</customer>`
     : `${turn.from === "office" ? "Office" : "You"}: ${turn.text}`).join("\n");
@@ -126,10 +132,14 @@ export function chatPrompt(input: {
     system: [
       rules("chat", input.company, input.tone),
       "",
-      `Your job: answer a customer ${input.channel === "web" ? "on the company's website" : "by text message"}. The customer has been told you are an automated assistant.`,
+      portal
+        ? `Your job: answer a customer signed in to their own account with the company. They are ${input.signedIn!.name}. The customer has been told you are an automated assistant.`
+        : `Your job: answer a customer ${input.channel === "web" ? "on the company's website" : "by text message"}. The customer has been told you are an automated assistant.`,
       "- Answer only from the facts below. If they do not cover the question, say so and use hand_off.",
       "- Never state a price unless it appears in the facts exactly. Never promise a time that is not an open window.",
-      "- To book, the customer must choose an open window and give a name, a phone number or email, and the address. Then use create_booking_request. It is a request the office confirms; say so.",
+      portal
+        ? "- You already know who they are: never ask for their name, phone number or email. To book, they choose an open window and one of their addresses on file, listed below. Then use create_booking_request with that address; their name and contact details are filled in from their account. It is a request the office confirms; say so."
+        : "- To book, the customer must choose an open window and give a name, a phone number or email, and the address. Then use create_booking_request. It is a request the office confirms; say so.",
       "- Use hand_off when the customer asks for a person, is upset, describes danger (gas smell, flooding, sparks), or you are unsure.",
       input.channel === "text" ? "- Keep each reply short: this is a text message." : "- Keep replies short and friendly.",
       input.bookingTaken ? "- A booking request has already been taken in this conversation. Do not take a second one." : "",
@@ -147,6 +157,7 @@ export function chatPrompt(input: {
       "",
       input.facts.windows.length > 0 ? block("Open windows (only these may be offered)", input.facts.windows) : "No windows are open to book right now.",
       "",
+      ...(portal ? [block("Their addresses on file (a booking may be for one of these only)", input.signedIn!.addresses), ""] : []),
       "The conversation so far, oldest first:",
       transcript,
       "",

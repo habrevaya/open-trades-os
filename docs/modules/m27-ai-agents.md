@@ -153,6 +153,17 @@ the chat from the inbox reaches the visitor's open chat and stops the assistant.
 text it answers only conversations nobody in the office has written in for twelve
 hours, never in quiet hours, and through the same consent gate as every text.
 
+In the customer portal a signed in customer chats from their account (M05,
+`/portal/{slug}/account/chat`), on a conversation on their own record that the
+inbox answers like a website chat. The assistant answers there only when
+"Customers signed in to their account" is ticked under "Where it answers" (off
+by default) and the chat assistant is on. It is told who the customer is from
+the sign in and the addresses on their record, is told never to ask for a name
+or contact details, and a booking request it takes there is made with the name,
+phone and email on the record and only for one of their addresses; any other
+address gets "Which of your addresses on file is this for?". With it off, the
+message goes to a person.
+
 ### Phone assistant
 
 A call a phone menu, after hours, a ring group nobody answered or a waiting line sends to
@@ -394,9 +405,11 @@ assistant streams: every other agent's model call is one request and one respons
 chat answers a message at a time. The intake agent books through online booking's services and
 windows only; a company with none set up gets the summary and books by hand, and an
 intake booking's visit goes on the board unassigned rather than onto a technician's
-day. The chat widget is reached through the website snippet or its own script tag;
-there is no chat inside the customer portal, and a visitor who leaves before a person
-replies sees the reply only when they come back to the site in the same browser. The
+day. The chat widget is reached through the website snippet or its own script tag,
+and a visitor who leaves before a person replies sees the reply only when they come
+back to the site in the same browser. In the customer portal the assistant answers
+only where the company ticked it for accounts, and once a person has a customer's
+account chat it never answers in it again. The
 estimate drafter does not look at the photographs themselves, only their captions, and
 offers at most three hundred price book items to the model. Reminder emails keep the
 invoice's own subject line. The agents' prompts are in English only.

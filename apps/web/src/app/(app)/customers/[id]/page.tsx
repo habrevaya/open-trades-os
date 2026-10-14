@@ -28,6 +28,7 @@ import { PreferredDays } from "./PreferredDays";
 import { SalesTax } from "./SalesTax";
 import { Notes } from "./Notes";
 import { Merges } from "./Merges";
+import { FormFiles } from "./FormFiles";
 import { dispatchDays, accountingDeletions } from "@opentradesos/api/services";
 import { applyHeld, refund } from "../../payments/actions";
 import { accountLink, removeCustomer, mergeCustomer, setCustomerSource } from "./actions";
@@ -261,6 +262,7 @@ export default async function CustomerPage({
       />
 
       <Referral ctx={ctx} customerId={id} />
+      <FormFiles ctx={ctx} customerId={id} timezone={user.organizationTimezone} />
       <AdData ctx={ctx} customerId={id} zone={user.organizationTimezone} />
 
       {(removable || mergeable.length > 0) && (

@@ -59,12 +59,19 @@ export async function saveForm(_previous: FormState, form: FormData): Promise<Fo
     } catch {
       fields = [];
     }
+    let pages: unknown = [];
+    try {
+      pages = JSON.parse(field(form, "pages") ?? "[]");
+    } catch {
+      pages = [];
+    }
     const seconds = field(form, "minimumFillSeconds");
     const input = parsed(saveFormRoute.input, {
       slug: field(form, "slug") ?? "",
       title: field(form, "title") ?? "",
       source: field(form, "source") ?? undefined,
       fields,
+      pages,
       ...(seconds ? { minimumFillSeconds: Number(seconds) } : {}),
       settings: {
         thankYou: field(form, "thankYou") ?? undefined,

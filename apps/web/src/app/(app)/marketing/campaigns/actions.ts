@@ -52,6 +52,11 @@ export async function act(_previous: CampaignState, form: FormData): Promise<Cam
           subject: channel === "email" ? (field(form, "subject") ?? null) : null,
           ...(field(form, "variantBBody") ? { variantBBody: field(form, "variantBBody")! } : {}),
           ...(channel === "email" && field(form, "variantBSubject") ? { variantBSubject: field(form, "variantBSubject")! } : {}),
+          ...(field(form, "variantCBody") ? { variantCBody: field(form, "variantCBody")! } : {}),
+          ...(channel === "email" && field(form, "variantCSubject") ? { variantCSubject: field(form, "variantCSubject")! } : {}),
+          ...(field(form, "variantDBody") ? { variantDBody: field(form, "variantDBody")! } : {}),
+          ...(channel === "email" && field(form, "variantDSubject") ? { variantDSubject: field(form, "variantDSubject")! } : {}),
+          ...(field(form, "variantShares") ? { variantShares: sharesFrom(field(form, "variantShares")!) } : {}),
           ...(field(form, "utmCampaign") ? { utmCampaign: field(form, "utmCampaign")! } : {}),
         });
         const at = whenFrom(form, zone);
@@ -92,4 +97,17 @@ export async function act(_previous: CampaignState, form: FormData): Promise<Cam
 
   if (state?.done) revalidatePath("/marketing/campaigns");
   return state;
+}
+
+/**
+ * "90, 10" or "90/10" or "90% 10%", as a list of whole numbers. Anything that
+ * is not a number is refused here in words; whether the numbers make a split is
+ * the module's to say.
+ */
+function sharesFrom(text: string): number[] {
+  const parts = text.split(/[\s,/%]+/).filter(Boolean);
+  if (parts.some((part) => !/^\d+$/.test(part))) {
+    throw new ConflictError("Write the split as whole percents, version A first, like 90, 10.");
+  }
+  return parts.map(Number);
 }

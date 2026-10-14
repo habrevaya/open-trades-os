@@ -40,6 +40,15 @@ export async function preparePhoto(file: Blob): Promise<PreparedPhoto> {
   };
 }
 
+/**
+ * The picture made smaller and nothing else, for a page that sends it with a
+ * form rather than through the upload queue: a hosted lead form sends every
+ * file in one post, and five photographs straight off a phone would not fit.
+ */
+export function smallerPicture(file: Blob): Promise<{ bytes: Uint8Array; contentType: string }> {
+  return shrink(file);
+}
+
 async function shrink(file: Blob): Promise<{ bytes: Uint8Array; contentType: string }> {
   const original = { bytes: new Uint8Array(await file.arrayBuffer()), contentType: file.type || "image/jpeg" };
   try {

@@ -32,6 +32,13 @@ export interface ChatConfig {
   /** Where it answers. The widget and texts are separate decisions. */
   web: boolean;
   text: boolean;
+  /**
+   * In the chat inside the customer portal, to a customer signed in to their
+   * own account. A separate decision from the website, and off until somebody
+   * turns it on: an existing company's assistant does not start answering its
+   * customers somewhere new because a release added a place it could.
+   */
+  portal: boolean;
 }
 
 export interface IntakeConfig {
@@ -133,7 +140,7 @@ export function defaultSettings(kind: AgentKind): AgentSettings {
     },
     chat: {
       greeting: kind === "voice" ? "How can I help you today?" : "Hi! How can we help?",
-      faq: [], publicPriceItemIds: [], web: true, text: false,
+      faq: [], publicPriceItemIds: [], web: true, text: false, portal: false,
     },
     intake: { texts: true, emails: true, calls: true, forms: true },
     collections: { steps: DEFAULT_STEPS.map((step) => ({ ...step })) },
@@ -227,6 +234,7 @@ export function readSettings(kind: AgentKind, raw: unknown): AgentSettings {
         : [],
       web: bool(chat["web"], base.chat.web),
       text: bool(chat["text"], base.chat.text),
+      portal: bool(chat["portal"], base.chat.portal),
     },
     intake: {
       texts: bool(intake["texts"], base.intake.texts),

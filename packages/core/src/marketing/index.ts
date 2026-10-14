@@ -3,6 +3,7 @@ import {
   add, allocate, isNegative, isZero, zero, subtract,
 } from "../money/index.js";
 import { phoneAddress } from "../comms/index.js";
+import { FORM_UPLOADS, displayName } from "../files/index.js";
 
 /**
  * WHICH JOBS CAME FROM WHICH MONEY
@@ -1100,7 +1101,13 @@ export type FieldType =
   | "date"
   | "consent"
   | "hidden"
-  | "honeypot";
+  | "honeypot"
+  /**
+   * Photographs and PDFs. The value core sees is the list of the files' names,
+   * and the bytes are checked by the files module (`checkFormUpload`) where
+   * they arrive, because a definition check has no business holding megabytes.
+   */
+  | "file";
 
 /** Named patterns, compiled here. A definition picks one; it never supplies one. */
 export type PatternKey = "us_zip" | "digits" | "letters_and_spaces" | "us_state";
@@ -1142,6 +1149,12 @@ export interface FormField {
    * not consent to anything in particular.
    */
   consentFor?: { channel: "sms" | "email"; purpose: "marketing" | "transactional" } | undefined;
+  /**
+   * Which page of the form the field is on, counted from 0, when the form is
+   * split into pages. Absent is the first page. A hidden value and the spam
+   * trap have no page: they go with whichever page is posted.
+   */
+  page?: number | undefined;
 }
 
 /** The exact words a consent box showed, as the consent row keeps them. */
@@ -1162,7 +1175,21 @@ export interface FormDefinition {
    * lost lead costs far more than a spam row somebody deletes.
    */
   minimumFillSeconds?: number | undefined;
+  /**
+   * The pages a long form is split into, each with the heading it shows. Absent,
+   * or one page, is a form on one page. The person moves through them with Back
+   * and Next, each page is checked before they leave it, and the whole form is
+   * posted once at the end and checked whole again.
+   */
+  pages?: FormPage[] | undefined;
 }
+
+export interface FormPage {
+  title: string;
+}
+
+/** At most this many pages: a lead form longer than that is a survey, and people leave surveys. */
+export const MAX_FORM_PAGES = 6;
 
 export interface ServiceAddress {
   line1: string;
@@ -1188,7 +1215,8 @@ export type FieldRefusalReason =
   | "incomplete_address"
   | "bad_date"
   | "pattern"
-  | "consent_required";
+  | "consent_required"
+  | "bad_file";
 
 export interface FieldRefusal {
   field: string;
@@ -1311,6 +1339,9 @@ function checkField(field: FormField, raw: unknown): FieldOutcome {
     if (field.type === "consent") {
       return refuse(field, "consent_required", `Tick "${field.label}" if we may contact you. We will not send anything if you would rather we did not.`);
     }
+    if (field.type === "file") {
+      return refuse(field, "required", `${field.label}: add a photo or a PDF.`);
+    }
     return refuse(field, "required", `${field.label} is needed.`);
   }
 
@@ -1424,6 +1455,20 @@ function checkField(field: FormField, raw: unknown): FieldOutcome {
     case "honeypot":
       // Handled before the loop, where a filled one ends the whole submission.
       return { ok: true, value: undefined };
+
+    case "file": {
+      /**
+       * The names of the files sent, put here by whoever received the bytes.
+       * Anything else in this slot is a page that does not match the form.
+       */
+      if (!Array.isArray(raw) || raw.some((name) => typeof name !== "string")) {
+        return refuse(field, "wrong_type", `${field.label}: add a photo or a PDF.`);
+      }
+      if (raw.length > FORM_UPLOADS.maxFiles) {
+        return refuse(field, "bad_file", `${field.label}: you can send up to ${FORM_UPLOADS.maxFiles} files with this form.`);
+      }
+      return { ok: true, value: (raw as string[]).map((name) => displayName(name)) };
+    }
   }
 }
 
@@ -1606,6 +1651,9 @@ export function checkForm(form: FormDefinition): FormVerdict {
       // submitted by a human being.
       problems.push(`"${field.key}" is hidden and required, which no person can satisfy.`);
     }
+    if (field.type === "file" && ((field.rules ?? []).length > 0 || (field.options ?? []).length > 0)) {
+      problems.push(`"${field.key}" takes photos and PDFs, so rules and options on it do nothing.`);
+    }
     for (const rule of field.rules ?? []) {
       const numeric = rule.rule === "min" || rule.rule === "max";
       if (numeric && field.type !== "number") {
@@ -1627,7 +1675,201 @@ export function checkForm(form: FormDefinition): FormVerdict {
     problems.push("No required phone number and no required email: a lead nobody can ring back is not a lead.");
   }
 
+  problems.push(...pageProblems(form));
+
   return problems.length > 0 ? { ok: false, problems } : { ok: true, form };
+}
+
+/* -------------------------------------------------------- a form in pages */
+
+/** A field a person sees, and so one that sits on a page. */
+const onAPage = (field: FormField): boolean => field.type !== "hidden" && field.type !== "honeypot";
+
+const pageIndex = (field: FormField): number => field.page ?? 0;
+
+/**
+ * What is wrong with how a form is split into pages.
+ *
+ * The fields stay in one list, in the order they are asked, and each says
+ * which page it is on; so a page may not come back after a later one has
+ * started (the questions would be asked out of their order), every page has
+ * something on it, and every field points at a page that exists.
+ */
+function pageProblems(form: FormDefinition): string[] {
+  const problems: string[] = [];
+  const pages = form.pages ?? [];
+  if (pages.length > MAX_FORM_PAGES) {
+    problems.push(`A form can be split into at most ${MAX_FORM_PAGES} pages, and this one has ${pages.length}.`);
+  }
+  pages.forEach((page, i) => {
+    if (page.title.trim() === "") problems.push(`Page ${i + 1} has no heading, so nobody knows what it is asking about.`);
+  });
+  const count = Math.max(1, pages.length);
+  let last = 0;
+  for (const field of form.fields.filter(onAPage)) {
+    const at = pageIndex(field);
+    if (!Number.isInteger(at) || at < 0 || at >= count) {
+      problems.push(count === 1
+        ? `"${field.key}" is on page ${at + 1}, and this form has only one page.`
+        : `"${field.key}" is on page ${at + 1}, and this form has ${count} pages.`);
+      continue;
+    }
+    if (at < last) {
+      problems.push(`"${field.key}" is on page ${at + 1} after a question on page ${last + 1}. Keep each page's questions together, in order.`);
+    }
+    last = Math.max(last, at);
+  }
+  for (let i = 0; i < pages.length; i++) {
+    if (!form.fields.some((f) => onAPage(f) && pageIndex(f) === i)) {
+      problems.push(`Page ${i + 1} has no questions on it.`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * The form's pages in order, each with the keys of the fields shown on it. A
+ * form that is not split is one page with no heading.
+ */
+export function pagesOf(form: FormDefinition): { title: string | null; keys: string[] }[] {
+  const pages = form.pages ?? [];
+  if (pages.length <= 1) {
+    return [{ title: pages[0]?.title ?? null, keys: form.fields.filter(onAPage).map((f) => f.key) }];
+  }
+  return pages.map((page, i) => ({
+    title: page.title,
+    keys: form.fields.filter((f) => onAPage(f) && pageIndex(f) === i).map((f) => f.key),
+  }));
+}
+
+/**
+ * The refusals for one page, before the person moves on from it.
+ *
+ * The same field checks the whole submission goes through, so "Next" says
+ * what "Send" would have said, on the page where it can still be fixed. It
+ * is a courtesy and not the check: the whole form is posted once at the end
+ * and `checkSubmission` decides, because a page in a browser can be skipped.
+ */
+export function checkPage(form: FormDefinition, page: number, values: Record<string, unknown>): FieldRefusal[] {
+  const keys = new Set(pagesOf(form)[page]?.keys ?? []);
+  const refusals: FieldRefusal[] = [];
+  for (const field of form.fields) {
+    if (!keys.has(field.key)) continue;
+    const outcome = checkField(field, values[field.key]);
+    if (!outcome.ok) refusals.push(...outcome.refusals);
+  }
+  return refusals;
+}
+
+/** The first page holding a field with a refusal, for a page that has to take the person back to it. */
+export function firstPageWith(form: FormDefinition, fields: readonly string[]): number | null {
+  const pages = pagesOf(form);
+  const at = pages.findIndex((page) => page.keys.some((key) => fields.includes(key)));
+  return at === -1 ? null : at;
+}
+
+/* --------------------------------------------- the confirmation, by name */
+
+/**
+ * THE ANSWERS A CONFIRMATION MAY REPEAT
+ *
+ * "Thanks {{ name }}, we will ring you about your {{ system }}." Written in the
+ * message templates' own placeholder syntax, filled by the one renderer this
+ * product has, and with the keys of this form's own fields.
+ *
+ * Only the short answers: a name, a choice, a number, a date, an address, a
+ * phone or an email. Never the long answer, which is wherever a stranger would
+ * put a paragraph, and never a tick box, a hidden value, the spam trap or the
+ * files.
+ *
+ * A CONFIRMATION GOES TO WHATEVER NUMBER OR ADDRESS WAS TYPED, so a stranger can
+ * aim it at somebody else and choose the words in it. In a text or an email an
+ * answer is therefore one line of at most sixty characters, with no braces, and
+ * an answer carrying a web address is left out altogether: the company's own
+ * number must not deliver somebody's link. On the page the answers are shown as
+ * words, never as markup, and the page goes only to the person who sent it.
+ */
+export const CONFIRMATION_FIELD_TYPES: readonly FieldType[] = [
+  "text", "email", "phone", "choice", "multi_choice", "number", "date", "service_address",
+];
+
+/** The fields a confirmation may name, in the form's order. */
+export function confirmationFields(form: FormDefinition): FormField[] {
+  return form.fields.filter((f) => CONFIRMATION_FIELD_TYPES.includes(f.type));
+}
+
+const CONFIRMATION_PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+
+/**
+ * What is wrong with the placeholders in a confirmation, as sentences. A name
+ * that is not a usable field is refused when the form is saved, because the
+ * renderer turns an unknown name into nothing and "Thanks , we will ring" is
+ * what the customer would read.
+ */
+export function confirmationProblems(form: FormDefinition, texts: readonly (string | undefined)[]): string[] {
+  const usable = new Set(confirmationFields(form).map((f) => f.key));
+  const problems: string[] = [];
+  for (const text of texts) {
+    for (const match of (text ?? "").matchAll(CONFIRMATION_PLACEHOLDER)) {
+      const name = match[1]!;
+      if (usable.has(name)) continue;
+      const field = form.fields.find((f) => f.key === name);
+      const message = field
+        ? `"{{ ${name} }}" is a ${field.type.replace(/_/g, " ")} field, and a confirmation can repeat only short answers.`
+        : `"{{ ${name} }}" is not a question on this form.`;
+      if (!problems.includes(message)) problems.push(message);
+    }
+  }
+  if (problems.length > 0) {
+    const names = [...usable].map((k) => `{{ ${k} }}`);
+    problems.push(names.length > 0 ? `It can use ${names.join(", ")}.` : "This form has no short answers to repeat.");
+  }
+  return problems;
+}
+
+const WEB_ADDRESS = /(:\/\/|www\.|[a-z0-9-]\.[a-z]{2,}\b|@)/i;
+
+/**
+ * One answer, as a confirmation may say it: one line, no braces, no control
+ * characters, and for a text or an email at most sixty characters and nothing
+ * that is a web address. Braces go so an answer can never look like another
+ * placeholder to anybody reading it, though the renderer makes one pass and
+ * would not fill it anyway.
+ */
+export function confirmationValue(value: string, target: "page" | "message"): string {
+  // eslint-disable-next-line no-control-regex
+  const line = value.replace(/[\u0000-\u001f\u007f{}]/g, " ").replace(/\s+/g, " ").trim();
+  if (target === "page") return line.slice(0, 200);
+  if (WEB_ADDRESS.test(line)) return "";
+  return line.slice(0, 60).trim();
+}
+
+/** What each usable answer reads as, keyed by its field. Unanswered fields are absent, and the renderer leaves them blank. */
+export function confirmationScope(
+  form: FormDefinition, values: Record<string, CleanValue>, target: "page" | "message",
+): Record<string, string> {
+  const scope: Record<string, string> = {};
+  for (const field of confirmationFields(form)) {
+    const value = values[field.key];
+    if (value === undefined) continue;
+    scope[field.key] = confirmationValue(answerText(field, value), target);
+  }
+  return scope;
+}
+
+/** An answer in words: an option's label rather than its value, a phone as it is written, an address on one line. */
+function answerText(field: FormField, value: CleanValue): string {
+  const labelOf = (v: string) => field.options?.find((o) => o.value === v)?.label ?? v;
+  if (Array.isArray(value)) return value.map(labelOf).join(", ");
+  if (typeof value === "object") {
+    return [value.line1, value.line2, value.city, value.state, value.postalCode].filter(Boolean).join(", ");
+  }
+  if (field.type === "choice") return labelOf(String(value));
+  if (field.type === "phone" && /^\d{10}$/.test(String(value))) {
+    const d = String(value);
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  }
+  return String(value);
 }
 
 /* -------------------------------------------------------------------------

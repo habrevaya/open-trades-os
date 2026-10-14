@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { campaigns, messageTemplates } from "@opentradesos/api/services";
 import { can, campaign as cp } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
-import { Campaigns, Audience, Recipients, AbTestResults } from "./CampaignView";
+import { Campaigns, Audience, Recipients, AbTestResults, versionsInWords } from "./CampaignView";
 import { RuleBoxes } from "./RuleBoxes";
 import { ActionForm } from "./ActionForm";
 
@@ -146,7 +146,7 @@ export default async function CampaignsPage(
       {preview ? (
         <section className="mt-8">
           <h2 className="text-base font-semibold">Who it reaches</h2>
-          <Audience preview={preview} />
+          <Audience preview={{ ...preview, split: list.data.find((c) => c.id === previewed)?.splitInWords ?? null }} />
         </section>
       ) : previewed ? (
         <Empty title="That audience could not be counted">
@@ -156,7 +156,9 @@ export default async function CampaignsPage(
 
       {comparison?.abTest ? (
         <section className="mt-8">
-          <h2 className="text-base font-semibold">The two versions: {comparison.campaign.name}</h2>
+          <h2 className="text-base font-semibold">
+            The {versionsInWords(comparison.abTest.versions.length)} versions: {comparison.campaign.name}
+          </h2>
           <AbTestResults results={comparison.abTest} />
         </section>
       ) : compared ? (
@@ -253,6 +255,10 @@ export default async function CampaignsPage(
                   would explain. To count clicks for each version, end your link with{" "}
                   <code className="font-mono">?{"{{ campaign.utm }}"}</code>.
                 </p>
+                <p className="mt-1 text-xs text-ink-500">
+                  You can write up to four versions, and choose how much of the list each gets: 90 and 10 sends
+                  the new words to one person in ten, so little of your list is risked on them.
+                </p>
                 <label className="mt-2 flex flex-col gap-1 text-sm">
                   <span className="text-ink-700">Version B words</span>
                   <textarea name="variantBBody" rows={3}
@@ -261,6 +267,23 @@ export default async function CampaignsPage(
                 <label className="mt-2 flex flex-col gap-1 text-sm">
                   <span className="text-ink-700">Version B headline, for an email (blank keeps the first one)</span>
                   <input name="variantBSubject" className={`${input} w-full`} />
+                </label>
+                {(["C", "D"] as const).map((letter) => (
+                  <div key={letter}>
+                    <label className="mt-2 flex flex-col gap-1 text-sm">
+                      <span className="text-ink-700">Version {letter} words (optional)</span>
+                      <textarea name={`variant${letter}Body`} rows={3}
+                                className="w-full rounded border border-steel-300 p-2 text-sm" />
+                    </label>
+                    <label className="mt-2 flex flex-col gap-1 text-sm">
+                      <span className="text-ink-700">Version {letter} headline, for an email (blank keeps the first one)</span>
+                      <input name={`variant${letter}Subject`} className={`${input} w-full`} />
+                    </label>
+                  </div>
+                ))}
+                <label className="mt-2 flex flex-col gap-1 text-sm">
+                  <span className="text-ink-700">How to split the list, in percent, version A first (blank splits it evenly)</span>
+                  <input name="variantShares" placeholder="90, 10" className={`${input} w-40`} />
                 </label>
               </fieldset>
               <label className="flex flex-col gap-1 text-sm">
