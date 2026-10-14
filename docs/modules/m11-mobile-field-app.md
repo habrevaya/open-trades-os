@@ -356,6 +356,15 @@ office's own words, comes back in the day's `expenses` (the last sixty days) and
 moves the revision, so the next poll fetches it. Always the phone's own person
 (`expense:own`); an approved one is paid back through payroll (M17).
 
+A claim can be in miles instead of an amount (M17): "Or the miles you drove", offered
+only when the company has a mileage rate in force today (`abilities.mileageRate` in the
+day; with none the box is hidden). The phone sends `miles` on `expense.record` and no
+amount, never both, and checks them to a tenth with no signal; the server works the
+amount out at the rate in force on the day driven and sends it back in the day's
+`expenses` with `miles` and `mileageRate`. Until then the phone shows "18.4 miles", not
+a figure of its own, because it may not know the rate. The rate on the phone is as of
+its last fetch, and the server's rate on the day wins.
+
 **The office's tasks.** The snapshot carries the person's own tasks and the
 ones nobody has taken, and the phone takes one (`task.claim`) and finishes
 its own (`task.close`) through the queue's own services, so the second of two

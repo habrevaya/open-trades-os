@@ -94,6 +94,14 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
         return { message: "Saved. Tips are shared this way from the next one, and a day away is recorded at this rate from now on. What was already shared or recorded keeps what it was worked out at." };
       }
 
+      case "mileageAdd":
+        await payExtras.addMileageRate(ctx, { from: field(form, "from") ?? "", perMile: field(form, "perMile") ?? "" });
+        return { message: "Saved. Claims in miles for days from then on are worked out at this rate. Claims already made keep theirs." };
+
+      case "mileageRemove":
+        await payExtras.removeMileageRate(ctx, { from: field(form, "from") ?? "" });
+        return { message: "Taken off. Claims already made keep the rate they were worked out at." };
+
       case "classify":
         await laborSettings.setClassification(ctx, {
           technicianId: String(form.get("technicianId") ?? ""),

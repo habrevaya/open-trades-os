@@ -1102,6 +1102,8 @@ export const handlers = {
   getJobExpenses: expenses.handlers.getJobExpenses,
   getPayExtras: payExtras.handlers.getPayExtras,
   setPayExtras: payExtras.handlers.setPayExtras,
+  addMileageRate: payExtras.handlers.addMileageRate,
+  removeMileageRate: payExtras.handlers.removeMileageRate,
   recordCashTipFor: cashTips.handlers.recordCashTipFor,
   correctCashTip: cashTips.handlers.correctCashTip,
   listCashTips: cashTips.handlers.listCashTips,

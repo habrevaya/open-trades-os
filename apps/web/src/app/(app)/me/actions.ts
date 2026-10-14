@@ -39,6 +39,24 @@ export async function addContact(_previous: FormState, form: FormData): Promise<
   return state;
 }
 
+/** Their own address and phone. The whole of it is sent each time, and an empty box clears that part. */
+export async function saveOwnContact(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const before = (await me.record(await ctx())).ownContact.changes.length;
+    const after = await me.setOwnContact(await ctx(), {
+      phone: field(form, "phone") ?? null,
+      addressLine1: field(form, "addressLine1") ?? null,
+      addressLine2: field(form, "addressLine2") ?? null,
+      city: field(form, "city") ?? null,
+      state: field(form, "state") ?? null,
+      postalCode: field(form, "postalCode") ?? null,
+    });
+    return { message: after.changes.length === before ? "Nothing was different, so nothing changed." : "Saved. The office can see what changed and when." };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
 export async function removeContact(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => me.removeContact(await ctx(), { id: String(form.get("id") ?? "") }));
   if (state?.done) refresh();
@@ -161,8 +179,12 @@ export async function recordExpense(_previous: FormState, form: FormData): Promi
   const state = await attempt(form, async () => {
     const jobNumber = field(form, "jobNumber");
     const receipt = await fileAsBase64(form.get("receipt"));
+    const amount = field(form, "amount");
+    const miles = field(form, "miles");
     await expenses.record(await ctx(), {
-      amount: field(form, "amount") ?? "",
+      /** Miles are worked out by the server at the company's rate, so only what was typed is sent. */
+      ...(amount ? { amount } : {}),
+      ...(miles ? { miles } : {}),
       spentOn: field(form, "spentOn") ?? "",
       description: field(form, "description") ?? "",
       ...(jobNumber ? { jobNumber: Number(jobNumber) } : {}),

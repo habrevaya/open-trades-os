@@ -170,7 +170,11 @@ export interface DayCashTip {
  */
 export interface DayExpense {
   id: string;
+  /** Dollars, or empty for a claim in miles that is still on this phone: the server works it out and sends it back. */
   amount: string;
+  /** For a claim in miles: the miles driven, and once the server has it, the rate for one mile it was worked out at. */
+  miles?: string | null | undefined;
+  mileageRate?: string | null | undefined;
   spentOn: string;
   description: string;
   jobNumber: number | null;
@@ -342,7 +346,9 @@ export function projectDay(input: {
       const jobNumber = typeof op.payload["jobNumber"] === "number" ? op.payload["jobNumber"] : null;
       expenses.unshift({
         id: op.subjectId,
-        amount: typeof op.payload["amount"] === "string" ? op.payload["amount"] : "0",
+        /** Miles are worked out by the server, so a claim in miles has no amount until it has been sent. */
+        amount: typeof op.payload["amount"] === "string" ? op.payload["amount"] : typeof op.payload["miles"] === "string" ? "" : "0",
+        ...(typeof op.payload["miles"] === "string" ? { miles: op.payload["miles"] } : {}),
         spentOn: typeof op.payload["spentOn"] === "string" ? op.payload["spentOn"] : "",
         description: typeof op.payload["description"] === "string" ? op.payload["description"] : "",
         jobNumber,
