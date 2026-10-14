@@ -330,8 +330,8 @@ concepts above).
 lift ticket for a rooftop unit, a confined space entry for a crawlspace. They
 are checked wherever the type's are, for a technician sent alone and for a
 crew, at booking and in the suggestions. The job's page takes them. The other direction, a job
-dropping one of its type's skills with a reason, is `POST /v1/jobs/{id}/dropped-skills` and is
-described in M10.
+dropping one of its type's skills with a reason, and a last day if it is only for now, is
+`POST /v1/jobs/{id}/dropped-skills` and is described in M10.
 
 ## Permissions
 

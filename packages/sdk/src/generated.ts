@@ -1470,6 +1470,7 @@ export interface AssignVisitOutput {
   droppedSkills: Array<{
     skill: string;
     reason: string;
+    through?: string;
   }>;
 }
 
@@ -5894,6 +5895,7 @@ export interface DrillReportOutput {
 export interface DropJobSkillInput {
   skill: string;
   reason: string;
+  through?: string;
 }
 
 export interface DropJobSkillOutput {
@@ -5905,6 +5907,8 @@ export interface DropJobSkillOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }
@@ -9058,6 +9062,8 @@ export interface GetJobSkillsOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }
@@ -21165,6 +21171,8 @@ export interface RestoreJobSkillOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }
@@ -23068,6 +23076,8 @@ export interface SetJobSkillsOutput {
     reason: string;
     droppedAt: string;
     droppedBy: string | null;
+    through: string | null;
+    ended: boolean;
   }>;
   checked: string[];
 }

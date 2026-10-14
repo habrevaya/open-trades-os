@@ -217,9 +217,13 @@ export const job = pgTable("job", {
    * people be sent without that skill with no override. Only skills the
    * job's TYPE asks for can be dropped; an entry for a skill the type no
    * longer asks for is inert.
+   *
+   * `through` is the last day the drop holds, a company date: after it the
+   * type's skill is asked of this job again. Absent on a drop made without an
+   * end, which has none (it sits in a JSON list, so older rows need no migration).
    */
   droppedSkills: jsonb("dropped_skills")
-    .$type<Array<{ skill: string; reason: string; droppedAt: string; droppedByUserId: string | null }>>()
+    .$type<Array<{ skill: string; reason: string; droppedAt: string; droppedByUserId: string | null; through?: string | null }>>()
     .notNull().default([]),
   total: money("total"),
   completedAt: timestamp("completed_at", { withTimezone: true }),

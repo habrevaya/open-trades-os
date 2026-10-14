@@ -395,11 +395,16 @@ const JobSkills = z.object({
   skills: z.array(z.string()),
   /** What its type asks for, dropped or not. */
   typeSkills: z.array(z.string()),
-  /** The type's skills this job dropped, each with why, who and when. */
+  /**
+   * The type's skills this job dropped, each with why, who and when, and the last day the drop holds (null for
+   * one with no end). `ended` is true once that day has passed in the company's zone: the type's skill is asked
+   * of this job again, and the drop stays listed so the record of why it was dropped is not lost.
+   */
   dropped: z.array(z.object({
     skill: z.string(), reason: z.string(), droppedAt: z.string().datetime(), droppedBy: z.string().nullable(),
+    through: DateString.nullable(), ended: z.boolean(),
   })),
-  /** What is checked for whoever is sent: the type's less the dropped, plus the job's own. */
+  /** What is checked for whoever is sent today: the type's less the drops still standing, plus the job's own. */
   checked: z.array(z.string()),
 });
 
@@ -429,11 +434,14 @@ export const dropJobSkill = defineRoute({
   method: "post",
   path: "/v1/jobs/{id}/dropped-skills",
   summary: "Drop one of the job type's skills for this one job, with a reason",
-  description: "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. Dropping a skill already dropped changes nothing.",
+  description: "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. `through` is the last day the drop holds, a company date that is today or later: from the next day the type's skill is asked of this job again, judged on the day of each visit, so a visit booked after it is checked for the skill. Without `through` the drop has no end. Dropping a skill whose drop still stands changes nothing, `through` included: to change an end, put the skill back and drop it again. Dropping a skill whose earlier drop has ended starts a new drop.",
   module: "M10",
   permissions: ["job:write", "visit:assign_unqualified"],
   idempotent: true,
-  input: z.object({ id: Uuid, skill: z.string().trim().min(1).max(100), reason: z.string().trim().min(5).max(500) }),
+  input: z.object({
+    id: Uuid, skill: z.string().trim().min(1).max(100), reason: z.string().trim().min(5).max(500),
+    through: DateString.optional(),
+  }),
   output: JobSkills,
 });
 

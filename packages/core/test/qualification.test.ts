@@ -100,3 +100,27 @@ describe("judging the work", () => {
     expect(qualification.normaliseSkills([" hvac ", "hvac", "", "gas"])).toEqual(["hvac", "gas"]);
   });
 });
+
+describe("a drop that ends", () => {
+  it("holds with no end, and through its last day, and not after", () => {
+    expect(qualification.dropHolds({}, "2030-01-01")).toBe(true);
+    expect(qualification.dropHolds({ through: null }, "2030-01-01")).toBe(true);
+    expect(qualification.dropHolds({ through: "2026-10-20" }, "2026-10-19")).toBe(true);
+    expect(qualification.dropHolds({ through: "2026-10-20" }, "2026-10-20")).toBe(true);
+    expect(qualification.dropHolds({ through: "2026-10-20" }, "2026-10-21")).toBe(false);
+    expect(qualification.dropEnded({ through: "2026-10-20" }, "2026-10-21")).toBe(true);
+    expect(qualification.dropEnded({}, "2026-10-21")).toBe(false);
+  });
+
+  it("names the days a calendar has to ask again, once each, inside the range", () => {
+    const drops = [
+      { through: "2026-10-20" }, { through: "2026-10-20" }, { through: "2026-10-31" },
+      { through: null }, {}, { through: "2026-09-01" }, { through: "2026-11-30" },
+    ];
+    expect(qualification.dropChangeDays(drops, "2026-10-15", "2026-11-05")).toEqual(["2026-10-21", "2026-11-01"]);
+    /** The first day of the range is asked anyway, so a drop that ended the day before it changes nothing inside. */
+    expect(qualification.dropChangeDays([{ through: "2026-10-14" }], "2026-10-15", "2026-11-05")).toEqual([]);
+    /** A month end is not a trap: the day after the 31st is the 1st. */
+    expect(qualification.dropChangeDays([{ through: "2026-12-31" }], "2026-12-30", "2027-01-05")).toEqual(["2027-01-01"]);
+  });
+});

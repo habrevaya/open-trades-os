@@ -604,7 +604,10 @@ interface JobFacts {
   businessUnitId: string | null;
   jobTypeId: string | null;
   requiredAssetIds: string[];
-  requiredSkills: string[];
+  /** What the job's type asks for, what the job asks for beyond it, and what it dropped: read on the day asked. */
+  typeSkills: string[];
+  jobSkills: string[];
+  dropped: Array<{ skill: string; through?: string | null | undefined }>;
 }
 
 async function verdict(
@@ -797,18 +800,20 @@ async function verdict(
    * here is not a second fact to act on.
    */
   const known = new Set(crew.skills);
-  const standing = available.length === 0 || job.requiredSkills.length === 0
+  /** What this job needs on this day: a drop that has ended by it is asked for again. */
+  const requiredSkills = workSkills(job.typeSkills, job.jobSkills, job.dropped, on);
+  const standing = available.length === 0 || requiredSkills.length === 0
     ? []
     : await skillStanding(tx, organizationId, {
       technicianIds: available.map((m) => m.technicianId),
-      skills: job.requiredSkills,
+      skills: requiredSkills,
       on,
     });
   const stated = new Map(standing.map((s) => [s.skill, s]));
 
   const missingSkills: string[] = [];
   const skillRefusals: string[] = [];
-  for (const skill of job.requiredSkills) {
+  for (const skill of requiredSkills) {
     const said = stated.get(skill.trim());
     if (said && said.state !== "uncertified") {
       if (said.state === "covered") continue;
@@ -1092,8 +1097,10 @@ async function loadJob(tx: Database, organizationId: string, id: string, ctx?: S
     businessUnitId: row.businessUnitId,
     jobTypeId: row.jobTypeId,
     requiredAssetIds: row.requiredAssetIds ?? [],
-    /** The type's skills and the job's own, checked together like everywhere else. */
-    requiredSkills: workSkills(row.requiredSkills, row.jobSkills, row.droppedSkills),
+    /** The type's skills and the job's own, checked together like everywhere else, on the day asked. */
+    typeSkills: row.requiredSkills ?? [],
+    jobSkills: row.jobSkills,
+    dropped: row.droppedSkills,
   };
 }
 

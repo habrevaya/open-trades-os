@@ -390,6 +390,11 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       windowStart: work.windowStart,
       windowEnd: work.windowEnd,
       override: input.overrideQualification,
+      /** A drop that ended before this visit's day: said, so a refusal for that skill is not a surprise. */
+      notes: work.ended.map((e) => ({
+        skill: e.skill,
+        text: `This job did not need ${e.skill} through ${e.through}, and that has ended, so it is asked again for this day.`,
+      })),
     });
 
     await tx.delete(schema.visitAssignment)

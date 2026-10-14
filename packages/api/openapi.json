@@ -62274,7 +62274,7 @@
       "post": {
         "operationId": "dropJobSkill",
         "summary": "Drop one of the job type's skills for this one job, with a reason",
-        "description": "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. Dropping a skill already dropped changes nothing.\n\nRequires a session holding: job:write, visit:assign_unqualified.",
+        "description": "The skill is no longer asked of whoever is sent on this job: not on the board, at booking, for a crew or in the suggestions. Only a skill the job's type asks for can be dropped, and the reason is kept and shown wherever the job's skills are read, and in the audit entry of each assignment made while it stands. Needs visit:assign_unqualified as well as job:write, because it lets people be sent without the skill with no override at the moment they are sent. `through` is the last day the drop holds, a company date that is today or later: from the next day the type's skill is asked of this job again, judged on the day of each visit, so a visit booked after it is checked for the skill. Without `through` the drop has no end. Dropping a skill whose drop still stands changes nothing, `through` included: to change an end, put the skill back and drop it again. Dropping a skill whose earlier drop has ended starts a new drop.\n\nRequires a session holding: job:write, visit:assign_unqualified.",
         "tags": [
           "M10"
         ],
@@ -147837,6 +147837,10 @@
                 },
                 "reason": {
                   "type": "string"
+                },
+                "through": {
+                  "type": "string",
+                  "format": "date"
                 }
               },
               "required": [
@@ -170429,6 +170433,10 @@
             "type": "string",
             "minLength": 5,
             "maxLength": 500
+          },
+          "through": {
+            "type": "string",
+            "format": "date"
           }
         },
         "required": [
@@ -170475,13 +170483,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },
@@ -186877,13 +186897,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },
@@ -249127,13 +249159,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },
@@ -258304,13 +258348,25 @@
                     "string",
                     "null"
                   ]
+                },
+                "through": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "ended": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "skill",
                 "reason",
                 "droppedAt",
-                "droppedBy"
+                "droppedBy",
+                "through",
+                "ended"
               ]
             }
           },

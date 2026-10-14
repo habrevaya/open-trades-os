@@ -18,7 +18,7 @@ import type {
   createBookableService, setArrivalWindows, setBusinessHours,
 } from "../contracts/booking";
 import { portalBase } from "../lib/portal-base";
-import { qualifyDays, workSkills } from "./qualification";
+import { qualifyDaysForWork } from "./qualification";
 import { loadHolidays } from "./holidays";
 import * as businessHours from "./business-hours";
 
@@ -519,8 +519,8 @@ export async function capacityReader(db: Database, input: {
     ));
   if (people.length === 0) return null;
   /** Asked for each day shown, because a certification can lapse in the middle of the calendar. */
-  const verdictsOn = await qualifyDays(db, org, {
-    technicianIds: people.map((p) => p.id), skills: workSkills(type?.skills, own?.skills, own?.dropped),
+  const verdictsOn = await qualifyDaysForWork(db, org, {
+    technicianIds: people.map((p) => p.id), typeSkills: type?.skills, jobSkills: own?.skills, dropped: own?.dropped,
     from: input.from, until: input.until,
   });
 

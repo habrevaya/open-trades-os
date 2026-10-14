@@ -90,6 +90,32 @@ the same people (the office manager, not the dispatcher). Putting a skill back o
 the check and needs `job:write`. Dropping a skill twice keeps the first reason. A drop for a
 skill the type has since stopped asking for does nothing.
 
+**A drop can end.** `through` on `POST /v1/jobs/{id}/dropped-skills` (the form's "Last day it is
+not needed") is the last day the drop holds, a company date that is today or later; a date that
+has passed is refused, and leaving it off gives a drop with no end, as every drop was before.
+Each visit is judged on its own day, the day its window starts in the company's zone (today for
+a visit with no window): a visit on or before the last day is not asked for the skill, and a
+visit after it is, on the board, at booking with somebody named, for a crew
+(`GET /v1/crews/for-job`) and in a booking calendar, which is cut where the drop ends and
+asked once for each side. A visit booked for the 25th is therefore checked for the skill even
+if it is assigned on the 18th while a drop through the 20th stands. Nothing has to run on the
+day it ends: there is no scheduled job, the day is simply compared. The job's page says "Not
+needed on this job through Oct 20: epa_608. After that it is asked for again."; once the day
+has passed it says "Was not needed on this job: epa_608. That ended on Oct 20, so it is asked
+for again.", keeps the reason and who dropped it as the record, offers no "Ask for it again"
+(there is nothing to put back), and lists the skill to drop again. `GET /v1/jobs/{id}/required-skills`
+gives each drop `through` and `ended`, and `checked` is what is asked today. The board's notice
+when somebody is sent inside a drop names the end ("This job does not need epa_608 through Oct
+20, and is asked for it again after that: ..."), `droppedSkills` on the answer to
+`POST /v1/visits/{id}/assign` and in the assignment's audit entry carries `through` on a drop that
+has one, and a refusal for a skill whose drop ended before the visit's day says so ("This job did
+not need epa_608 through 2026-10-20, and that has ended, so it is asked again for this day.").
+Dropping a skill whose drop still stands changes nothing, its end included: moving an end later
+loosens the check, so it is done by putting the skill back and dropping it again, which asks for
+a reason again. Dropping one whose drop has ended starts a new one and replaces the old record
+(the audit log keeps both). Nothing is re-checked when a drop ends: a visit already sent to
+somebody is not taken off them, because it was judged on its own day when they were sent.
+
 **A callback has to point at real work for the same customer.** A parent from
 another company is a cross tenant read; a parent belonging to a different
 customer is the one that slips through, and it is how a callback rate stops
@@ -242,8 +268,8 @@ button on a visit.
 rather than deleted, which keeps the visits, the labour and the obligations that
 reference it explicable. Route optimisation is a proposal per technician that a
 person applies (M09), not an automatic reorder. A job can add skills of its own
-to its type's and drop one of its type's with a reason, one skill at a time: there is no
-"drop for every job of this type" (that is editing the type), and no expiry on a drop. The
+to its type's and drop one of its type's with a reason, one skill at a time, with or without a
+last day: there is no "drop for every job of this type" (that is editing the type). The
 public booking page's count of free slots reads the job type's skills only, because there is no
 job yet to drop anything from. The work order PDF is printed from the job page
 and is not an API route; it carries no photographs and no signature already

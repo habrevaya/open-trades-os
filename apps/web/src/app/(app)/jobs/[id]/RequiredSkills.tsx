@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db";
 import { peopleRecords } from "@opentradesos/api/services";
 import { can, type Actor } from "@opentradesos/core";
 import { ActionForm, TextField } from "@/components/ActionForm";
+import { formatDay, todayIn } from "@/lib/dates";
 import { dropJobSkillAction, restoreJobSkillAction, setJobSkillsAction } from "./skills-actions";
 
 /**
@@ -18,10 +19,13 @@ import { dropJobSkillAction, restoreJobSkillAction, setJobSkillsAction } from ".
  * somebody unqualified, because it has the same effect. Putting it back is
  * anybody who can edit the job.
  */
-export async function RequiredSkills({ jobId, actor, writes }: { jobId: string; actor: Actor; writes: boolean }) {
+export async function RequiredSkills(
+  { jobId, actor, writes, timezone }: { jobId: string; actor: Actor; writes: boolean; timezone: string },
+) {
   const skills = await peopleRecords.jobSkills({ actor, db: getDb() }, { id: jobId });
   if (!writes && skills.skills.length === 0 && skills.typeSkills.length === 0) return null;
-  const droppedNames = new Set(skills.dropped.map((d) => d.skill));
+  /** A drop that has ended is only a record: the skill is asked for again, and can be dropped again. */
+  const droppedNames = new Set(skills.dropped.filter((d) => !d.ended).map((d) => d.skill));
   const droppable = skills.typeSkills.filter((s) => !droppedNames.has(s));
   const mayDrop = can(actor, "job:write") && can(actor, "visit:assign_unqualified");
   return (
@@ -36,11 +40,17 @@ export async function RequiredSkills({ jobId, actor, writes }: { jobId: string; 
           {skills.dropped.map((d) => (
             <li key={d.skill} className="rounded-md border border-steel-200 bg-steel-100 p-3">
               <p>
-                <span className="font-medium">Not needed on this job: {d.skill}.</span>{" "}
+                <span className="font-medium">
+                  {d.ended
+                    ? `Was not needed on this job: ${d.skill}. That ended on ${formatDay(d.through!, timezone)}, so it is asked for again.`
+                    : d.through
+                      ? `Not needed on this job through ${formatDay(d.through, timezone)}: ${d.skill}. After that it is asked for again.`
+                      : `Not needed on this job: ${d.skill}.`}
+                </span>{" "}
                 {d.reason}
                 <span className="text-ink-500"> {d.droppedBy ? `Dropped by ${d.droppedBy}` : "Dropped"} on {d.droppedAt.slice(0, 10)}.</span>
               </p>
-              {writes && (
+              {writes && !d.ended && (
                 <ActionForm action={restoreJobSkillAction} submit="Ask for it again" tone="quiet" className="mt-2"
                             hidden={{ jobId, skill: d.skill }} />
               )}
@@ -60,6 +70,7 @@ export async function RequiredSkills({ jobId, actor, writes }: { jobId: string; 
           <h3 className="text-sm font-medium text-ink-700">This job does not need one of them</h3>
           <p className="mt-1 text-xs text-ink-500">
             Nobody will be asked for it on this job, on the board or when booking. Say why. The reason stays on the job.
+            Give a last day if it is only for now: after it, the skill is asked for again on every visit.
           </p>
           <ActionForm action={dropJobSkillAction} submit="Drop it for this job" tone="quiet" className="mt-2 space-y-3"
                       hidden={{ jobId }} done="Dropped.">
@@ -71,6 +82,8 @@ export async function RequiredSkills({ jobId, actor, writes }: { jobId: string; 
               </select>
             </label>
             <TextField label="Why this job does not need it" name="reason" required />
+            <TextField label="Last day it is not needed (leave empty for no end)" name="through" type="date"
+                       min={todayIn(timezone)} className="block max-w-xs" />
           </ActionForm>
         </div>
       )}

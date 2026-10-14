@@ -23,13 +23,13 @@ export async function assignVisit(input: {
   /** Send them although the qualification check refused, with the reason the audit log keeps. */
   overrideReason?: string;
 }): Promise<
-  | { ok: true; unknownSkills: string[]; droppedSkills: { skill: string; reason: string }[] }
+  | { ok: true; unknownSkills: string[]; droppedSkills: { skill: string; reason: string; through?: string }[] }
   | { ok: false; message: string; qualification?: { mayOverride: boolean } }
 > {
   const user = await requireSetupUser();
 
   let unknownSkills: string[] = [];
-  let droppedSkills: { skill: string; reason: string }[] = [];
+  let droppedSkills: { skill: string; reason: string; through?: string }[] = [];
   try {
     const result = await dispatch.assign(
       { actor: user.actor, db: getDb() },
