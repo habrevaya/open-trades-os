@@ -115,7 +115,8 @@ test("Rebalancing several days moves a visit to a day its customer agreed to, an
 test("A visit with two people on it moves day with both of them", async ({ owner }) => {
   test.setTimeout(180_000);
   /** A Tuesday at least nineteen days out, a week clear of the test above, and the Wednesday after it. */
-  let DAY = plus(companyToday(), 19);
+  /** Further out than ops-gaps.spec.ts, which empties the Tuesday nineteen days out for its own people. */
+  let DAY = plus(companyToday(), 33);
   while (new Date(`${DAY}T12:00:00Z`).getUTCDay() !== 2) DAY = plus(DAY, 1);
   const NEXT = plus(DAY, 1);
 

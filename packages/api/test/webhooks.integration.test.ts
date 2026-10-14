@@ -837,7 +837,11 @@ run("replaying", () => {
     await runPass({ db: db(), schedules: false, geocoding: false, webhooks: { send: http.send }, push: false });
     expect(http.calls).toHaveLength(2);
     expect(http.calls[1]!.headers[webhooks.REPLAY_HEADER]).toBe(replay.id);
-  });
+    /**
+     * Two whole passes over every company in the shared database: right after
+     * a browser run, the first one has the other companies' upkeep to do.
+     */
+  }, 60_000);
 
   it("refuses what it could not send", async () => {
     const endpoint = await webhooks.register(owner(), { url: RECEIVER, events: ["job.completed"] });

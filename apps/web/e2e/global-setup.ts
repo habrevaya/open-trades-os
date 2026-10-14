@@ -38,6 +38,14 @@ export default async function globalSetup(): Promise<void> {
   const db = createClient();
   try {
     await db.execute(sql`delete from public.public_rate_limit`);
+    /**
+     * Specs book time off weeks ahead to empty a day (the rebalances, the
+     * crew lane, the part day leave checks), and two rows that overlap for
+     * one person are refused. The seeds book none, so anything a week or more
+     * out was left by an earlier run, and a second run on the same day would
+     * be refused its own day off for the first run's sake.
+     */
+    await db.execute(sql`delete from public.time_off where starts_at > now() + interval '7 days'`);
   } finally {
     await db.$close();
   }
