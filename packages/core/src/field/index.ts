@@ -72,6 +72,8 @@ export const OPERATION_KINDS = [
   "safety.sign",
   // What the technician paid for the company, for the office to approve and payroll to pay back.
   "expense.record",
+  // A notice opened on the phone, so the bell in a browser stops counting it.
+  "notice.read",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -205,6 +207,13 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * the office is the state it starts in, not a conflict.
    */
   "expense.record": "append",
+
+  /**
+   * Opening a notice on the phone marks it read. A state that only ever moves one
+   * way, so there is nothing for the office to have changed in the meantime that
+   * makes it wrong, and two phones opening the same notice agree. Always applies.
+   */
+  "notice.read": "append",
 };
 
 export interface FieldOperation {

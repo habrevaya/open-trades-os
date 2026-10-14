@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { files, NotFoundError } from "@opentradesos/api/services";
-import { getCurrentUser } from "@/lib/auth";
+import { files, NotFoundError, OrganizationSuspendedError, type ResolvedSession } from "@opentradesos/api/services";
+import { authenticateFileRead } from "@opentradesos/api/http";
+import { sessionFromCookie } from "@/lib/auth";
 
 /**
  * THE BYTES OF AN ATTACHMENT
@@ -22,14 +23,26 @@ import { getCurrentUser } from "@/lib/auth";
  * "for later" is how a private photograph of somebody's house becomes
  * public. When the portal needs them, it gets the same treatment the logo
  * has: a token that already grants sight of the record the file is on.
+ *
+ * THE PHONE READS THEM TOO, with its own sign in as a bearer header, because the
+ * technician looks at the photograph the customer sent of the broken unit
+ * (`authenticateFileRead`). It is the same check as for a cookie: a signed out or
+ * revoked phone is a "not found", and the reader must hold `document:read`.
  */
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ key: string[] }> },
 ) {
-  const user = await getCurrentUser();
+  let user: ResolvedSession | null;
+  try {
+    user = await authenticateFileRead(request, { db: getDb(), session: sessionFromCookie });
+  } catch (error) {
+    // A suspended company reads as not found here, as it does for the cookie.
+    if (!(error instanceof OrganizationSuspendedError)) throw error;
+    user = null;
+  }
   if (!user) return new NextResponse("Not found", { status: 404 });
 
   const { key } = await params;

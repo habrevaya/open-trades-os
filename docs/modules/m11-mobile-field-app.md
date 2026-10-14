@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Twenty five operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, and the last, `expense.record`, is what the technician paid for the company): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty eight operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, and the last, `notice.read`, is a notice opened on the phone): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -197,6 +197,25 @@ The company's own records on the visit's job or on a unit recorded on the
 visit (a permit, a warranty registration, M29) come with the day too, of the
 kinds the technician may read, with every field that holds a value, under
 "Records on this job" on the phone and on `/my-day`. They are read only there.
+
+WHAT THE CUSTOMER SENT (M05) is on the visit too, under "From the customer": the
+photographs and PDFs the customer sent from their own account to this visit or its
+job, the broken unit before anybody arrives, newest first (`customerFiles` on each
+visit of `GET /v1/field/snapshot`, sent only to somebody who may read documents).
+On the phone a photograph is a thumbnail that opens full size and a PDF is a line
+that opens in whatever on the phone reads PDFs; on `/my-day` each is a link. The bytes
+are not in the day: the phone reads them from `/files/{storageKey}` when the
+technician looks, with its own sign in as a bearer header, because it is a customer's
+document and the file route is held to the same rule as for a browser, whose cookie
+it used to know alone. The phone's token reads files for the person it belongs to, in
+their own company, with `document:read`; a token that has ended (signed out, a phone
+the office took away, a person deactivated) reads nothing and is never read as a
+cookie; a connected app's token is not a way in. The token travels as a header and
+never in the address. A photograph is drawn straight from the server by the image
+component; a PDF cannot be, because the phone's PDF reader is another app and
+cannot be handed a header, so it is downloaded with the header into the app's cache and
+offered to the share sheet, and that cache is emptied when the person signs out.
+Both need a signal, and the screen says so under the thumbnails when a photograph will not load.
 
 ### Money on site
 
@@ -428,6 +447,31 @@ phone", at the send or in the receipt, forgets the phone's token exactly as a
 change to the day does. A notice that never reached the phone raises no task:
 it is still on the person's bell in the app.
 
+A TAP ON ONE OPENS WHAT IT IS ABOUT. The push carries the notice's id, its kind, the
+kind and id of the record it is about and the page the bell would open
+(`noticeId`, `kind`, `about: { type, id }`, `href`), and nothing the bell does not show:
+the words are the title and body the lock screen already shows, and a record is an
+opaque id. A notice about a task opens the Tasks screen with that task first, to
+take, tick and finish; one about a toolbox talk opens the talks to sign, and one about
+the person's expense opens "Money I spent". Any other kind (an order waiting, an app
+asking, a licence running out) opens the notice's page in the phone's browser, on the
+company's own server: the phone only ever follows a path on that server, never an
+address a notice carries. A task the phone does not hold yet (given a moment ago) is
+asked for with a fresh fetch; one it still does not hold (finished, or taken by somebody
+else) is said so in words, with the page in the browser. A change to the day opens its
+visit, as before.
+
+OPENING IT MARKS IT READ for the bell in a browser, as a queue operation, `notice.read`,
+and not a call of its own. A notice is often tapped where there is no signal, the
+screen it opens comes from what the phone already holds, and the mark should not be
+lost for the same reason a tick is not: it is kept on the phone, sent when the van finds
+a signal, and applied once. It is an append (the one-way state of being read has nothing to conflict with),
+marks only the signed in person's own notice, and leaves somebody else's notice, or one
+that is gone, alone without a word, as `POST /v1/me/notices/read` does, so it cannot be
+used to learn whose a notice id is. It changes nothing on the day. The system hands back the
+tap that launched the app each time it is asked, so the phone remembers which taps it has
+acted on and does not open the same notice twice.
+
 ### Location while working, and the privacy choices behind it
 
 The phone app shares where its person is with the office, and with the
@@ -643,11 +687,12 @@ against a fake of the push service, and a build needs an Expo project id
 (`eas init`) before the app can get a token at all. There is no store listing
 and no icon of its own; a company builds and distributes it.
 
-A notice about a person's own work (M34) opens the app when tapped and not the
-record it is about, because the app opens only a visit from a notice; the record
-is a tap away on the bell in a browser, where the notice is too. Only somebody on
-the board has a phone registered, so office staff with no place on the board get
-these on the bell and by text, never by push.
+Only somebody on the board has a phone registered, so office staff with no place on the
+board get notices about their own work on the bell and by text, never by push. A notice
+the phone has no screen for opens in the browser, where the person must be signed in on
+the web as well; the phone's sign in does not carry over to it. Opening a notice
+offline marks it read once a signal returns, so the bell in a browser can show it unread
+until then.
 
 Notices go to the technicians on a visit's assignment list and to the
 members of the crew it is sent to. Somebody with no phone registered for
@@ -711,6 +756,15 @@ in they have, or takes `field:sync` from their role. Revoking a browser does
 not end its sign in (a browser's session is the person's whole sign in to the
 office screens, not the day's alone), so the person can still open the rest of
 the product; only their day stops reaching the office.
+
+The files a customer sent are read from the server when the technician looks, so they
+need a signal and are not kept on the phone: a visit opened in a basement shows empty
+squares and a line saying the photos could not be loaded. A photograph is drawn at the
+size the server sent it (up to five megabytes), with no smaller copy made for the
+thumbnail, so a visit with many photographs is slow on a weak signal; the phone shows at
+most twelve and says how many more are on the job. Opening a PDF hands a downloaded copy
+to the phone's share sheet, so what opens it is whatever the person has installed; like
+all of the app, that has been typechecked and its logic tested but not run on a device.
 
 `/my-day` opens with no signal only once it has been opened on that phone
 with one, only in a browser that keeps service workers (any current one, on

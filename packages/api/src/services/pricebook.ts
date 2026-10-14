@@ -1,6 +1,6 @@
 import { and, eq, desc, gt, inArray, lt, lte, or, ilike, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { tax } from "@opentradesos/core";
+import { assertCan, tax } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError,
@@ -283,6 +283,13 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
 
 export async function revise(ctx: ServiceContext, input: z.infer<typeof revisePriceBookItem.input>) {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
+    /**
+     * A COMMISSION RATE IS A PAY TERM, not a price. An editor of the price book who
+     * may not set commission plans must not be able to set what a seller is paid on
+     * an item by revising it, so naming one asks for the commission permission too
+     * (`ESCALATES` in the permission test). Carrying the current one forward asks for nothing.
+     */
+    if (input.commissionRate !== undefined) assertCan(ctx.actor, "commission:configure");
     const current = await load(tx, input.id);
     if (!current) throw new NotFoundError("Price book item");
 
@@ -309,6 +316,8 @@ export async function revise(ctx: ServiceContext, input: z.infer<typeof revisePr
       ...(input.taxable !== undefined ? { taxable: input.taxable } : {}),
       ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}),
       ...(input.warrantyMonths !== undefined ? { warrantyMonths: input.warrantyMonths } : {}),
+      ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
+      ...(input.commissionRate !== undefined ? { commissionRate: input.commissionRate } : {}),
       ...(input.components !== undefined ? { components: await checkedComponents(tx, current.item.id, input.components) } : {}),
     }, effectiveFrom);
 
@@ -341,6 +350,10 @@ export interface RevisionChanges {
   warrantyMonths?: number | null;
   /** A kit's parts, already checked by `checkedComponents`. */
   components?: Array<{ itemId: string; quantity: number }>;
+  /** The picture's https address; null takes it off, left out it carries forward. */
+  imageUrl?: string | null;
+  /** What a seller is paid on it, as a share of the line; null goes back to their plan, left out it carries forward. */
+  commissionRate?: string | null;
 }
 
 /**
@@ -440,13 +453,13 @@ export async function reviseWithin(
     // that only raises the price must not blank the description.
     name: changes.name ?? current.version.name,
     description: changes.description ?? current.version.description,
-    imageUrl: current.version.imageUrl,
+    imageUrl: changes.imageUrl !== undefined ? changes.imageUrl : current.version.imageUrl,
     price: changes.price ?? current.version.price,
     cost: changes.cost ?? current.version.cost,
     laborMinutes: changes.laborMinutes ?? current.version.laborMinutes,
     taxable: changes.taxable ?? current.version.taxable,
     taxClass: changes.taxClass !== undefined ? changes.taxClass : current.version.taxClass,
-    commissionRate: current.version.commissionRate,
+    commissionRate: changes.commissionRate !== undefined ? changes.commissionRate : current.version.commissionRate,
     warrantyMonths: changes.warrantyMonths !== undefined ? changes.warrantyMonths : current.version.warrantyMonths,
     components: changes.components ?? current.version.components,
     effectiveFrom,
@@ -454,8 +467,14 @@ export async function reviseWithin(
 
   await audit(
     tx, ctx, "pricebook.item_revised", "price_book_item", current.item.id,
-    { version: current.version.version, price: current.version.price },
-    { version: version!.version, price: version!.price },
+    {
+      version: current.version.version, price: current.version.price,
+      imageUrl: current.version.imageUrl, commissionRate: current.version.commissionRate,
+    },
+    {
+      version: version!.version, price: version!.price,
+      imageUrl: version!.imageUrl, commissionRate: version!.commissionRate,
+    },
   );
   return version!;
 }

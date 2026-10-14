@@ -107,10 +107,25 @@ jobs that named it still resolve.
 On the unit's own page, `/equipment/{id}`, somebody who may write the register
 (`equipment:write`) sees two folds below the facts. "Correct its details" is the
 unit's category, tag, make, model, serial, place in the building, install date,
-the two cover dates and whether we installed it, filled in with what is on file;
+the two cover dates, whether we installed it, what it is inside and its other
+details, filled in with what is on file;
 saving runs `PATCH /v1/equipment/{id}`'s own function, so a serial already on file
 at this address is refused in the API's words, and a box left empty takes that
-detail off. It does not offer the address. "Move it to another address" lists the
+detail off. It does not offer the address. "It is inside" lists the other units at this
+address (never the unit itself or anything inside it, however deep) and "Nothing, it
+stands on its own", which takes it out of what it was in. A loop the list did not
+offer is refused by the API in words: a unit inside itself ("A unit cannot be
+inside itself."), inside a unit it holds directly ("Those two are already nested
+the other way round."), or inside one a few steps down ("That unit is already
+inside this one, a few steps down, so putting this one inside it would make a
+loop."); the walk up is bounded, so a loop an older edit left in the data
+elsewhere neither blocks nor spins it. "Other details, one a line" is the unit's free form
+attributes (a refrigerant, a filter size) written "Name: value", one a line; a line
+taken out is taken off, a line with no colon or no value, a name used twice or too long a
+value is refused in words, at most thirty. A detail that is more than text, a number or yes or no (a list or a
+group, which an import or the API can store) is not shown as a line and is kept exactly
+as it is, and the page says how many; a line left alone keeps its type, so a number
+stays a number, and a line typed over is text. "Move it to another address" lists the
 customer's other addresses and a search of every address by street, city or postal
 code (needs `property:read` to draw), and records the move through
 `POST /v1/equipment/{id}/move`'s own function: a reason that means it went somewhere
@@ -259,6 +274,4 @@ a register without serials.
 The warranty call is a recommended automation that is off until somebody turns
 it on, like every recommended automation but the estimate follow up, and it only
 raises a task: it does not text or email the customer, because what to offer
-them is the office's call. A unit's page cannot change what a unit is nested in
-or its free form attributes, which `PATCH /v1/equipment/{id}` takes and the
-screen does not offer.
+them is the office's call.

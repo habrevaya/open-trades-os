@@ -98,12 +98,14 @@ type Method = "GET" | "POST";
 
 export class FieldApi {
   private readonly base: string;
+  private readonly root: string;
   private readonly token: string | undefined;
   private readonly fetcher: typeof fetch;
   private readonly timeoutMs: number;
 
   constructor(options: FieldApiOptions) {
-    this.base = `${trimTrailingSlashes(options.serverUrl)}/api`;
+    this.root = trimTrailingSlashes(options.serverUrl);
+    this.base = `${this.root}/api`;
     this.token = options.token;
     this.fetcher = options.fetch ?? ((...args) => fetch(...args));
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -225,6 +227,22 @@ export class FieldApi {
       { channel: "sms", etaMinutes, includeTracking: true },
       { idempotencyKey },
     );
+  }
+
+  /**
+   * How to read a stored file (a photograph the customer sent, a PDF): the
+   * address and the headers that make the server answer. The same bearer the
+   * phone sends everywhere, so the server asks what it asks for any other
+   * read: the person may read documents, in their own company. Never the
+   * token in the address, because an address is written into logs and
+   * caches and a header is not.
+   */
+  fileRequest(storageKey: string): { url: string; headers: Record<string, string> } {
+    const path = storageKey.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+    return {
+      url: `${this.root}/files/${path}`,
+      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+    };
   }
 
   /** The queue's transport. */

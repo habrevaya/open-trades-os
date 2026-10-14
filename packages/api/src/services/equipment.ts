@@ -307,12 +307,31 @@ async function assertParent(
     throw new ConflictError("That parent is at a different property.");
   }
   /**
-   * One step is enough to catch the loop somebody actually makes, which is
-   * swapping a parent and a child. A deeper cycle needs a walk, and the walk
-   * is below in `treeFor`, where it is bounded and cannot spin.
+   * NO LOOPS, HOWEVER LONG. Walking up from the new parent: if it comes to the
+   * unit being placed, the unit is already somewhere inside what it is about to
+   * be put in, and the register would have two units each inside the other
+   * (swapping a parent and a child, or a riser put inside a valve three steps
+   * down). Bounded, because the data may already hold a loop that an older
+   * edit made, and a walk over a loop must end; a loop that does not lead back
+   * to this unit is not this unit's doing and is left for `treeFor` to show.
    */
-  if (selfId && parent.parentEquipmentId === selfId) {
-    throw new ConflictError("Those two are already nested the other way round.");
+  if (selfId) {
+    const seen = new Set<string>([parent.id]);
+    let up: string | null = parent.parentEquipmentId;
+    for (let step = 0; up && step < 64; step += 1) {
+      if (up === selfId) {
+        throw new ConflictError(
+          parent.parentEquipmentId === selfId
+            ? "Those two are already nested the other way round."
+            : "That unit is already inside this one, a few steps down, so putting this one inside it would make a loop.",
+        );
+      }
+      if (seen.has(up)) break;
+      seen.add(up);
+      const [next] = await tx.select({ parentEquipmentId: schema.equipment.parentEquipmentId }).from(schema.equipment)
+        .where(and(eq(schema.equipment.id, up), eq(schema.equipment.organizationId, ctx.actor.organizationId))).limit(1);
+      up = next?.parentEquipmentId ?? null;
+    }
   }
 }
 

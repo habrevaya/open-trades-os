@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Linking, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { closePayload, closeProblem, tickPayload, type DayTask } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { Button, Card, Notice } from "../components/ui";
 import { color, space, type } from "../components/theme";
 import { Header } from "./VisitScreen";
+import { serverPage } from "../lib/push";
+import { withFocus } from "../lib/work";
 import type { Navigate } from "../shell/App";
 
 /**
@@ -16,17 +18,46 @@ import type { Navigate } from "../shell/App";
  * second person is told somebody else has it. A task with a checklist shows its
  * items to tick one at a time, and finishing it with some unticked asks why,
  * in the office's own words.
+ *
+ * Opened from a notice, the task it is about comes first, and if the phone does
+ * not hold it (finished, taken by somebody else, or not fetched yet) the screen
+ * says so and offers the page in the browser.
  */
-export function TasksScreen({ nav }: { nav: Navigate }) {
+export function TasksScreen({ nav, taskId = null, href = null }: { nav: Navigate; taskId?: string | null; href?: string | null }) {
   const field = useField();
   const zone = field.session?.timezone ?? "UTC";
-  const tasks = (field.view?.day.tasks ?? []).filter((t) => !t.done || t.waiting);
+  const all = field.view?.day.tasks ?? [];
+  const { focused, rest, missing } = withFocus(all, taskId);
+  const tasks = rest.filter((t) => !t.done || t.waiting);
+  const page = href && field.session ? serverPage(field.session.serverUrl, href) : null;
+
+  // A task given a moment ago is not in the day the phone holds: ask once for a fresh one.
+  const { sync } = field;
+  useEffect(() => {
+    if (taskId && missing) void sync();
+    // Once, on opening from a notice; not again each time the day is redrawn.
+  }, [taskId]);
 
   return (
     <View style={styles.root}>
       <Header onBack={nav.back} title="Tasks" />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {tasks.length === 0 ? <Text style={type.soft}>Nothing in the queue for you.</Text> : null}
+        {missing ? (
+          field.syncing ? <Text style={type.soft}>Looking for that task.</Text> : (
+            <Notice tone="amber">
+              <Text style={type.body}>
+                That task is not on your phone now. It may be finished, or somebody else may have it.
+              </Text>
+              {page ? (
+                <View style={{ marginTop: space.sm }}>
+                  <Button label="Open it in the browser" kind="secondary" onPress={() => void Linking.openURL(page).catch(() => undefined)} />
+                </View>
+              ) : null}
+            </Notice>
+          )
+        ) : null}
+        {focused ? <TaskCard task={focused} zone={zone} /> : null}
+        {tasks.length === 0 && !focused ? <Text style={type.soft}>Nothing in the queue for you.</Text> : null}
         {tasks.map((task) => <TaskCard key={task.id} task={task} zone={zone} />)}
       </ScrollView>
     </View>

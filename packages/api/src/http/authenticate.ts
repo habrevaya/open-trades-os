@@ -132,3 +132,27 @@ export async function attributingApp(
   const app = await resolveToken(db, bearer[1]!);
   return app?.appId;
 }
+
+/**
+ * WHO IS READING A STORED FILE
+ *
+ * The bytes of a photograph or a PDF are served by a page route and not the
+ * JSON API, because an image tag cannot point at a JSON body. A browser reads
+ * them with its cookie. The phone app reads them with the `otd_` token it
+ * signs in with, sent as a header (an address is written into logs and caches,
+ * a header is not), so the technician sees the photograph the customer sent
+ * of the broken unit before they arrive.
+ *
+ * ONLY THE PHONE'S TOKEN, and only in place of the cookie: a connected app's
+ * `ots_` token reads files through nothing today and gets nothing here. A phone
+ * token that is refused (signed out, revoked, the person deactivated) is a
+ * refusal, never a fall back to a cookie, for the reason `authenticate` gives.
+ * The route then asks `files.open`, which holds the reader to `document:read`
+ * in their own company, exactly as for a cookie.
+ */
+export async function authenticateFileRead(request: Request, deps: AuthDeps): Promise<ResolvedSession | null> {
+  const header = request.headers.get("authorization");
+  const device = header ? DEVICE_BEARER.exec(header) : null;
+  if (!device) return deps.session();
+  return resolveSession(deps.db, hashToken(device[1]!));
+}

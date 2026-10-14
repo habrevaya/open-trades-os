@@ -37,3 +37,17 @@ export function searchPriceBook(items: readonly PriceBookEntry[], query: string,
 export function missingReadings(fields: readonly Pick<DayReportField, "label" | "required" | "value">[]): string[] {
   return fields.filter((f) => f.required && (f.value === null || f.value.trim() === "")).map((f) => f.label);
 }
+
+/**
+ * The tasks with the one a notice was about first, and what to say when it is
+ * not among them. A task the phone does not hold yet (it was given to the
+ * person a moment ago and the day has not been fetched) is `missing`, which the
+ * screen says while a fetch is under way and turns into a way to open it in
+ * the browser once it is not.
+ */
+export function withFocus<T extends { id: string }>(
+  tasks: readonly T[], taskId: string | null,
+): { focused: T | null; rest: T[]; missing: boolean } {
+  const focused = taskId ? tasks.find((t) => t.id === taskId) ?? null : null;
+  return { focused, rest: tasks.filter((t) => t !== focused), missing: taskId !== null && focused === null };
+}

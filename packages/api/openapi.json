@@ -93621,7 +93621,7 @@
       "post": {
         "operationId": "revisePriceBookItem",
         "summary": "Revise a price book item",
-        "description": "Creates a new version, from now or from `effectiveFrom`: the name, description, price, cost, labour minutes, tax, warranty and a kit's parts, each carried forward when left off. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
+        "description": "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate and a kit's parts, each carried forward when left off. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M06"
         ],
@@ -209337,7 +209337,8 @@
                     "task.tick",
                     "tip.record",
                     "safety.sign",
-                    "expense.record"
+                    "expense.record",
+                    "notice.read"
                   ]
                 },
                 "subjectId": {
@@ -251621,6 +251622,21 @@
             },
             "maxItems": 100
           },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000,
+            "pattern": "^https:\\/\\/[^\\s]+$"
+          },
+          "commissionRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^(0(\\.\\d{1,6})?|1(\\.0{1,6})?)$"
+          },
           "effectiveFrom": {
             "type": "string",
             "format": "date-time"
@@ -266116,7 +266132,8 @@
                     "task.tick",
                     "tip.record",
                     "safety.sign",
-                    "expense.record"
+                    "expense.record",
+                    "notice.read"
                   ]
                 },
                 "subjectId": {

@@ -100,6 +100,14 @@ const ESCALATES: Record<string, { also: Permission; when: string; service: strin
       + "both would tell an agent it cannot book a visit without the owner's power to back date.",
     service: "jobs.ts",
   },
+  revisePriceBookItem: {
+    also: "commission:configure",
+    when:
+      "Only when the revision names a commission rate for the item, which is a pay term and not a price. "
+      + "An ordinary revision of the price, the wording or the picture takes `pricebook:write` alone, and "
+      + "declaring both would tell an agent it cannot raise a price without the authority to set commission.",
+    service: "pricebook.ts",
+  },
   visitPaymentLink: {
     also: "invoice:send",
     when:

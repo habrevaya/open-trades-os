@@ -19,3 +19,4 @@ export * from "./equipment";
 export * from "./talks";
 export * from "./expense";
 export * from "./task";
+export * from "./customer-files";

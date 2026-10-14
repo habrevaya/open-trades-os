@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
-import { CHANNELS, projectIdFrom, visitFromNotice, type PushState } from "../lib/push";
+import { CHANNELS, projectIdFrom, tappedNotice, type PushState, type TappedNotice } from "../lib/push";
 
 /**
  * NOTICES FROM THE OFFICE
@@ -9,7 +9,7 @@ import { CHANNELS, projectIdFrom, visitFromNotice, type PushState } from "../lib
  * The office moves somebody's day and the server pushes a notice through
  * Expo to this phone. This module asks the person for permission, makes the
  * two Android channels the server sends to, gets the Expo push token the
- * phone registers with, and opens the visit a tapped notice is about.
+ * phone registers with, and says what a tapped notice is about.
  *
  * A notice that arrives while the app is open is still shown, as a banner,
  * because the technician may be looking at the very visit that was cancelled.
@@ -57,15 +57,25 @@ export async function pushToken(): Promise<{ token: string } | { state: PushStat
   }
 }
 
-/** Open the visit a tapped notice is about, including the one that launched the app. */
-export function onNoticeTapped(open: (visitId: string) => void): () => void {
-  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-    const visitId = visitFromNotice(response.notification.request.content.data);
-    if (visitId) open(visitId);
-  });
-  void Notifications.getLastNotificationResponseAsync().then((response) => {
-    const visitId = response ? visitFromNotice(response.notification.request.content.data) : null;
-    if (visitId) open(visitId);
-  }).catch(() => undefined);
+/**
+ * Notices already acted on. The system hands back the tap that launched the
+ * app every time it is asked, so without this a person who signed out and in
+ * again, or whose day was redrawn, would be taken to the same notice again.
+ */
+const handled = new Set<string>();
+
+/** What a tapped notice is about, including the one that launched the app. */
+export function onNoticeTapped(open: (tap: TappedNotice) => void): () => void {
+  const act = (response: Notifications.NotificationResponse | null) => {
+    if (!response) return;
+    const key = response.notification.request.identifier;
+    if (handled.has(key)) return;
+    const tap = tappedNotice(response.notification.request.content.data);
+    if (!tap) return;
+    handled.add(key);
+    open(tap);
+  };
+  const subscription = Notifications.addNotificationResponseReceivedListener(act);
+  void Notifications.getLastNotificationResponseAsync().then(act).catch(() => undefined);
   return () => subscription.remove();
 }
