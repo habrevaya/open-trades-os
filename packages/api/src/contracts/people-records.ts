@@ -100,6 +100,24 @@ export const CeSchema = z.object({
 });
 const Ce = CeSchema;
 
+const OwnContact = z.object({
+  phone: z.string().nullable(), addressLine1: z.string().nullable(), addressLine2: z.string().nullable(),
+  city: z.string().nullable(), state: z.string().nullable(), postalCode: z.string().nullable(),
+  /** When this version was saved. */
+  savedAt: z.string().datetime(),
+});
+
+/** The address and phone a person keeps themselves, and what each save changed (newest first, at most fifty). */
+export const OwnContactRecord = z.object({
+  contact: OwnContact.nullable(),
+  changes: z.array(z.object({
+    at: z.string().datetime(),
+    by: z.string().nullable(),
+    changes: z.array(z.object({ field: z.enum(["phone", "address"]), before: z.string(), after: z.string() })),
+  })),
+});
+
+
 export const listPeopleRoster = defineRoute({
   method: "get",
   path: "/v1/roster",
@@ -129,6 +147,8 @@ export const getPersonRecord = defineRoute({
     onboarding: Onboarding, emergencyContacts: z.array(Contact), employment: Employment.nullable(), skills: Skills.nullable(),
     /** Who they report to, as set on the escalation screen (`POST /v1/reporting-lines`, M34). Null when nobody is recorded. */
     reportsTo: z.object({ membershipId: Uuid, name: z.string().nullable(), email: z.string(), active: z.boolean() }).nullable(),
+    /** The address and phone they keep themselves, with what each change was and when. Home details: `user:read`, like the emergency contacts. */
+    ownContact: OwnContactRecord,
     /** What they were asked to sign, and whether and how they did. */
     documents: z.array(z.object({
       requestId: Uuid, documentId: Uuid, title: z.string(), askedAt: z.string().datetime(),

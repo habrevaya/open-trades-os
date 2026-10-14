@@ -266,6 +266,53 @@ export function setOnboardingLine(ctx: ServiceContext, input: {
   });
 }
 
+/* ------------------------------------------------- a person's own address and phone */
+
+export interface OwnContactView extends peopleCore.OwnContact {
+  /** When this version was saved. */
+  savedAt: string;
+}
+
+export interface OwnContactChangeView {
+  /** When it was saved. */
+  at: string;
+  /** Who saved it. Today always the person themselves; null if their account has since gone. */
+  by: string | null;
+  changes: peopleCore.OwnContactChange[];
+}
+
+export interface OwnContactRecord {
+  /** The current version, or null when the person has never given one. */
+  contact: OwnContactView | null;
+  /** What each save changed, newest first, at most fifty. */
+  changes: OwnContactChangeView[];
+}
+
+const asContact = (r: typeof schema.personContact.$inferSelect): peopleCore.OwnContact => ({
+  phone: r.phone, addressLine1: r.addressLine1, addressLine2: r.addressLine2, city: r.city, state: r.state, postalCode: r.postalCode,
+});
+
+/**
+ * A person's address and phone as they keep them, with what each save changed.
+ * Versions are never updated, so the office reads a change by comparing a version
+ * with the one before it. A save that changed nothing is never written, so every
+ * version here changed something.
+ */
+export async function ownContactWithin(tx: Database, membershipId: string): Promise<OwnContactRecord> {
+  const rows = await tx.select().from(schema.personContact)
+    .where(eq(schema.personContact.membershipId, membershipId))
+    .orderBy(asc(schema.personContact.createdAt), asc(schema.personContact.id));
+  if (rows.length === 0) return { contact: null, changes: [] };
+  const names = await peopleNames(tx);
+  const changes = rows.map((row, i) => ({
+    at: row.createdAt.toISOString(),
+    by: row.changedByUserId ? names.get(row.changedByUserId) ?? null : null,
+    changes: peopleCore.ownContactChanges(i === 0 ? null : asContact(rows[i - 1]!), asContact(row)),
+  })).reverse().slice(0, 50);
+  const last = rows[rows.length - 1]!;
+  return { contact: { ...asContact(last), savedAt: last.createdAt.toISOString() }, changes };
+}
+
 /* ------------------------------------------------------ emergency contacts */
 
 export interface EmergencyContactView {
@@ -928,6 +975,8 @@ export interface PersonView {
   reportsTo: { membershipId: string; name: string | null; email: string; active: boolean } | null;
   /** What they were asked to sign, and whether they have. */
   documents: { requestId: string; documentId: string; title: string; askedAt: string; signedAt: string | null; signedVia: string | null }[];
+  /** The address and phone they keep themselves, with what each change was and when. Read with the rest of their record. */
+  ownContact: OwnContactRecord;
 }
 
 export function person(ctx: ServiceContext, input: { membershipId: string }) {
@@ -967,6 +1016,7 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
         ? { membershipId: manager.id, name: managerName?.name ?? null, email: managerName?.email ?? "", active: manager.active }
         : null,
       documents: (await staffDocuments.ownWithin(tx, member.id)).map(({ body: _body, signerName: _signer, ...rest }) => rest),
+      ownContact: await ownContactWithin(tx, member.id),
     };
   });
 }
