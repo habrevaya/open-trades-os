@@ -782,6 +782,30 @@ function VisitCard({
             </div>
           )}
 
+          {/*
+            What the office wrote about this customer and marked for whoever
+            goes out. Only those: the rest of the customer's notes are the
+            office's, and never reach the phone.
+          */}
+          {(visit.customerNotes ?? []).length > 0 && (
+            <section aria-label="Notes from the office" className="text-sm">
+              <p className="text-xs uppercase tracking-[0.08em] text-ink-500">Notes from the office</p>
+              <ul className="mt-1 space-y-2">
+                {(visit.customerNotes ?? []).map((note) => (
+                  <li key={note.id}>
+                    <p className="whitespace-pre-line text-ink-900">{note.body}</p>
+                    <p className="text-xs text-ink-500">
+                      {note.pinned ? "Pinned. " : ""}{note.by ? `${note.by}, ` : ""}
+                      {new Date(note.notedAt).toLocaleDateString("en-US", {
+                        month: "short", day: "numeric", year: "numeric", timeZone: timezone,
+                      })}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           {visit.customerComplaint && (
             <div>
               <p className="text-xs uppercase tracking-[0.08em] text-ink-500">What they said</p>

@@ -199,9 +199,13 @@ recorded as sent and still waiting is one a follow up would chase about an
 answer the customer gave in the old system, and refused before the day it was
 written or after the day it was decided.
 
+Customer notes come in on `POST /v1/customers/{id}/notes` with `notedAt` (the
+day the old system has, under the history rules) and `externalRef`: marked as
+brought in, with no writer here, and never changed afterwards (M03).
+
 Not yet accepted, and reported by the toolkit as gaps: the day an estimate was
-converted, customer notes, partial billing addresses, a price book item
-without a code, and a person who never had a login. A property's coordinates
+converted, partial billing addresses, a price book item without a code, and a
+person who never had a login. A property's coordinates
 are not taken when it is created; they are set afterwards with
 `POST /v1/properties/{id}/pin`, which the geocoder then never moves.
 

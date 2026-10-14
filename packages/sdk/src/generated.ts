@@ -145,6 +145,40 @@ export interface AddCustomerContactOutput {
   portalAccess: boolean;
 }
 
+export interface AddCustomerNoteInput {
+  body: string;
+  forField?: boolean;
+  pinned?: boolean;
+  correctsNoteId?: string;
+  notedAt?: string;
+  externalRef?: {
+    source: string;
+    id: string;
+  };
+}
+
+export interface AddCustomerNoteOutput {
+  id: string;
+  customerId: string;
+  body: string;
+  notedAt: string;
+  author: {
+    userId: string;
+    name: string | null;
+  } | null;
+  origin: "typed" | "carried" | "imported";
+  pinned: boolean;
+  pinnedAt: string | null;
+  forField: boolean;
+  correctsNoteId: string | null;
+  editedAt: string | null;
+  editableUntil: string | null;
+  externalRef: {
+    source: string;
+    id: string;
+  } | null;
+}
+
 export interface AddEmergencyContactInput {
   name: string;
   relationship?: string | null;
@@ -5825,6 +5859,33 @@ export interface DropJobSkillOutput {
   checked: string[];
 }
 
+export interface EditCustomerNoteInput {
+  body?: string;
+  forField?: boolean;
+}
+
+export interface EditCustomerNoteOutput {
+  id: string;
+  customerId: string;
+  body: string;
+  notedAt: string;
+  author: {
+    userId: string;
+    name: string | null;
+  } | null;
+  origin: "typed" | "carried" | "imported";
+  pinned: boolean;
+  pinnedAt: string | null;
+  forField: boolean;
+  correctsNoteId: string | null;
+  editedAt: string | null;
+  editableUntil: string | null;
+  externalRef: {
+    source: string;
+    id: string;
+  } | null;
+}
+
 export interface EditPurchaseOrderInput {
   defaultLocationId?: string;
   expectedAt?: string | null;
@@ -7248,6 +7309,40 @@ export interface GetCustomerMergedIntoOutput {
   } | null;
 }
 
+export interface GetCustomerMergesOutput {
+  merges: Array<{
+    id: string;
+    keptCustomerId: string;
+    merged: {
+      id: string;
+      name: string;
+    };
+    mergedAt: string;
+    by: {
+      userId: string;
+      name: string | null;
+    } | null;
+    reason: string | null;
+    moved: Array<{
+      label: string;
+      n: number;
+    }>;
+    filled: string[];
+    tagsAdded: string[];
+    undone: {
+      at: string;
+      by: {
+        userId: string;
+        name: string | null;
+      } | null;
+      reason: string | null;
+    } | null;
+    undoableUntil: string;
+    canUndo: boolean;
+    blockedBy: string[];
+  }>;
+}
+
 export interface GetCustomerOutput {
   id: string;
   type: "residential" | "commercial";
@@ -8095,6 +8190,13 @@ export interface GetFieldSnapshotOutput {
       contentType: string | null;
       storageKey: string;
       addedAt: string;
+    }>;
+    customerNotes?: Array<{
+      id: string;
+      body: string;
+      notedAt: string;
+      pinned: boolean;
+      by: string | null;
     }>;
   }>;
   priceBook: Array<{
@@ -13479,6 +13581,54 @@ export interface ListCustomerDuplicatePairsOutput {
   total: number;
 }
 
+export interface ListCustomerNotesOutput {
+  pinned: Array<{
+    id: string;
+    customerId: string;
+    body: string;
+    notedAt: string;
+    author: {
+      userId: string;
+      name: string | null;
+    } | null;
+    origin: "typed" | "carried" | "imported";
+    pinned: boolean;
+    pinnedAt: string | null;
+    forField: boolean;
+    correctsNoteId: string | null;
+    editedAt: string | null;
+    editableUntil: string | null;
+    externalRef: {
+      source: string;
+      id: string;
+    } | null;
+  }>;
+  data: Array<{
+    id: string;
+    customerId: string;
+    body: string;
+    notedAt: string;
+    author: {
+      userId: string;
+      name: string | null;
+    } | null;
+    origin: "typed" | "carried" | "imported";
+    pinned: boolean;
+    pinnedAt: string | null;
+    forField: boolean;
+    correctsNoteId: string | null;
+    editedAt: string | null;
+    editableUntil: string | null;
+    externalRef: {
+      source: string;
+      id: string;
+    } | null;
+  }>;
+  nextCursor: string | null;
+  hasMore: boolean;
+  fieldOnly: boolean;
+}
+
 export interface ListCustomerPortalSessionsOutput {
   sessions: Array<{
     id: string;
@@ -17476,12 +17626,14 @@ export interface MergeCustomersInput {
 export interface MergeCustomersOutput {
   keptId: string;
   mergedId: string;
+  mergeRecordId: string;
   name: string;
   moved: Array<{
     label: string;
     n: number;
   }>;
   filled: string[];
+  tagsAdded: string[];
 }
 
 export interface MethodNotAllowed {
@@ -17873,6 +18025,32 @@ export interface PickUpRentalOutput {
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+  } | null;
+}
+
+export interface PinCustomerNoteInput {
+  pinned: boolean;
+}
+
+export interface PinCustomerNoteOutput {
+  id: string;
+  customerId: string;
+  body: string;
+  notedAt: string;
+  author: {
+    userId: string;
+    name: string | null;
+  } | null;
+  origin: "typed" | "carried" | "imported";
+  pinned: boolean;
+  pinnedAt: string | null;
+  forField: boolean;
+  correctsNoteId: string | null;
+  editedAt: string | null;
+  editableUntil: string | null;
+  externalRef: {
+    source: string;
+    id: string;
   } | null;
 }
 
@@ -24574,6 +24752,24 @@ export interface TurnPluginOnOutput {
   };
 }
 
+export interface UndoCustomerMergeInput {
+  reason?: string;
+}
+
+export interface UndoCustomerMergeOutput {
+  mergeRecordId: string;
+  keptId: string;
+  restoredId: string;
+  restoredName: string;
+  movedBack: Array<{
+    label: string;
+    n: number;
+  }>;
+  filledCleared: string[];
+  filledKept: string[];
+  tagsRemoved: string[];
+}
+
 export type UnpinDisposalFacilityInput = Record<string, unknown>;
 
 export interface UnpinDisposalFacilityOutput {
@@ -27494,6 +27690,10 @@ export interface AddCustomerContactParams {
   id: string;
 }
 
+export interface AddCustomerNoteParams {
+  id: string;
+}
+
 export interface AddEmergencyContactParams {
   membershipId: string;
 }
@@ -27958,6 +28158,10 @@ export interface DropJobSkillParams {
   id: string;
 }
 
+export interface EditCustomerNoteParams {
+  id: string;
+}
+
 export interface EditPurchaseOrderParams {
   id: string;
 }
@@ -28178,6 +28382,10 @@ export interface GetCustomerDuplicatesInput {
 }
 
 export interface GetCustomerMergedIntoInput {
+  id: string;
+}
+
+export interface GetCustomerMergesInput {
   id: string;
 }
 
@@ -28986,6 +29194,12 @@ export interface ListCustomerContactsInput {
 }
 
 export interface ListCustomerDuplicatePairsInput {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ListCustomerNotesInput {
+  id: string;
   cursor?: string;
   limit?: number;
 }
@@ -29816,6 +30030,10 @@ export interface PayPortalInvoiceWithCardParams {
 export type PendingTimeOffInput = Record<string, never>;
 
 export interface PickUpRentalParams {
+  id: string;
+}
+
+export interface PinCustomerNoteParams {
   id: string;
 }
 
@@ -30680,6 +30898,10 @@ export interface TurnPluginOnParams {
   id: string;
 }
 
+export interface UndoCustomerMergeParams {
+  id: string;
+}
+
 export interface UnpinDisposalFacilityParams {
   id: string;
 }
@@ -30996,6 +31218,7 @@ export interface OperationTypes {
   addChangeOrderLine: { input: AddChangeOrderLineParams & AddChangeOrderLineInput; output: AddChangeOrderLineOutput };
   addContractSite: { input: AddContractSiteParams & AddContractSiteInput; output: AddContractSiteOutput };
   addCustomerContact: { input: AddCustomerContactParams & AddCustomerContactInput; output: AddCustomerContactOutput };
+  addCustomerNote: { input: AddCustomerNoteParams & AddCustomerNoteInput; output: AddCustomerNoteOutput };
   addEmergencyContact: { input: AddEmergencyContactParams & AddEmergencyContactInput; output: AddEmergencyContactOutput };
   addEstimateOptionPhoto: { input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput; output: AddEstimateOptionPhotoOutput };
   addExpenseReceipt: { input: AddExpenseReceiptParams & AddExpenseReceiptInput; output: AddExpenseReceiptOutput };
@@ -31212,6 +31435,7 @@ export interface OperationTypes {
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
   dropJobSkill: { input: DropJobSkillParams & DropJobSkillInput; output: DropJobSkillOutput };
+  editCustomerNote: { input: EditCustomerNoteParams & EditCustomerNoteInput; output: EditCustomerNoteOutput };
   editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
   emailCustomerStatement: { input: EmailCustomerStatementParams & EmailCustomerStatementInput; output: EmailCustomerStatementOutput };
   emailPurchaseOrder: { input: EmailPurchaseOrderParams & EmailPurchaseOrderInput; output: EmailPurchaseOrderOutput };
@@ -31274,6 +31498,7 @@ export interface OperationTypes {
   getCustomerDeletability: { input: GetCustomerDeletabilityInput; output: GetCustomerDeletabilityOutput };
   getCustomerDuplicates: { input: GetCustomerDuplicatesInput; output: GetCustomerDuplicatesOutput };
   getCustomerMergedInto: { input: GetCustomerMergedIntoInput; output: GetCustomerMergedIntoOutput };
+  getCustomerMerges: { input: GetCustomerMergesInput; output: GetCustomerMergesOutput };
   getCustomerReferral: { input: GetCustomerReferralInput; output: GetCustomerReferralOutput };
   getCustomerStatement: { input: GetCustomerStatementInput; output: GetCustomerStatementOutput };
   getDiscountPolicy: { input: GetDiscountPolicyInput; output: GetDiscountPolicyOutput };
@@ -31484,6 +31709,7 @@ export interface OperationTypes {
   listCustomerCardAgreements: { input: ListCustomerCardAgreementsInput; output: ListCustomerCardAgreementsOutput };
   listCustomerContacts: { input: ListCustomerContactsInput; output: ListCustomerContactsOutput };
   listCustomerDuplicatePairs: { input: ListCustomerDuplicatePairsInput; output: ListCustomerDuplicatePairsOutput };
+  listCustomerNotes: { input: ListCustomerNotesInput; output: ListCustomerNotesOutput };
   listCustomerPortalSessions: { input: ListCustomerPortalSessionsInput; output: ListCustomerPortalSessionsOutput };
   listCustomerTags: { input: ListCustomerTagsInput; output: ListCustomerTagsOutput };
   listCustomers: { input: ListCustomersInput; output: ListCustomersOutput };
@@ -31700,6 +31926,7 @@ export interface OperationTypes {
   payTips: { input: PayTipsInput; output: PayTipsOutput };
   pendingTimeOff: { input: PendingTimeOffInput; output: PendingTimeOffOutput };
   pickUpRental: { input: PickUpRentalParams & PickUpRentalInput; output: PickUpRentalOutput };
+  pinCustomerNote: { input: PinCustomerNoteParams & PinCustomerNoteInput; output: PinCustomerNoteOutput };
   pinDisposalFacility: { input: PinDisposalFacilityParams & PinDisposalFacilityInput; output: PinDisposalFacilityOutput };
   pinLocation: { input: PinLocationParams & PinLocationInput; output: PinLocationOutput };
   pinProperty: { input: PinPropertyParams & PinPropertyInput; output: PinPropertyOutput };
@@ -32027,6 +32254,7 @@ export interface OperationTypes {
   transferStock: { input: TransferStockInput; output: TransferStockOutput };
   turnPluginOff: { input: TurnPluginOffParams & TurnPluginOffInput; output: TurnPluginOffOutput };
   turnPluginOn: { input: TurnPluginOnParams & TurnPluginOnInput; output: TurnPluginOnOutput };
+  undoCustomerMerge: { input: UndoCustomerMergeParams & UndoCustomerMergeInput; output: UndoCustomerMergeOutput };
   unpinDisposalFacility: { input: UnpinDisposalFacilityParams & UnpinDisposalFacilityInput; output: UnpinDisposalFacilityOutput };
   unpinLocation: { input: UnpinLocationParams & UnpinLocationInput; output: UnpinLocationOutput };
   unpinProperty: { input: UnpinPropertyParams & UnpinPropertyInput; output: UnpinPropertyOutput };
@@ -32122,6 +32350,7 @@ export const OPERATIONS = {
   addChangeOrderLine: { method: "POST", path: "/v1/project-change-orders/{changeOrderId}/lines", pathParams: ["changeOrderId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addContractSite: { method: "POST", path: "/v1/contracts/{contractId}/sites", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   addCustomerContact: { method: "POST", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
+  addCustomerNote: { method: "POST", path: "/v1/customers/{id}/notes", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addEmergencyContact: { method: "POST", path: "/v1/people/{membershipId}/emergency-contacts", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addEstimateOptionPhoto: { method: "POST", path: "/v1/estimate-options/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addExpenseReceipt: { method: "POST", path: "/v1/me/expenses/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
@@ -32338,6 +32567,7 @@ export const OPERATIONS = {
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   dropJobSkill: { method: "POST", path: "/v1/jobs/{id}/dropped-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","visit:assign_unqualified"] },
+  editCustomerNote: { method: "PATCH", path: "/v1/customer-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   emailCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   emailPurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -32400,6 +32630,7 @@ export const OPERATIONS = {
   getCustomerDeletability: { method: "GET", path: "/v1/customers/{id}/deletability", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   getCustomerDuplicates: { method: "GET", path: "/v1/customers/{id}/duplicates", pathParams: ["id"], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   getCustomerMergedInto: { method: "GET", path: "/v1/customers/{id}/merged-into", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
+  getCustomerMerges: { method: "GET", path: "/v1/customers/{id}/merges", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
   getCustomerReferral: { method: "GET", path: "/v1/customers/{id}/referral", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   getCustomerStatement: { method: "GET", path: "/v1/customers/{id}/statement", pathParams: ["id"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getDiscountPolicy: { method: "GET", path: "/v1/estimate-discount-policy", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
@@ -32610,6 +32841,7 @@ export const OPERATIONS = {
   listCustomerCardAgreements: { method: "GET", path: "/v1/customers/{id}/card-agreements", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listCustomerContacts: { method: "GET", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomerDuplicatePairs: { method: "GET", path: "/v1/customer-duplicates", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
+  listCustomerNotes: { method: "GET", path: "/v1/customers/{id}/notes", pathParams: ["id"], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
   listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listCustomerTags: { method: "GET", path: "/v1/customer-tags", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","fields","fieldMatch","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
@@ -32826,6 +33058,7 @@ export const OPERATIONS = {
   payTips: { method: "POST", path: "/v1/payroll/tip-payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   pendingTimeOff: { method: "GET", path: "/v1/time-off/pending", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:approve"] },
   pickUpRental: { method: "POST", path: "/v1/rentals/{id}/pickup", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  pinCustomerNote: { method: "POST", path: "/v1/customer-notes/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   pinDisposalFacility: { method: "PUT", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   pinLocation: { method: "POST", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   pinProperty: { method: "POST", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
@@ -33153,6 +33386,7 @@ export const OPERATIONS = {
   transferStock: { method: "POST", path: "/v1/stock/transfers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   turnPluginOff: { method: "POST", path: "/v1/app-plugins/{id}/turn-off", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   turnPluginOn: { method: "POST", path: "/v1/app-plugins/{id}/turn-on", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  undoCustomerMerge: { method: "POST", path: "/v1/customer-merges/{id}/undo", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
   unpinDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   unpinLocation: { method: "DELETE", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   unpinProperty: { method: "DELETE", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
@@ -33239,7 +33473,7 @@ export const OPERATIONS = {
 } as const;
 
 /** Operations whose list pages with `cursor` and `nextCursor`, for `paginate`. */
-export type PaginatedOperationId = "listBookingRequests" | "listConflicts" | "listConversations" | "listCreditNotes" | "listCustomRecords" | "listCustomerDuplicatePairs" | "listCustomers" | "listEstimates" | "listInvoices" | "listJobs" | "listPayments" | "listPriceBook" | "listProperties" | "listSetAsideCustomerDuplicates" | "listTasks" | "listWebhookDeliveries";
+export type PaginatedOperationId = "listBookingRequests" | "listConflicts" | "listConversations" | "listCreditNotes" | "listCustomRecords" | "listCustomerDuplicatePairs" | "listCustomerNotes" | "listCustomers" | "listEstimates" | "listInvoices" | "listJobs" | "listPayments" | "listPriceBook" | "listProperties" | "listSetAsideCustomerDuplicates" | "listTasks" | "listWebhookDeliveries";
 
 /** Bulk operations that can be asked what they would change, for `dryRun`. */
 export type DryRunOperationId = "applyPriceChange" | "applyVendorCatalogue" | "assignJobsToBranch" | "copyBackFromSandbox" | "createWorkflow" | "defineCustomField" | "defineCustomObject" | "deleteCustomField" | "deleteCustomObject" | "deleteWorkflow" | "importCustomRecords" | "mergeCustomerTags" | "publishWorkflow" | "renameCustomerTag" | "setItemTax" | "updateCustomField" | "updateCustomObject";
@@ -33314,6 +33548,15 @@ export abstract class GeneratedOperations {
    */
   addCustomerContact(input: AddCustomerContactParams & AddCustomerContactInput, options?: CallOptions): Promise<AddCustomerContactOutput> {
     return this.call("addCustomerContact", input, options);
+  }
+
+  /**
+   * Write a note on a customer.
+   *
+   * POST /v1/customers/{id}/notes. Needs customer:write.
+   */
+  addCustomerNote(input: AddCustomerNoteParams & AddCustomerNoteInput, options?: CallOptions): Promise<AddCustomerNoteOutput> {
+    return this.call("addCustomerNote", input, options);
   }
 
   /**
@@ -35261,6 +35504,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Fix a note while it is fresh.
+   *
+   * PATCH /v1/customer-notes/{id}. Needs customer:write.
+   */
+  editCustomerNote(input: EditCustomerNoteParams & EditCustomerNoteInput, options?: CallOptions): Promise<EditCustomerNoteOutput> {
+    return this.call("editCustomerNote", input, options);
+  }
+
+  /**
    * Change an order before it is sent.
    *
    * PUT /v1/purchase-orders/{id}. Needs po:write.
@@ -35816,6 +36068,15 @@ export abstract class GeneratedOperations {
    */
   getCustomerMergedInto(input: GetCustomerMergedIntoInput, options?: CallOptions): Promise<GetCustomerMergedIntoOutput> {
     return this.call("getCustomerMergedInto", input, options);
+  }
+
+  /**
+   * The duplicates merged into a customer, and whether each can be undone.
+   *
+   * GET /v1/customers/{id}/merges. Needs customer:merge.
+   */
+  getCustomerMerges(input: GetCustomerMergesInput, options?: CallOptions): Promise<GetCustomerMergesOutput> {
+    return this.call("getCustomerMerges", input, options);
   }
 
   /**
@@ -37706,6 +37967,15 @@ export abstract class GeneratedOperations {
    */
   listCustomerDuplicatePairs(input: ListCustomerDuplicatePairsInput = {} as ListCustomerDuplicatePairsInput, options?: CallOptions): Promise<ListCustomerDuplicatePairsOutput> {
     return this.call("listCustomerDuplicatePairs", input, options);
+  }
+
+  /**
+   * A customer's notes.
+   *
+   * GET /v1/customers/{id}/notes. Needs customer:read.
+   */
+  listCustomerNotes(input: ListCustomerNotesInput, options?: CallOptions): Promise<ListCustomerNotesOutput> {
+    return this.call("listCustomerNotes", input, options);
   }
 
   /**
@@ -39650,6 +39920,15 @@ export abstract class GeneratedOperations {
    */
   pickUpRental(input: PickUpRentalParams & PickUpRentalInput, options?: CallOptions): Promise<PickUpRentalOutput> {
     return this.call("pickUpRental", input, options);
+  }
+
+  /**
+   * Keep a note at the top, or stop.
+   *
+   * POST /v1/customer-notes/{id}/pin. Needs customer:write.
+   */
+  pinCustomerNote(input: PinCustomerNoteParams & PinCustomerNoteInput, options?: CallOptions): Promise<PinCustomerNoteOutput> {
+    return this.call("pinCustomerNote", input, options);
   }
 
   /**
@@ -42593,6 +42872,15 @@ export abstract class GeneratedOperations {
    */
   turnPluginOn(input: TurnPluginOnParams & TurnPluginOnInput, options?: CallOptions): Promise<TurnPluginOnOutput> {
     return this.call("turnPluginOn", input, options);
+  }
+
+  /**
+   * Take a merge back.
+   *
+   * POST /v1/customer-merges/{id}/undo. Needs customer:merge.
+   */
+  undoCustomerMerge(input: UndoCustomerMergeParams & UndoCustomerMergeInput, options?: CallOptions): Promise<UndoCustomerMergeOutput> {
+    return this.call("undoCustomerMerge", input, options);
   }
 
   /**

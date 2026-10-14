@@ -277,9 +277,65 @@ export const mergeCustomers = defineRoute({
   output: z.object({
     keptId: Uuid,
     mergedId: Uuid,
+    /** The merge's own record: what `POST /v1/customer-merges/{id}/undo` names. */
+    mergeRecordId: Uuid,
     name: z.string(),
     moved: z.array(BlockingCount),
     filled: z.array(z.string()),
+    /** The duplicate's tags added to the record kept, as they were added. */
+    tagsAdded: z.array(z.string()),
+  }),
+});
+
+const Who = z.object({ userId: Uuid, name: z.string().nullable() });
+
+export const getCustomerMerges = defineRoute({
+  method: "get",
+  path: "/v1/customers/{id}/merges",
+  summary: "The duplicates merged into a customer, and whether each can be undone",
+  description:
+    "Newest first. Each says who merged what and when, what moved, and whether it can be undone now: `canUndo`, and when it cannot, `blockedBy` with every reason in words. A merge can be undone for 30 days (`undoableUntil`), and not once money has been written to the record kept since, a record it moved has moved on, work has been booked for the record kept at an address that would go back, or either record has been merged or removed since.",
+  module: "M03",
+  permissions: ["customer:merge"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    merges: z.array(z.object({
+      id: Uuid,
+      keptCustomerId: Uuid,
+      merged: z.object({ id: Uuid, name: z.string() }),
+      mergedAt: z.string().datetime(),
+      by: Who.nullable(),
+      reason: z.string().nullable(),
+      moved: z.array(BlockingCount),
+      filled: z.array(z.string()),
+      tagsAdded: z.array(z.string()),
+      undone: z.object({ at: z.string().datetime(), by: Who.nullable(), reason: z.string().nullable() }).nullable(),
+      undoableUntil: z.string().datetime(),
+      canUndo: z.boolean(),
+      blockedBy: z.array(z.string()),
+    })),
+  }),
+});
+
+export const undoCustomerMerge = defineRoute({
+  method: "post",
+  path: "/v1/customer-merges/{id}/undo",
+  summary: "Take a merge back",
+  description:
+    "Moves exactly the rows the merge moved back to the duplicate, puts back the address links it took out as doubles, clears the blank fields it filled where nobody has changed them since, takes off the tags it added, and makes the duplicate a customer of its own again. Anything else written to the record kept since the merge stays with it. Refused with a 409 naming every reason at once when it cannot be done (see `GET /v1/customers/{id}/merges`). Written to the audit log as `customer.merge_undone`. A retry with the same idempotency key returns the first answer.",
+  module: "M03",
+  permissions: ["customer:merge"],
+  idempotent: true,
+  input: z.object({ id: Uuid, reason: z.string().max(500).optional() }),
+  output: z.object({
+    mergeRecordId: Uuid,
+    keptId: Uuid,
+    restoredId: Uuid,
+    restoredName: z.string(),
+    movedBack: z.array(BlockingCount),
+    filledCleared: z.array(z.string()),
+    filledKept: z.array(z.string()),
+    tagsRemoved: z.array(z.string()),
   }),
 });
 
@@ -318,5 +374,5 @@ export const getCustomerMergedInto = defineRoute({
 export const customerRoutes = {
   listCustomers, getCustomer, createCustomer, updateCustomer,
   getCustomerDeletability, removeCustomer, mergeCustomers, getCustomerMergedInto,
-  getCustomerDuplicates,
+  getCustomerDuplicates, getCustomerMerges, undoCustomerMerge,
 } as const;

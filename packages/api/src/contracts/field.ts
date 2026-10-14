@@ -392,6 +392,18 @@ export const VisitForField = z.object({
     storageKey: z.string(),
     addedAt: z.string().datetime(),
   })).optional(),
+  /**
+   * The office's notes on this customer that were marked for the field (M03), pinned ones first and then
+   * newest first, at most twenty. Nothing the office did not mark is here. Absent from older servers.
+   */
+  customerNotes: z.array(z.object({
+    id: Uuid,
+    body: z.string(),
+    notedAt: z.string().datetime(),
+    pinned: z.boolean(),
+    /** Who wrote it, or null for one carried over or brought in from a file. */
+    by: z.string().nullable(),
+  })).optional(),
 });
 
 /**

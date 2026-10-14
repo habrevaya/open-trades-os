@@ -8,6 +8,7 @@ import { audit, inTenant, guardedRead, NotFoundError, type ServiceContext } from
 import { catalogue, CARRIED_COMPANY_COLUMNS, type Catalogued, type CatalogColumn, type Manifest } from "./export";
 import { sha256 } from "./files";
 import { remember, replayed } from "./once";
+import * as customerNotes from "./customer-notes";
 import { fileStorage } from "../storage";
 import { openCopy, CopyError, type Copy } from "../portability/reader";
 
@@ -526,6 +527,17 @@ async function load(
   for (const table of manifest.tables) {
     if (!plans.has(table.table) || order.order.includes(table.table)) continue;
     report.notes.push(`${table.table} was not loaded.`);
+  }
+
+  /**
+   * A copy taken before customers had notes holds what was typed in the old
+   * notes box. It is carried into each customer's first note here, as the
+   * migration that made notes carried this company's own, so it is read
+   * rather than restored into a column nothing shows.
+   */
+  const carried = await customerNotes.carryOldBox(tx);
+  if (carried > 0) {
+    report.notes.push(`${carried} ${carried === 1 ? "customer's old notes box was" : "customers' old notes boxes were"} made into ${carried === 1 ? "a first note" : "each one's first note"}, marked as carried over.`);
   }
 
   /* ---- 10. The company itself. */

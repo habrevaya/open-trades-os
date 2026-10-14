@@ -78,6 +78,7 @@ import { locationRoutes } from "./location";
 import { acquisitionRoutes } from "./acquisition";
 import { customerTagRoutes } from "./customer-tags";
 import { contactRoutes } from "./contacts";
+import { customerNoteRoutes } from "./customer-notes";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
 import { taskRuleRoutes } from "./task-rules";
 import { customerPortalRoutes } from "./customer-portal";
@@ -186,6 +187,7 @@ export * from "./agreements";
 export * from "./visit-changes";
 export * from "./customer-tags";
 export * from "./contacts";
+export * from "./customer-notes";
 export * from "./equipment";
 export * from "./pricebook-bulk";
 export * from "./task-rules";
@@ -310,6 +312,7 @@ export const routes = {
   ...reportRoutes,
   ...customerTagRoutes,
   ...contactRoutes,
+  ...customerNoteRoutes,
   ...priceBookBulkRoutes,
   ...taskRuleRoutes,
   ...customerPortalRoutes,

@@ -869,6 +869,20 @@
       "when": 1791946461400,
       "tag": "0123_woozy_iron_monger",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1791949530852,
+      "tag": "0124_sweet_demogoblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1791950230490,
+      "tag": "0125_lucky_sauron",
+      "breakpoints": true
     }
   ]
 }
