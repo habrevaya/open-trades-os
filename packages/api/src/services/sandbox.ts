@@ -176,6 +176,8 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
       .where(and(
         eq(schema.appPlugin.kind, "job_workflow"),
         isNull(schema.appPlugin.retiredAt),
+        // One the company turned off is not in force, so it is not copied as if it were.
+        isNull(schema.appPlugin.disabledAt),
         eq(schema.connectedApp.status, "active"),
       ))).map((r) => r.plugin);
     const templates = await tx.select().from(schema.proposalTemplate).where(isNull(schema.proposalTemplate.deletedAt));

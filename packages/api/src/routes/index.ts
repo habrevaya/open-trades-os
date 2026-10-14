@@ -115,13 +115,14 @@ export const handlers = {
   getJob: jobs.get,
   listJobs: jobs.list,
   updateJob: jobs.update,
-  scheduleVisit: jobs.addVisit,
+  // The company's required fields are asked for here, as on the screens; the product's own bookings start with none.
+  scheduleVisit: (ctx, input) => jobs.addVisit(ctx, input, { requireFields: true }),
   completeVisit: jobs.complete,
   listJobLines: jobs.lines,
   listJobTypes: jobs.listTypes,
 
   // Money
-  createInvoice: billing.create,
+  createInvoice: (ctx, input) => billing.create(ctx, input, { requireFields: true }),
   getInvoice: billing.get,
   listInvoices: billing.list,
   recordPayment: billing.pay,
@@ -136,7 +137,7 @@ export const handlers = {
   getArAging: billing.arAging,
 
   // Sell
-  createEstimate: estimates.create,
+  createEstimate: (ctx, input) => estimates.create(ctx, input, { requireFields: true }),
   getEstimate: estimates.get,
   listEstimates: estimates.list,
   sendEstimate: estimates.send,
@@ -779,6 +780,9 @@ export const handlers = {
   approveAppRequest: apps.handlers.approveAppRequest,
   refuseAppRequest: apps.handlers.refuseAppRequest,
   listPlugins: plugins.handlers.listPlugins,
+  listAppPlugins: plugins.handlers.listAppPlugins,
+  turnPluginOff: plugins.handlers.turnPluginOff,
+  turnPluginOn: plugins.handlers.turnPluginOn,
   registerJobWorkflow: plugins.handlers.registerJobWorkflow,
   retireJobWorkflow: plugins.handlers.retireJobWorkflow,
   registerPricingRule: plugins.handlers.registerPricingRule,

@@ -265,6 +265,12 @@ export const registerEquipment = defineRoute({
     serialElsewhereConfirmed: z.boolean().optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
+    /**
+     * The company's own fields for this unit (M29), by key. A field the
+     * company marked required has to be here, and a refusal is one sentence
+     * per field at `customFields.<key>`. A unit a technician records from the field starts with none.
+     */
+    customFields: z.record(z.unknown()).optional(),
   }),
   output: z.object({ id: Uuid }),
 });

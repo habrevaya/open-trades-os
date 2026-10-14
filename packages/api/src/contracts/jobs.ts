@@ -359,6 +359,12 @@ export const scheduleVisit = defineRoute({
     bookAnyway: z.boolean().optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
+    /**
+     * The company's own fields for this visit (M29), by key. A field the
+     * company marked required has to be here, and a refusal is one sentence
+     * per field at `customFields.<key>`. A visit the product makes itself (the first one booked with a new job, a recurring one, one the board adds) starts with none.
+     */
+    customFields: z.record(z.unknown()).optional(),
   }),
   output: Visit,
 });

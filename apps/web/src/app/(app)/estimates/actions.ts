@@ -4,7 +4,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { ConflictError, deposits, estimates } from "@opentradesos/api/services";
+import { ConflictError, customFields, deposits, estimates } from "@opentradesos/api/services";
+import { can } from "@opentradesos/core";
+import { customFieldsFrom } from "@/lib/custom-field-form";
 import {
   createEstimate, sendEstimate, requestDeposit, convertEstimate, approveEstimate, declineEstimate,
 } from "@opentradesos/api/contracts";
@@ -21,10 +23,13 @@ const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() 
 export async function writeEstimate(_previous: FormState, form: FormData): Promise<FormState> {
   let id: string | null = null;
   const result = await attempt(form, async () => {
+    const c = await ctx();
+    const definitions = can(c.actor, "estimate:read") ? await customFields.formFields(c, "estimate") : [];
     const input = parsed(createEstimate.input, {
       customerId: field(form, "customerId"),
       propertyId: field(form, "propertyId"),
       jobId: field(form, "jobId"),
+      customFields: customFieldsFrom(form, definitions),
       title: field(form, "title"),
       expiresOn: field(form, "expiresOn"),
       /**
@@ -34,7 +39,8 @@ export async function writeEstimate(_previous: FormState, form: FormData): Promi
       ...(field(form, "taxPercent") ? { taxRate: rateFromPercent(field(form, "taxPercent")) } : {}),
       options: optionsFromForm(form),
     });
-    id = (await estimates.create(await ctx(), input)).id as string;
+    // A person is writing this one, so the company's required fields are asked for.
+    id = (await estimates.create(c, input, { requireFields: true })).id as string;
   });
   if (!id) return result;
   redirect(`/estimates/${id}`);

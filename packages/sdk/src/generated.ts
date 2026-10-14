@@ -3042,6 +3042,7 @@ export interface CreateEstimateInput {
   propertyId: string;
   jobId?: string;
   title?: string;
+  customFields?: Record<string, unknown>;
   issuedOn?: string;
   expiresOn?: string;
   terms?: string;
@@ -3224,6 +3225,7 @@ export interface CreateInvoiceInput {
     coverageSource?: "customer" | "agreement" | "parts_warranty" | "labour_warranty" | "our_warranty" | "home_warranty" | "insurance" | "goodwill" | "no_charge_callback" | "contract";
     jobLineId?: string;
   }>;
+  customFields?: Record<string, unknown>;
   taxRateId?: string | null;
   adjustment?: {
     name: string;
@@ -5677,6 +5679,7 @@ export interface DrillReportInput {
       op: "eq" | "neq" | "in";
       value: string | string[];
     }>;
+    fieldMatch?: "all" | "any";
     from?: string;
     to?: string;
     orderBy?: string;
@@ -12085,6 +12088,31 @@ export interface ListAnsweringPhonesOutput {
   }>;
 }
 
+export interface ListAppPluginsOutput {
+  plugins: Array<{
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  }>;
+}
+
 export interface ListAppsOutput {
   apps: Array<{
     id: string;
@@ -12130,6 +12158,12 @@ export interface ListAppsOutput {
       definition: Record<string, unknown>;
       summary: string;
       on: boolean;
+      state: "on" | "turned_off" | "app_off" | "removed";
+      turnedOff: {
+        at: string;
+        by: string | null;
+        reason: string | null;
+      } | null;
       retiredAt: string | null;
       registeredAt: string;
       changedAt: string;
@@ -14814,6 +14848,12 @@ export interface ListPluginsOutput {
     definition: Record<string, unknown>;
     summary: string;
     on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
     retiredAt: string | null;
     registeredAt: string;
     changedAt: string;
@@ -15296,6 +15336,7 @@ export interface ListReportDatasetsOutput {
     dimensions: Array<{
       key: string;
       label: string;
+      field?: boolean;
     }>;
     measures: Array<{
       key: string;
@@ -19317,6 +19358,7 @@ export interface RegisterEquipmentInput {
     source: string;
     id: string;
   };
+  customFields?: Record<string, unknown>;
 }
 
 export interface RegisterEquipmentOutput {
@@ -19352,6 +19394,12 @@ export interface RegisterJobWorkflowOutput {
     definition: Record<string, unknown>;
     summary: string;
     on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
     retiredAt: string | null;
     registeredAt: string;
     changedAt: string;
@@ -19390,6 +19438,12 @@ export interface RegisterPricingRuleOutput {
     definition: Record<string, unknown>;
     summary: string;
     on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
     retiredAt: string | null;
     registeredAt: string;
     changedAt: string;
@@ -19424,6 +19478,12 @@ export interface RegisterReportTypeOutput {
     definition: Record<string, unknown>;
     summary: string;
     on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
     retiredAt: string | null;
     registeredAt: string;
     changedAt: string;
@@ -20431,6 +20491,12 @@ export interface RetireJobWorkflowOutput {
     definition: Record<string, unknown>;
     summary: string;
     on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
     retiredAt: string | null;
     registeredAt: string;
     changedAt: string;
@@ -20452,6 +20518,12 @@ export interface RetirePricingRuleOutput {
     definition: Record<string, unknown>;
     summary: string;
     on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
     retiredAt: string | null;
     registeredAt: string;
     changedAt: string;
@@ -20480,6 +20552,12 @@ export interface RetireReportTypeOutput {
     definition: Record<string, unknown>;
     summary: string;
     on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
     retiredAt: string | null;
     registeredAt: string;
     changedAt: string;
@@ -20738,6 +20816,12 @@ export interface ReviewAppRequestOutput {
       definition: Record<string, unknown>;
       summary: string;
       on: boolean;
+      state: "on" | "turned_off" | "app_off" | "removed";
+      turnedOff: {
+        at: string;
+        by: string | null;
+        reason: string | null;
+      } | null;
       retiredAt: string | null;
       registeredAt: string;
       changedAt: string;
@@ -21226,6 +21310,7 @@ export interface ScheduleVisitInput {
     source: string;
     id: string;
   };
+  customFields?: Record<string, unknown>;
 }
 
 export interface ScheduleVisitOutput {
@@ -23928,6 +24013,62 @@ export interface TransferStockOutput {
     sequence: number;
     occurredAt: string;
   }>;
+}
+
+export interface TurnPluginOffInput {
+  reason?: string;
+}
+
+export interface TurnPluginOffOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
+}
+
+export type TurnPluginOnInput = Record<string, unknown>;
+
+export interface TurnPluginOnOutput {
+  plugin: {
+    id: string;
+    appId: string | null;
+    appName: string;
+    kind: "job_workflow" | "pricing_rule" | "report_type";
+    key: string;
+    name: string;
+    version: number;
+    jobTypeId: string | null;
+    definition: Record<string, unknown>;
+    summary: string;
+    on: boolean;
+    state: "on" | "turned_off" | "app_off" | "removed";
+    turnedOff: {
+      at: string;
+      by: string | null;
+      reason: string | null;
+    } | null;
+    retiredAt: string | null;
+    registeredAt: string;
+    changedAt: string;
+  };
 }
 
 export type UnpinDisposalFacilityInput = Record<string, unknown>;
@@ -28054,6 +28195,8 @@ export interface ListAgreementsInput {
 
 export type ListAnsweringPhonesInput = Record<string, never>;
 
+export type ListAppPluginsInput = Record<string, never>;
+
 export type ListAppsInput = Record<string, never>;
 
 export interface ListAssetReadingsInput {
@@ -28280,6 +28423,7 @@ export interface ListCustomersInput {
   fieldKey?: string;
   fieldValue?: string;
   fields?: string[];
+  fieldMatch?: "any" | "all";
   includeInactive?: boolean;
   externalSource?: string;
   externalId?: string;
@@ -29919,6 +30063,14 @@ export interface TranscribeCallParams {
   id: string;
 }
 
+export interface TurnPluginOffParams {
+  id: string;
+}
+
+export interface TurnPluginOnParams {
+  id: string;
+}
+
 export interface UnpinDisposalFacilityParams {
   id: string;
 }
@@ -30665,6 +30817,7 @@ export interface OperationTypes {
   listAgreementRenewals: { input: ListAgreementRenewalsInput; output: ListAgreementRenewalsOutput };
   listAgreements: { input: ListAgreementsInput; output: ListAgreementsOutput };
   listAnsweringPhones: { input: ListAnsweringPhonesInput; output: ListAnsweringPhonesOutput };
+  listAppPlugins: { input: ListAppPluginsInput; output: ListAppPluginsOutput };
   listApps: { input: ListAppsInput; output: ListAppsOutput };
   listAssetReadings: { input: ListAssetReadingsInput; output: ListAssetReadingsOutput };
   listAssets: { input: ListAssetsInput; output: ListAssetsOutput };
@@ -31243,6 +31396,8 @@ export interface OperationTypes {
   traceStockUnit: { input: TraceStockUnitInput; output: TraceStockUnitOutput };
   transcribeCall: { input: TranscribeCallParams & TranscribeCallInput; output: TranscribeCallOutput };
   transferStock: { input: TransferStockInput; output: TransferStockOutput };
+  turnPluginOff: { input: TurnPluginOffParams & TurnPluginOffInput; output: TurnPluginOffOutput };
+  turnPluginOn: { input: TurnPluginOnParams & TurnPluginOnInput; output: TurnPluginOnOutput };
   unpinDisposalFacility: { input: UnpinDisposalFacilityParams & UnpinDisposalFacilityInput; output: UnpinDisposalFacilityOutput };
   unpinLocation: { input: UnpinLocationParams & UnpinLocationInput; output: UnpinLocationOutput };
   unpinProperty: { input: UnpinPropertyParams & UnpinPropertyInput; output: UnpinPropertyOutput };
@@ -31771,6 +31926,7 @@ export const OPERATIONS = {
   listAgreementRenewals: { method: "GET", path: "/v1/agreement-renewals", pathParams: [], queryParams: ["withinDays"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
   listAgreements: { method: "GET", path: "/v1/agreements", pathParams: [], queryParams: ["status","customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
   listAnsweringPhones: { method: "GET", path: "/v1/answering-phones", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listAppPlugins: { method: "GET", path: "/v1/app-plugins", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   listApps: { method: "GET", path: "/v1/apps", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listAssetReadings: { method: "GET", path: "/v1/assets/{assetId}/readings", pathParams: ["assetId"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listAssets: { method: "GET", path: "/v1/assets", pathParams: [], queryParams: ["kind","includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
@@ -31819,7 +31975,7 @@ export const OPERATIONS = {
   listCustomerDuplicatePairs: { method: "GET", path: "/v1/customer-duplicates", pathParams: [], queryParams: ["cursor","limit"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:merge"] },
   listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listCustomerTags: { method: "GET", path: "/v1/customer-tags", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
-  listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","fields","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
+  listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","fields","fieldMatch","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
   listDeclaredSubmissions: { method: "GET", path: "/v1/compliance/submissions/declared", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeficiencies: { method: "GET", path: "/v1/inspection-deficiencies", pathParams: [], queryParams: ["propertyId","customerId","includeSettled","now"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeliveries: { method: "GET", path: "/v1/deliveries", pathParams: [], queryParams: ["customerId","propertyId","equipmentId","product","from","to","partialOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -32349,6 +32505,8 @@ export const OPERATIONS = {
   traceStockUnit: { method: "GET", path: "/v1/stock/units/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   transcribeCall: { method: "POST", path: "/v1/calls/{id}/transcribe", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   transferStock: { method: "POST", path: "/v1/stock/transfers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  turnPluginOff: { method: "POST", path: "/v1/app-plugins/{id}/turn-off", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  turnPluginOn: { method: "POST", path: "/v1/app-plugins/{id}/turn-on", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   unpinDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   unpinLocation: { method: "DELETE", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   unpinProperty: { method: "DELETE", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
@@ -36415,6 +36573,15 @@ export abstract class GeneratedOperations {
    */
   listAnsweringPhones(input: ListAnsweringPhonesInput = {} as ListAnsweringPhonesInput, options?: CallOptions): Promise<ListAnsweringPhonesOutput> {
     return this.call("listAnsweringPhones", input, options);
+  }
+
+  /**
+   * Everything the connected applications added.
+   *
+   * GET /v1/app-plugins. Needs integration:read.
+   */
+  listAppPlugins(input: ListAppPluginsInput = {} as ListAppPluginsInput, options?: CallOptions): Promise<ListAppPluginsOutput> {
+    return this.call("listAppPlugins", input, options);
   }
 
   /**
@@ -41617,6 +41784,24 @@ export abstract class GeneratedOperations {
    */
   transferStock(input: TransferStockInput, options?: CallOptions): Promise<TransferStockOutput> {
     return this.call("transferStock", input, options);
+  }
+
+  /**
+   * Turn one plugin off, leaving its application on.
+   *
+   * POST /v1/app-plugins/{id}/turn-off. Needs integration:write.
+   */
+  turnPluginOff(input: TurnPluginOffParams & TurnPluginOffInput, options?: CallOptions): Promise<TurnPluginOffOutput> {
+    return this.call("turnPluginOff", input, options);
+  }
+
+  /**
+   * Turn a plugin the company turned off back on.
+   *
+   * POST /v1/app-plugins/{id}/turn-on. Needs integration:write.
+   */
+  turnPluginOn(input: TurnPluginOnParams & TurnPluginOnInput, options?: CallOptions): Promise<TurnPluginOnOutput> {
+    return this.call("turnPluginOn", input, options);
   }
 
   /**

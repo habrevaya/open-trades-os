@@ -306,9 +306,30 @@ export function Day({
    * An inspection, filed whole into the queue. Its id is made here, so a
    * retry names the same inspection and the server files it once.
    */
-  async function fileInspection(visitId: string, input: Parameters<Parameters<typeof InspectionRun>[0]["onFile"]>[0]) {
+  async function fileInspection(visitId: string, input: Parameters<Parameters<typeof InspectionRun>[0]["onFile"]>[0]): Promise<string | null> {
     const queue = queueRef.current;
-    if (!queue) return;
+    const uploads = uploadsRef.current;
+    if (!queue) return "This browser cannot keep an inspection while there is no signal. Use the phone app, or turn off private browsing.";
+    /**
+     * The drawn signature goes on the disk and into the upload queue BEFORE
+     * the inspection that names it, as the phone app does and as a customer's
+     * signature on an estimate is, so the record of the inspection and the
+     * picture of who signed it cannot be parted by a dead battery. If the
+     * picture cannot be kept, nothing is filed and the form says so: a
+     * quiet filing without it would be a signed report that is not.
+     */
+    let signatureUploadId: string | undefined;
+    if (input.signature) {
+      if (!uploads) return "This browser cannot keep the signature. Clear it and file with your typed name, or use the phone app.";
+      const kept = await keepSignature(input.signature);
+      if ("problem" in kept) return `${kept.problem} Or clear it and file with your typed name only.`;
+      signatureUploadId = kept.uploadId;
+      await uploads.add({
+        uploadId: kept.uploadId, visitId, kind: "signature", contentType: "image/png",
+        localUri: kept.localUri, byteSize: kept.byteSize, contentHash: kept.contentHash,
+        caption: `Inspection signed off by ${input.signedByName.trim()}`.slice(0, 200), occurredAt: new Date(),
+      });
+    }
     const inspectionId = crypto.randomUUID();
     const queued = await queue.enqueue({
       kind: "inspection.record",
@@ -316,6 +337,7 @@ export function Day({
       payload: inspectionPayload({
         visitId, program: input.program, built: input.built,
         inspectorName: input.inspectorName, inspectorLicense: input.inspectorLicense, signedByName: input.signedByName,
+        signatureUploadId,
       }),
     });
     setInspections((all) => ({
@@ -324,6 +346,7 @@ export function Day({
     }));
     await refresh(queue);
     void flush();
+    return null;
   }
 
   // A background attempt every half minute, and one whenever the browser says

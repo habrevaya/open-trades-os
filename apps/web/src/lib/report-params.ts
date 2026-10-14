@@ -83,12 +83,15 @@ export function definitionFrom(params: Params): reporting.ReportDefinition | nul
   const orderBy = one(params.orderBy);
   const branchId = one(params.branch);
   const filters = filtersFrom(params);
+  /** Only "any" is ever written down: all of them is what a report always did. */
+  const fieldMatch = one(params.fieldmatch) === "any" ? ("any" as const) : undefined;
 
   return {
     dataset,
     dimensions: many(params.dimensions),
     measures: many(params.measures),
     ...(filters && filters.length > 0 ? { filters } : {}),
+    ...(fieldMatch ? { fieldMatch } : {}),
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
     ...(orderBy ? { orderBy } : {}),
@@ -106,6 +109,7 @@ export function queryFor(definition: reporting.ReportDefinition): string {
     const value = Array.isArray(filter.value) ? filter.value.join(",") : filter.value;
     query.append("filter", `${filter.dimension}:${filter.op}:${value}`);
   }
+  if (definition.fieldMatch === "any") query.set("fieldmatch", "any");
   if (definition.from) query.set("from", definition.from);
   if (definition.to) query.set("to", definition.to);
   if (definition.orderBy) query.set("orderBy", definition.orderBy);

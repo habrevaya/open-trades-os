@@ -31,7 +31,7 @@ export interface EstimateOffer {
 }
 
 export function EstimateComposer({
-  action, hidden, properties, items, defaultPropertyId, offers = [],
+  action, hidden, properties, items, defaultPropertyId, offers = [], fields,
 }: {
   action: (previous: FormState, form: FormData) => Promise<FormState>;
   hidden: Record<string, string>;
@@ -39,6 +39,8 @@ export function EstimateComposer({
   items: { id: string; name: string; price: string }[];
   defaultPropertyId?: string | undefined;
   offers?: EstimateOffer[] | undefined;
+  /** The company's own fields for a new estimate, drawn above the button. */
+  fields?: React.ReactNode;
 }) {
   const [state, runForm, pending] = useKeptAction(action, null);
   const counter = useRef(100);
@@ -191,6 +193,8 @@ export function EstimateComposer({
           Add an option
         </button>
       )}
+
+      {fields}
 
       <div>
         <button type="submit" disabled={pending}

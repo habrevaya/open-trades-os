@@ -105,6 +105,18 @@ removal is in the audit log. Whether a plugin is in force is a join on the
 application's status on every read, so turning the application off turns
 everything it added off at the same moment.
 
+**The company can stop one plugin without stopping the application.** Somebody
+holding `integration:write` turns a pricing rule, a job workflow or a report type
+off on its own, and back on, from "What apps changed" under Settings. It is a flag
+the company owns, kept apart from the application's own removal: the application
+removes a plugin and can register it again, the company turns one off and only the
+company turns it back on, so a new version from the application never undoes a
+decision made at the company. Off means what it means for an application that is
+off, for that one thing: a rule prices nothing from the next estimate or invoice
+priced, a workflow stops gating moves and stops showing its stages, a report type is
+not offered. Nothing already priced or moved is changed. It is read at the one place
+"in force" is decided, so every use of a plugin leaves it out at the same moment.
+
 ## Setup
 
 There are three ways to connect, and all three end at the same endpoint with
@@ -286,13 +298,31 @@ what its base, columns and filters need.
 
 **On Settings, Applications** (`/settings/apps`), each application lists what it
 added: what kind, its name, what it does in a sentence, its version, and
-whether it is on, removed by the application, or off because the application is
-turned off. `GET /v1/apps` carries the same under each application.
+whether it is on, turned off by the company, removed by the application, or off
+because the application is turned off. `GET /v1/apps` carries the same under
+each application.
+
+**On "What apps changed"** (`/settings/apps/added`), everything every application
+added is listed under what it is (pricing rules, job stages, report types) with the
+application it came from, what it does, its version and its state. Somebody with
+`integration:write` sees a "Turn off" button on each row that is on, with a box for
+why that nobody has to fill, and a "Turn on" button on each the company turned off;
+the row then says who turned it off, when and why. Somebody with `integration:read`
+and no more sees the list without the buttons. A plugin its application removed
+cannot be turned on (only the application can register it again), and one that is off
+because its application is off is shown as that, with no button. `GET /v1/app-plugins`
+lists the same, `POST /v1/app-plugins/{id}/turn-off` (with an optional `reason`) and
+`POST /v1/app-plugins/{id}/turn-on` switch one, and every switch is in the audit log
+(`plugin.turned_off`, `plugin.turned_on`) with who and why. Switching one already in the
+state asked for changes nothing and writes no line.
 
 ## Permissions
 
 There is no permission specific to this module. A tool requires exactly what
-its route requires, so the matrix is the API's matrix.
+its route requires, so the matrix is the API's matrix. Turning one plugin off or
+on is `integration:write`, the permission that lets an application in and takes
+it out, and seeing the list is `integration:read`; neither is something an
+application can do to itself.
 
 | Role | Access |
 |---|---|
@@ -333,6 +363,9 @@ The plugin routes:
 | `DELETE /v1/plugins/pricing-rules/{key}` | `pricebook:write` |
 | `POST /v1/plugins/report-types` | `report:build`, and whatever its base, columns and filters need |
 | `DELETE /v1/plugins/report-types/{key}` | `report:build` |
+| `GET /v1/app-plugins` | `integration:read` |
+| `POST /v1/app-plugins/{id}/turn-off` | `integration:write` |
+| `POST /v1/app-plugins/{id}/turn-on` | `integration:write` |
 | `GET /v1/jobs/{id}/stages` | `job:read` |
 | `GET /v1/report-datasets` | `report:read` |
 
@@ -399,9 +432,13 @@ line billing work recorded on the job is sent back as the price before the
 rules and priced as typed, so a rule does not touch it a second time. A gate is
 a checklist item or a job field, only one workflow can be in force per job
 type, a stage is a name over the existing statuses and never a new status, and
-nobody at the company can write stages, a rule or a report type on a screen or
-turn one plugin off on its own: they come from an application, and the
-company's control is turning that application off. A report type is a cut of
+nobody at the company can write stages, a rule or a report type on a screen: they
+come from an application, and the company's control is to turn that application off
+or one plugin of it. A plugin the company turned off stays registered, so a workflow
+turned off still holds its job type and another application's workflow for it is
+refused until its own application removes it; a report saved on a report type turned
+off does not run until it is on again; and a sandbox does not copy a workflow that is
+turned off. A report type is a cut of
 one dataset, without joins of its own, cannot be cut from another application's
 type, and cannot be sent to a customer by an automation. Pricing rules and
 report types are not copied into a sandbox, and nothing an application

@@ -1,5 +1,5 @@
 import type { CustomFieldDefinitionView } from "@/components/CustomFieldInputs";
-import type { FieldPair } from "@/lib/field-filter";
+import type { FieldMatch, FieldPair } from "@/lib/field-filter";
 
 /**
  * FILTER A LIST BY THE COMPANY'S OWN FIELDS, ONE OR SEVERAL AT ONCE
@@ -13,7 +13,10 @@ import type { FieldPair } from "@/lib/field-filter";
  * Each field chosen is added to the ones already applied, and every one of
  * them has to hold: Plan is Annual, then Has pets is yes, is the customers who
  * are both. Each applied field is listed with a link that takes it off and
- * leaves the rest.
+ * leaves the rest. A list that offers it (`anyOf`) also has a link, from the
+ * second field on, that turns "and" into "or": the customers on the Annual
+ * plan or who have pets. It says which it is doing in the sentence, because a
+ * list that quietly got longer is the one nobody trusts.
  *
  * The suggestions are each choice field's own options and yes or no, so the
  * common case is picked rather than typed. A field the company no longer
@@ -22,7 +25,7 @@ import type { FieldPair } from "@/lib/field-filter";
  * rather than as an error page or as an empty list that reads as "none".
  */
 export function CustomFieldFilter({
-  action, declared, keep = {}, pairs, refusal, noun,
+  action, declared, keep = {}, pairs, refusal, noun, match = "all", anyOf = false,
 }: {
   action: string;
   declared: readonly CustomFieldDefinitionView[];
@@ -32,15 +35,20 @@ export function CustomFieldFilter({
   refusal?: string | null | undefined;
   /** What the list is of, for the sentence saying how it is filtered: "jobs". */
   noun: string;
+  /** How the fields are joined now, from `fieldFrom`. */
+  match?: FieldMatch;
+  /** Whether this list can join them by "or". Only the customer list can so far. */
+  anyOf?: boolean;
 }) {
   if (declared.length === 0) return null;
   const hidden = Object.entries(keep).flatMap(([name, value]) =>
     (Array.isArray(value) ? value : value === undefined || value === "" ? [] : [value]).map((v) => [name, v] as const));
   /** This list's address with these field filters and everything in `keep`. */
-  const href = (kept: readonly FieldPair[]) => {
+  const href = (kept: readonly FieldPair[], joined: FieldMatch = match) => {
     const params = new URLSearchParams();
     for (const [name, value] of hidden) params.append(name, value);
     for (const pair of kept) { params.append("field", pair.key); params.append("value", pair.value); }
+    if (anyOf && joined === "any" && kept.length > 1) params.append("fieldmatch", "any");
     const query = params.toString();
     return query ? `${action}?${query}` : action;
   };
@@ -54,13 +62,14 @@ export function CustomFieldFilter({
     <>
       <form action={action} method="get" className="mt-3 flex flex-wrap items-end gap-2 text-sm" aria-label="Filter by a custom field">
         {hidden.map(([name, value], index) => <input key={`${name}-${index}`} type="hidden" name={name} value={value} />)}
+        {anyOf && match === "any" && !refusal ? <input type="hidden" name="fieldmatch" value="any" /> : null}
         {/* The fields already applied, so choosing another adds to them rather than replacing them. */}
         {(refusal ? [] : pairs).flatMap((pair, index) => [
           <input key={`applied-field-${index}`} type="hidden" name="field" value={pair.key} />,
           <input key={`applied-value-${index}`} type="hidden" name="value" value={pair.value} />,
         ])}
         <label className="flex flex-col gap-1">
-          <span className="text-ink-700">{applied.length > 0 ? "And field" : "Field"}</span>
+          <span className="text-ink-700">{applied.length > 0 ? (match === "any" ? "Or field" : "And field") : "Field"}</span>
           <select name="field" defaultValue="" className="h-9 rounded border border-steel-300 px-2">
             <option value="">Choose a field</option>
             {declared.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
@@ -89,7 +98,14 @@ export function CustomFieldFilter({
         </p>
       ) : applied.length > 0 ? (
         <div className="mt-3 text-sm text-ink-700">
-          <p>Showing {noun} whose {applied.map(phrase).join(", and whose ")}.</p>
+          <p>Showing {noun} whose {applied.map(phrase).join(match === "any" ? ", or whose " : ", and whose ")}.</p>
+          {anyOf && applied.length > 1 ? (
+            <p className="mt-1.5">
+              <a href={href(pairs, match === "any" ? "all" : "any")} className="text-ink-700 underline underline-offset-4">
+                {match === "any" ? `Show only ${noun} that match all of these` : `Show ${noun} that match any of these`}
+              </a>
+            </p>
+          ) : null}
           {applied.length > 1 ? (
             <ul className="mt-1.5 flex flex-wrap gap-2" aria-label="Fields filtered by">
               {applied.map((pair, index) => (

@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext, type ExternalRef, scopeOf,
 } from "./context";
 import { assertUnclaimed, provenance } from "./provenance";
+import { enforceWithin } from "./custom-fields";
 import { propertyVisibility } from "./scope";
 import { textFilter } from "./text-search";
 
@@ -191,13 +192,29 @@ export interface EquipmentInput {
   externalRef?: ExternalRef | undefined;
 }
 
+/** A unit as it is added: everything it can be edited with, and the company's own fields it starts with. */
+export interface RegisterInput extends EquipmentInput {
+  customFields?: Record<string, unknown> | undefined;
+}
+
 /* -------------------------------------------------------------- the register */
 
-export async function register(ctx: ServiceContext, input: EquipmentInput) {
+export async function register(
+  ctx: ServiceContext, input: RegisterInput, options: { requireFields?: boolean } = {},
+) {
   return guardedWrite(ctx, "equipment:write", async (tx) => {
     const category = input.category.trim();
     if (category === "") {
       throw new ConflictError("Equipment needs a category. It is how a technician finds it on a list.");
+    }
+    /**
+     * The company's required fields are asked for when a person or an
+     * integration adds the unit (the route, "Add a unit" on an address).
+     * A unit made some other way (a part installed from stock, a migration)
+     * starts with none, as it always did.
+     */
+    if (options.requireFields) {
+      await enforceWithin(tx, ctx.actor.organizationId, "equipment", input.customFields ?? {});
     }
 
     const [property] = await tx.select({ id: schema.property.id }).from(schema.property)
@@ -256,6 +273,7 @@ export async function register(ctx: ServiceContext, input: EquipmentInput) {
       warrantyLaborExpiresOn: input.warrantyLaborExpiresOn ?? null,
       location: input.location?.trim() || null,
       attributes: input.attributes ?? {},
+      customFields: input.customFields ?? {},
       ...provenance(input.externalRef),
     }).returning();
 
@@ -1013,8 +1031,8 @@ export const handlers = {
     ctx: ServiceContext, input: { serialNumber: string; excludeId?: string | undefined },
   ) => ({ matches: await matchSerial(ctx, input) }),
 
-  registerEquipment: async (ctx: ServiceContext, input: EquipmentInput) => ({
-    id: (await register(ctx, input)).id,
+  registerEquipment: async (ctx: ServiceContext, input: RegisterInput) => ({
+    id: (await register(ctx, input, { requireFields: true })).id,
   }),
 
   /**

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, customFields as rules, customObjects, type Permission } from "@opentradesos/core";
 import {
@@ -1258,11 +1258,16 @@ export interface FieldFilterInput {
   fieldValue?: string | undefined;
   /** Each `key:value`, the key a field declared on the record and the value to look for. */
   fields?: readonly string[] | undefined;
+  /**
+   * How the fields above are joined: `all` of them (the default) or `any`.
+   * Only the customer list offers `any` so far.
+   */
+  fieldMatch?: "all" | "any" | undefined;
 }
 
 /**
  * The conditions a list was asked for, one per field, ALL of which have to
- * hold.
+ * hold, or ANY of which has to when `fieldMatch` says so.
  *
  * Several fields at once is how somebody narrows a book: customers on the
  * Annual plan WITH pets, jobs on permit status Submitted IN zone North. Each
@@ -1272,10 +1277,12 @@ export interface FieldFilterInput {
  * field that is wrong. `fieldKey` and `fieldValue` still work, both or
  * neither, and are one more condition beside the rest.
  *
- * AND, never OR. "Plan is Annual" and "Has pets is yes" from two boxes means
- * the people who are both; the union is a different list and would be the
- * wrong one nine times out of ten, and a filter that sometimes widens a list
- * is one nobody can trust.
+ * AND UNLESS ASKED. "Plan is Annual" and "Has pets is yes" from two boxes
+ * means the people who are both, because that is what narrowing a list is and
+ * a filter that sometimes widens one is a filter nobody can trust. "Annual, or
+ * has pets" is a different list and is only ever given when the caller says
+ * `fieldMatch: "any"`, so it is never the surprise. One field is the same
+ * either way, and a field that is refused is refused whichever is chosen.
  *
  * Undefined when the list was not asked to filter.
  */
@@ -1299,7 +1306,8 @@ export async function listFilter(
   for (const pair of pairs) {
     conditions.push(await filterCondition(tx, organizationId, entityType, pair.key, pair.value, column));
   }
-  return conditions.length === 1 ? conditions[0] : and(...conditions);
+  if (conditions.length === 1) return conditions[0];
+  return input.fieldMatch === "any" ? or(...conditions) : and(...conditions);
 }
 
 /** As many fields at once as anybody narrowing a list by hand would use, and then some. */

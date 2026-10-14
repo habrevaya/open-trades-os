@@ -36,13 +36,28 @@ export function describeDefinition(
   branchName?: string | null,
 ): string[] {
   const out: string[] = [];
-  for (const filter of definition.filters ?? []) {
+  /**
+   * "ANY OF THESE" is said as one line, so it cannot be read as each of the
+   * fields narrowing the report on its own: "Any of: Plan is Annual; Region is
+   * South". The filters that are not fields stay their own lines, because
+   * they narrow whichever way the fields are joined.
+   */
+  const phrase = (filter: NonNullable<reporting.ReportDefinition["filters"]>[number]) => {
     const dimension = dataset?.dimensions.find((d) => d.key === filter.dimension);
     const name = dimension?.label ?? filter.dimension;
     const values = (Array.isArray(filter.value) ? filter.value : [filter.value])
       .map((v) => said(dimension?.type ?? "text", v, dimension?.sortPrefix));
     const verb = filter.op === "neq" ? "is not" : filter.op === "in" ? "is one of" : "is";
-    out.push(`${name} ${verb} ${values.join(", ")}`);
+    return `${name} ${verb} ${values.join(", ")}`;
+  };
+  const isField = (filter: NonNullable<reporting.ReportDefinition["filters"]>[number]) =>
+    dataset?.dimensions.find((d) => d.key === filter.dimension)?.field === true;
+  const filters = definition.filters ?? [];
+  const alternatives = definition.fieldMatch === "any" ? filters.filter(isField) : [];
+  if (alternatives.length > 1) out.push(`Any of: ${alternatives.map(phrase).join("; ")}`);
+  for (const filter of filters) {
+    if (alternatives.length > 1 && isField(filter)) continue;
+    out.push(phrase(filter));
   }
   if (definition.from && definition.to) {
     out.push(`From ${formatDay(definition.from, timezone)} up to ${formatDay(definition.to, timezone)}`);

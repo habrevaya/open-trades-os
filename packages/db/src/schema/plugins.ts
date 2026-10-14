@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { pk, timestamps } from "./_shared";
-import { organization } from "./tenancy";
+import { organization, user } from "./tenancy";
 import { connectedApp } from "./integrations";
 import { jobType } from "./work";
 
@@ -50,6 +50,19 @@ export const appPlugin = pgTable("app_plugin", {
   definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
   /** Removed by its application. Kept, because lines and reports name it. */
   retiredAt: timestamp("retired_at", { withTimezone: true }),
+  /**
+   * Turned off by the company, on its own, without turning the application
+   * off. A different thing from `retired_at` and kept apart on purpose: the
+   * application removes a plugin and can register it again, the company
+   * turns one off and only the company turns it back on, so a new version
+   * from the application never switches back on what somebody there decided
+   * to stop. Null is on.
+   */
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  /** Who turned it off, for the screen and the audit line. Null when nobody has, or when they have since left. */
+  disabledByUserId: uuid("disabled_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** What they said when they did, shown beside it. */
+  disabledReason: text("disabled_reason"),
   ...timestamps,
 }, (t) => ({
   /** One plugin of a kind per key per application: registering the key again is a new version. */

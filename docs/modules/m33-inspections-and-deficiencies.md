@@ -161,6 +161,17 @@ it is said before it is saved), not applicable with a reason, a photo and a note
 per checkpoint, the inspector's name and licence, and a signature. Checkpoints
 left unanswered are named first, and filing anyway files it as not finished.
 
+The signature is drawn on both. On `/my-day` the inspector draws it in a box
+with a finger, a stylus or a mouse (Clear takes it off and they draw again) and
+types their name beside it. The picture is kept in the browser and put into the
+same upload queue as the phone app's, recorded before the inspection that names
+it, so a lost signal in a plant room loses neither; it is stored as the phone's
+is, and the printed report shows it. Typing the name alone still files the
+inspection, because a browser that cannot keep the picture (private browsing, no
+storage) must not stop one being filed: it then says so in words and files
+nothing until the drawing is cleared, rather than filing a report that looks
+signed and is not. The name is always asked for.
+
 ### Print the report
 
 `GET /v1/inspections/{id}/report` is the report's data, and
@@ -230,7 +241,6 @@ freeze an internal type into a published contract; one finding is quoted through
 the API. The report is this product's own document with everything an
 authority's form asks for; no authority's own form is rendered, and nothing files
 a submission. Inspections filed before the checkpoints were kept print the
-programme's current prompts and say so. A drawn signature is taken on the phone
-app; on `/my-day` the inspector signs by typing their name. Resolving a
+programme's current prompts and say so. Resolving a
 deficiency does not automatically create the job that fixes it: the estimate is
 written and converting it is M07's path.

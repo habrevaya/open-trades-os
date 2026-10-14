@@ -24,11 +24,11 @@ export default async function CustomersPage({
 }: {
   searchParams: Promise<{
     q?: string; tag?: string | string[]; match?: string; branch?: string;
-    field?: string | string[]; value?: string | string[];
+    field?: string | string[]; value?: string | string[]; fieldmatch?: string;
   }>;
 }) {
   const user = await requireSetupUser();
-  const { q, tag, match, branch: branchParam, field, value } = await searchParams;
+  const { q, tag, match, branch: branchParam, field, value, fieldmatch } = await searchParams;
   /**
    * The tags to filter by, from the address bar, so a filtered list is a link
    * somebody can send. More than one narrows to customers carrying ANY of
@@ -45,9 +45,11 @@ export default async function CustomersPage({
    * which has to hold. A field the company no longer declares, or a value
    * its type cannot hold, comes back from the service as a sentence, shown
    * above the list rather than as an error page, with the list unfiltered by
-   * its fields.
+   * its fields. From the second field on they can be joined by "any of
+   * these" instead (`fieldmatch=any`), which the sentence under the filter
+   * says and a link flips.
    */
-  const { pairs, keep: fieldKeep, byField } = fieldFrom({ field, value });
+  const { pairs, match: fieldJoin, keep: fieldKeep, byField } = fieldFrom({ field, value, fieldmatch });
 
   const { page, refusal: fieldRefusal } = await withFieldFilter((withField) => customers.list(ctx, {
     limit: 100, includeInactive: false, ...(q ? { q } : {}),
@@ -66,6 +68,7 @@ export default async function CustomersPage({
     if (all && next.length > 1) params.set("match", "all");
     if (branch) params.set("branch", branch);
     for (const pair of pairs) { params.append("field", pair.key); params.append("value", pair.value); }
+    if (fieldJoin === "any") params.set("fieldmatch", "any");
     const query = params.toString();
     return query ? `/customers?${query}` : "/customers";
   };
@@ -97,6 +100,7 @@ export default async function CustomersPage({
           <input key={`field-${index}`} type="hidden" name="field" value={pair.key} />,
           <input key={`value-${index}`} type="hidden" name="value" value={pair.value} />,
         ])}
+        {fieldJoin === "any" ? <input type="hidden" name="fieldmatch" value="any" /> : null}
       </form>
 
       <BranchFilter
@@ -106,6 +110,7 @@ export default async function CustomersPage({
 
       <CustomFieldFilter
         action="/customers" declared={declared} pairs={pairs} refusal={fieldRefusal} noun="customers"
+        match={fieldJoin} anyOf
         keep={{ q, tag: chosen, match: every && chosen.length > 1 ? "all" : undefined, branch }}
       />
 

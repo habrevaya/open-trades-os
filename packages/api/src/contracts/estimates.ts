@@ -137,6 +137,12 @@ export const createEstimate = defineRoute({
     jobId: Uuid.optional(),
     title: z.string().max(200).optional(),
     /**
+     * The company's own fields for this estimate (M29), by key. A field the
+     * company marked required has to be here, and a refusal is one sentence
+     * per field at `customFields.<key>`. An estimate the product writes itself (an AI draft, a quote for an inspection finding, one written on a phone) starts with none.
+     */
+    customFields: z.record(z.unknown()).optional(),
+    /**
      * The day it was written. Omit for today. Earlier than a week back is
      * history and needs `data:import`; never in the future.
      */

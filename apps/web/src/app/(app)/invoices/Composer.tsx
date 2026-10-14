@@ -2,6 +2,7 @@
 
 import { useKeptAction } from "@/lib/use-kept-action";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { FormState } from "@/lib/actions";
 
 /**
@@ -60,7 +61,7 @@ export interface ComposerTax {
 const blank = (taxable: boolean): ComposerLine => ({ name: "", quantity: "1", unitPrice: "", discountAmount: "", taxable });
 
 export function Composer({
-  action, hidden, lines, items, submit, draftable = true, adjustment, memo, dueOn, purchaseOrderNumber, offers = [], tax,
+  action, hidden, lines, items, submit, draftable = true, adjustment, memo, dueOn, purchaseOrderNumber, offers = [], tax, fields,
 }: {
   action: (previous: FormState, form: FormData) => Promise<FormState>;
   hidden: Record<string, string>;
@@ -75,6 +76,8 @@ export function Composer({
   purchaseOrderNumber?: string | undefined;
   offers?: ComposerOffer[] | undefined;
   tax?: ComposerTax | undefined;
+  /** The company's own fields for a new invoice, drawn above the buttons. Not on an edit: a draft's fields are saved on its page. */
+  fields?: ReactNode;
 }) {
   const [state, runForm, pending] = useKeptAction(action, null);
   const [rows, setRows] = useState<(ComposerLine & { key: number })[]>(
@@ -252,6 +255,8 @@ export function Composer({
         <textarea name="memo" defaultValue={memo} rows={2} maxLength={2000}
                   className="mt-1 w-full rounded border border-steel-300 bg-canvas px-3 py-2 text-sm" />
       </label>
+
+      {fields}
 
       <div className="flex flex-wrap items-center gap-4">
         <button type="submit" disabled={pending}

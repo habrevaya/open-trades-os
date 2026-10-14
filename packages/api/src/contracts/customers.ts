@@ -151,8 +151,14 @@ export const listCustomers = defineRoute({
      */
     fieldKey: z.string().max(64).optional(),
     fieldValue: z.string().max(200).optional(),
-    /** Several fields at once, each `key:value`, every one of which has to hold. */
+    /** Several fields at once, each `key:value`, every one of which has to hold unless `fieldMatch` says `any`. */
     fields: FieldFilters,
+    /**
+     * Whether a customer needs every one of the fields above (`all`, the
+     * default: the Annual plan AND pets) or at least one (`any`: the Annual
+     * plan OR pets). The same word the tags take, for the same choice.
+     */
+    fieldMatch: z.enum(["any", "all"]).optional(),
     includeInactive: z.boolean().default(false),
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,

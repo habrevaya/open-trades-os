@@ -1,4 +1,5 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
+import { CustomFieldInputs } from "@/components/CustomFieldInputs";
 import { RecordsPanel } from "@/components/RecordsPanel";
 import { HoldPanel } from "@/components/HoldPanel";
 import { notFound } from "next/navigation";
@@ -528,6 +529,8 @@ export default async function JobPage({ params, searchParams }: {
           <ActionForm action={addVisit} submit="Add visit" hidden={{ jobId: id }} className="mt-3 space-y-4">
             <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
                          legend="Next visit" memberHold={memberHold} />
+            <CustomFieldInputs definitions={can(user.actor, "visit:read") ? await customFields.formFields(ctx, "visit") : []}
+                               legend="Your fields for this visit" />
           </ActionForm>
         </details>
       )}

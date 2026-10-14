@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { afterHours, agreements, customers, priceBook, properties, NotFoundError } from "@opentradesos/api/services";
+import { afterHours, agreements, customFields, customers, priceBook, properties, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, can } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
+import { CustomFieldInputs } from "@/components/CustomFieldInputs";
 import { EstimateComposer } from "../Composer";
 import { writeEstimate } from "../actions";
 
@@ -53,6 +54,9 @@ export default async function NewEstimatePage({
     })
     : [];
 
+  /** The company's own fields, asked for here because the estimate is being written by a person. */
+  const estimateFields = can(user.actor, "estimate:read") ? await customFields.formFields(ctx, "estimate") : [];
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <Crumb href={`/customers/${customerId}`}>{customer.name}</Crumb>
@@ -83,6 +87,7 @@ export default async function NewEstimatePage({
           items={[...items, ...offers.map((o) => ({ id: o.item.id, name: o.item.name, price: o.item.price }))
             .filter((o) => !items.some((i) => i.id === o.id))].sort((a, b) => a.name.localeCompare(b.name))}
           offers={offers}
+          fields={<CustomFieldInputs definitions={estimateFields} legend="Your fields" />}
         />
       )}
     </div>

@@ -256,22 +256,35 @@ function conditionsFor(
    * permissions by `resolveReport`.
    */
   const filters = [
-    ...(dataset.fixedFilters ?? []).map((f) => ({ sql: f.sql, op: f.op, value: f.value })),
-    ...(definition.filters ?? []).map((filter) => ({
-      sql: dataset.dimensions.find((d) => d.key === filter.dimension)!.sql, op: filter.op, value: filter.value,
-    })),
+    ...(dataset.fixedFilters ?? []).map((f) => ({ sql: f.sql, op: f.op, value: f.value, field: false })),
+    ...(definition.filters ?? []).map((filter) => {
+      const dimension = dataset.dimensions.find((d) => d.key === filter.dimension)!;
+      return { sql: dimension.sql, op: filter.op, value: filter.value, field: dimension.field === true };
+    }),
   ];
-  for (const filter of filters) {
+  const test = (filter: (typeof filters)[number]): SQL => {
     const expression = sql.raw(`(${filter.sql})`);
     if (filter.op === "in" && Array.isArray(filter.value)) {
       // Bound as one array parameter. Joining the values into the string is
       // how a report builder becomes a SQL console.
-      conditions.push(sql`${expression} = any(${sql.param(filter.value)}::text[])`);
-    } else if (filter.op === "neq") {
-      conditions.push(sql`${expression} <> ${String(filter.value)}`);
-    } else {
-      conditions.push(sql`${expression} = ${String(filter.value)}`);
+      return sql`${expression} = any(${sql.param(filter.value)}::text[])`;
     }
+    if (filter.op === "neq") return sql`${expression} <> ${String(filter.value)}`;
+    return sql`${expression} = ${String(filter.value)}`;
+  };
+  /**
+   * "ANY OF THESE" ACROSS THE COMPANY'S FIELDS. Asked for, the filters on
+   * fields are one group, true when at least one of them is. Every other
+   * filter (a status, a branch, a date) stays an AND beside it, so choosing
+   * "any" can only widen the fields' own part of the report and never lets
+   * in a record the rest of the definition ruled out. One field filter is
+   * the same either way, which is why it is not wrapped.
+   */
+  const alternatives = definition.fieldMatch === "any" ? filters.filter((f) => f.field) : [];
+  if (alternatives.length > 1) conditions.push(sql`(${sql.join(alternatives.map(test), sql` or `)})`);
+  for (const filter of filters) {
+    if (alternatives.length > 1 && filter.field) continue;
+    conditions.push(test(filter));
   }
 
   return conditions;
@@ -601,7 +614,8 @@ export async function available(ctx: ServiceContext) {
       description: d.description,
       dimensions: d.dimensions
         .filter((x) => !x.permission || held.has(x.permission))
-        .map((x) => ({ key: x.key, label: x.label })),
+        // `field` says it is one of the company's own fields, which a report can join by "any of these".
+        .map((x) => ({ key: x.key, label: x.label, ...(x.field ? { field: true as const } : {}) })),
       measures: d.measures
         .filter((x) => !x.permission || held.has(x.permission))
         .map((x) => ({ key: x.key, label: x.label })),
@@ -743,6 +757,7 @@ function definitionFromWire(input: {
   to?: string | undefined;
   orderBy?: string | undefined;
   limit?: number | undefined;
+  fieldMatch?: "all" | "any" | undefined;
 }): reporting.ReportDefinition {
   return {
     dataset: input.dataset,
@@ -753,6 +768,7 @@ function definitionFromWire(input: {
     ...(input.to ? { to: input.to } : {}),
     ...(input.orderBy ? { orderBy: input.orderBy } : {}),
     ...(input.limit ? { limit: input.limit } : {}),
+    ...(input.fieldMatch ? { fieldMatch: input.fieldMatch } : {}),
   };
 }
 

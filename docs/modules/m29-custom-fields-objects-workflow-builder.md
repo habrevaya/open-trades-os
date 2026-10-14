@@ -83,9 +83,25 @@ half the rows are blank.
 their own create and update. An invoice, an estimate, a visit, a unit and a
 technician grew a column later, and each of their own writes is guarded by rules
 about money or the board that have nothing to do with a field (an issued invoice's
-lines are frozen, a sent estimate is hashed), so their fields are saved by one write
-of their own, under that record's own write permission and scope. Filling in a
-permit number on an invoice is editing the invoice, not changing its price.
+lines are frozen, a sent estimate is hashed), so after the record exists their fields
+are saved by one write of their own, under that record's own write permission and
+scope. Filling in a permit number on an invoice is editing the invoice, not changing
+its price. An invoice, an estimate, a visit and a unit are also asked for their fields
+when a person or an integration makes them, so a required one cannot be left out and
+found blank later. A technician is added by inviting a person on the team screens,
+which this does not change, so a technician's required fields are asked for when they
+are saved on the person's page.
+
+**A required field is asked for when somebody makes the record, and not when the
+product does.** The routes and the screens that make an invoice, an estimate, a visit
+or a unit pass the company's required fields through the same check a customer's are.
+An invoice a project's billing makes, an estimate an AI draft or an inspection finding
+makes, a visit the first booking of a new job or a recurring job or a rental or an AI
+intake adds, a unit a part installed from stock registers, and anything a migration
+loads, start with none, because there is nobody at a form to ask and a field the
+company made required last week must not stop a progress bill going out or an
+automation running. Their backlog is counted on the settings screen, as it is for a
+record from before the field was required.
 
 **A kind of record is a list a company keeps that the product never heard of.** A
 permit, a warranty registration, the Monday truck inspection: a name, its own
@@ -301,7 +317,13 @@ can change that record and read only for everybody else. A date is a date picker
 yes or no has a third answer, "not said". The same rules bind
 `POST /v1/customers`, `PATCH /v1/customers/{id}`, `POST /v1/properties`, `PATCH /v1/properties/{id}`,
 `POST /v1/jobs` and `PATCH /v1/jobs/{id}`, and an address created with its customer
-is held to the property fields. The other five are saved with
+is held to the property fields. `POST /v1/invoices`, `POST /v1/estimates`,
+`POST /v1/jobs/{id}/visits` and `POST /v1/equipment` take `customFields` the same way and
+refuse the same way, and the screens that call them draw the fields: `/invoices/new`,
+`/estimates/new`, "Add a visit" on a job (`/jobs/{id}`) and "Add a unit" on an address
+(`/properties/{id}`). The first visit booked together with a new job is the job's, so
+`/jobs/new` asks for the job's fields and not a second set for the visit. The five are
+then saved, and changed afterwards, with
 `PUT /v1/invoices/{id}/custom-fields`, `PUT /v1/estimates/{id}/custom-fields`,
 `PUT /v1/visits/{id}/custom-fields`, `PUT /v1/equipment/{id}/custom-fields` and
 `PUT /v1/technicians/{id}/custom-fields`, each with the whole set as it should be,
@@ -321,9 +343,14 @@ The customer list filters by a field: choose the field, type or pick the value.
 Then choose another and press "Add this filter", and the list is the records both
 hold for: the customers on the Annual plan who have pets. Each field applied is
 listed with a link that takes it off and leaves the rest, and the address carries
-every one, so the list is a link somebody can send. So do `/jobs`, `/invoices`,
+every one, so the list is a link somebody can send. From the second field on, the
+customer list also has a link, "Show customers that match any of these", that joins
+them by "or" instead (the Annual plan or pets), says so in the sentence above the list
+("whose Plan is Annual, or whose Pets is yes"), carries it in the address as
+`fieldmatch=any`, and offers "Show only customers that match all of these" to go back.
+So do `/jobs`, `/invoices`,
 `/estimates`, `/people` (by a technician's fields) and each kind of record's own
-list.
+list, which join fields by "and" only.
 A choice matches exactly, several choices match a customer holding that one among
 theirs, yes or no matches as stored, a number matches as a number, and free text
 matches anywhere in the value, ignoring case. `GET /v1/customers`,
@@ -331,8 +358,19 @@ matches anywhere in the value, ignoring case. `GET /v1/customers`,
 `GET /v1/people` and `GET /v1/custom-records` take `fields`, repeated, each the
 field's key, a colon and the value (`fields=plan:Annual&fields=has_pets:yes`), every
 one of which has to hold, up to ten; `fieldKey` and `fieldValue` still work and are
-one more beside them. A key the company has not declared on that record is refused
-in words rather than matching nobody, and so is a filter that is not a key, a colon and a value.
+one more beside them. `GET /v1/customers` also takes `fieldMatch`: `all` (the default) or
+`any`, which lists the customers for whom at least one of the fields holds (the Annual plan
+or pets); one field is the same either way, and the other lists take no `fieldMatch`. A key
+the company has not declared on that record is refused in words rather than matching
+nobody, whichever is chosen, and so is a filter that is not a key, a colon and a value.
+
+In the report builder, with two or more filters on fields, a choice under "Narrow it
+down" joins them by "every one has to match" or "any one can match" (`fieldMatch` on the
+report definition, `fieldmatch=any` in the address). It joins only the filters on the
+company's own fields: a filter on a status, a branch or a date narrows the report either
+way, so "any" can only widen the fields' own part. The drill, a saved report and a
+printed one carry it, and the sentence that says what applied reads "Any of: ..." so it
+cannot be taken for each field narrowing alone.
 
 In the report builder every field is a column, a filter and a grouping on the
 dataset its record is a row of (a job's fields on Jobs and Job profitability, an
@@ -643,13 +681,14 @@ turned on again from its original wording.
 
 ## What is not built
 
-Custom field values on an invoice, an estimate, a visit, a unit and a technician are
-saved through their own route and panel, not on those records' create forms or
-create routes, so a required field on one of them is asked for when the fields are
-saved rather than when the record is made, and a record the product makes by itself
-starts with none. Visits and units have no company wide list to filter, so their
-fields are filtered in the report builder rather than on a list screen. Several
-fields on a list are joined by AND only; there is no "any of these" across fields.
+A technician's required fields are asked for when they are saved on the person's page and
+not when the person is invited, because the invitation carries no field. A record the
+product makes by itself starts with none, as above, and so does the first visit booked
+together with a new job. Visits and units have no company wide list to filter, so their
+fields are filtered in the report builder rather than on a list screen. "Any of these"
+across several fields is on the customer list and in the report builder; the job,
+invoice, estimate and people lists and each kind of record's own list join fields by
+"and" only.
 The Tasks dataset has no fields to filter by, because a task can be about anything. A field's key
 cannot be changed once made (`/settings/custom-fields` says why), and neither can a
 kind of record's. A kind of record points at one record of one other kind, not

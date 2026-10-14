@@ -75,6 +75,7 @@ function fieldDimensions(column: string, fields: readonly Field[], prefix: strin
     label: `${labelPrefix}${field.label}`,
     type: dimensionType(field.dataType),
     sql: valueSql(column, field),
+    field: true,
   }));
 }
 
@@ -294,7 +295,7 @@ export async function catalogueFor(tx: Database, _organizationId: string): Promi
  * or from an application that is turned off, and it is not offered, and a
  * saved report on it no longer runs. One whose base or columns have gone
  * since (a field retired) is left out rather than offered with a column
- * missing.
+ * missing. The same goes for one the company turned off on its own.
  */
 async function withReportTypes(tx: Database, catalogue: reporting.Dataset[]): Promise<reporting.Dataset[]> {
   const rows = await tx.select({ plugin: schema.appPlugin })
@@ -303,6 +304,8 @@ async function withReportTypes(tx: Database, catalogue: reporting.Dataset[]): Pr
     .where(and(
       eq(schema.appPlugin.kind, "report_type"),
       isNull(schema.appPlugin.retiredAt),
+      // Not one the company turned off on its own (Settings, What applications added).
+      isNull(schema.appPlugin.disabledAt),
       or(isNull(schema.appPlugin.appId), eq(schema.connectedApp.status, "active")),
     ))
     .orderBy(asc(schema.appPlugin.name));
