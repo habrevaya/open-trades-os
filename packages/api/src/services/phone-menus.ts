@@ -100,10 +100,12 @@ export interface MenuView {
   id: string;
   name: string;
   greeting: string;
-  options: { key: string; label: string; to: Destination }[];
+  options: { key: string; label: string; to: Destination; words: string[] }[];
   noInputTo: Destination;
   afterHoursTo: Destination | null;
   timeoutSeconds: number;
+  /** Whether callers may say an option as well as press its key. */
+  speech: boolean;
   /** What the caller hears, assembled exactly as the call will say it. */
   prompt: string;
   /** The numbers this menu answers. */
@@ -114,10 +116,11 @@ const menuOf = (row: typeof schema.phoneMenu.$inferSelect): voice.PhoneMenu => (
   id: row.id,
   name: row.name,
   greeting: row.greeting,
-  options: row.options as voice.MenuOption[],
+  options: row.options.map((o) => ({ key: o.key, label: o.label, to: o.to as Destination, words: o.words ?? [] })),
   noInputTo: row.noInputTo as Destination,
   afterHoursTo: (row.afterHoursTo ?? null) as Destination | null,
   timeoutSeconds: row.timeoutSeconds,
+  speech: row.speech,
 });
 
 async function numbersByMenu(tx: Database) {
@@ -137,7 +140,8 @@ async function numbersByMenu(tx: Database) {
 
 const viewOf = (menu: voice.PhoneMenu, numbers: MenuView["numbers"]): MenuView => ({
   ...menu,
-  options: [...menu.options],
+  options: menu.options.map((o) => ({ key: o.key, label: o.label, to: o.to, words: [...(o.words ?? [])] })),
+  speech: menu.speech ?? false,
   prompt: voice.menuPrompt(menu),
   numbers,
 });
@@ -177,24 +181,40 @@ export async function loadMenu(tx: Database, organizationId: string, id: string)
 export interface MenuInput {
   name: string;
   greeting: string;
-  options: { key: string; label: string; to: Destination }[];
+  options: { key: string; label: string; to: Destination; words?: string[] | undefined }[];
   noInputTo: Destination;
   afterHoursTo?: Destination | null | undefined;
   timeoutSeconds?: number | undefined;
+  /** Left out: as it was on a menu being changed, off on a new one. */
+  speech?: boolean | undefined;
 }
+
+/** Each word once, trimmed, in the order typed. */
+const wordsOf = (words: readonly string[] | undefined): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const word of words ?? []) {
+    const trimmed = word.trim().replace(/\s+/g, " ");
+    if (trimmed === "" || seen.has(trimmed.toLowerCase())) continue;
+    seen.add(trimmed.toLowerCase());
+    out.push(trimmed);
+  }
+  return out;
+};
 
 /** The voicemail box is one box today, whatever a caller sent. */
 const normal = (to: Destination): Destination => to.kind === "voicemail" ? { kind: "voicemail", box: "main" } : to;
 
-function proposed(id: string, input: MenuInput): voice.PhoneMenu {
+function proposed(id: string, input: MenuInput, speechBefore: boolean): voice.PhoneMenu {
   return {
     id,
     name: input.name.trim(),
     greeting: input.greeting.trim(),
-    options: input.options.map((o) => ({ key: o.key.trim(), label: o.label.trim(), to: normal(o.to) })),
+    options: input.options.map((o) => ({ key: o.key.trim(), label: o.label.trim(), to: normal(o.to), words: wordsOf(o.words) })),
     noInputTo: normal(input.noInputTo),
     afterHoursTo: input.afterHoursTo ? normal(input.afterHoursTo) : null,
     timeoutSeconds: input.timeoutSeconds ?? 6,
+    speech: input.speech ?? speechBefore,
   };
 }
 
@@ -219,7 +239,7 @@ export async function saveMenu(ctx: ServiceContext, input: MenuInput & { id?: st
     const before = creating ? null : await menuRow(tx, ctx.actor.organizationId, id);
     if (!creating && !before) throw new NotFoundError("Phone menu");
 
-    const menu = proposed(id, input);
+    const menu = proposed(id, input, before?.speech ?? false);
     const directory = await directoryFor(tx, ctx.actor.organizationId);
     (directory.menus as Map<string, string>).set(id, menu.name || "this");
     const verdict = voice.checkMenu(menu, directory);
@@ -228,7 +248,7 @@ export async function saveMenu(ctx: ServiceContext, input: MenuInput & { id?: st
     const values = {
       name: menu.name, greeting: menu.greeting, options: menu.options as never,
       noInputTo: menu.noInputTo as never, afterHoursTo: menu.afterHoursTo as never,
-      timeoutSeconds: menu.timeoutSeconds,
+      timeoutSeconds: menu.timeoutSeconds, speech: menu.speech ?? false,
     };
     const [row] = creating
       ? await tx.insert(schema.phoneMenu).values({ id, organizationId: ctx.actor.organizationId, ...values }).returning()
@@ -503,12 +523,14 @@ export async function choices(ctx: ServiceContext) {
 /* --------------------------------------------------------------- handlers */
 
 const menuInput = (input: {
-  name: string; greeting: string; options: { key: string; label: string; to: Destination }[];
+  name: string; greeting: string; options: { key: string; label: string; to: Destination; words?: string[] | undefined }[];
   noInputTo: Destination; afterHoursTo?: Destination | null | undefined; timeoutSeconds?: number | undefined;
+  speech?: boolean | undefined;
 }): MenuInput => ({
   name: input.name, greeting: input.greeting, options: input.options, noInputTo: input.noInputTo,
   afterHoursTo: input.afterHoursTo ?? null,
   ...(input.timeoutSeconds !== undefined ? { timeoutSeconds: input.timeoutSeconds } : {}),
+  ...(input.speech !== undefined ? { speech: input.speech } : {}),
 });
 
 export const handlers = {

@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, can, voice, holidays as holidayRules, time, type Actor, type telephony as tel } from "@opentradesos/core";
+import { SYSTEM_USER_ID, can, voice, holidays as holidayRules, time, transcript, type Actor, type telephony as tel } from "@opentradesos/core";
 import {
   audit, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -603,14 +603,22 @@ function dialVerb(leg: Leg, numbers: readonly string[], timeoutSeconds: number, 
   };
 }
 
-/** A menu, read and waited on. A key press and silence both come back to `menu`. */
-function menuVerbs(leg: Leg, menu: voice.PhoneMenu, attempt: number, hops: number, say: string | null): voice.Verb[] {
-  const query = { m: menu.id, t: attempt, ...(hops > 0 ? { h: hops } : {}) };
+/**
+ * A menu, read and waited on. A key press, words and silence all come back
+ * to `menu`. A menu that listens asks the carrier for speech as well as keys,
+ * and `s` carries how many spoken answers have missed so far, so the one
+ * repeat a miss earns is given once however the caller mixes words and keys.
+ */
+function menuVerbs(
+  leg: Leg, menu: voice.PhoneMenu, attempt: number, hops: number, say: string | null, misses = 0,
+): voice.Verb[] {
+  const query = { m: menu.id, t: attempt, ...(hops > 0 ? { h: hops } : {}), ...(misses > 0 ? { s: misses } : {}) };
   return [
     ...(say ? [{ verb: "say" as const, text: say }] : []),
     {
       verb: "gather", action: leg.url("menu", query), numDigits: 1,
       timeoutSeconds: menu.timeoutSeconds, say: voice.menuPrompt(menu),
+      ...(menu.speech ? { speechHints: voice.speechHints(menu) } : {}),
     },
     { verb: "redirect", url: leg.url("menu", query) },
   ];
@@ -890,13 +898,33 @@ async function menuStep(
     }
 
     const attempt = Math.max(1, count(query.get("t"), voice.MENU_ATTEMPTS));
-    const choice = voice.chooseOption(menu, form["Digits"], attempt);
-    if (choice.kind === "again") return reply(menuVerbs(leg, menu, choice.attempt, hops, choice.say));
+    const misses = count(query.get("s"), voice.SPEECH_RETRIES);
+    /**
+     * A key wins over words: a caller who pressed something meant it. Words
+     * are read only from a menu that listens, so a menu with listening
+     * switched off since the call began goes by keys alone.
+     */
+    const digits = form["Digits"]?.trim() ?? "";
+    /**
+     * What the caller said is written on the call, so it goes through the
+     * same masking as a transcript first: a card number read out to a menu
+     * is not kept.
+     */
+    const said = menu.speech && digits === "" ? transcript.redactText((form["SpeechResult"] ?? "").trim()).text.trim() : "";
+    const choice = said !== ""
+      ? voice.chooseSpoken(menu, said, attempt, misses)
+      : voice.chooseOption(menu, form["Digits"], attempt);
+    if (choice.kind === "again") {
+      /** A word not understood is written on the call, so the owner can see what callers say. */
+      if (said !== "") await note(tx, call, choice.why);
+      return reply(menuVerbs(leg, menu, choice.attempt, hops, choice.say, choice.misses ?? misses));
+    }
 
-    const pressed = choice.kind === "option" ? choice.option.key : (form["Digits"]?.trim() || null);
+    const pressed = choice.kind === "option" ? choice.option.key : (digits || null);
     const label = choice.kind === "option" ? choice.option.label : "No choice";
     const choices = [...(call.menuChoices ?? []), {
       menuId: menu.id, menu: menu.name, key: pressed, label, at: now.toISOString(),
+      ...(said !== "" ? { said: voice.heardAs(said) } : {}),
     }].slice(-20);
     await tx.update(schema.call).set({ menuChoices: choices, updatedAt: now }).where(eq(schema.call.id, call.id));
     call.menuChoices = choices;

@@ -166,10 +166,17 @@ export const phoneMenu = pgTable("phone_menu", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   greeting: text("greeting").notNull(),
-  options: jsonb("options").$type<{ key: string; label: string; to: StoredDestination }[]>().notNull().default([]),
+  /** `words` are what a caller may say for the option besides its label, when the menu listens. */
+  options: jsonb("options").$type<{ key: string; label: string; to: StoredDestination; words?: string[] }[]>().notNull().default([]),
   noInputTo: jsonb("no_input_to").$type<StoredDestination>().notNull(),
   afterHoursTo: jsonb("after_hours_to").$type<StoredDestination | null>(),
   timeoutSeconds: integer("timeout_seconds").notNull().default(6),
+  /**
+   * Whether a caller may say an option as well as press its key. Off until
+   * the owner turns it on, because the carrier writes down and charges for
+   * what each caller says.
+   */
+  speech: boolean("speech").notNull().default(false),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("phone_menu_org_idx").on(t.organizationId),
@@ -887,7 +894,11 @@ export const call = pgTable("call", {
    * route; this says the path, which is what an owner reads when a billing
    * question rang the service team.
    */
-  menuChoices: jsonb("menu_choices").$type<{ menuId: string; menu: string; key: string | null; label: string; at: string }[]>()
+  menuChoices: jsonb("menu_choices").$type<{
+    menuId: string; menu: string; key: string | null; label: string; at: string;
+    /** What the caller said, in short, when they answered by speaking rather than a key. */
+    said?: string;
+  }[]>()
     .notNull().default([]),
   /**
    * A call placed from the office app's browser phone: who pressed Call. Kept

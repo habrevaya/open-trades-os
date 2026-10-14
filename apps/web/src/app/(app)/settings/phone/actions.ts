@@ -48,9 +48,11 @@ export async function saveMenu(_previous: FormState, form: FormData): Promise<Fo
   const labels = column(form, "optionLabel");
   const tos = column(form, "optionTo");
   const numbers = column(form, "optionNumber");
+  /** Typed as a list with commas: "bill, invoice, payment". */
+  const words = column(form, "optionWords").map((typed) => typed.split(",").map((w) => w.trim()).filter(Boolean));
   /** A row with nothing in it is a spare row, not an option. */
   const options = keys
-    .map((key, i) => ({ key, label: labels[i] ?? "", to: destination(tos[i], numbers[i]) }))
+    .map((key, i) => ({ key, label: labels[i] ?? "", to: destination(tos[i], numbers[i]), words: words[i] ?? [] }))
     .filter((row) => row.key !== "" || row.label !== "" || row.to !== null)
     .map((row) => ({ ...row, to: row.to ?? { kind: "voicemail" as const, box: "main" } }));
 
@@ -62,6 +64,7 @@ export async function saveMenu(_previous: FormState, form: FormData): Promise<Fo
       noInputTo: destination(field(form, "noInputTo"), field(form, "noInputNumber")) ?? { kind: "voicemail", box: "main" },
       afterHoursTo: destination(field(form, "afterHoursTo"), field(form, "afterHoursNumber")),
       timeoutSeconds: Number(field(form, "timeoutSeconds") ?? 6),
+      speech: form.get("speech") === "on",
     });
     const id = field(form, "id");
     await phoneMenus.saveMenu(await ctx(), { ...input, ...(id ? { id } : {}) });

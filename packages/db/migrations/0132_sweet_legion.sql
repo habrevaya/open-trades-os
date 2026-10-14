@@ -1,0 +1,1 @@
+ALTER TABLE "phone_menu" ADD COLUMN "speech" boolean DEFAULT false NOT NULL;

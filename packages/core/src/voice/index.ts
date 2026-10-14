@@ -40,6 +40,12 @@ export type Verb =
        * any moment of it rather than only while the offer is being read.
        */
       play?: string | undefined;
+      /**
+       * Listen for speech as well as keys, with these phrases (comma
+       * separated) as the carrier's hints: a phone menu that takes spoken
+       * answers. Without it the gather takes keys only, as it always has.
+       */
+      speechHints?: string | undefined;
     }
   | {
       verb: "dial";
@@ -103,7 +109,10 @@ function verbXml(v: Verb): string {
     case "pause": return `<Pause${attr("length", v.seconds)}/>`;
     case "gather":
       return `<Gather${attr("action", v.action)}${attr("method", "POST")}${attr("numDigits", v.numDigits)}`
-        + `${attr("timeout", v.timeoutSeconds)}><Say>${escapeXml(v.say)}</Say>`
+        + `${attr("timeout", v.timeoutSeconds)}`
+        + `${v.speechHints !== undefined
+          ? `${attr("input", "dtmf speech")}${attr("hints", v.speechHints)}${attr("speechTimeout", "auto")}${attr("language", "en-US")}`
+          : ""}><Say>${escapeXml(v.say)}</Say>`
         + `${v.play ? `<Play>${escapeXml(v.play)}</Play>` : ""}</Gather>`;
     case "dial": {
       const recording = v.recordingCallback

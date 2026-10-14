@@ -841,7 +841,7 @@ export async function getCall(ctx: ServiceContext, input: { id: string }) {
       hasVoicemail: row.call.voicemailStorageKey !== null,
       routedBecause: row.call.routedBecause,
       recordingRefusal: row.call.recordingRefusal,
-      menuChoices: (row.call.menuChoices ?? []).map((c) => ({ menu: c.menu, key: c.key, label: c.label, at: c.at })),
+      menuChoices: (row.call.menuChoices ?? []).map((c) => ({ menu: c.menu, key: c.key, label: c.label, at: c.at, said: c.said ?? null })),
       transcript: (row.call.transcriptSegments ?? []).map((segment) => ({
         at: tr.formatTimestamp(segment.startMs), speaker: segment.speaker, text: segment.text, startMs: segment.startMs,
       })),

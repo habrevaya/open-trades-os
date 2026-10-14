@@ -63,8 +63,13 @@ export default async function CallPage({ params }: { params: Promise<{ id: strin
         <Fact label="What it was">{call.outcomeLabel}</Fact>
         <Fact label="Caller">{call.firstTimeCaller === true ? "First time" : call.firstTimeCaller === false ? "Called before" : null}</Fact>
         {call.menuChoices.length > 0 ? (
-          <Fact label="What they pressed">
-            {call.menuChoices.map((c) => `${c.key ? `${c.key} for ${c.label}` : c.label} in the ${c.menu} menu`).join(", then ")}
+          <Fact label={call.menuChoices.some((c) => c.said) ? "What they pressed or said" : "What they pressed"}>
+            {call.menuChoices.map((c) => {
+              const what = c.said
+                ? c.key ? `said "${c.said}" for ${c.label}` : `said "${c.said}", which matched no option`
+                : c.key ? `${c.key} for ${c.label}` : c.label;
+              return `${what} in the ${c.menu} menu`;
+            }).join(", then ")}
           </Fact>
         ) : null}
         {call.routedBecause ? <Fact label="Where it went">{call.routedBecause}</Fact> : null}

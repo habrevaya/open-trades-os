@@ -195,6 +195,24 @@ read out from its own label ("For Billing, press 2"), each ringing a person, a
 ring group, voicemail, another menu, whoever is on call, a number outside
 the company, a waiting line, or the phone assistant. A caller who presses a wrong key is told so and hears it again;
 one who presses nothing hears it three times and then goes where the menu says.
+
+With "Callers can say an option instead of pressing a key" on (`speech` on
+`POST /v1/phone-menus` and `PUT /v1/phone-menus/{id}`, off for a new menu
+unless asked for), the menu says "For Billing, press 2 or say Billing" and
+the carrier listens for words as well as keys, told every option's label and
+the words listed beside it ("Callers can also say": "bill, invoice"; `words`
+on each option, up to eight). A caller's words go to the option whose label or
+word they said in full, a key's number said on its own ("two", "press two")
+is that key, and failing those a significant word of a longer label counts
+("billing" for "Billing questions"). Words that match nothing, or two options
+as well as each other, are answered: the caller hears "Sorry, I did not
+understand that" and the menu once more, and a second miss goes where a
+caller who presses nothing goes. A key pressed always wins over words, and
+keys work at every step. What the caller said is written on the call, short
+and with card numbers masked as a transcript's are: "What they pressed or
+said" on the call screen, and every miss under "Where it went". A phrase two
+options listen for, or a key's name used as a word, is refused when the menu
+is saved.
 Outside the business hours online booking keeps, calls go where the menu's
 after hours setting says, usually whoever is on call. A number can answer for
 one branch ("Answers for" beside how it rings on `/settings`, `businessUnitId`
@@ -538,8 +556,13 @@ gate as everything else.
 Calls: none of the waiting line, the phone assistant or the browser phone has
 been tried on a live phone line. Each is built from Twilio's documentation and
 tested against a fake carrier: signed webhooks, a WebSocket client playing
-ConversationRelay's part, and a fake REST API. A menu takes key presses only,
-not spoken answers. A number keeping its own hours keeps one week, the same
+ConversationRelay's part, and a fake REST API. A menu that listens for words
+matches them by the words themselves, not their meaning, in English only: a
+caller who says "my furnace is out" reaches Service only if "furnace" or
+"out" is listed beside it, and otherwise hears the menu again and then goes
+where a silent caller goes. What the carrier heard is taken as it is written,
+whatever its confidence, and the carrier's speech recognition, its timing
+and its charge per answer have not been tried on a live line. A number keeping its own hours keeps one week, the same
 every week of the year, and a phone menu answering it goes by that week as a
 whole: a menu cannot keep hours of its own apart from the number's. A number
 has one branch, so a line shared by two branches goes by one of them or by

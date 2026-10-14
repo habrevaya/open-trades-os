@@ -86025,7 +86025,7 @@
       "post": {
         "operationId": "createPhoneMenu",
         "summary": "Build a phone menu",
-        "description": "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour.\n\nRequires a session holding: settings:write.",
+        "description": "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour. With speech on, a caller may also say an option (its label, or one of its words, or its key's number); words no option matches, or that match two as well as each other, read the menu once more and then go where noInputTo says. A phrase two options listen for, or a key's name as a word, is refused.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M18"
         ],
@@ -159606,6 +159606,14 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "maxItems": 8
                 }
               },
               "required": [
@@ -159928,6 +159936,9 @@
             "type": "integer",
             "minimum": 3,
             "maximum": 15
+          },
+          "speech": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -160116,12 +160127,19 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
                 "key",
                 "label",
-                "to"
+                "to",
+                "words"
               ]
             }
           },
@@ -160435,6 +160453,9 @@
           "timeoutSeconds": {
             "type": "integer"
           },
+          "speech": {
+            "type": "boolean"
+          },
           "prompt": {
             "type": "string"
           },
@@ -160473,6 +160494,7 @@
           "noInputTo",
           "afterHoursTo",
           "timeoutSeconds",
+          "speech",
           "prompt",
           "numbers"
         ]
@@ -188429,13 +188451,20 @@
                 },
                 "at": {
                   "type": "string"
+                },
+                "said": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "menu",
                 "key",
                 "label",
-                "at"
+                "at",
+                "said"
               ]
             }
           },
@@ -192902,12 +192931,19 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
                 "key",
                 "label",
-                "to"
+                "to",
+                "words"
               ]
             }
           },
@@ -193221,6 +193257,9 @@
           "timeoutSeconds": {
             "type": "integer"
           },
+          "speech": {
+            "type": "boolean"
+          },
           "prompt": {
             "type": "string"
           },
@@ -193259,6 +193298,7 @@
           "noInputTo",
           "afterHoursTo",
           "timeoutSeconds",
+          "speech",
           "prompt",
           "numbers"
         ]
@@ -220399,12 +220439,19 @@
                             ]
                           }
                         ]
+                      },
+                      "words": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
                       }
                     },
                     "required": [
                       "key",
                       "label",
-                      "to"
+                      "to",
+                      "words"
                     ]
                   }
                 },
@@ -220718,6 +220765,9 @@
                 "timeoutSeconds": {
                   "type": "integer"
                 },
+                "speech": {
+                  "type": "boolean"
+                },
                 "prompt": {
                   "type": "string"
                 },
@@ -220756,6 +220806,7 @@
                 "noInputTo",
                 "afterHoursTo",
                 "timeoutSeconds",
+                "speech",
                 "prompt",
                 "numbers"
               ]
@@ -274047,6 +274098,14 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "maxItems": 8
                 }
               },
               "required": [
@@ -274369,6 +274428,9 @@
             "type": "integer",
             "minimum": 3,
             "maximum": 15
+          },
+          "speech": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -274557,12 +274619,19 @@
                       ]
                     }
                   ]
+                },
+                "words": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
                 "key",
                 "label",
-                "to"
+                "to",
+                "words"
               ]
             }
           },
@@ -274876,6 +274945,9 @@
           "timeoutSeconds": {
             "type": "integer"
           },
+          "speech": {
+            "type": "boolean"
+          },
           "prompt": {
             "type": "string"
           },
@@ -274914,6 +274986,7 @@
           "noInputTo",
           "afterHoursTo",
           "timeoutSeconds",
+          "speech",
           "prompt",
           "numbers"
         ]

@@ -136,11 +136,26 @@ function MenuForm({ menu, choices }: { menu?: phoneMenus.MenuView | undefined; c
             </label>
             <Destinations name="optionTo" numberName="optionNumber" label="Rings" choices={choices}
                           value={option?.to} allowNone={option ? undefined : "Choose"} />
+            <label className="block">
+              <span className="text-sm font-medium text-ink-700">Callers can also say</span>
+              <input name="optionWords" defaultValue={option?.words.join(", ") ?? ""} placeholder="bill, invoice, payment"
+                     aria-label={`Option ${i + 1} words`} className={`mt-1 block w-56 ${FIELD}`} />
+            </label>
           </div>
         ))}
       </fieldset>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="speech" defaultChecked={menu?.speech ?? false} className="mt-1" />
+        <span>
+          Callers can say an option instead of pressing a key
+          <span className="block text-xs text-ink-500">
+            They say its name, a word you list beside it, or its number. Keys still work. Twilio writes down what
+            each caller says and charges for it. If it cannot tell what they said, they hear the menu once more.
+          </span>
+        </span>
+      </label>
       <Destinations name="noInputTo" numberName="noInputNumber" choices={choices}
-                    label="A caller who presses nothing, after hearing it three times, goes to"
+                    label="A caller who presses nothing after hearing it three times, or is not understood twice, goes to"
                     value={menu?.noInputTo ?? { kind: "voicemail", box: "main" }} />
       <Destinations name="afterHoursTo" numberName="afterHoursNumber" choices={choices}
                     label="Outside your business hours, calls go to"

@@ -3775,6 +3775,7 @@ export interface CreatePhoneMenuInput {
     } | {
       kind: "agent";
     };
+    words?: string[];
   }>;
   noInputTo: {
     kind: "person";
@@ -3825,6 +3826,7 @@ export interface CreatePhoneMenuInput {
     kind: "agent";
   } | null;
   timeoutSeconds?: number;
+  speech?: boolean;
 }
 
 export interface CreatePhoneMenuOutput {
@@ -3858,6 +3860,7 @@ export interface CreatePhoneMenuOutput {
     } | {
       kind: "agent";
     };
+    words: string[];
   }>;
   noInputTo: {
     kind: "person";
@@ -3908,6 +3911,7 @@ export interface CreatePhoneMenuOutput {
     kind: "agent";
   } | null;
   timeoutSeconds: number;
+  speech: boolean;
   prompt: string;
   numbers: Array<{
     id: string;
@@ -9355,6 +9359,7 @@ export interface GetMarketingCallOutput {
     key: string | null;
     label: string;
     at: string;
+    said: string | null;
   }>;
   transcript: Array<{
     at: string;
@@ -10196,6 +10201,7 @@ export interface GetPhoneMenuOutput {
     } | {
       kind: "agent";
     };
+    words: string[];
   }>;
   noInputTo: {
     kind: "person";
@@ -10246,6 +10252,7 @@ export interface GetPhoneMenuOutput {
     kind: "agent";
   } | null;
   timeoutSeconds: number;
+  speech: boolean;
   prompt: string;
   numbers: Array<{
     id: string;
@@ -15412,6 +15419,7 @@ export interface ListPhoneMenusOutput {
       } | {
         kind: "agent";
       };
+      words: string[];
     }>;
     noInputTo: {
       kind: "person";
@@ -15462,6 +15470,7 @@ export interface ListPhoneMenusOutput {
       kind: "agent";
     } | null;
     timeoutSeconds: number;
+    speech: boolean;
     prompt: string;
     numbers: Array<{
       id: string;
@@ -26236,6 +26245,7 @@ export interface UpdatePhoneMenuInput {
     } | {
       kind: "agent";
     };
+    words?: string[];
   }>;
   noInputTo: {
     kind: "person";
@@ -26286,6 +26296,7 @@ export interface UpdatePhoneMenuInput {
     kind: "agent";
   } | null;
   timeoutSeconds?: number;
+  speech?: boolean;
 }
 
 export interface UpdatePhoneMenuOutput {
@@ -26319,6 +26330,7 @@ export interface UpdatePhoneMenuOutput {
     } | {
       kind: "agent";
     };
+    words: string[];
   }>;
   noInputTo: {
     kind: "person";
@@ -26369,6 +26381,7 @@ export interface UpdatePhoneMenuOutput {
     kind: "agent";
   } | null;
   timeoutSeconds: number;
+  speech: boolean;
   prompt: string;
   numbers: Array<{
     id: string;
