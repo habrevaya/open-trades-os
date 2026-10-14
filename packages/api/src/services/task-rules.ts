@@ -12,7 +12,7 @@ import { publicBaseUrl } from "./setup-tokens";
 import { remember, replayed } from "./once";
 import { within } from "./workflow-schedule";
 import { loadHolidays } from "./holidays";
-import { weekOf } from "./after-hours";
+import { loadWeek, weeksByBranch } from "./business-hours";
 
 /**
  * RECURRING TASKS AND ESCALATION
@@ -457,9 +457,9 @@ function ruleView(row: typeof schema.taskEscalationRule.$inferSelect, people: Ma
  * are. Refused in words at the moment of saving rather than quietly counting
  * every hour of every day, which is the opposite of what was asked for.
  */
-async function checkWorkingHours(tx: Database, input: RuleInput): Promise<void> {
+async function checkWorkingHours(tx: Database, organizationId: string, input: RuleInput): Promise<void> {
   if (!input.workingHours) return;
-  if ((await weekOf(tx)) === null) {
+  if ((await loadWeek(tx, organizationId)).week === null) {
     throw new ConflictError("Set your business hours first, so the rule knows when you work. You set them under Online booking.");
   }
 }
@@ -494,7 +494,7 @@ export async function createRule(ctx: ServiceContext, input: RuleInput): Promise
     if (seen) return seen;
     const people = await directory(tx, ctx.actor.organizationId);
     checkRuleInput(input, people);
-    await checkWorkingHours(tx, input);
+    await checkWorkingHours(tx, ctx.actor.organizationId, input);
 
     const [row] = await tx.insert(schema.taskEscalationRule).values({
       organizationId: ctx.actor.organizationId,
@@ -546,7 +546,7 @@ export async function updateRule(
     if (!(Object.keys(input).length === 2 && input.active !== undefined)) {
       checkRuleInput(merged, people);
       // Only when the change is the one asking for working hours, so an old rule can still be turned off.
-      if (input.workingHours === true) await checkWorkingHours(tx, merged);
+      if (input.workingHours === true) await checkWorkingHours(tx, ctx.actor.organizationId, merged);
     }
 
     const [after] = await tx.update(schema.taskEscalationRule).set({
@@ -767,12 +767,13 @@ export async function escalateFor(
      */
     /**
      * Per branch: a task about a job or one of its visits counts that job's
-     * branch's own holidays beside the company's, so Houston's rodeo day off
-     * is not a working day on Houston's work. A task about anything else
-     * counts the company's.
+     * branch's own week (the company's where it keeps none) and its own
+     * holidays beside the company's, so Houston's rodeo day off is not a
+     * working day on Houston's work, and Houston's Saturday morning is. A
+     * task about anything else counts the company's.
      */
     const counting = rules.some((r) => r.workingHours);
-    const week = counting ? await weekOf(tx) : null;
+    const weekOf = counting ? await weeksByBranch(tx, organizationId) : null;
     const zone = await timezoneOf(tx, organizationId);
     const branchOf = counting ? await taskBranches(tx, late) : new Map<string, string | null>();
     const calendars = new Map<string | null, holidayRules.WorkingCalendar>();
@@ -780,7 +781,7 @@ export async function escalateFor(
       if (!counting) return null;
       const branchId = branchOf.get(taskId) ?? null;
       if (!calendars.has(branchId)) {
-        calendars.set(branchId, { week, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone });
+        calendars.set(branchId, { week: weekOf!(branchId).week, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone });
       }
       return calendars.get(branchId)!;
     };

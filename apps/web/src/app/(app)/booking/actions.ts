@@ -4,7 +4,7 @@ import { refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { booking, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { booking, businessHours, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
 /**
  * `requireUser`, not the setup gate: the setup wizard draws these same forms
@@ -16,6 +16,7 @@ const ctx = async () => ({ actor: (await requireUser()).actor, db: getDb() });
 const refresh = () => {
   revalidatePath("/booking");
   revalidatePath("/setup/hours");
+  revalidatePath("/booking/branches");
 };
 
 type Result = NonNullable<FormState>;
@@ -99,7 +100,16 @@ export async function saveHours(_previous: unknown, form: FormData): Promise<Res
     };
   });
 
-  return caught(form, (context) => booking.setHours(context, { days }));
+  /** A branch's own week when the form names one, the company's otherwise. */
+  const businessUnitId = String(form.get("businessUnitId") ?? "") || null;
+  return caught(form, (context) => booking.setHours(context, { days, businessUnitId }));
+}
+
+/** A branch back on the company's week: its own goes, and it keeps the company's from then on. */
+export async function followCompanyHours(_previous: unknown, form: FormData): Promise<Result> {
+  return caught(form, (context) => businessHours.followCompany(context, {
+    businessUnitId: String(form.get("businessUnitId") ?? ""),
+  }));
 }
 
 /** The share of each window held for members whose plan promises priority, and when it is let go. */

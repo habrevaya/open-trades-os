@@ -1589,6 +1589,7 @@ export interface BuyTrackingNumberOutput {
   afterHoursForwardsToE164: string | null;
   menuId: string | null;
   adopted: boolean;
+  businessUnitId: string | null;
 }
 
 export interface CampaignRecipientsOutput {
@@ -1857,6 +1858,13 @@ export type ClaimTaskInput = Record<string, unknown>;
 export interface ClaimTaskOutput {
   id: string;
   assigneeUserId: string | null;
+}
+
+export type ClearBranchHoursInput = Record<string, unknown>;
+
+export interface ClearBranchHoursOutput {
+  businessUnitId: string;
+  removed: number;
 }
 
 export type ClearDiscountPolicyInput = Record<string, unknown>;
@@ -12621,6 +12629,26 @@ export interface ListBranchOptionsOutput {
   narrowed: boolean;
 }
 
+export interface ListBusinessHoursOutput {
+  company: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  branches: Array<{
+    businessUnitId: string;
+    name: string;
+    source: "branch" | "company";
+    days: Array<{
+      dayOfWeek: number;
+      opensAt: string | null;
+      closesAt: string | null;
+      closed: boolean;
+    }>;
+  }>;
+}
+
 export interface ListBusinessUnitsOutput {
   units: Array<{
     id: string;
@@ -22270,6 +22298,7 @@ export interface SetBusinessHoursInput {
     closesAt: string | null;
     closed: boolean;
   }>;
+  businessUnitId?: string | null;
 }
 
 export interface SetBusinessHoursOutput {
@@ -22865,6 +22894,7 @@ export interface SetNumberRoutingInput {
   routeByHours?: boolean;
   afterHoursForwardsToE164?: string | null;
   menuId?: string | null;
+  businessUnitId?: string | null;
 }
 
 export interface SetNumberRoutingOutput {
@@ -22883,6 +22913,7 @@ export interface SetNumberRoutingOutput {
   afterHoursForwardsToE164: string | null;
   menuId: string | null;
   adopted: boolean;
+  businessUnitId: string | null;
 }
 
 export interface SetOnboardingLineInput {
@@ -27713,6 +27744,10 @@ export interface ClaimTaskParams {
   id: string;
 }
 
+export interface ClearBranchHoursParams {
+  businessUnitId: string;
+}
+
 export interface ClearTruckMinimumParams {
   id: string;
 }
@@ -28829,6 +28864,8 @@ export interface ListBookingRequestsInput {
 }
 
 export type ListBranchOptionsInput = Record<string, never>;
+
+export type ListBusinessHoursInput = Record<string, never>;
 
 export type ListBusinessUnitsInput = Record<string, never>;
 
@@ -31070,6 +31107,7 @@ export interface OperationTypes {
   checkTruckFills: { input: CheckTruckFillsInput; output: CheckTruckFillsOutput };
   claimAppCredential: { input: ClaimAppCredentialParams & ClaimAppCredentialInput; output: ClaimAppCredentialOutput };
   claimTask: { input: ClaimTaskParams & ClaimTaskInput; output: ClaimTaskOutput };
+  clearBranchHours: { input: ClearBranchHoursParams & ClearBranchHoursInput; output: ClearBranchHoursOutput };
   clearDiscountPolicy: { input: ClearDiscountPolicyInput; output: ClearDiscountPolicyOutput };
   clearReorderPolicy: { input: ClearReorderPolicyInput; output: ClearReorderPolicyOutput };
   clearTruckMinimum: { input: ClearTruckMinimumParams & ClearTruckMinimumInput; output: ClearTruckMinimumOutput };
@@ -31448,6 +31486,7 @@ export interface OperationTypes {
   listBookableServices: { input: ListBookableServicesInput; output: ListBookableServicesOutput };
   listBookingRequests: { input: ListBookingRequestsInput; output: ListBookingRequestsOutput };
   listBranchOptions: { input: ListBranchOptionsInput; output: ListBranchOptionsOutput };
+  listBusinessHours: { input: ListBusinessHoursInput; output: ListBusinessHoursOutput };
   listBusinessUnits: { input: ListBusinessUnitsInput; output: ListBusinessUnitsOutput };
   listCalendarFeeds: { input: ListCalendarFeedsInput; output: ListCalendarFeedsOutput };
   listCallQueues: { input: ListCallQueuesInput; output: ListCallQueuesOutput };
@@ -32196,6 +32235,7 @@ export const OPERATIONS = {
   checkTruckFills: { method: "POST", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   claimAppCredential: { method: "POST", path: "/v1/public/app-requests/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   claimTask: { method: "POST", path: "/v1/tasks/{id}/claim", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
+  clearBranchHours: { method: "DELETE", path: "/v1/booking/hours/{businessUnitId}", pathParams: ["businessUnitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   clearDiscountPolicy: { method: "POST", path: "/v1/estimate-discount-policy/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   clearReorderPolicy: { method: "POST", path: "/v1/reorder-policies/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   clearTruckMinimum: { method: "POST", path: "/v1/truck-minimums/{id}/clear", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -32574,6 +32614,7 @@ export const OPERATIONS = {
   listBookableServices: { method: "GET", path: "/v1/public/services", pathParams: [], queryParams: ["organizationSlug","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   listBookingRequests: { method: "GET", path: "/v1/bookings", pathParams: [], queryParams: ["cursor","limit","status","from","to"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["booking:read"] },
   listBranchOptions: { method: "GET", path: "/v1/branches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  listBusinessHours: { method: "GET", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listBusinessUnits: { method: "GET", path: "/v1/business-units", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listCalendarFeeds: { method: "GET", path: "/v1/calendar-feeds", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listCallQueues: { method: "GET", path: "/v1/call-queues", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -33980,6 +34021,15 @@ export abstract class GeneratedOperations {
    */
   claimTask(input: ClaimTaskParams & ClaimTaskInput, options?: CallOptions): Promise<ClaimTaskOutput> {
     return this.call("claimTask", input, options);
+  }
+
+  /**
+   * Put a branch back on the company's week.
+   *
+   * DELETE /v1/booking/hours/{businessUnitId}. Needs booking:configure.
+   */
+  clearBranchHours(input: ClearBranchHoursParams & ClearBranchHoursInput, options?: CallOptions): Promise<ClearBranchHoursOutput> {
+    return this.call("clearBranchHours", input, options);
   }
 
   /**
@@ -37382,6 +37432,15 @@ export abstract class GeneratedOperations {
    */
   listBranchOptions(input: ListBranchOptionsInput = {} as ListBranchOptionsInput, options?: CallOptions): Promise<ListBranchOptionsOutput> {
     return this.call("listBranchOptions", input, options);
+  }
+
+  /**
+   * The company's week, and the week each branch keeps.
+   *
+   * GET /v1/booking/hours. Needs settings:read.
+   */
+  listBusinessHours(input: ListBusinessHoursInput = {} as ListBusinessHoursInput, options?: CallOptions): Promise<ListBusinessHoursOutput> {
+    return this.call("listBusinessHours", input, options);
   }
 
   /**
@@ -41480,7 +41539,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set which days the company is open.
+   * Set which days the company, or one branch, is open.
    *
    * PUT /v1/booking/hours. Needs booking:configure.
    */

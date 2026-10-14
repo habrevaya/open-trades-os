@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as acquisition from "./acquisition";
+import { liveBranch } from "./branches";
 
 /**
  * THE NUMBERS A COMPANY CONTROLS
@@ -131,6 +132,12 @@ export interface NumberInput {
   menuId?: string | null | undefined;
   /** The carrier's id, set by the purchase and nothing else. */
   providerNumberId?: string | null | undefined;
+  /**
+   * The branch the number answers for. Its calls are routed by that
+   * branch's week and holidays (the company's week where the branch keeps
+   * none). Null is the whole company's.
+   */
+  businessUnitId?: string | null | undefined;
 }
 
 const E164 = /^\+[1-9]\d{6,14}$/;
@@ -345,7 +352,12 @@ export async function update(
       afterHoursForwardsToE164: input.afterHoursForwardsToE164 !== undefined
         ? input.afterHoursForwardsToE164 : before.afterHoursForwardsToE164,
       menuId: input.menuId !== undefined ? input.menuId : before.menuId,
+      businessUnitId: input.businessUnitId !== undefined ? input.businessUnitId : before.businessUnitId,
     };
+    /** A branch it is moved into must be a live one; one it already sat in stays, retired or not. */
+    if (merged.businessUnitId && merged.businessUnitId !== before.businessUnitId) {
+      await liveBranch(tx, ctx, merged.businessUnitId);
+    }
     if (merged.menuId && merged.menuId !== before.menuId) {
       const [menu] = await tx.select({ id: schema.phoneMenu.id }).from(schema.phoneMenu)
         .where(and(
@@ -373,6 +385,7 @@ export async function update(
       routeByHours: merged.routeByHours ?? false,
       afterHoursForwardsToE164: merged.afterHoursForwardsToE164?.trim() || null,
       menuId: merged.menuId ?? null,
+      businessUnitId: merged.businessUnitId ?? null,
       updatedAt: new Date(),
     }).where(eq(schema.phoneNumber.id, input.id)).returning();
 
@@ -533,6 +546,8 @@ function shape(row: typeof schema.phoneNumber.$inferSelect) {
     routeByHours: row.routeByHours,
     afterHoursForwardsToE164: row.afterHoursForwardsToE164,
     menuId: row.menuId,
+    /** The branch it answers for, whose hours route its calls. Null is the whole company's. */
+    businessUnitId: row.businessUnitId,
     /**
      * A number the company already had, pointed here rather than bought
      * here. Releasing it hands its calls back to wherever they went before,

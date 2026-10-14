@@ -82,6 +82,8 @@ export async function BranchesSection({ ctx, compact = false }: { ctx: ServiceCo
             ? "Everybody belongs to a branch."
             : `${view.peopleWithoutBranch} ${view.peopleWithoutBranch === 1 ? "person has" : "people have"} no branch. That is right for an owner who sees everything; somebody limited to their branch needs one.`}
           {" "}People are put in a branch on <a href="/settings/team" className="underline underline-offset-4">Team</a>.
+          {" "}A branch open on other days than the company keeps its own hours on{" "}
+          <a href="/booking/branches" className="underline underline-offset-4">Branch hours</a>.
         </p>
       ) : null}
 

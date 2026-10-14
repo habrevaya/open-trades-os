@@ -14395,14 +14395,107 @@
       }
     },
     "/v1/booking/hours": {
-      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
+        "GET",
         "PUT"
       ],
+      "get": {
+        "operationId": "listBusinessHours",
+        "summary": "The company's week, and the week each branch keeps",
+        "description": "`company` is the company's own seven days, empty when nobody has set them. Each live branch is listed with the week it keeps: its own (`source: branch`) or the company's (`source: company`), which is what every reader uses for that branch's work. Somebody who sees only their own branch's work sees the company's week and their own branch's.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's week, and the week each branch keeps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBusinessHoursOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
       "put": {
         "operationId": "setBusinessHours",
-        "summary": "Set which days the company is open",
-        "description": "Requires a session holding: booking:configure.",
+        "summary": "Set which days the company, or one branch, is open",
+        "description": "All seven days every time. Without `businessUnitId` it is the company's week; with one, that branch's own, which online booking, the after hours offer, the crew check, task escalation, the rebalance, route density and the phones read for that branch's work in place of the company's. Setting one never touches the other. Somebody who sees only their own branch's work sets only that branch's week.\n\nRequires a session holding: booking:configure.",
         "tags": [
           "M05"
         ],
@@ -14418,7 +14511,7 @@
         },
         "responses": {
           "200": {
-            "description": "Set which days the company is open",
+            "description": "Set which days the company, or one branch, is open",
             "content": {
               "application/json": {
                 "schema": {
@@ -14433,6 +14526,125 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      }
+    },
+    "/v1/booking/hours/{businessUnitId}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "clearBranchHours",
+        "summary": "Put a branch back on the company's week",
+        "description": "Removes the branch's own week, so it keeps the company's from then on. A branch already on the company's week answers with nothing removed.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "businessUnitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearBranchHoursInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Put a branch back on the company's week",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClearBranchHoursOutput"
                 }
               }
             }
@@ -72756,7 +72968,7 @@
       "patch": {
         "operationId": "setNumberRouting",
         "summary": "How calls to a number are answered",
-        "description": "Where they ring, whether the person answering hears the channel and campaign first, whether the caller is asked to agree to recording, and what happens outside business hours.\n\nRequires a session holding: settings:write.",
+        "description": "Where they ring, whether the person answering hears the channel and campaign first, whether the caller is asked to agree to recording, and what happens outside business hours. A number in a branch is routed by that branch's week and holidays, the company's week where the branch keeps none.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M19"
         ],
@@ -146241,6 +146453,13 @@
           },
           "adopted": {
             "type": "boolean"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -146258,7 +146477,8 @@
           "routeByHours",
           "afterHoursForwardsToE164",
           "menuId",
-          "adopted"
+          "adopted",
+          "businessUnitId"
         ]
       },
       "CampaignRecipientsOutput": {
@@ -147505,6 +147725,26 @@
         "required": [
           "id",
           "assigneeUserId"
+        ]
+      },
+      "ClearBranchHoursInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ClearBranchHoursOutput": {
+        "type": "object",
+        "properties": {
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "businessUnitId",
+          "removed"
         ]
       },
       "ClearDiscountPolicyInput": {
@@ -203334,6 +203574,115 @@
           "narrowed"
         ]
       },
+      "ListBusinessHoursOutput": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "businessUnitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "branch",
+                    "company"
+                  ]
+                },
+                "days": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "dayOfWeek": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      },
+                      "opensAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^\\d{2}:\\d{2}$"
+                      },
+                      "closesAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^\\d{2}:\\d{2}$"
+                      },
+                      "closed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "dayOfWeek",
+                      "opensAt",
+                      "closesAt",
+                      "closed"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "businessUnitId",
+                "name",
+                "source",
+                "days"
+              ]
+            }
+          }
+        },
+        "required": [
+          "company",
+          "branches"
+        ]
+      },
       "ListBusinessUnitsOutput": {
         "type": "object",
         "properties": {
@@ -252063,6 +252412,13 @@
                 "closed"
               ]
             }
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -254883,6 +255239,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -254958,6 +255321,13 @@
           },
           "adopted": {
             "type": "boolean"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -254975,7 +255345,8 @@
           "routeByHours",
           "afterHoursForwardsToE164",
           "menuId",
-          "adopted"
+          "adopted",
+          "businessUnitId"
         ]
       },
       "SetOnboardingLineInput": {

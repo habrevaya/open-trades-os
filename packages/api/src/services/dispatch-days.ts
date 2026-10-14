@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, recurrence, routing, time } from "@opentradesos/core";
+import { assertCan, holidays as holidayRules, recurrence, routing, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -15,6 +15,7 @@ import { officeMoved } from "./visit-changes";
 import { remember, replayed } from "./once";
 import { roomOutsideHold } from "./booking";
 import { closedDates } from "./holidays";
+import { weeksByBranch } from "./business-hours";
 
 /**
  * SEVERAL DAYS, REBALANCED: WORK MOVED TO ANOTHER DAY
@@ -26,8 +27,9 @@ import { closedDates } from "./holidays";
  * delivers ("a tune up in the first half of May"), or the days of the week
  * the customer said suit them. Never onto today and never off it, because a
  * customer expecting somebody this afternoon has not agreed to Thursday,
- * and never onto a day the company is closed: a weekday its hours keep
- * closed, or a date its holiday list does. Core decides
+ * and never onto a day the visit's branch is closed: a weekday its week (or
+ * the company's, where it keeps none) keeps closed, or a date its holiday
+ * list does. Core decides
  * (`routing.rebalanceDays`), with the same constraints the single day
  * planner keeps.
  *
@@ -94,13 +96,6 @@ function rangeOf(from: string, days: number): string[] {
   return Array.from({ length: days }, (_, i) => recurrence.addDays(from, i));
 }
 
-/** The weekdays the company is open, or null when it has declared no hours at all. */
-async function openDaysOf(tx: Database): Promise<Set<number> | null> {
-  const hours = await tx.select().from(schema.businessHours);
-  if (hours.length === 0) return null;
-  return new Set(hours.filter((h) => h.opensAt !== null && h.closesAt !== null && !h.closed).map((h) => h.dayOfWeek));
-}
-
 const basisOfDays = (days: dm.Day[]) =>
   createHash("sha256").update(days.map((d) => `${d.date}:${dm.basisOf(d)}`).join("|")).digest("hex").slice(0, 32);
 
@@ -119,8 +114,16 @@ async function loadRange(tx: Database, ctx: ServiceContext, dates: string[]) {
     closedBy.set(branchId, dates.length === 0 ? new Set<string>()
       : await closedDates(tx, ctx.actor.organizationId, dates[0]!, dates[dates.length - 1]!, branchId));
   }
+  /**
+   * And the weekdays each branch opens: its own week, or the company's where
+   * it keeps none, so a Houston visit may go to Houston's Saturday and an
+   * Austin one, whose branch is shut on Saturdays, may not. Null where no
+   * week is declared at all, which closes no weekday.
+   */
+  const weekOf = await weeksByBranch(tx, ctx.actor.organizationId);
   return {
-    zone, days, today: time.dateIn(new Date(), zone), open: await openDaysOf(tx),
+    zone, days, today: time.dateIn(new Date(), zone),
+    openOf: (v: dm.DayVisit): ReadonlySet<number> | null => holidayRules.openWeekdays(weekOf(v.branchId).week),
     closedOf: (v: dm.DayVisit): ReadonlySet<string> => closedBy.get(v.branchId) ?? closedBy.get(null)!,
   };
 }
@@ -160,7 +163,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     }
     /** Each crew visit asked about on its own day and every day it may go to, the check a drag onto a crew makes. */
     const asks = range.days.flatMap((d) => d.visits.filter((v) => v.crewId !== null && movableOn(d, v, crewIds))
-      .flatMap((v) => [d.date, ...daysFor(v, d.date, dates, { today: range.today, open: range.open, closed: range.closedOf(v) }).dates]
+      .flatMap((v) => [d.date, ...daysFor(v, d.date, dates, { today: range.today, open: range.openOf(v), closed: range.closedOf(v) }).dates]
         /** At the hours the visit would have on that day, so a crew with part of that day off is asked about those hours. */
         .map((date) => ({ jobId: v.jobId, date, window: visitHoursOn(v, d, date, range.zone) }))));
     const crewRefusal = await crewRefusals(tx, ctx.actor.organizationId, { crewIds: [...crewIds], asks });
@@ -169,7 +172,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     });
     return { ...range, verdicts, members, crews, crewIds, crewRefusal, ceilingOf };
   });
-  const { zone, days, today, open, closedOf, crews, crewIds } = loaded;
+  const { zone, days, today, openOf, closedOf, crews, crewIds } = loaded;
   const dayOf = new Map(days.map((d) => [d.date, d]));
   const planned = crews.filter((c) => crewIds.has(c.id));
 
@@ -210,7 +213,7 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     for (const v of plan.candidates) {
       points.set(v.id, { place: v.place, routeId: v.routeId });
       byId.set(v.id, { visit: v, date: plan.day.date });
-      const may = daysFor(v, plan.day.date, dates, { today, open, closed: closedOf(v) });
+      const may = daysFor(v, plan.day.date, dates, { today, open: openOf(v), closed: closedOf(v) });
       if (may.because && may.dates.length > 0) grounds.set(v.id, may.because);
       visits.push({
         id: v.id,
@@ -475,7 +478,7 @@ export async function applyRebalanceDays(ctx: ServiceContext, input: {
     const prior = await replayed<Applied>(tx, ctx, "dispatch_rebalance_days");
     if (prior) return prior;
 
-    const { zone, days, today, open, closedOf } = await loadRange(tx, ctx, dates);
+    const { zone, days, today, openOf, closedOf } = await loadRange(tx, ctx, dates);
     if (basisOfDays(days) !== input.basis) {
       throw new ConflictError("The board has changed since this was proposed. Propose it again to see the days as they are now.");
     }
@@ -521,7 +524,7 @@ export async function applyRebalanceDays(ctx: ServiceContext, input: {
       }
       const kindFits = visit.crewId !== null ? dm.crewPlannable(visit)
         : team ? dm.teamPlannable(day, visit, plannedIdsOf(day)) : dm.plannable(day, visit);
-      if (!kindFits || !daysFor(visit, day.date, dates, { today, open, closed: closedOf(visit) }).dates.includes(move.toDate)) {
+      if (!kindFits || !daysFor(visit, day.date, dates, { today, open: openOf(visit), closed: closedOf(visit) }).dates.includes(move.toDate)) {
         throw new ConflictError(`${visit.customerName}'s visit may not be moved to ${move.toDate}: the customer has not agreed to that day.`);
       }
       const moved = windowOn(visit, day, move.toDate, zone);

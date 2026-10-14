@@ -10,7 +10,7 @@ import {
 } from "./context";
 import { definitionsWithin } from "./custom-fields";
 import { jobScopeFilter } from "./scope";
-import { weekOf } from "./after-hours";
+import { loadWeek } from "./business-hours";
 import { holidaysForJob } from "./holidays";
 import { catalogueFor } from "./report-company";
 import { available as availableDatasets } from "./reports";
@@ -728,7 +728,7 @@ async function ruleFactsWithin(
   tx: Database, organizationId: string, sale: { customerId: string; jobId: string | null }, active: readonly rules.ActiveRule[],
 ): Promise<rules.RuleFacts> {
   const [job] = sale.jobId
-    ? await tx.select({ customerId: schema.job.customerId, jobTypeId: schema.job.jobTypeId })
+    ? await tx.select({ customerId: schema.job.customerId, jobTypeId: schema.job.jobTypeId, branchId: schema.job.businessUnitId })
       .from(schema.job).where(eq(schema.job.id, sale.jobId)).limit(1)
     : [];
   const [customer] = await tx.select({ tags: schema.customer.tags }).from(schema.customer)
@@ -744,7 +744,7 @@ async function ruleFactsWithin(
       const date = time.dateIn(visit.windowStart, zone);
       const minute = time.minutesInDay(visit.windowStart, zone);
       const outsideHours = active.some((r) => r.rule.window === "outside_hours")
-        ? holidayRules.bookedAt({ week: await weekOf(tx), holidays: await holidaysForJob(tx, organizationId, sale.jobId), date, minute }).outsideHours
+        ? holidayRules.bookedAt({ week: (await loadWeek(tx, organizationId, job?.branchId ?? null)).week, holidays: await holidaysForJob(tx, organizationId, sale.jobId), date, minute }).outsideHours
         : false;
       work = { dayOfWeek: new Date(`${date}T00:00:00Z`).getUTCDay(), minute, outsideHours };
     }

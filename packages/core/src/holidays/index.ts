@@ -6,6 +6,7 @@ import {
 } from "./moving.js";
 
 export * from "./moving.js";
+export * from "./week.js";
 
 /**
  * THE COMPANY'S OWN DAYS OFF, AND ITS SHORT DAYS

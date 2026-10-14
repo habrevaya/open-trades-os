@@ -151,32 +151,44 @@ export function Windows({ current }: {
 }
 
 /**
- * Which days the company is open.
+ * Which days the company is open, or one branch is.
  *
  * All seven, always. A partial week is ambiguous: a missing Saturday could
  * mean closed or could mean nobody has said yet, and availability treats an
  * absent row as closed, so silence becomes a decision nobody made.
+ *
+ * With `businessUnitId` it is that branch's own week, and the labels carry
+ * the branch's name so a screen with several is read by a screen reader
+ * without guessing which Monday is whose.
  */
-export function Hours({ current }: {
+export function Hours({ current, businessUnitId, name, submit = "Save hours" }: {
   current: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
+  businessUnitId?: string;
+  name?: string;
+  submit?: string;
 }) {
   const [state, actionForm, pending] = useKeptAction(saveHours, {});
   const byDay = new Map(current.map((d) => [d.dayOfWeek, d]));
+  const whose = name ? ` in ${name}` : "";
 
   return (
     <form {...actionForm} className="mt-3">
+      {businessUnitId ? <input type="hidden" name="businessUnitId" value={businessUnitId} /> : null}
       <div className="space-y-1">
         {DAYS.map((label, day) => {
           const row = byDay.get(day);
           return (
-            <div key={day} className="flex items-center gap-3">
+            <div key={day} className="flex flex-wrap items-center gap-3">
               <span className="w-24 text-sm text-ink-700">{label}</span>
               <input name={`opens-${day}`} type="time" defaultValue={row?.opensAt?.slice(0, 5) ?? "07:00"}
+                     aria-label={`${label} opens${whose}`}
                      className="h-9 rounded border border-steel-300 px-2 text-sm" />
               <input name={`closes-${day}`} type="time" defaultValue={row?.closesAt?.slice(0, 5) ?? "18:00"}
+                     aria-label={`${label} closes${whose}`}
                      className="h-9 rounded border border-steel-300 px-2 text-sm" />
               <label className="flex items-center gap-1 text-sm text-ink-500">
-                <input name={`closed-${day}`} type="checkbox" defaultChecked={row?.closed ?? day === 0} />
+                <input name={`closed-${day}`} type="checkbox" defaultChecked={row?.closed ?? day === 0}
+                       aria-label={`${label} closed${whose}`} />
                 Closed
               </label>
             </div>
@@ -186,7 +198,7 @@ export function Hours({ current }: {
 
       <button type="submit" disabled={pending}
               className="mt-3 h-10 rounded border border-steel-300 px-4 text-sm font-medium">
-        {pending ? "Saving" : "Save hours"}
+        {pending ? "Saving" : submit}
       </button>
       <Note state={state} />
     </form>

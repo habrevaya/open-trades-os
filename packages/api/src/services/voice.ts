@@ -18,6 +18,7 @@ import * as callbacks from "./queue-callbacks";
 import * as transfers from "./call-transfers";
 import { memberActor } from "./session";
 import { loadHolidays } from "./holidays";
+import { loadWeek } from "./business-hours";
 import { emit } from "./events";
 import { leaseForCall } from "./website-tracking";
 import { readerFor } from "../secrets/store";
@@ -500,11 +501,16 @@ type NumberRow = typeof schema.phoneNumber.$inferSelect;
  * zone, which is all the router asks about.
  */
 async function routeOf(tx: Database, organizationId: string, number: NumberRow, knownCustomer: boolean, now: Date) {
-  const rows = await tx.select().from(schema.businessHours);
+  /**
+   * A number that belongs to a branch is routed by that branch's week and
+   * holidays (the company's week where the branch keeps none); one in no
+   * branch by the company's.
+   */
+  const { rows } = await loadWeek(tx, organizationId, number.businessUnitId);
   const zone = await timezoneOf(tx, organizationId);
   const today = time.dateIn(now, zone);
   const holidays = holidayRules.forPhones(
-    await loadHolidays(tx, organizationId), time.addDays(today, -1), time.addDays(today, 1),
+    await loadHolidays(tx, organizationId, number.businessUnitId), time.addDays(today, -1), time.addDays(today, 1),
   );
   const hours = voice.businessHoursFrom(rows, zone, holidays);
   if (number.menuId) {
@@ -2093,7 +2099,11 @@ export const handlers = {
     id: string; forwardsToE164?: string | null | undefined; whisper?: boolean | undefined;
     recordCalls?: boolean | undefined; routeByHours?: boolean | undefined;
     afterHoursForwardsToE164?: string | null | undefined; menuId?: string | null | undefined;
-  }) => phoneNumbers.update(ctx, { id: input.id, ...voiceSettings(input) }),
+    businessUnitId?: string | null | undefined;
+  }) => phoneNumbers.update(ctx, {
+    id: input.id, ...voiceSettings(input),
+    ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
+  }),
 
   answerNumberHere: (ctx: ServiceContext, input: { id: string }) => answerHere(ctx, input),
   stopAnsweringNumber: (ctx: ServiceContext, input: { id: string }) => stopAnswering(ctx, input),

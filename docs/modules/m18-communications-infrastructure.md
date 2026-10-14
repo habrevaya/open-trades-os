@@ -196,7 +196,11 @@ ring group, voicemail, another menu, whoever is on call, a number outside
 the company, a waiting line, or the phone assistant. A caller who presses a wrong key is told so and hears it again;
 one who presses nothing hears it three times and then goes where the menu says.
 Outside the business hours online booking keeps, calls go where the menu's
-after hours setting says, usually whoever is on call. The company's holiday list
+after hours setting says, usually whoever is on call. A number can answer for
+one branch ("Answers for" beside how it rings on `/settings`, `businessUnitId`
+on `PATCH /v1/marketing/tracking-numbers/{id}/routing`), and then that branch's
+week and holidays are read instead of the company's, with the company's week
+for a branch that keeps none (M02). The holiday list
 (`/settings/holidays`, M02) is read with them: on a closed holiday a call goes
 where an after hours call goes whatever the weekday, and on a short day the
 day's own hours decide. Every save is checked

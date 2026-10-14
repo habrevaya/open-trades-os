@@ -331,21 +331,59 @@ export const setArrivalWindows = defineRoute({
   output: z.object({ windows: z.number().int() }),
 });
 
+const WeekDay = z.object({
+  dayOfWeek: z.number().int().min(0).max(6),
+  opensAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+  closesAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+  closed: z.boolean(),
+});
+
 export const setBusinessHours = defineRoute({
   method: "put",
   path: "/v1/booking/hours",
-  summary: "Set which days the company is open",
+  summary: "Set which days the company, or one branch, is open",
+  description:
+    "All seven days every time. Without `businessUnitId` it is the company's week; with one, that branch's own, which online booking, the after hours offer, the crew check, task escalation, the rebalance, route density and the phones read for that branch's work in place of the company's. Setting one never touches the other. Somebody who sees only their own branch's work sets only that branch's week.",
   module: "M05",
   permissions: ["booking:configure"],
   input: z.object({
-    days: z.array(z.object({
-      dayOfWeek: z.number().int().min(0).max(6),
-      opensAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
-      closesAt: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
-      closed: z.boolean(),
-    })).length(7),
+    days: z.array(WeekDay).length(7),
+    /** A branch's own week. Absent or null is the company's. */
+    businessUnitId: Uuid.nullable().optional(),
   }),
   output: z.object({ days: z.number().int() }),
+});
+
+export const listBusinessHours = defineRoute({
+  method: "get",
+  path: "/v1/booking/hours",
+  summary: "The company's week, and the week each branch keeps",
+  description:
+    "`company` is the company's own seven days, empty when nobody has set them. Each live branch is listed with the week it keeps: its own (`source: branch`) or the company's (`source: company`), which is what every reader uses for that branch's work. Somebody who sees only their own branch's work sees the company's week and their own branch's.",
+  module: "M02",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: z.object({
+    company: z.array(WeekDay),
+    branches: z.array(z.object({
+      businessUnitId: Uuid,
+      name: z.string(),
+      source: z.enum(["branch", "company"]),
+      days: z.array(WeekDay),
+    })),
+  }),
+});
+
+export const clearBranchHours = defineRoute({
+  method: "delete",
+  path: "/v1/booking/hours/{businessUnitId}",
+  summary: "Put a branch back on the company's week",
+  description:
+    "Removes the branch's own week, so it keeps the company's from then on. A branch already on the company's week answers with nothing removed.",
+  module: "M02",
+  permissions: ["booking:configure"],
+  input: z.object({ businessUnitId: Uuid }),
+  output: z.object({ businessUnitId: Uuid, removed: z.number().int() }),
 });
 
 /**
@@ -394,7 +432,7 @@ export const setMemberHold = defineRoute({
 });
 
 export const bookingRoutes = {
-  createBookableService, setArrivalWindows, setBusinessHours,
+  createBookableService, setArrivalWindows, setBusinessHours, listBusinessHours, clearBranchHours,
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
   configureBookableService, getMemberHold, setMemberHold,

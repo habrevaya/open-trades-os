@@ -233,9 +233,10 @@ opposite of what was asked for; if the hours are removed later, only holidays ar
 out of the count and the escalation's note says so. The counting is core's
 `workingMinutesBetween` in `holidays`, so it reads the same week and the same holiday
 list as booking, the phones and the after hours rate, with unit tests. A task about a
-job, or about one of its visits, reads that job's branch's own holidays beside the
-company's (M02), so a branch's day off is not counted as working time on its work; any
-other task reads the company's list.
+job, or about one of its visits, reads that job's branch's own week (the company's where
+the branch keeps none) and its own holidays beside the company's (M02), so a branch's
+day off is not counted as working time on its work and its Saturday morning is; any
+other task reads the company's week and list.
 
 "The manager" is who the person answers to, which the same screen records
 (`user:write`, because it is a fact about people), and which the person's own

@@ -175,8 +175,10 @@ a range of days set on the visit ("any day the week of the fifth"), the
 window of the agreement visit it delivers, or the days of the week set on
 the customer as the days that suit them (and inside both when there are
 both). Never onto today or off it, because a customer expecting somebody
-this afternoon has not agreed to Thursday, and never onto a day the company
-is closed. The same constraints hold on the new day (skills and time off at the
+this afternoon has not agreed to Thursday, and never onto a day the visit's
+branch is closed: a weekday its own week keeps closed (the company's week,
+for a branch that keeps none, M02) or a date on its holiday list, so a Houston
+visit may go to Houston's Saturday while an Austin one may not. The same constraints hold on the new day (skills and time off at the
 hours the visit would have on that day, so a person with the afternoon off still
 takes a morning visit, the window at the same wall clock times, the overtime limit and
 lunch), and a visit moves day only when that keeps a promise or a limit,
