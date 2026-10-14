@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { reviews as rv } from "@opentradesos/core";
+import { automation, reviews as rv } from "@opentradesos/core";
 import { loadHolidays } from "./holidays";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
@@ -115,14 +115,51 @@ export interface PolicyInput {
   reminderAfterDays?: number | null | undefined;
 }
 
+/**
+ * What `setPolicy` stores for a field left out. Named once, so the policy
+ * screen shows the same numbers it would save, and a test can say so.
+ * Not a default the product uses without a policy: with none, nothing is
+ * asked at all (`policyFor`).
+ */
+export const POLICY_STARTING_POINT = Object.freeze({
+  delayMinutes: 120,
+  customerCooldownDays: 90,
+  requirePaid: true,
+  maxJobAgeDays: 14,
+  earliestHour: 9,
+  latestHour: 19,
+  recoverAtOrBelow: 3,
+  sameDayAtOrBelow: 2,
+  businessDays: Object.freeze([1, 2, 3, 4, 5]) as readonly number[],
+  openHour: 8,
+  closeHour: 17,
+  halfLifeDays: 365,
+});
+
+/**
+ * The policy as it stands, or null when none is set. For the screen that
+ * sets it, so `settings:read`, the permission of the settings around it.
+ */
+export async function currentPolicy(ctx: ServiceContext) {
+  return guardedRead(ctx, "settings:read", async (tx) => {
+    const [row] = await tx.select().from(schema.reviewPolicy)
+      .where(and(
+        eq(schema.reviewPolicy.organizationId, ctx.actor.organizationId),
+        eq(schema.reviewPolicy.active, true),
+        isNull(schema.reviewPolicy.deletedAt),
+      )).limit(1);
+    return row ?? null;
+  });
+}
+
 export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const bands: rv.ResponseBand[] = input.bands ?? rv.DEFAULT_RESPONSE_BANDS.map((b) => ({ ...b }));
     const proposed: rv.ResponsePolicy = {
       timeZone: input.timeZone,
-      businessDays: input.businessDays ?? [1, 2, 3, 4, 5],
-      openHour: input.openHour ?? 8,
-      closeHour: input.closeHour ?? 17,
+      businessDays: input.businessDays ?? [...POLICY_STARTING_POINT.businessDays],
+      openHour: input.openHour ?? POLICY_STARTING_POINT.openHour,
+      closeHour: input.closeHour ?? POLICY_STARTING_POINT.closeHour,
       bands,
     };
 
@@ -134,18 +171,27 @@ export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
      */
     const verdict = rv.checkResponsePolicy(proposed);
     if (!verdict.ok) throw new ConflictError(verdict.reason);
+    /**
+     * A zone the runtime does not know would throw on the first deadline
+     * worked out from it, on the reply queue, long after it was saved.
+     */
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: input.timeZone });
+    } catch {
+      throw new ConflictError(`"${input.timeZone}" is not a time zone. Write it like America/Chicago.`);
+    }
 
     const values = {
       organizationId: ctx.actor.organizationId,
       timeZone: input.timeZone,
-      delayMinutes: input.delayMinutes ?? 120,
-      customerCooldownDays: input.customerCooldownDays ?? 90,
-      requirePaid: input.requirePaid ?? true,
-      maxJobAgeDays: input.maxJobAgeDays ?? 14,
-      earliestHour: input.earliestHour ?? 9,
-      latestHour: input.latestHour ?? 19,
-      recoverAtOrBelow: input.recoverAtOrBelow ?? 3,
-      sameDayAtOrBelow: input.sameDayAtOrBelow ?? 2,
+      delayMinutes: input.delayMinutes ?? POLICY_STARTING_POINT.delayMinutes,
+      customerCooldownDays: input.customerCooldownDays ?? POLICY_STARTING_POINT.customerCooldownDays,
+      requirePaid: input.requirePaid ?? POLICY_STARTING_POINT.requirePaid,
+      maxJobAgeDays: input.maxJobAgeDays ?? POLICY_STARTING_POINT.maxJobAgeDays,
+      earliestHour: input.earliestHour ?? POLICY_STARTING_POINT.earliestHour,
+      latestHour: input.latestHour ?? POLICY_STARTING_POINT.latestHour,
+      recoverAtOrBelow: input.recoverAtOrBelow ?? POLICY_STARTING_POINT.recoverAtOrBelow,
+      sameDayAtOrBelow: input.sameDayAtOrBelow ?? POLICY_STARTING_POINT.sameDayAtOrBelow,
       businessDays: proposed.businessDays as number[],
       openHour: proposed.openHour,
       closeHour: proposed.closeHour,
@@ -156,7 +202,7 @@ export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
        * the shipped defaults in place.
        */
       bands: bands.map((band) => ({ ...band })),
-      halfLifeDays: input.halfLifeDays ?? 365,
+      halfLifeDays: input.halfLifeDays ?? POLICY_STARTING_POINT.halfLifeDays,
       ...(input.reminderAfterDays !== undefined ? { reminderAfterDays: input.reminderAfterDays } : {}),
       active: true,
     };
@@ -182,6 +228,8 @@ export async function setPolicy(ctx: ServiceContext, input: PolicyInput) {
 export interface RemindersView {
   /** Null is off. */
   afterDays: number | null;
+  /** The words it goes in, and whether they are the company's own or the ones we ship. */
+  wording: rv.ReviewWording & { custom: boolean };
   /** The latest reminders, sent or decided against, newest first. */
   recent: {
     requestId: string; jobNumber: number; customerName: string;
@@ -204,6 +252,7 @@ export async function reminders(ctx: ServiceContext): Promise<RemindersView> {
       .orderBy(desc(schema.reviewRequest.reminderAt)).limit(25);
     return {
       afterDays: policy.reminderAfterDays,
+      wording: { ...reminderWording(policy), custom: policy.reminderSms !== null },
       recent: rows.map((r) => ({
         requestId: r.id, jobNumber: r.jobNumber, customerName: r.customerName,
         askedAt: (r.sentAt ?? r.reminderAt!).toISOString(), remindedAt: r.reminderAt!.toISOString(),
@@ -214,19 +263,66 @@ export async function reminders(ctx: ServiceContext): Promise<RemindersView> {
 }
 
 /**
- * Turn the one reminder on, with how many days to wait, or off. Its own call so
- * that a screen can change it without sending the whole service standard back.
+ * The words the reminder goes in: the company's own when it changed them,
+ * else the ones we ship. The worker and the screen both read it here.
  */
-export async function setReminders(ctx: ServiceContext, input: { afterDays: number | null }) {
+export function reminderWording(policy: Pick<typeof schema.reviewPolicy.$inferSelect,
+  "reminderSms" | "reminderEmailSubject" | "reminderEmailBody">): rv.ReviewWording {
+  const shipped = automation.REVIEW_REMINDER_WORDING;
+  return {
+    sms: policy.reminderSms ?? shipped.sms,
+    emailSubject: policy.reminderEmailSubject ?? shipped.emailSubject,
+    emailBody: policy.reminderEmailBody ?? shipped.emailBody,
+  };
+}
+
+/**
+ * Turn the one reminder on, with how many days to wait, or off, and change
+ * the words it goes in. Its own call so that a screen can change it without
+ * sending the whole service standard back. Either may be left out and stays
+ * as it was; `wording: null` puts back the words we ship. Words are checked by
+ * core's `checkReviewWording`, the rules the shipped words are held to.
+ */
+export async function setReminders(ctx: ServiceContext, input: {
+  afterDays?: number | null | undefined;
+  wording?: rv.ReviewWording | null | undefined;
+}) {
   await guardedWrite(ctx, "settings:write", async (tx) => {
-    const verdict = rv.checkReminderDays(input.afterDays);
-    if (!verdict.ok) throw new ConflictError(verdict.reason);
+    if (input.afterDays !== undefined) {
+      const verdict = rv.checkReminderDays(input.afterDays);
+      if (!verdict.ok) throw new ConflictError(verdict.reason);
+    }
+    const typed = input.wording ? {
+      sms: input.wording.sms.trim(),
+      emailSubject: input.wording.emailSubject.trim(),
+      emailBody: input.wording.emailBody.trim(),
+    } : null;
+    if (typed) {
+      const words = rv.checkReviewWording(typed);
+      if (!words.ok) throw new ConflictError(words.reason);
+    }
+    /** The shipped words typed back in are the shipped words, so later improvements to them still reach this company. */
+    const shipped = automation.REVIEW_REMINDER_WORDING;
+    const own = typed && !(typed.sms === shipped.sms && typed.emailSubject === shipped.emailSubject
+      && typed.emailBody === shipped.emailBody) ? typed : null;
+
     const before = await policyFor(tx, ctx.actor.organizationId);
     const [after] = await tx.update(schema.reviewPolicy)
-      .set({ reminderAfterDays: input.afterDays, updatedAt: new Date() })
+      .set({
+        ...(input.afterDays !== undefined ? { reminderAfterDays: input.afterDays } : {}),
+        ...(input.wording !== undefined ? {
+          reminderSms: own?.sms ?? null,
+          reminderEmailSubject: own?.emailSubject ?? null,
+          reminderEmailBody: own?.emailBody ?? null,
+        } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.reviewPolicy.id, before.id)).returning();
-    await audit(tx, ctx, "review_policy.reminders_set", "review_policy", before.id,
-      { reminderAfterDays: before.reminderAfterDays }, { reminderAfterDays: after!.reminderAfterDays });
+    const kept = (row: typeof before) => ({
+      reminderAfterDays: row.reminderAfterDays,
+      reminderSms: row.reminderSms, reminderEmailSubject: row.reminderEmailSubject, reminderEmailBody: row.reminderEmailBody,
+    });
+    await audit(tx, ctx, "review_policy.reminders_set", "review_policy", before.id, kept(before), kept(after!));
   });
   return reminders(ctx);
 }
@@ -1025,8 +1121,12 @@ export async function byTechnician(ctx: ServiceContext) {
 
 export const handlers = {
   setReviewPolicy: (ctx: ServiceContext, input: PolicyInput) => setPolicy(ctx, input),
+  getReviewPolicy: async (ctx: ServiceContext) => ({ policy: await currentPolicy(ctx) }),
   getReviewReminders: (ctx: ServiceContext) => reminders(ctx),
-  setReviewReminders: (ctx: ServiceContext, input: { afterDays: number | null }) => setReminders(ctx, input),
+  setReviewReminders: (ctx: ServiceContext, input: {
+    afterDays?: number | null | undefined;
+    wording?: rv.ReviewWording | null | undefined;
+  }) => setReminders(ctx, input),
 
   listReviewPlatforms: async (ctx: ServiceContext): Promise<{
     platforms: {

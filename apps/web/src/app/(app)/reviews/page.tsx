@@ -64,7 +64,8 @@ export default async function ReviewsPage() {
           How soon after a visit to ask, how often at most, and how late in
           the evening are all decisions about how you talk to your customers.
           The product will not guess them: a default sends messages at nine at
-          night to somebody who had four jobs that week.
+          night to somebody who had four jobs that week. Set them on{" "}
+          <a href="/settings/reviews" className="underline underline-offset-4">Settings, Review policy</a>.
         </Empty>
       </div>
     );
@@ -221,6 +222,8 @@ export default async function ReviewsPage() {
             : `On. If nobody has answered ${reminders.afterDays} days after the ask, the customer gets one reminder, in the same way you ask.`}
           {" "}It is never sent to a customer who asked not to be contacted, who has a complaint open, or who has
           left a review since, whatever it said. Nobody gets more than one.
+          {" "}Its words, and the rest of how you ask, are on{" "}
+          <a href="/settings/reviews" className="underline underline-offset-4">Settings, Review policy</a>.
         </p>
         {changesReminders && (
           <ActionForm action={saveReminders} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">

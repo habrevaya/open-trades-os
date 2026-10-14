@@ -147,6 +147,19 @@ export const reviewPolicy = pgTable("review_policy", {
    */
   reminderAfterDays: integer("reminder_after_days"),
 
+  /**
+   * The reminder's own words, when the company changed them (Settings, Review
+   * policy): the text, and the email's subject and body. Null is the words
+   * the product ships (`REVIEW_REMINDER_WORDING`), so a company that never
+   * opens the screen keeps getting improvements to them. Checked by core's
+   * `checkReviewWording` before they are stored: only the placeholders the
+   * ask uses, the review link in the text and the email, and nothing that
+   * offers something for a review or asks for a number of stars.
+   */
+  reminderSms: text("reminder_sms"),
+  reminderEmailSubject: text("reminder_email_subject"),
+  reminderEmailBody: text("reminder_email_body"),
+
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({

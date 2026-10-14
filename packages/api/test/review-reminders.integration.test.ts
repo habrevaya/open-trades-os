@@ -379,3 +379,53 @@ run("asking about every finished job that owes nothing", () => {
     expect(asked).toMatchObject({ asked: false, withheld: "job_not_paid" });
   });
 });
+
+run("the reminder in the company's own words", () => {
+  const own = {
+    sms: "Hello {{ customer.name }}, {{ organization.name }} again. One last nudge, if you have a minute: {{ review.url }}",
+    emailSubject: "One last note from {{ organization.name }}",
+    emailBody: "Hello {{ customer.name }},\n\nOne last note. If you have a minute: {{ review.url }}\n\n{{ organization.name }}",
+  };
+
+  it("sends the reminder in the words the company wrote, and keeps the days when only the words change", async () => {
+    try {
+      await reviews.setReminders(owner(), { afterDays: 5 });
+      const saved = await reviews.setReminders(owner(), { wording: own });
+      expect(saved.afterDays).toBe(5);
+      expect(saved.wording).toEqual({ ...own, custom: true });
+
+      const job = await askedAndSent({ name: "Wanda Words", phone: "+15125550231", email: "wanda@example.test" });
+      await raw`update public.review_request set sent_at = ${new Date(Date.now() - 6 * 86_400_000)} where job_id = ${job.jobId}`;
+      await reviewAsks.askPass(db(), { now: sixDaysOn() });
+      const sent = await outbound();
+      expect(sent).toHaveLength(2);
+      expect(sent[1]!.body).toBe(`Hello Wanda, Remind Heating again. One last nudge, if you have a minute: ${REVIEW_URL}`);
+    } finally {
+      await reviews.setReminders(owner(), { wording: null });
+    }
+  });
+
+  it("refuses words with a placeholder it cannot fill, no link, or something offered, and changes nothing", async () => {
+    await expect(reviews.setReminders(owner(), { wording: { ...own, sms: "Hi {{ customer.first }}: {{ review.url }}" } }))
+      .rejects.toThrow("The text uses {{ customer.first }}, which is not something we can fill in.");
+    await expect(reviews.setReminders(owner(), { wording: { ...own, emailBody: "Please review us." } }))
+      .rejects.toThrow("The email has no {{ review.url }}");
+    await expect(reviews.setReminders(owner(), { wording: { ...own, sms: "10% off for a review: {{ review.url }}" } }))
+      .rejects.toBeInstanceOf(ConflictError);
+    await expect(reviews.setReminders({ ...owner(), actor: { ...owner().actor, roles: ["csr"] } }, { wording: own }))
+      .rejects.toMatchObject({ name: "PermissionError" });
+    expect((await reviews.reminders(owner())).wording.custom).toBe(false);
+  });
+
+  it("goes back to the words we ship, and treats them typed back in as ours", async () => {
+    const { automation } = await import("@opentradesos/core");
+    await reviews.setReminders(owner(), { wording: own });
+    const back = await reviews.setReminders(owner(), { wording: null });
+    expect(back.wording).toEqual({ ...automation.REVIEW_REMINDER_WORDING, custom: false });
+    const typed = await reviews.setReminders(owner(), { wording: { ...automation.REVIEW_REMINDER_WORDING } });
+    expect(typed.wording.custom).toBe(false);
+    const [row] = await raw<{ reminder_sms: string | null }[]>`
+      select reminder_sms from public.review_policy where organization_id = ${ORG} and active`;
+    expect(row!.reminder_sms).toBeNull();
+  });
+});

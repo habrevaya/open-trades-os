@@ -394,11 +394,8 @@ export async function remindDueFor(
 
         const outcome = await sendAsk(tx, ctx, row, {
           channel: candidates.style.channel,
-          wording: {
-            sms: automation.REVIEW_REMINDER_WORDING.sms,
-            emailSubject: automation.REVIEW_REMINDER_WORDING.emailSubject,
-            emailBody: automation.REVIEW_REMINDER_WORDING.emailBody,
-          },
+          /** The company's own words when it changed them on Settings, Review policy; ours otherwise. */
+          wording: reviews.reminderWording(candidates.policy),
         });
         if (outcome.kind === "sent") {
           await tx.update(schema.reviewRequest).set({ reminderMessageId: outcome.messageId, updatedAt: new Date() })

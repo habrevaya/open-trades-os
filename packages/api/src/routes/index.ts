@@ -238,6 +238,7 @@ export const handlers = {
   // Reviews. No endpoint here can carry a predicted rating, because asking
   // only the customers who will say something nice is what gets a listing
   // wiped, and an absent field is a better defence than a policy.
+  getReviewPolicy: reviews.handlers.getReviewPolicy,
   setReviewPolicy: reviews.handlers.setReviewPolicy,
   getReviewReminders: reviews.handlers.getReviewReminders,
   setReviewReminders: reviews.handlers.setReviewReminders,

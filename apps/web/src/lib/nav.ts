@@ -540,6 +540,12 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/holidays", label: "Holidays and rates" },
           /**
+           * How the company asks for reviews and how soon it answers them, and
+           * the one reminder's words. Inherits `settings:read` to be shown;
+           * saving needs `settings:write`, as `PUT /v1/reviews/policy` does.
+           */
+          { href: "/settings/reviews", label: "Review policy" },
+          /**
            * Labour burden and overhead rates, with their dates, which turn the
            * direct margin on job costing into the fully loaded one beside it.
            * Inherits `settings:read` to be shown; the page reads with
