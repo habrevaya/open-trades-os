@@ -301,6 +301,11 @@ about their day (M11), to every phone they are signed in on, without a sound
 inside the company's quiet hours. Somebody not on the board has no phone
 registered, so a push has nowhere to go and the page says so.
 
+A tap on one opens what it is about: the task, on the phone's Tasks screen, for
+a task notice, and the page in the phone's browser for kinds the phone has no
+screen for; opening it marks it read on the bell, through the field queue as
+`notice.read`, so it counts even when the tap was where there is no signal (M11).
+
 BY TEXT, only after the person turns texts on themselves on `/me`: their own
 mobile number and a ticked box beside the exact words they agree to, kept on
 their consent with when and from where. This consent is theirs and separate
@@ -432,11 +437,8 @@ somebody who cannot open tasks gets the task and the email and no notice.
 Notices are raised by the seven things listed under "Notices to the company's
 own people" and nothing else: a deadline about to breach, a visit change
 request, a failed payment and the rest of what the queue holds reach people as
-tasks, as before. A tap on a notice on the phone opens the app, not the record,
-because the app opens only visits from a notice; the bell in a browser opens
-the record. Reading a notice on the phone does not mark it read on the bell. A
-text goes from whichever registered number the company sends customer texts
-from, in the company's quiet hours (not the person's own), and a reply to it
+tasks, as before. A text goes from whichever registered number the company
+sends customer texts from, in the company's quiet hours (not the person's own), and a reply to it
 lands in the inbox like any text from a number nobody recognises; a STOP is
 honoured. There is no daily digest, no notice by email beyond the emails the
 escalation, the approval and the app request already send, and no per company

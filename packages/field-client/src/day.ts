@@ -376,6 +376,8 @@ export function projectDay(input: {
       task.waiting = waiting;
       continue;
     }
+    /** Nothing on the day changes: the bell is the office's, and the phone has none. */
+    if (op.kind === "notice.read") continue;
     if (op.kind === "safety.sign") {
       const talk = talks.find((t) => t.meetingId === op.subjectId);
       if (!talk) continue;
@@ -436,7 +438,7 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     return typeof visitId === "string" ? visitId : undefined;
   }
   /** A task is the office's, not a visit's, a toolbox talk is nobody's visit, and an expense is the person's. */
-  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "task.tick" || op.kind === "safety.sign" || op.kind === "expense.record") return undefined;
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "task.tick" || op.kind === "safety.sign" || op.kind === "expense.record" || op.kind === "notice.read") return undefined;
   /** A receipt photograph is kept with its expense. */
   if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return undefined;
   return op.subjectId;

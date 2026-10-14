@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Twenty five operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, and the last, `expense.record`, is what the technician paid for the company): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty eight operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, and the last, `notice.read`, is a notice opened on the phone): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -428,6 +428,31 @@ phone", at the send or in the receipt, forgets the phone's token exactly as a
 change to the day does. A notice that never reached the phone raises no task:
 it is still on the person's bell in the app.
 
+A TAP ON ONE OPENS WHAT IT IS ABOUT. The push carries the notice's id, its kind, the
+kind and id of the record it is about and the page the bell would open
+(`noticeId`, `kind`, `about: { type, id }`, `href`), and nothing the bell does not show:
+the words are the title and body the lock screen already shows, and a record is an
+opaque id. A notice about a task opens the Tasks screen with that task first, to
+take, tick and finish; one about a toolbox talk opens the talks to sign, and one about
+the person's expense opens "Money I spent". Any other kind (an order waiting, an app
+asking, a licence running out) opens the notice's page in the phone's browser, on the
+company's own server: the phone only ever follows a path on that server, never an
+address a notice carries. A task the phone does not hold yet (given a moment ago) is
+asked for with a fresh fetch; one it still does not hold (finished, or taken by somebody
+else) is said so in words, with the page in the browser. A change to the day opens its
+visit, as before.
+
+OPENING IT MARKS IT READ for the bell in a browser, as a queue operation, `notice.read`,
+and not a call of its own. A notice is often tapped where there is no signal, the
+screen it opens comes from what the phone already holds, and the mark should not be
+lost for the same reason a tick is not: it is kept on the phone, sent when the van finds
+a signal, and applied once. It is an append (the one-way state of being read has nothing to conflict with),
+marks only the signed in person's own notice, and leaves somebody else's notice, or one
+that is gone, alone without a word, as `POST /v1/me/notices/read` does, so it cannot be
+used to learn whose a notice id is. It changes nothing on the day. The system hands back the
+tap that launched the app each time it is asked, so the phone remembers which taps it has
+acted on and does not open the same notice twice.
+
 ### Location while working, and the privacy choices behind it
 
 The phone app shares where its person is with the office, and with the
@@ -643,11 +668,12 @@ against a fake of the push service, and a build needs an Expo project id
 (`eas init`) before the app can get a token at all. There is no store listing
 and no icon of its own; a company builds and distributes it.
 
-A notice about a person's own work (M34) opens the app when tapped and not the
-record it is about, because the app opens only a visit from a notice; the record
-is a tap away on the bell in a browser, where the notice is too. Only somebody on
-the board has a phone registered, so office staff with no place on the board get
-these on the bell and by text, never by push.
+Only somebody on the board has a phone registered, so office staff with no place on the
+board get notices about their own work on the bell and by text, never by push. A notice
+the phone has no screen for opens in the browser, where the person must be signed in on
+the web as well; the phone's sign in does not carry over to it. Opening a notice
+offline marks it read once a signal returns, so the bell in a browser can show it unread
+until then.
 
 Notices go to the technicians on a visit's assignment list and to the
 members of the crew it is sent to. Somebody with no phone registered for

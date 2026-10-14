@@ -205458,7 +205458,8 @@
                     "task.tick",
                     "tip.record",
                     "safety.sign",
-                    "expense.record"
+                    "expense.record",
+                    "notice.read"
                   ]
                 },
                 "subjectId": {
@@ -261242,7 +261243,8 @@
                     "task.tick",
                     "tip.record",
                     "safety.sign",
-                    "expense.record"
+                    "expense.record",
+                    "notice.read"
                   ]
                 },
                 "subjectId": {

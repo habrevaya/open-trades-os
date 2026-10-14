@@ -10,6 +10,7 @@ import * as tasks from "./tasks";
 import * as taskChecklist from "./task-checklist";
 import * as tips from "./tips";
 import * as expenses from "./expenses";
+import * as staffNotices from "./staff-notices";
 import * as financing from "./financing";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import { excludedItemsWithin, memberPricingWithin } from "./agreements";
@@ -37,6 +38,7 @@ import type { VisitForField } from "../contracts/field";
  *   task.claim/close   the office queue, from the phone
  *   tip.record         a cash tip the technician kept
  *   expense.record     what the technician paid for the company, for the office to decide
+ *   notice.read        a notice opened on the phone, so the bell stops counting it
  *
  * Each goes through the service the office uses (`estimates.createIn`,
  * `estimates.decide`, `billing.createIn`, `tasks.claim`), so a figure is
@@ -741,6 +743,28 @@ export async function taskOperation(tx: Database, ctx: ServiceContext, op: field
       ...(outcome ? { outcome } : {}),
       ...(overrideReason ? { overrideReason } : {}),
     });
+    return null;
+  });
+}
+
+/**
+ * A notice opened on the phone, marked read for the bell in a browser.
+ *
+ * A queue operation and not a call of its own, because a notice is often
+ * tapped where there is no signal: it still opens what it is about from what
+ * the phone already holds, and the mark lands when the van finds one. Marking
+ * a read one read again changes nothing, so a retry is the same answer.
+ *
+ * A notice that is not the signed in person's, or that is gone, is a quiet
+ * success, as `markRead` already treats an id that is not theirs: it must not
+ * be a way to learn whose a notice id is, and a technician has no use for a
+ * problem on their list about a bell they never look at.
+ */
+export async function noticeOperation(tx: Database, ctx: ServiceContext, op: field.FieldOperation): Promise<Outcome> {
+  const noticeId = uuid(op.subjectId);
+  if (!noticeId) return "That names no notice.";
+  return savepoint(tx, async (sp) => {
+    await staffNotices.markRead(keyed(ctx, op, "notice", sp), { ids: [noticeId] });
     return null;
   });
 }

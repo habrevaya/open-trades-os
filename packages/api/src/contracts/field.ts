@@ -17,6 +17,7 @@ export const OperationKind = z.enum([
   "tip.record",
   "safety.sign",
   "expense.record",
+  "notice.read",
 ]);
 
 export const OperationStatus = z.enum([

@@ -1182,6 +1182,8 @@ async function effect(
       return safetyTalks.signOperation(tx, ctx, op);
     case "expense.record":
       return fieldSales.recordExpense(tx, ctx, op);
+    case "notice.read":
+      return fieldSales.noticeOperation(tx, ctx, op);
 
     default:
       /**

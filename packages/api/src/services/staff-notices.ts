@@ -746,6 +746,22 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
 
 /* ------------------------------------------------------------------ push */
 
+/**
+ * What rides with a notice to the phone, so a tap opens what it is about.
+ *
+ * The notice's id (the phone marks it read), its kind, the kind and id of the
+ * record, and the page the bell would open. Nothing the bell does not show: the
+ * words are the title and body, which the lock screen shows too, and a record
+ * is only an opaque id. The phone opens a visit or a task it holds from the
+ * kind and id, and anything else in the browser from `href`.
+ */
+export function pushData(row: { noticeId: string; kind: string; href: string; entityType: string; entityId: string }) {
+  return {
+    noticeId: row.noticeId, kind: row.kind, href: row.href,
+    about: { type: row.entityType, id: row.entityId },
+  };
+}
+
 async function sendPushes(ctx: ServiceContext, provider: PushProvider, now: Date, result: NoticePassResult) {
   const staleBefore = new Date(now.getTime() - STALE_HOURS * 3_600_000);
   const due = await inTenant(ctx, async (tx) => {
@@ -769,6 +785,8 @@ async function sendPushes(ctx: ServiceContext, provider: PushProvider, now: Date
       title: schema.staffNotice.title,
       body: schema.staffNotice.body,
       href: schema.staffNotice.href,
+      entityType: schema.staffNotice.entityType,
+      entityId: schema.staffNotice.entityId,
       token: schema.device.pushToken,
       revokedAt: schema.device.revokedAt,
     }).from(schema.staffNoticeDelivery)
@@ -802,7 +820,7 @@ async function sendPushes(ctx: ServiceContext, provider: PushProvider, now: Date
       to: row.token!,
       title: row.title,
       body: row.body ?? "",
-      data: { noticeId: row.noticeId, kind: row.kind, href: row.href },
+      data: pushData(row),
       quiet: row.quiet,
     })));
   } catch (error) {
