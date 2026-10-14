@@ -20,6 +20,7 @@ import { templateFor } from "./field";
 import { portalBase } from "../lib/portal-base";
 import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
 import { priorityWithin } from "./agreements";
+import { heldOnTechnician } from "./booking";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
@@ -321,7 +322,22 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
  * gesture is "these people, on this job" and an add-only endpoint makes
  * removing somebody a second call that is easy to forget.
  */
-export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVisit.input>) {
+export class MemberHoldRefusedError extends ConflictError {
+  /** How a screen tells this refusal apart to offer "Send anyway"; see `QualificationRefusedError`. */
+  readonly memberHoldRefused = true as const;
+}
+
+export async function assign(
+  ctx: ServiceContext,
+  input: z.infer<typeof assignVisit.input> & {
+    /**
+     * Set by the rebalances, which place work on a plan of their own: the
+     * several day one keeps the window's share as it moves a visit, and a
+     * refusal half way through applying a plan would leave it half applied.
+     */
+    skipMemberHold?: boolean | undefined;
+  },
+) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
     /**
      * Only a visit this person can see on their board. Another branch's
@@ -392,6 +408,8 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       override: input.overrideQualification,
     });
 
+    const intoHold = input.skipMemberHold ? [] : await memberHoldFor(tx, ctx, visit, input.technicianIds, already, input.intoMemberHold === true);
+
     await tx.delete(schema.visitAssignment)
       .where(eq(schema.visitAssignment.visitId, input.id));
 
@@ -439,6 +457,10 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       });
     await announce(tx, ctx, input.id, before);
 
+    for (const held of intoHold) {
+      await audit(tx, ctx, "visit.assigned_into_member_hold", "visit", input.id, null, held);
+    }
+
     if (qualified.overridden) {
       await audit(tx, ctx, "visit.assigned_unqualified", "visit", input.id,
         { refusals: qualified.refusals },
@@ -450,6 +472,61 @@ export async function assign(ctx: ServiceContext, input: z.infer<typeof assignVi
       droppedSkills: work.dropped,
     };
   });
+}
+
+/**
+ * THE SHARE OF A PERSON'S WINDOW HELD FOR MEMBERS, asked of each person a
+ * visit is newly put on (`booking.heldOnTechnician` says the rule).
+ *
+ * Refused in words naming the person, the window and who else could take it
+ * outside the hold, until the person dispatching says "send anyway"; then it
+ * goes through and the audit log records it, as "book anyway" does on a job.
+ * Not asked of somebody already on the visit, of a visit with no time, or of
+ * one on a job made from a booking request, which was held to the share when
+ * the request was made, as booking by hand leaves it.
+ */
+async function memberHoldFor(
+  tx: Database, ctx: ServiceContext, visit: typeof schema.visit.$inferSelect,
+  technicianIds: readonly string[], already: ReadonlySet<string>, anyway: boolean,
+): Promise<Array<{ technicianId: string; date: string; window: string }>> {
+  const added = technicianIds.filter((id) => !already.has(id));
+  if (added.length === 0 || !visit.windowStart) return [];
+  const [job] = await tx.select({ customerId: schema.job.customerId, propertyId: schema.job.propertyId, jobTypeId: schema.job.jobTypeId })
+    .from(schema.job).where(eq(schema.job.id, visit.jobId)).limit(1);
+  if (!job) return [];
+  const [request] = await tx.select({ id: schema.bookingRequest.id }).from(schema.bookingRequest)
+    .where(eq(schema.bookingRequest.jobId, visit.jobId)).limit(1);
+  if (request) return [];
+  const timezone = await timezoneOf(tx, ctx.actor.organizationId);
+  /** Who else this person dispatches, for "who could take it instead". */
+  const people = dispatchPeople(ctx);
+  const others = await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
+    .from(schema.technician)
+    .where(and(eq(schema.technician.organizationId, ctx.actor.organizationId), eq(schema.technician.active, true), people ?? sql`true`))
+    .orderBy(asc(schema.technician.displayName));
+  const nameOf = new Map(others.map((o) => [o.id, o.name]));
+  const held: Array<{ technicianId: string; date: string; window: string }> = [];
+  for (const technicianId of added) {
+    const found = await heldOnTechnician(tx, {
+      organizationId: ctx.actor.organizationId, timezone,
+      visitId: visit.id, customerId: job.customerId, propertyId: job.propertyId, jobTypeId: job.jobTypeId,
+      durationMinutes: visit.estimatedDurationMinutes, windowStart: visit.windowStart,
+      technicianId, others: others.map((o) => o.id).filter((id) => !technicianIds.includes(id)),
+    });
+    if (!found) continue;
+    if (!anyway) {
+      const names = found.instead.map((id) => nameOf.get(id) ?? "Somebody");
+      const instead = names.length === 0
+        ? "Nobody else has room in that window outside the time kept for members."
+        : `${names.length > 3 ? `${names.slice(0, 3).join(", ")} and others` : names.join(names.length === 2 ? " or " : ", ")} could take it instead.`;
+      throw new MemberHoldRefusedError(
+        `${nameOf.get(technicianId) ?? "This person"}'s time in the ${found.windowName} window on ${found.date} is kept for members, `
+        + `and this customer is not a member there that day. ${instead} Or send anyway to give them a member's place.`,
+      );
+    }
+    held.push({ technicianId, date: found.date, window: found.windowName });
+  }
+  return held;
 }
 
 /**

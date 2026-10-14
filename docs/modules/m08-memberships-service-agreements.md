@@ -332,6 +332,28 @@ was held to the share when the request was made and is not asked again.
 into the hold is moved into a window on another day only while that window
 has room outside the hold, counting every visit the plan moves in.
 
+So does the board. A drag on `/schedule` never changes when a visit happens,
+so the window's share across everybody is what it was when the visit was
+booked; what a drag decides is whose time it takes. Dropping a visit for
+somebody no plan lets into the hold onto a person whose own room in that
+window is only the share of their window kept for members (the same share
+of one person's window that online booking keeps when a customer names who
+they want, members' own work on their day using it first) is refused, while
+the window as a whole still keeps something back, in words naming who could
+take it instead: "Ray Ortiz's time in the 8am to 12pm window on 2026-12-02 is
+kept for members, and this customer is not a member there that day. Nia
+Osei or Sam Reyes could take it instead. Or send anyway to give them a
+member's place." The card stays where it was, and **Send anyway** under the
+words puts it on them, with `visit.assigned_into_member_hold` on the audit
+log naming the dispatcher, the person, the day and the window
+(`intoMemberHold` on `POST /v1/visits/{id}/assign`, `visit:dispatch`, which
+is all a drag needs). A person who is simply full is not the hold, and once
+members' own work has used the window's share up nothing is refused. Not
+asked of somebody already on the visit, a visit with no time, or one on a
+job made from a booking request, as booking by hand leaves it. The AI
+dispatcher's suggestions, applied, are asked the same, and one refused is
+left as it was and said in its result.
+
 The phone assistant, the chat on the website and by text, and the intake
 agent (M27) know a member by how they reached the company: the number a call
 or text comes from, or a number or email a website visitor writes in the
@@ -450,10 +472,16 @@ discount leaves out is chosen from every category and the first two hundred
 items still sold on the plan screen; a bigger book is left out by category.
 The perks are read from the plan when they are used rather than frozen on the
 agreement, so turning one off takes it from existing members at once; the
-screen says so, and freezing them is a decision nobody has made. Moving a
-visit to another time by dragging it on the board is not held to the share
-kept for members; booking a job or adding a visit is, and so is the several
-day rebalance. The assistants know a member only by the number they ring or
+screen says so, and freezing them is a decision nobody has made. The board is
+held to the share of one person's window: a drag cannot move a visit to
+another time, so there is nothing else for it to be held to, and a person's
+window that holds three jobs or fewer keeps none back at a quarter, because
+the share is rounded to whole jobs with a half rounded down. The single day
+rebalance and the several day one put work on people from a plan of their
+own and are not asked about each person's share: the several day one keeps
+the window's share as it moves a visit, and a refusal half way through
+applying a plan would leave it half applied. A drop onto a crew's lane is
+not asked either. The assistants know a member only by the number they ring or
 text from or a number or email written in the chat, never by a name they say,
 and that match proves nothing about who is asking: it changes which windows
 are offered and nothing else. A breakage release is reached by the worker's

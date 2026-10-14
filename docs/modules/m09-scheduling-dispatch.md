@@ -292,7 +292,12 @@ cheapest gap on the day goes to them, and the suggestion names the plan;
 the rebalance places them first in the unassigned pile too (M08). Booking a
 job or adding a visit by hand into an arrival window held for members, for a
 customer who is not a member there that day, is refused until the person
-booking ticks "Book anyway", which the audit log records (M08).
+booking ticks "Book anyway", which the audit log records (M08). Dropping such
+a customer's visit on the board onto a person whose own room in that window
+is only the share of their window kept for members is refused the same way,
+naming who could take it instead, until the dispatcher presses "Send anyway"
+(`intoMemberHold` on `POST /v1/visits/{id}/assign`), which the audit log
+records (M08).
 
 **A route's density uses drive times by road when it can.** The route's own
 declared drive time between stops still comes first. Without one, and with

@@ -985,6 +985,76 @@ export async function roomOutsideHold(db: Database, input: {
   return out;
 }
 
+/**
+ * A VISIT DROPPED ON A PERSON ON THE BOARD, asked against the share held for
+ * members.
+ *
+ * A drag on the board does not change when a visit happens, so the window's
+ * share across everybody is what it was. What it decides is whose time the
+ * visit takes, and online booking already asks the same question of one
+ * person when a customer names who they want: the share of THAT person's
+ * window held for members, with members' own work on their day using it up
+ * first. A visit for somebody no plan lets into the hold is refused on a
+ * person when it would only fit in the part of their window held for
+ * members, while the window as a whole still keeps something back for them,
+ * so a hold the members have already used up elsewhere refuses nothing.
+ * A person whose window is simply full is not the hold: the office has
+ * always been free to overbook a full window.
+ *
+ * Says who else could take it outside the hold: each of `others` with room
+ * left in that window for somebody who is not a member. Null when nothing is
+ * held from this customer on this person.
+ */
+export async function heldOnTechnician(db: Database, input: {
+  organizationId: string;
+  timezone: string;
+  visitId: string;
+  customerId: string;
+  propertyId: string | null;
+  jobTypeId: string | null;
+  durationMinutes: number;
+  windowStart: Date;
+  technicianId: string;
+  others: readonly string[];
+}): Promise<{ date: string; windowName: string; instead: string[] } | null> {
+  if (!(await holdFor(db, input.organizationId))) return null;
+  const date = time.dateIn(input.windowStart, input.timezone);
+  const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+  const windows = await db.select().from(schema.arrivalWindow)
+    .where(and(eq(schema.arrivalWindow.organizationId, input.organizationId), eq(schema.arrivalWindow.isActive, true)));
+  const w = windows.find((x) => x.daysOfWeek.includes(dow)
+    && windowStart(date, x.startsAt, input.timezone) <= input.windowStart
+    && input.windowStart < windowStart(date, x.endsAt, input.timezone));
+  if (!w) return null;
+
+  const theirs = await memberTest(db, input.organizationId, input.customerId, input.propertyId);
+  if (theirs(date) !== null) return null;
+  const asked = {
+    organizationId: input.organizationId, timezone: input.timezone,
+    service: { jobTypeId: input.jobTypeId }, durationMinutes: input.durationMinutes,
+    from: date, until: date, exceptVisitId: input.visitId,
+  };
+  /** The window as a whole still keeps something back from them, or nothing is held at all. */
+  const wholeThem = await capacityReader(db, { ...asked, member: theirs });
+  const wholeMember = await capacityReader(db, { ...asked, member: () => 1 });
+  if (!wholeThem || !wholeMember || wholeMember(date, w) <= wholeThem(date, w)) return null;
+
+  const roomOn = async (technicianId: string) => {
+    const them = await capacityReader(db, { ...asked, technicianId, member: theirs });
+    const member = await capacityReader(db, { ...asked, technicianId, member: () => 1 });
+    return { them: them ? them(date, w) : 0, member: member ? member(date, w) : 0 };
+  };
+  const on = await roomOn(input.technicianId);
+  if (on.them > 0 || on.member <= 0) return null;
+
+  const instead: string[] = [];
+  for (const other of input.others) {
+    if (other === input.technicianId) continue;
+    if ((await roomOn(other)).them > 0) instead.push(other);
+  }
+  return { date, windowName: w.name, instead };
+}
+
 export async function memberHoldInForce(ctx: ServiceContext): Promise<boolean> {
   return guardedRead(ctx, "job:read", async (tx) => (await holdFor(tx, ctx.actor.organizationId)) !== null);
 }

@@ -1461,6 +1461,7 @@ export interface AssignVisitInput {
   overrideQualification?: {
     reason: string;
   };
+  intoMemberHold?: boolean;
 }
 
 export interface AssignVisitOutput {
