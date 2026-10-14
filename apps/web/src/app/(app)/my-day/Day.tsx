@@ -8,7 +8,8 @@ import {
   type QueuedOperation, type UploadTransport, checkExpenseDraft,
 } from "@opentradesos/field-client";
 import type { dispatch } from "@opentradesos/api/services";
-import { sync, onMyWay, paymentLink, financingLink, askAssistant } from "./actions";
+import { sync, onMyWay, paymentLink, financingLink } from "./actions";
+import { askAsItWrites } from "./ask-stream";
 import { punchNotice } from "@/lib/punch-notice";
 import { preparePhoto, prepareSignature } from "@/lib/photo";
 import { Ask, CashTip, InvoicePanel, SellPanel, TasksPanel, type SellHandlers } from "./Sell";
@@ -578,7 +579,7 @@ export function Day({
                 sale={projectedVisit(v.id) ? (
                   <>
                     {can.assistant && (
-                      <Ask onAsk={(question) => askAssistant({ question, visitId: v.id })} />
+                      <Ask onAsk={(question, onWriting) => askAsItWrites({ question, visitId: v.id }, onWriting)} />
                     )}
                     <SellPanel visit={projectedVisit(v.id)!} priceBook={priceBook} abilities={can} handlers={sellHandlers(v.id)} />
                     <InvoicePanel visit={projectedVisit(v.id)!} priceBook={priceBook} abilities={can} handlers={sellHandlers(v.id)} />

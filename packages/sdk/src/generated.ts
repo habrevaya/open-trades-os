@@ -19173,6 +19173,7 @@ export interface ReadChatOutput {
     text: string;
     at: string;
   }>;
+  writing: string | null;
 }
 
 export interface ReadMyNoticesInput {
@@ -22082,6 +22083,7 @@ export interface SayInChatOutput {
     text: string;
     at: string;
   }>;
+  writing: string | null;
 }
 
 export interface ScheduleOnCallInput {
@@ -24436,6 +24438,7 @@ export interface StartChatOutput {
     text: string;
     at: string;
   }>;
+  writing: string | null;
   token: string;
 }
 

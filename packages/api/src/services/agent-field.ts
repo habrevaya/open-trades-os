@@ -235,6 +235,14 @@ const NOTHING = "Nothing in your company's records matches that question. Ask th
  */
 export async function ask(
   ctx: ServiceContext, input: { question: string; visitId?: string | undefined }, deps: AiDeps = base.DEFAULT_AGENT_DEPS,
+  /**
+   * Handed the answer so far while the model writes it: whole sentences, each
+   * naming only amounts in the records it was given (core's
+   * `showAsWritten`). What is returned is still the whole answer after its
+   * checks, which may say it cannot be shown; the screen replaces what it
+   * showed with that.
+   */
+  show?: (text: string) => void,
 ): Promise<FieldAnswer> {
   assertCan(ctx.actor, "field:sync");
   const replay = await inTenant(ctx, (tx) => base.proposalByKey(tx, ctx.idempotencyKey));
@@ -260,7 +268,19 @@ export async function ask(
   const prompt = a.fieldPrompt({
     company, tone: acting.settings.tone, question: input.question, visit: gathered.visit, facts: gathered.facts,
   });
-  const reply = await base.ask(acting, "field", prompt, "field:ask", deps);
+  let shown = a.SHOWN_START;
+  const allowed = gathered.facts.flatMap((fact) => fact.prices);
+  const writing = show
+    ? (action: string, partialJson: string) => {
+        if (action !== "answer") return;
+        const written = a.partialString(partialJson, "answer");
+        if (written === null) return;
+        const next = a.showAsWritten(shown, written, allowed);
+        shown = next.state;
+        if (next.changed) show(a.shownText(shown));
+      }
+    : undefined;
+  const reply = await base.ask(acting, "field", prompt, "field:ask", deps, writing);
   if (!reply.ok) throw new ConflictError(reply.reason);
 
   if (reply.action.name === "not_in_records") {

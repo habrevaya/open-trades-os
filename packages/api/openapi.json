@@ -102083,7 +102083,7 @@
       "post": {
         "operationId": "readChat",
         "summary": "Read a website chat",
-        "description": "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox. While the assistant is answering, `writing` holds its reply so far, which the widget reads about once a second until the answer arrives.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
         "tags": [
           "M27"
         ],
@@ -239642,12 +239642,19 @@
                 "at"
               ]
             }
+          },
+          "writing": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "status",
           "bookingTaken",
-          "messages"
+          "messages",
+          "writing"
         ]
       },
       "ReadMyNoticesInput": {
@@ -253566,12 +253573,19 @@
                 "at"
               ]
             }
+          },
+          "writing": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "status",
           "bookingTaken",
-          "messages"
+          "messages",
+          "writing"
         ]
       },
       "ScheduleOnCallInput": {
@@ -264591,6 +264605,12 @@
               ]
             }
           },
+          "writing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "token": {
             "type": "string"
           }
@@ -264599,6 +264619,7 @@
           "status",
           "bookingTaken",
           "messages",
+          "writing",
           "token"
         ]
       },

@@ -367,4 +367,11 @@ describe("the website chat widget", () => {
     expect(source).not.toMatch(/[?&]token=/);
     expect(source).toContain("/v1/public/chat/transcript");
   });
+
+  it("shows the reply as it is written only while a message waits, as text, and drops it when the answer comes", () => {
+    expect(source).toContain('"data-ot-chat","writing"');
+    expect(source).toContain("writingEl.lastChild.textContent=text");
+    expect(source).toContain("fast=setInterval(poll,1000)");
+    expect(source).toMatch(/sending=false;if\(fast\)\{clearInterval\(fast\);fast=null;\}writing\(null\);/);
+  });
 });
