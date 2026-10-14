@@ -89,14 +89,14 @@ export interface HoursView {
   branches: BranchWeekView[];
 }
 
-const dayView = (row: Row): DayView => ({
+export const dayView = (row: Pick<Row, "dayOfWeek" | "opensAt" | "closesAt" | "closed">): DayView => ({
   dayOfWeek: row.dayOfWeek,
   opensAt: row.closed ? null : row.opensAt?.slice(0, 5) ?? null,
   closesAt: row.closed ? null : row.closesAt?.slice(0, 5) ?? null,
   closed: row.closed,
 });
 
-const sorted = (rows: Row[]) => [...rows].sort((a, b) => a.dayOfWeek - b.dayOfWeek).map(dayView);
+export const sorted = (rows: Pick<Row, "dayOfWeek" | "opensAt" | "closesAt" | "closed">[]) => [...rows].sort((a, b) => a.dayOfWeek - b.dayOfWeek).map(dayView);
 
 /** Whether this person sees the whole company's work, or only one branch's. */
 const ownBranchOnly = (ctx: ServiceContext): string | null | false =>
@@ -161,7 +161,7 @@ async function mayKeep(tx: Database, ctx: ServiceContext, branchId: string | nul
  * booking treats an absent row as closed. Requiring the full set makes the
  * answer explicit for every day.
  */
-function checkWeek(days: WeekInput["days"]): void {
+export function checkWeek(days: WeekInput["days"]): void {
   const seen = new Set(days.map((d) => d.dayOfWeek));
   if (seen.size !== 7 || days.length !== 7) {
     throw new ConflictError("Send all seven days. A day left out is a day nobody has answered for.");
@@ -177,10 +177,14 @@ function checkWeek(days: WeekInput["days"]): void {
   }
 }
 
-/** Only the owner's own rows: the company's never touch a branch's, and a branch's never the company's. */
+/**
+ * Only the owner's own rows: the company's never touch a branch's or a phone
+ * number's, and a branch's never the company's.
+ */
 const ownerIs = (organizationId: string, branchId: string | null) => and(
   eq(schema.businessHours.organizationId, organizationId),
   branchId ? eq(schema.businessHours.businessUnitId, branchId) : isNull(schema.businessHours.businessUnitId),
+  isNull(schema.businessHours.phoneNumberId),
 );
 
 /**

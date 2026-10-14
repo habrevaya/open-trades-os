@@ -1,6 +1,6 @@
 import { inTenant, type ServiceContext } from "@opentradesos/api/services";
 import { schema } from "@opentradesos/db";
-import { asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { Table, Th, Td } from "@/components/Table";
 import { OfferService, Windows, Hours } from "./Forms";
 
@@ -28,7 +28,7 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
       .orderBy(asc(schema.arrivalWindow.sortOrder)),
     /** The company's own week; a branch's is on Online booking, Branch hours. */
     hours: await tx.select().from(schema.businessHours)
-      .where(isNull(schema.businessHours.businessUnitId))
+      .where(and(isNull(schema.businessHours.businessUnitId), isNull(schema.businessHours.phoneNumberId)))
       .orderBy(asc(schema.businessHours.dayOfWeek)),
     branches: await tx.select({ id: schema.businessUnit.id }).from(schema.businessUnit)
       .where(eq(schema.businessUnit.active, true)),

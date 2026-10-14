@@ -28,7 +28,7 @@ const Observed = z.enum(["as_is", "sunday_to_monday", "weekend_to_weekday"]);
 
 const Clock = z.string().regex(/^\d{2}:\d{2}$/);
 
-const Holiday = z.object({
+export const Holiday = z.object({
   id: Uuid,
   name: z.string(),
   /** `YYYY-MM-DD`. For a yearly one, only the month and day are read. */
@@ -52,7 +52,7 @@ const Holiday = z.object({
   hours: z.string(),
 });
 
-const HolidayFields = z.object({
+export const HolidayFields = z.object({
   name: z.string().min(1).max(80),
   /** Required for a date. Left out for a rule, which is worked out each year. */
   date: z.string().date().optional(),

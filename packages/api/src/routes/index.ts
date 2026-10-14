@@ -28,7 +28,7 @@ import {
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
-  safety, retention, holidays, businessHours, afterHours, safetyTalks,
+  safety, retention, holidays, businessHours, numberHours, afterHours, safetyTalks,
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
@@ -827,6 +827,8 @@ export const handlers = {
   // The week's hours, the company's and each branch's own (M02)
   listBusinessHours: businessHours.handlers.listBusinessHours,
   clearBranchHours: businessHours.handlers.clearBranchHours,
+  // A phone number's own hours and days off (M18)
+  ...numberHours.handlers,
   // Which item is charged after hours and on a holiday, offered on the invoice (M02, M13)
   ...afterHours.handlers,
   // Toolbox talk topics, talks on a schedule and who has not signed (M23)

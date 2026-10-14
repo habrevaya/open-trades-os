@@ -201,6 +201,9 @@ export function Numbers({
                     </label>
                   )}
                   <button type="submit" disabled={routing} className={BUTTON}>{routing ? "Saving" : "Save how it rings"}</button>
+                  <a href={`/settings/numbers/${number.id}`} className="text-sm underline underline-offset-4">
+                    Its hours and days off
+                  </a>
                 </form>
               )}
             </li>

@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto";
 import type { Actor } from "@opentradesos/core";
 import * as voice from "../src/services/voice";
 import * as businessHours from "../src/services/business-hours";
+import * as numberHours from "../src/services/number-hours";
+import * as holidays from "../src/services/holidays";
 import { twilioSignature } from "../src/comms/twilio";
 import { createTwilioVoice } from "../src/voice/twilio";
 import type { ServiceContext } from "../src/services/context";
@@ -17,6 +19,10 @@ import { seedOrg, testDb, fixtureId } from "./helpers";
  * office on a Saturday morning, and the company's own number sends the same
  * call to the after hours line. Calls arrive through the carrier's signed
  * webhook, as in `native-calls`; nothing reaches Twilio.
+ *
+ * Then the Houston line is given hours of its own, open around the clock,
+ * and days off of its own: the company's day off no longer shuts it, its
+ * own does, and it can be put back on the company's hours or its branch's.
  */
 const url = process.env.DATABASE_URL;
 if (!url && process.env.CI) throw new Error("DATABASE_URL is not set. These tests must run in CI, not skip.");
@@ -55,7 +61,7 @@ async function ring(to: string, now: Date): Promise<{ twiml: string; why: string
   const sid = `CA${randomBytes(8).toString("hex")}`;
   const reply = await voice.handle(db(), connection, "incoming", signed({ CallSid: sid, From: "+15125550199", To: to }), deps, now);
   const [call] = await raw<{ routed_because: string }[]>`select routed_because from public.call where provider_call_id = ${`twilio:${sid}`}`;
-  return { twiml: reply.twiml, why: call?.routed_because ?? "" };
+  return { twiml: reply.twiml ?? "", why: call?.routed_because ?? "" };
 }
 
 let houston = "";
@@ -102,5 +108,73 @@ run("a number's hours", () => {
     expect(houstonCall.why).toContain("inside business hours");
     const companyCall = await ring(MAIN, SATURDAY_MORNING);
     expect(companyCall.twiml).toContain(`>${AFTER}</Number>`);
+  });
+});
+
+run("a number's own hours and days off", () => {
+  const ALWAYS = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({ dayOfWeek, opensAt: "00:00", closesAt: "23:59", closed: false }));
+  const keyed = (key: string): ServiceContext => ({ ...owner(), idempotencyKey: `${key}-${randomBytes(4).toString("hex")}` });
+
+  it("follows the company's hours when told to, whatever its branch keeps", async () => {
+    const set = await numberHours.setHours(owner(), { id: houstonLine, hoursFrom: "company" });
+    expect(set.routedBy).toMatchObject({ source: "company", whose: "The company's hours" });
+    expect((await ring(HOUSTON_LINE, SATURDAY_MORNING)).twiml).toContain(`>${AFTER}</Number>`);
+    const back = await numberHours.setHours(owner(), { id: houstonLine, hoursFrom: "branch" });
+    expect(back.routedBy).toMatchObject({ source: "branch", whose: "Houston's hours" });
+  });
+
+  it("refuses its own hours until they are said, and somebody who may not change settings", async () => {
+    await expect(numberHours.setHours(owner(), { id: houstonLine, hoursFrom: "own" })).rejects.toThrow(/Say this number's own hours/);
+    await expect(numberHours.setHours(owner(), { id: houstonLine, hoursFrom: "branch", days: ALWAYS }))
+      .rejects.toThrow(/only kept for a number set to keep its own hours/);
+    await expect(numberHours.setHours({ ...owner(), actor: { ...owner().actor, roles: ["dispatcher"] } }, { id: houstonLine, hoursFrom: "company" }))
+      .rejects.toThrow();
+  });
+
+  it("is shut by the company's day off while it follows its branch, and not once it keeps its own", async () => {
+    const party = await holidays.create(keyed("party"), { name: "Shop party", date: "2027-01-09", closed: true });
+    try {
+      expect((await ring(HOUSTON_LINE, SATURDAY_MORNING)).twiml).toContain(`>${AFTER}</Number>`);
+      const own = await numberHours.setHours(owner(), { id: houstonLine, hoursFrom: "own", days: ALWAYS });
+      expect(own.routedBy).toMatchObject({ source: "number", whose: "Its own hours" });
+      expect(own.ownWeek).toHaveLength(7);
+      expect((await ring(HOUSTON_LINE, SATURDAY_MORNING)).twiml).toContain(`>${OFFICE}</Number>`);
+      /** Three in the morning on a Sunday, which the company and Houston both keep shut. */
+      expect((await ring(HOUSTON_LINE, new Date("2027-01-10T09:00:00Z"))).twiml).toContain(`>${OFFICE}</Number>`);
+    } finally {
+      await holidays.remove(owner(), { id: party.id });
+    }
+  });
+
+  it("is shut by a day off of its own, which no other list sees, and opened again when it is taken off", async () => {
+    const ctx = keyed("own-day");
+    const day = await numberHours.addHoliday(ctx, { id: houstonLine, name: "Line maintenance", date: "2027-01-09", closed: true });
+    /** The same request again is the same day off, not a second one. */
+    expect((await numberHours.addHoliday(ctx, { id: houstonLine, name: "Line maintenance", date: "2027-01-09", closed: true })).id).toBe(day.id);
+    await expect(numberHours.addHoliday(keyed("again"), { id: houstonLine, name: "Twice", date: "2027-01-09", closed: true }))
+      .rejects.toThrow(/already on the list/);
+    expect((await ring(HOUSTON_LINE, SATURDAY_MORNING)).twiml).toContain(`>${AFTER}</Number>`);
+
+    /** The company's list, and every reader of it, never sees the number's own day. */
+    const company = await holidays.create(keyed("company-same-day"), { name: "Same day for the company", date: "2027-01-09", closed: true });
+    expect((await holidays.list(owner())).map((h) => h.name)).toEqual(["Same day for the company"]);
+    await holidays.remove(owner(), { id: company.id });
+    expect(await holidays.loadHolidays(db(), ORG, houston)).toEqual([]);
+    await expect(holidays.remove(owner(), { id: day.id })).rejects.toThrow(/Holiday/);
+
+    const view = await numberHours.view(owner(), { id: houstonLine });
+    expect(view.ownHolidays.map((h) => h.name)).toEqual(["Line maintenance"]);
+    expect(await numberHours.removeHoliday(owner(), { id: houstonLine, holidayId: day.id })).toEqual({ removed: true });
+    expect(await numberHours.removeHoliday(owner(), { id: houstonLine, holidayId: day.id })).toEqual({ removed: false });
+    expect((await ring(HOUSTON_LINE, SATURDAY_MORNING)).twiml).toContain(`>${OFFICE}</Number>`);
+  });
+
+  it("keeps its own week when it goes back to its branch, and setting the company's week leaves it alone", async () => {
+    await numberHours.setHours(owner(), { id: houstonLine, hoursFrom: "branch" });
+    await businessHours.setWeek(owner(), { days: (await businessHours.list(owner())).company });
+    const view = await numberHours.view(owner(), { id: houstonLine });
+    expect(view.ownWeek).toHaveLength(7);
+    expect(view.routedBy.source).toBe("branch");
+    expect((await numberHours.setHours(owner(), { id: houstonLine, hoursFrom: "own" })).routedBy.source).toBe("number");
   });
 });

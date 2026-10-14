@@ -347,6 +347,14 @@ export const answeringPhone = pgTable("answering_phone", {
 
 /* ------------------------------------------------------------------ numbers */
 
+/**
+ * Where a number's hours come from, for routing its calls by them: the
+ * branch it answers for (the company's when it answers for none, or the
+ * branch keeps no week), the company's whatever its branch, or its own week
+ * and days off.
+ */
+export const phoneHoursFrom = pgEnum("phone_hours_from", ["branch", "company", "own"]);
+
 export const phoneNumberPurpose = pgEnum("phone_number_purpose", [
   /** The number on the truck and the invoice. */
   "main",
@@ -436,6 +444,8 @@ export const phoneNumber = pgTable("phone_number", {
   recordCalls: boolean("record_calls").notNull().default(false),
   routeByHours: boolean("route_by_hours").notNull().default(false),
   afterHoursForwardsToE164: text("after_hours_forwards_to_e164"),
+  /** Where its hours come from (`phone_hours_from`). Its own are kept in `business_hours` and `company_holiday` under its id. */
+  hoursFrom: phoneHoursFrom("hours_from").notNull().default("branch"),
   /**
    * The phone menu that answers this number, when it has one. Set, it
    * replaces the forward above: in business hours the caller hears the menu,

@@ -285,7 +285,7 @@ Which branch each reader asks about, for its week (below) and its holidays alike
 | The crew check (a crew's people off for the working day) | The job's |
 | Task escalation counting working hours (M34) | A task about a job or one of its visits, that job's; any other task, the company's |
 | The multi day rebalance (M09) | Each visit's job's: a Houston visit is not moved onto Houston's day off, an Austin one still may be |
-| The phones (a number set to route by hours, or answered by a phone menu) | The number's branch, set on the number (M18); a number in no branch, the company's |
+| The phones (a number set to route by hours, or answered by a phone menu) | The number's branch, set on the number (M18); a number in no branch, the company's. A number can instead follow the company's whatever its branch, or keep its own week and days off and none of the company's (M18) |
 | The phone and chat assistants, the reviews clock, recurring tasks set to skip holidays | The company's: none of them knows a branch |
 
 | Reader | On a closed date | On a short day |

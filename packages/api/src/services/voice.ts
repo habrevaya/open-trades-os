@@ -17,8 +17,7 @@ import * as softphone from "./softphone";
 import * as callbacks from "./queue-callbacks";
 import * as transfers from "./call-transfers";
 import { memberActor } from "./session";
-import { loadHolidays } from "./holidays";
-import { loadWeek } from "./business-hours";
+import { hoursOfNumber } from "./number-hours";
 import { emit } from "./events";
 import { leaseForCall } from "./website-tracking";
 import { readerFor } from "../secrets/store";
@@ -502,16 +501,15 @@ type NumberRow = typeof schema.phoneNumber.$inferSelect;
  */
 async function routeOf(tx: Database, organizationId: string, number: NumberRow, knownCustomer: boolean, now: Date) {
   /**
-   * A number that belongs to a branch is routed by that branch's week and
-   * holidays (the company's week where the branch keeps none); one in no
-   * branch by the company's.
+   * The number's own week and days off when it keeps its own; otherwise the
+   * branch it answers for (the company's week where the branch keeps none),
+   * or the company's (`number-hours.ts`).
    */
-  const { rows } = await loadWeek(tx, organizationId, number.businessUnitId);
+  const own = await hoursOfNumber(tx, organizationId, number);
+  const rows = own.rows;
   const zone = await timezoneOf(tx, organizationId);
   const today = time.dateIn(now, zone);
-  const holidays = holidayRules.forPhones(
-    await loadHolidays(tx, organizationId, number.businessUnitId), time.addDays(today, -1), time.addDays(today, 1),
-  );
+  const holidays = holidayRules.forPhones(own.holidays, time.addDays(today, -1), time.addDays(today, 1));
   const hours = voice.businessHoursFrom(rows, zone, holidays);
   if (number.menuId) {
     const menu = await phoneMenus.loadMenu(tx, organizationId, number.menuId);

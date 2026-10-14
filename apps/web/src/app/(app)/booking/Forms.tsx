@@ -161,19 +161,23 @@ export function Windows({ current }: {
  * the branch's name so a screen with several is read by a screen reader
  * without guessing which Monday is whose.
  */
-export function Hours({ current, businessUnitId, name, submit = "Save hours" }: {
+export function Hours({ current, businessUnitId, name, submit = "Save hours", action = saveHours, hidden = {} }: {
   current: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
   businessUnitId?: string;
   name?: string;
   submit?: string;
+  /** Where the week goes: the company's or a branch's by default, a phone number's own from its page. */
+  action?: typeof saveHours;
+  hidden?: Record<string, string>;
 }) {
-  const [state, actionForm, pending] = useKeptAction(saveHours, {});
+  const [state, actionForm, pending] = useKeptAction(action, {});
   const byDay = new Map(current.map((d) => [d.dayOfWeek, d]));
   const whose = name ? ` in ${name}` : "";
 
   return (
     <form {...actionForm} className="mt-3">
       {businessUnitId ? <input type="hidden" name="businessUnitId" value={businessUnitId} /> : null}
+      {Object.entries(hidden).map(([key, value]) => <input key={key} type="hidden" name={key} value={value} />)}
       <div className="space-y-1">
         {DAYS.map((label, day) => {
           const row = byDay.get(day);
