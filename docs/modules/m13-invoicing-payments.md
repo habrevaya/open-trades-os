@@ -420,6 +420,18 @@ not to be emailed, a customer with no address, or no email provider connected is
 recorded as not sent, with the reason, under the button, and the link minted for
 it is revoked rather than left alive.
 
+**Also send a copy to**, beside the address, copies one more of the customer's
+own people (`copyContactId` on `POST /v1/customers/{id}/statement/email`):
+chosen from a list of the customer's contacts who have an email address, never
+an address typed for it. Somebody who is another customer's contact, has been
+removed, or has no address is refused before anything goes. The copy is an email
+of its own to that person's address, saying whose statement it is ("A copy of
+Lakeside Property Management's statement"), with the same link and PDF, and it
+goes only once the statement itself went: they share the link, which is revoked
+when the statement did not go. A copy to the address the statement went to is
+not sent twice. The list under the button says where each copy went, or why
+none did.
+
 **Text statement**, beside it (`POST /v1/customers/{id}/statement/text`), sends
 the same link by text, with no amounts, to the customer's main contact's mobile,
 the number on the customer, or one the office types. It goes through the consent
@@ -455,6 +467,18 @@ unless somebody changed it, and a company that chose emailed statements did not
 choose to text its customers. The same page lists every statement sent, by hand
 or by the run, with how and where it went, to which person, what was owed then,
 and what became of it.
+
+The customer record can name one of its own people for a copy of every monthly
+statement: **Copy each monthly statement to** on the customer's statement page
+(`PUT /v1/customers/{id}/statement-copy`, `invoice:send` like the monthly
+setting, audited; `GET /v1/customers/{id}/statement-copy` with `invoice:read`
+says who, and who could be). Only the customer's own contacts with an email
+address can be named. The run emails them a copy of their own once the
+statement goes, whichever way it went (a statement texted to the clerk is still
+emailed to the owner), and checks again when it sends: somebody removed from the
+customer since is not copied, and the row says why. The customer it is read from
+is the one the statement is for, the payer, so a property manager's copy goes
+to the manager's person and never to a tenant's.
 
 ### Deposits
 
@@ -541,6 +565,8 @@ different people doing those. The office manager and finance roles hold
 | `GET /v1/customers/{id}/statement` | `invoice:read` |
 | `POST /v1/customers/{id}/statement/email` | `invoice:send` |
 | `POST /v1/customers/{id}/statement/text` | `invoice:send` |
+| `GET /v1/customers/{id}/statement-copy` | `invoice:read` |
+| `PUT /v1/customers/{id}/statement-copy` | `invoice:send` |
 | `GET /v1/statement-deliveries` | `invoice:read` |
 | `GET /v1/statement-schedule` | `invoice:read` |
 | `POST /v1/statement-schedule` | `invoice:send` |
@@ -622,8 +648,11 @@ provider is connected. Only the monthly run reads who the bills are addressed
 to: the office's **Email statement** and **Text statement** go to the customer's
 address and main contact's number unless the office types another, and the
 invoice email itself goes to the customer as before. A bill is addressed to one
-person; a statement goes to one person, and copying a second is the office
-typing their address by hand. A tip is taken from the portal and, with cash or a check, on site; the office's own card
+person. A statement can be copied to one more person, by email only and only
+to one of the payer's own contacts: a third person, a copy by text, or a copy
+to an address that is not a contact's are not offered, and the monthly run
+copies nobody whom the customer record does not name. Text statement copies
+nobody. A tip is taken from the portal and, with cash or a check, on site; the office's own card
 and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
 technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books

@@ -524,3 +524,87 @@ run("reading", () => {
     await expect(notices.list(app)).rejects.toThrow(/for a person signed in/);
   });
 });
+
+run("the notice before a licence or skill runs out follows its renewal period", () => {
+  async function aType(name: string, leadDays: number) {
+    const [type] = await raw<{ id: string }[]>`insert into public.certification_type (organization_id, code, name, renewal_lead_days)
+      values (${ORG}, ${`t-${crypto.randomUUID().slice(0, 8)}`}, ${name}, ${leadDays}) returning id`;
+    return type!.id;
+  }
+  async function held(typeId: string, inDays: number) {
+    await raw`insert into public.person_certification (organization_id, technician_id, certification_type_id, expires_on, status)
+      values (${ORG}, ${rayTech}, ${typeId}, ${companyToday(inDays)}, 'active')`;
+  }
+  const clear = async () => {
+    await raw`delete from public.staff_notice where organization_id = ${ORG}`;
+    await raw`delete from public.person_certification where organization_id = ${ORG}`;
+    await raw`delete from public.technician_skill where organization_id = ${ORG}`;
+    await raw`update public.organization set renewals_keeper_user_id = null where id = ${ORG}`;
+  };
+
+  it("tells the holder when the type's renewal period starts, not at a fixed thirty days", async () => {
+    try {
+      await clear();
+      await held(await aType("Backflow tester", 45), 40);
+      await held(await aType("Forklift card", 20), 25);
+      await notices.raiseDueFor(db(), ORG);
+      expect((await rowsFor(RAY)).map((r) => r.title)).toEqual(["Your Backflow tester runs out soon"]);
+      const [own] = await rowsFor(RAY);
+      expect(own!.body).toContain(`runs out in 40 days, on ${companyToday(40)}`);
+    } finally {
+      await clear();
+    }
+  });
+
+  it("follows a skill record's own number of days, and still says the day itself", async () => {
+    try {
+      await clear();
+      await raw`insert into public.technician_skill (organization_id, technician_id, skill, since, evidence, expires_on, renewal_lead_days)
+        values (${ORG}, ${rayTech}, 'brazing', ${companyToday(-300)}, 'Sign off', ${companyToday(15)}, 10),
+               (${ORG}, ${rayTech}, 'rigging', ${companyToday(-300)}, 'Course', ${companyToday(8)}, 10),
+               (${ORG}, ${rayTech}, 'welding', ${companyToday(-300)}, 'Course', ${companyToday()}, 0)`;
+      await notices.raiseDueFor(db(), ORG);
+      expect((await rowsFor(RAY)).map((r) => r.title).sort()).toEqual([
+        "Your skill rigging runs out soon", "Your skill welding runs out today",
+      ]);
+    } finally {
+      await clear();
+    }
+  });
+
+  it("tells whoever keeps the renewals list once somebody is named, and nobody extra until then", async () => {
+    try {
+      await clear();
+      expect(await notices.renewalsKeeper(owner())).toEqual({ userId: null, name: null, active: false });
+      await held(await aType("Gas fitter", 60), 30);
+      await notices.raiseDueFor(db(), ORG);
+      expect(await rowsFor(OWNER)).toHaveLength(0);
+
+      // Only somebody who can read the list, named by somebody who manages it.
+      await expect(notices.setRenewalsKeeper(owner(), { userId: OFFICE }))
+        .rejects.toThrow("That person cannot see the renewals list");
+      await expect(notices.setRenewalsKeeper(office(), { userId: OWNER }))
+        .rejects.toMatchObject({ name: "PermissionError" });
+      expect((await notices.renewalsKeeperChoices(owner())).map((c) => c.userId)).toContain(OWNER);
+      const named = await notices.setRenewalsKeeper(owner(), { userId: OWNER });
+      expect(named).toEqual({ userId: OWNER, name: "Olive Owner", active: true });
+
+      await notices.raiseDueFor(db(), ORG);
+      const kept = await rowsFor(OWNER);
+      expect(kept).toHaveLength(1);
+      expect(kept[0]).toMatchObject({ kind: "qualification_expiry", title: "Ray Nunez's Gas fitter runs out soon" });
+      expect(kept[0]!.body).toContain("You are told because you keep the renewals list.");
+      // Once: looking again tells nobody anything new.
+      await notices.raiseDueFor(db(), ORG);
+      expect(await rowsFor(OWNER)).toHaveLength(1);
+
+      await notices.setRenewalsKeeper(owner(), { userId: null });
+      expect((await notices.renewalsKeeper(owner())).userId).toBeNull();
+      const [audited] = await raw<{ n: number }[]>`select count(*)::int as n from public.audit_log
+        where organization_id = ${ORG} and action = 'organization.renewals_keeper_set'`;
+      expect(audited!.n).toBe(2);
+    } finally {
+      await clear();
+    }
+  });
+});

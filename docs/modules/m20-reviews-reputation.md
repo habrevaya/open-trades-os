@@ -88,7 +88,24 @@ somebody who never complained.
 `PUT /v1/reviews/policy` declares the service standard and
 `POST /v1/reviews/platforms` records what the operator says each platform allows.
 Both need `settings:write`, because they are standing decisions rather than daily
-work.
+work. `GET /v1/reviews/policy` (`settings:read`) reads the standard back, null
+until one is set.
+
+`/settings/reviews` (Settings, Review policy) is the screen for the standard.
+Asking: the time zone its hours are in, how long after the visit, how often at
+most per customer, how old a job may be, the earliest and latest hour, and
+whether only paid jobs are asked about. Answering: the days and hours the
+office is open, the rating at or below which the customer is rung back and the
+one at or below which that is the same day, how fast an old review fades from
+the average, and a row per band of ratings with how many hours it is answered
+within, whether only open hours count, and why. Until a policy is set the form
+shows the numbers the API stores for a field left out
+(`POLICY_STARTING_POINT` in the service) and says
+nobody is asked yet; saving goes through `PUT /v1/reviews/policy`'s own service
+and schema, so bands that leave a rating out and a time zone that is not one
+are refused in words. The time zone is now checked by the API too. Saving it
+keeps the reminder and its words. Reading needs `settings:read` and saving
+`settings:write`; `/reviews` links to it.
 
 ## Google Business Profile
 
@@ -174,6 +191,18 @@ worker sends one reminder, by the way the company asks (its installed automation
 channel, or text), in the reminder's own words, which say it is the only one, through
 the same consent and suppression gate as the ask. It is for every sent ask, whether the
 office queued it or an automation did.
+
+Its words are the company's to change, under The reminder on `/settings/reviews`
+(`wording` on `PUT /v1/reviews/reminders`, with `sms`, `emailSubject` and `emailBody`;
+`null` puts back the words we ship; left out, they stay; `GET /v1/reviews/reminders`
+says which are in use). They take the ask's placeholders and nothing else:
+`{{ customer.name }}` (the first name), `{{ organization.name }}` and `{{ review.url }}`,
+and the text and the email each need the link. Core's `checkReviewWording` refuses, in
+words, a placeholder it cannot fill, a part with no link, an empty or overlong part,
+and words that offer something for a review (a discount, a gift, a reward, money off)
+or ask for a number of stars: the rules the shipped words were held to by tests, now a
+check on what is typed. The shipped words typed back in are stored as ours, so later
+changes to them still reach the company.
 
 It is skipped, for good and with the reason on the request, when the customer opted out
 or is marked do not service, or when a live review has come in since the ask that is
@@ -261,6 +290,7 @@ doing this grants it.
 | `GET /v1/reviews/requests/due` | `review:respond` |
 | `POST /v1/reviews/requests/{id}/sent` | `review:respond` |
 | `GET /v1/reviews/requests/withheld` | `review:respond` |
+| `GET /v1/reviews/policy` | `settings:read` |
 | `PUT /v1/reviews/policy` | `settings:write` |
 | `GET /v1/reviews/reminders` | `review:respond` |
 | `PUT /v1/reviews/reminders` | `settings:write` |
@@ -318,9 +348,12 @@ cannot tell that an unmatched review was left by the person asked, because a rev
 matched to a customer only when somebody says so; it holds off for a suspected match and
 does not for a review nobody has tied to anyone. Text first and then email is a fallback
 when the text cannot go, not a follow up when it was ignored. The reminder uses the
-way the company asks and its own default words; they cannot be edited on a screen.
-There is no screen for the review policy itself: it is set by the API, and only the
-reminder has a form. The
+way the company asks, in its own words, which the company can change: the check on
+them is a match on plain words that offer something or ask for stars, not a reading of
+what a message means, and the words need not say it is the only reminder. The ask's
+own words, on the automation canvas, are not held to that check. The policy screen
+edits the bands as up to five rows, in order from the lowest rating; a policy with
+more than five bands set through the API shows its first five. The
 email ask is tested against the fake email provider, not a live inbox, and the
 worker's due list uses the wording and way of the company's installed automation
 or the default by text, not a choice of its own per request. Both messages go as

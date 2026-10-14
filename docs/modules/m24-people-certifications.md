@@ -170,8 +170,13 @@ expired included and flagged. `/certifications` is the screen.
 ### Hear about one running out
 
 The worker tells the person who holds a certification, or a skill with a last
-day, thirty days before that day and again on it, once each (a worker that was
-down on the day says so within the following six days, and not after). The
+day, when its renewal period starts and again on the day, once each (a worker
+that was down on the day says so within the following six days, and not
+after). The renewal period is the certification type's (`renewalLeadDays`,
+the same number that puts it on the renewals list) or, for a skill, the
+record's own number of days, so a licence with a six week renewal is on the
+person's phone the day it goes on the list. A period of nothing means only the
+day itself is said, and one past a year is read as a year. The
 notice goes on their bell, their phone app and a text, as they chose on `/me`,
 and opens their own record there. The person they report to (the reporting
 line recorded on `/tasks/escalation`) is told the same, opening the holder's
@@ -179,6 +184,16 @@ page at `/people/{membershipId}`, but only when that manager may read the
 holder's record: a branch manager whose scope does not reach the holder is not
 told. Only the current holding counts: a renewal recorded with a later day
 stops anything more about the old one. The notices themselves are M34's.
+
+Whoever keeps the renewals list can be told too. Off until the company names
+somebody, under **Who keeps this list** on `/certifications`
+(`PUT /v1/certification-renewals/keeper`, `compliance:write`;
+`GET /v1/certification-renewals/keeper`, `compliance:read`): one person,
+active here, who can read the list (`compliance:read`). They get the same two
+notices about everybody's licences and skills, saying why they were told, and
+nobody is told twice when they are also the holder or the holder's manager.
+Somebody who has left, or can no longer read the list, is shown as chosen and
+told nothing until somebody chooses again. Naming one is audited.
 
 ### Ask whether people can do the work
 
@@ -348,6 +363,8 @@ Everybody holds `profile:own`: their own record, and nobody else's.
 | `POST /v1/certifications/{id}/verify` | `compliance:write` |
 | `POST /v1/certifications/{id}/status` | `compliance:write` |
 | `GET /v1/certifications/expiring` | `compliance:read` |
+| `GET /v1/certification-renewals/keeper` | `compliance:read` |
+| `PUT /v1/certification-renewals/keeper` | `compliance:write` |
 | `POST /v1/people/skill-standing` | `compliance:read` |
 | `GET /v1/technicians` | `visit:read` |
 | `PATCH /v1/technicians/{id}` | `user:write` |
@@ -403,13 +420,13 @@ a printed copy is a record made from them on the day, not a stored file. A perso
 emergency contacts and nothing else of their record: a new address or phone
 number goes to the office. A person can tick any line of their own onboarding,
 and the office sees that they ticked it rather than the office. A skill's
-record can have an expiry of its own, and its renewals list follows its own number of
-days: there is no per type notice period, because a skill has no type. The notice to the
-person and their manager about a certification or a skill running out is fixed at thirty
-days and the day itself, whatever the type's or the record's own renewal period says, so
-a licence with a six week renewal is on the renewals list from six weeks out and on the
-person's phone from thirty days; nobody is emailed about one, and the office manager who
-keeps the renewals list is told only when they are the person's manager. A skill whose record has expired still counts as "recorded" for the
+record can have an expiry of its own, and its renewals list and its notice follow its
+own number of days: there is no per type notice period for a skill, because a skill has
+no type. A certification's notice follows its type's renewal period, not one of its own:
+a holding has no number of days of its own. Nobody is emailed about one running out, and
+whoever keeps the renewals list is one person the company names, not everybody who can
+read the list; the office manager preset cannot read it, so cannot be named until the role
+is given `compliance:read`. A skill whose record has expired still counts as "recorded" for the
 rule that once anybody does a skill the others are refused for it, so letting the only
 holder's record lapse does not quietly stop the check. Continuing education counts hours
 toward a renewal and does not check that a course is one the authority accepts, and the

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { statementDelivery } from "@opentradesos/api/services";
-import { field, refused, refusalOf, type FormState } from "@/lib/actions";
+import { attempt, field, refused, refusalOf, type FormState } from "@/lib/actions";
 
 /**
  * Email the statement on screen, for the period on screen.
@@ -20,6 +20,7 @@ export async function emailStatement(_previous: unknown, form: FormData): Promis
   const address = field(form, "email");
   const from = field(form, "from");
   const to = field(form, "to");
+  const copyContactId = field(form, "copyContactId");
   let result;
   try {
     result = await statementDelivery.emailStatement({ actor: user.actor, db: getDb() }, {
@@ -27,6 +28,7 @@ export async function emailStatement(_previous: unknown, form: FormData): Promis
       ...(address ? { email: address } : {}),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
+      ...(copyContactId ? { copyContactId } : {}),
     });
   } catch (error) {
     const message = refusalOf(error);
@@ -35,10 +37,34 @@ export async function emailStatement(_previous: unknown, form: FormData): Promis
   }
   revalidatePath(`/customers/${id}/statement`);
   if (result.state === "refused") return refused(form, result.explanation ?? "It was not sent.");
+  const copied = result.copy === null ? ""
+    : result.copy.state === "queued" ? ` A copy goes to ${result.copy.contactName ?? "them"} at ${result.copy.destination}.`
+      : ` No copy went: ${result.copy.explanation ?? "it was refused."}`;
   return {
     done: true,
-    message: `Emailed a link to ${result.destination}. It goes out with the next send from the outbox.`,
+    message: `Emailed a link to ${result.destination}. It goes out with the next send from the outbox.${copied}`,
   };
+}
+
+/**
+ * Name the person every monthly statement is copied to, or nobody. Through
+ * the service `PUT /v1/customers/{id}/statement-copy` calls, so the check
+ * that they are this customer's own, with an address, is the same one.
+ */
+export async function setMonthlyCopy(_previous: unknown, form: FormData): Promise<FormState> {
+  const user = await requireSetupUser();
+  const id = String(form.get("id") ?? "");
+  const contactId = field(form, "contactId") ?? null;
+  const state = await attempt(form, async () => {
+    const saved = await statementDelivery.setStatementCopy({ actor: user.actor, db: getDb() }, { id, contactId });
+    return {
+      message: saved.name
+        ? `Saved. Each monthly statement is copied to ${saved.name}.`
+        : "Saved. Monthly statements are copied to nobody.",
+    };
+  });
+  if (!state?.error) revalidatePath(`/customers/${id}/statement`);
+  return state;
 }
 
 /**

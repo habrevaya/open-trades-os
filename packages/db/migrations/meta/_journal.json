@@ -869,6 +869,41 @@
       "when": 1791946461400,
       "tag": "0123_woozy_iron_monger",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1791949459561,
+      "tag": "0124_steady_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1791950331445,
+      "tag": "0125_aspiring_puck",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1791951014271,
+      "tag": "0126_clean_enchantress",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1791973508478,
+      "tag": "0127_loud_iron_lad",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1791977894962,
+      "tag": "0128_fresh_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }

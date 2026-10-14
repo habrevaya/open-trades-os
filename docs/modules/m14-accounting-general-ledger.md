@@ -281,6 +281,30 @@ stands, `GET /v1/accounting/runs` is the history, and
 `accounting:sync`. Each problem says whether it was refused (`failed`) or
 deleted in the books (`deleted`).
 
+Each pass writes down every document it sent, every one it found already in
+the books (a pass before it sent it and lost the answer) and every one it
+refused, with the reason: the books' own words for a refusal over there, or
+this product's for one made before sending (an account not mapped, a book that
+cannot take a journal). `GET /v1/accounting/runs` counts them per pass (`sent`,
+`found`, `refused`) beside the reads and writes, and
+`GET /v1/accounting/runs/{id}` lists them, refusals first, up to 500. A
+document already in the books and passed over is not written down, because
+that is every document on every pass after the first; nor is one that has
+stopped being offered, which is on the problems list instead. The list is
+written in the same transaction that records the outcome on the document's
+link, so the two cannot disagree.
+
+On `/settings/accounting`, **Sync now** runs a pass (the same call as
+`POST /v1/accounting/sync`; pressing it twice cannot send anything twice) and
+opens what it did. Below it are the last twenty passes: when each started,
+what it did in words ("Sent 3, refused 1", or "Nothing new to send"), how it
+ended (finished, still running, stopped with an error and the error, or sent
+but out of reads for now), and "See the documents" for one that touched any,
+which lists each document in words with a link to its own page where it has
+one, Sent, Already there, or Refused with the reason. A pass that cannot even
+start (the books' credential gone from the secret store) says so under the
+button.
+
 The problems are on `/settings/accounting` too: each document in words with a
 link to its own page where it has one (an invoice, a void or write off of one,
 a credit note, a customer, a journal), what happened (refused and tried again
@@ -288,9 +312,7 @@ on each sync, stopped after five tries, or deleted in the books) with the
 books' own reason, when it was last tried, and "Send it again", which is the
 retry: the attempts start again under the same claim, so it cannot reach the
 books twice. A document already waiting for the next sync is not offered the
-button. Running a pass and the run history have no screen; they are
-`POST /v1/accounting/sync` and `GET /v1/accounting/runs`, and the page says when
-the last pass started.
+button.
 
 ### Post a journal entry
 
@@ -314,10 +336,26 @@ take a journal records each one as a problem saying so.
 ### Close a month
 
 `POST /v1/accounting/periods/close` closes a period and
-`POST /v1/accounting/periods/reopen` opens it again. Both need
-`accounting:close`, which is a different permission from running the sync.
-Nothing posts into a closed period, including a back dated document from a
-migration, and the refusal names the period.
+`POST /v1/accounting/periods/reopen` opens it again, with a reason, which is
+required and kept. Both need `accounting:close`, which is a different
+permission from running the sync; `GET /v1/accounting/periods` lists every
+close, reopened ones included, and needs `accounting:sync`. Nothing posts into
+a closed period, including a back dated document from a migration, and the
+refusal names the period. A close is refused on or before the day already
+closed through, and for a day that has not come yet in the company's calendar
+(today is the latest). A period that was reopened can be closed again: the
+reopened close stays on the record and the new one is a row of its own.
+
+`/books/periods` (Books, Closing the books) is the screen. It says how far the
+books are closed, closes them through a day (suggesting the end of last
+month), with a note, and lists every close with when it was made, its note,
+and whether it is still in force or was reopened, when and why. Each close in
+force has a Reopen button that asks why. Reading it needs `accounting:sync`
+and closing or reopening `accounting:close`, as the routes do; a person
+without the second sees the list and a sentence saying which permission
+closing needs. It is on Books rather than under the accounting settings
+because a close holds the ledger whether or not any books are connected;
+`/settings/accounting` links to it.
 
 ## Permissions
 
@@ -349,9 +387,13 @@ both grants it rather than inheriting it.
 | `PUT /v1/accounting/branch-mappings` | `accounting:sync` |
 | `DELETE /v1/accounting/branch-mappings/{businessUnitId}` | `accounting:sync` |
 | `POST /v1/accounting/sync` | `accounting:sync` |
+| `GET /v1/accounting/runs` | `accounting:sync` |
+| `GET /v1/accounting/runs/{id}` | `accounting:sync` |
 | `GET /v1/accounting/problems` | `accounting:sync` |
+| `POST /v1/accounting/problems/{id}/retry` | `accounting:sync` |
 | `GET /v1/accounting/periods` | `accounting:sync` |
 | `POST /v1/accounting/periods/close` | `accounting:close` |
+| `POST /v1/accounting/periods/reopen` | `accounting:close` |
 
 ## Common questions
 
@@ -389,10 +431,15 @@ and Xero's APIs (their documented request and response shapes), not against a
 live company in either. A line's job is not sent, because neither book has a
 place for it on a journal line. Payments and credit note applications carry no
 class or tracking option, because neither book's payment or allocation takes
-one. The account and branch mappings and the problems list are on
-`/settings/accounting`; running a pass, the run history and closing a period
-have no screen and are API calls. The mapping screen has been driven against a
-fake of QuickBooks' query and token endpoints only. The deletion watch reads Xero's allocations only
+one. The account and branch mappings, running a pass, what each pass sent and
+refused and the problems list are on `/settings/accounting`, and closing and
+reopening a period on `/books/periods`. The screens have been driven against a
+fake of QuickBooks' query, token, customer and change feed endpoints only,
+never Xero's. A pass's history lists up to 500 of its documents, refusals
+first, and keeps every pass for as long as the connection: nothing trims it.
+A close cannot be made through a day that has not come, which the API refused
+for nobody before; a company that wants a month shut before its last day has
+to wait for the day. The deletion watch reads Xero's allocations only
 when its credit note read lists them, does not watch the settlement a void
 makes in Xero, and in Xero watches a refund through its Spend Money and not the
 invoice that puts it back on the receivable; a credit paid back in Xero is not

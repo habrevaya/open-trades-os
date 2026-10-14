@@ -5,10 +5,10 @@ import { accounting, accountingBranches, accountingDeletions, branches } from "@
 import { can, ledger } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
-import { mapAccounts, mapBranches, retryProblem, unmapBranch } from "./actions";
+import { mapAccounts, mapBranches, retryProblem, syncNow, unmapBranch } from "./actions";
 import {
-  AccountMappings, BranchMappings, ProblemsList, branchWord,
-  type AccountRow, type BooksAccount, type BooksOption, type BooksRead, type BranchRow,
+  AccountMappings, BranchMappings, ProblemsList, SyncRuns, branchWord,
+  type AccountRow, type BooksAccount, type BooksOption, type BooksRead, type BranchRow, type SyncRunDetail,
 } from "./Sections";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,13 @@ export const dynamic = "force-dynamic";
 /**
  * SETTINGS → ACCOUNTING
  *
- * The three things the accounting sync needs a person for, which were API
- * calls with no screen: where each of the product's accounts goes in the
- * books, which class or tracking option each branch goes as, and the
- * documents the sync could not send, with the button to send one again.
+ * The things the accounting sync needs a person for, which were API calls
+ * with no screen: running a pass now and reading what each pass sent and
+ * refused, where each of the product's accounts goes in the books, which
+ * class or tracking option each branch goes as, and the documents the sync
+ * could not send, with the button to send one again. Closing a month is on
+ * Books (`/books/periods`), because it holds the ledger whether or not any
+ * books are connected.
  *
  * Everything needs `accounting:sync`, the permission every route here
  * declares, and goes through the same services those routes call.
@@ -36,7 +39,11 @@ const SAVED: Record<string, string> = {
   branches: "Saved. From the next sync, documents in those branches go with what you chose.",
   unmapped: "That branch is sent without one from the next sync. What already went keeps what it had.",
   retried: "It goes again on the next sync.",
+  synced: "The sync has run. What it sent and refused is below.",
 };
+
+/** A run id as the link carries it; anything else is not looked up. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** What a read of the books said, as a sentence somebody can act on. */
 function readFailure(books: string, result: Remote): string {
@@ -105,12 +112,35 @@ export default async function AccountingSettingsPage(
   const read = one("read");
   const saved = SAVED[one("saved") ?? ""];
 
-  const [mappings, branchMappings, problems, branchList] = await Promise.all([
+  const [mappings, branchMappings, problems, branchList, runs] = await Promise.all([
     accounting.listMappings(ctx),
     accountingBranches.listBranchMappings(ctx),
     accounting.listProblems(ctx),
     branches.options(ctx),
+    accounting.listRuns(ctx, { limit: 20 }),
   ]);
+
+  /** The pass somebody opened from the history, read from here and never from the books. */
+  const runId = one("run");
+  let opened: SyncRunDetail | { missing: string } | null = null;
+  if (runId !== undefined) {
+    if (!UUID.test(runId)) {
+      opened = { missing: "That sync is not one of this company's." };
+    } else {
+      try {
+        const detail = await accounting.runDocuments(ctx, { runId });
+        opened = {
+          id: detail.id,
+          startedAt: detail.startedAt.toISOString(),
+          documents: detail.documents,
+          more: detail.more,
+        };
+      } catch (error) {
+        if (!(error instanceof Error && error.name === "NotFoundError")) throw error;
+        opened = { missing: "That sync is not one of this company's, or it went with a connection since removed." };
+      }
+    }
+  }
 
   /**
    * Every account the product posts to, every one a posting has used, and
@@ -171,6 +201,9 @@ export default async function AccountingSettingsPage(
         {" "}{status.pendingDocuments} {status.pendingDocuments === 1 ? "is" : "are"} on the way, and
         {" "}{status.failedDocuments} {status.failedDocuments === 1 ? "needs" : "need"} you.
         {" "}Branches go as a {branchWord(provider)}.
+        {" "}
+        <Link href="/books/periods" className="underline underline-offset-4">Closing a month</Link>
+        {" "}is on Books.
       </p>
       {saved ? (
         <p role="status" className="mt-4 rounded border border-steel-200 bg-steel-100 px-3 py-2 text-sm text-ink-900">{saved}</p>
@@ -179,6 +212,10 @@ export default async function AccountingSettingsPage(
       <AccountMappings books={books} rows={accountRows} chart={chart} action={mapAccounts} />
       <BranchMappings books={books} provider={provider} rows={branchRows} options={options}
                       action={mapBranches} unmap={unmapBranch} />
+      <SyncRuns books={books} timezone={user.organizationTimezone} sync={syncNow} opened={opened}
+                runs={runs.map((r) => ({
+                  ...r, startedAt: r.startedAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null,
+                }))} />
       <ProblemsList books={books} timezone={user.organizationTimezone} retry={retryProblem}
                     stopsAfter={accounting.MAX_ATTEMPTS}
                     problems={problems.map((p) => ({ ...p, updatedAt: p.updatedAt.toISOString() }))} />

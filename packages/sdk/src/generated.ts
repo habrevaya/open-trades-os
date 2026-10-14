@@ -5854,6 +5854,7 @@ export interface EmailCustomerStatementInput {
   email?: string;
   from?: string;
   to?: string;
+  copyContactId?: string;
 }
 
 export interface EmailCustomerStatementOutput {
@@ -5865,6 +5866,13 @@ export interface EmailCustomerStatementOutput {
   note: string | null;
   explanation: string | null;
   portalUrl: string;
+  copy: {
+    contactId: string | null;
+    contactName: string | null;
+    destination: string | null;
+    state: "queued" | "refused";
+    explanation: string | null;
+  } | null;
 }
 
 export interface EmailPurchaseOrderInput {
@@ -6144,6 +6152,26 @@ export type FinishSetupInput = Record<string, unknown>;
 
 export interface FinishSetupOutput {
   setupCompletedAt: string;
+}
+
+export interface GetAccountingRunOutput {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  recordsRead: number;
+  recordsWritten: number;
+  blockedReason: string | null;
+  error: string | null;
+  documents: Array<{
+    id: string;
+    kind: "customer" | "invoice" | "payment" | "credit_memo" | "refund" | "credit_note" | "credit_note_application" | "credit_note_void" | "credit_note_refund" | "journal";
+    entityId: string;
+    idempotencyKey: string;
+    outcome: "sent" | "found" | "refused";
+    message: string | null;
+    at: string;
+  }>;
+  more: boolean;
 }
 
 export interface GetAccountingStatusOutput {
@@ -10887,6 +10915,12 @@ export type GetRegulatoryConstantOutput = {
   } | null;
 };
 
+export interface GetRenewalsKeeperOutput {
+  userId: string | null;
+  name: string | null;
+  active: boolean;
+}
+
 export interface GetRentalDispatchOutput {
   automaticCollections: boolean;
   collectionLeadDays: number;
@@ -10946,8 +10980,40 @@ export interface GetRentalOverageOutput {
   total: string;
 }
 
+export interface GetReviewPolicyOutput {
+  policy: {
+    timeZone: string;
+    delayMinutes: number;
+    customerCooldownDays: number;
+    requirePaid: boolean;
+    maxJobAgeDays: number;
+    earliestHour: number;
+    latestHour: number;
+    recoverAtOrBelow: number;
+    sameDayAtOrBelow: number;
+    businessDays: number[];
+    openHour: number;
+    closeHour: number;
+    bands: Array<{
+      upToRating: number;
+      withinHours: number;
+      businessHoursOnly: boolean;
+      priority: number;
+      reason: string;
+    }>;
+    halfLifeDays: number;
+    reminderAfterDays: number | null;
+  } | null;
+}
+
 export interface GetReviewRemindersOutput {
   afterDays: number | null;
+  wording: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+    custom: boolean;
+  };
   recent: Array<{
     requestId: string;
     jobNumber: number;
@@ -11297,6 +11363,21 @@ export interface GetStaffDocumentOutput {
     signedAt: string | null;
     signedVia: "typed" | "drawn" | null;
     signerName: string | null;
+  }>;
+}
+
+export interface GetStatementCopyOutput {
+  customerId: string;
+  monthly: {
+    contactId: string;
+    name: string;
+    email: string | null;
+    usable: boolean;
+  } | null;
+  candidates: Array<{
+    id: string;
+    name: string;
+    email: string;
   }>;
 }
 
@@ -12189,6 +12270,9 @@ export interface ListAccountingRunsOutput {
     finishedAt: string | null;
     blockedReason: string | null;
     error: string | null;
+    sent: number;
+    found: number;
+    refused: number;
   }>;
 }
 
@@ -16191,6 +16275,10 @@ export interface ListStatementDeliveriesOutput {
     messageStatus: string | null;
     error: string | null;
     note: string | null;
+    copyContactName?: string | null;
+    copyDestination?: string | null;
+    copyMessageStatus?: string | null;
+    copyError?: string | null;
     createdAt: string;
   }>;
 }
@@ -23216,6 +23304,16 @@ export interface SetReferralSettingsOutput {
   amount: string;
 }
 
+export interface SetRenewalsKeeperInput {
+  userId: string | null;
+}
+
+export interface SetRenewalsKeeperOutput {
+  userId: string | null;
+  name: string | null;
+  active: boolean;
+}
+
 export interface SetRentalBillingTermsInput {
   invoiceAs?: "per_haul" | "chain";
   disposalPassThrough?: boolean;
@@ -23369,11 +23467,22 @@ export interface SetReviewPolicyOutput {
 }
 
 export interface SetReviewRemindersInput {
-  afterDays: number | null;
+  afterDays?: number | null;
+  wording?: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+  } | null;
 }
 
 export interface SetReviewRemindersOutput {
   afterDays: number | null;
+  wording: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+    custom: boolean;
+  };
   recent: Array<{
     requestId: string;
     jobNumber: number;
@@ -23425,6 +23534,16 @@ export interface SetSoftphonePresenceInput {
 
 export interface SetSoftphonePresenceOutput {
   takingCalls: boolean;
+}
+
+export interface SetStatementCopyInput {
+  contactId: string | null;
+}
+
+export interface SetStatementCopyOutput {
+  customerId: string;
+  contactId: string | null;
+  name: string | null;
 }
 
 export interface SetStatementScheduleInput {
@@ -24351,6 +24470,13 @@ export interface TextCustomerStatementOutput {
   note: string | null;
   explanation: string | null;
   portalUrl: string;
+  copy: {
+    contactId: string | null;
+    contactName: string | null;
+    destination: string | null;
+    state: "queued" | "refused";
+    explanation: string | null;
+  } | null;
 }
 
 export interface TickTaskChecklistItemInput {
@@ -28009,6 +28135,10 @@ export interface FailUploadParams {
   clientId: string;
 }
 
+export interface GetAccountingRunInput {
+  id: string;
+}
+
 export type GetAccountingStatusInput = Record<string, never>;
 
 export type GetAfterHoursRatesInput = Record<string, never>;
@@ -28569,6 +28699,8 @@ export interface GetRegulatoryConstantInput {
   jurisdiction?: string;
 }
 
+export type GetRenewalsKeeperInput = Record<string, never>;
+
 export interface GetRentalInput {
   id: string;
 }
@@ -28578,6 +28710,8 @@ export type GetRentalDispatchInput = Record<string, never>;
 export interface GetRentalOverageInput {
   id: string;
 }
+
+export type GetReviewPolicyInput = Record<string, never>;
 
 export type GetReviewRemindersInput = Record<string, never>;
 
@@ -28619,6 +28753,10 @@ export type GetSoftphoneInput = Record<string, never>;
 export type GetSoftphoneCallInput = Record<string, never>;
 
 export interface GetStaffDocumentInput {
+  id: string;
+}
+
+export interface GetStatementCopyInput {
   id: string;
 }
 
@@ -30563,6 +30701,10 @@ export interface SetServiceRouteStopActiveParams {
   id: string;
 }
 
+export interface SetStatementCopyParams {
+  id: string;
+}
+
 export interface SetTechnicianCustomFieldsParams {
   id: string;
 }
@@ -31237,6 +31379,7 @@ export interface OperationTypes {
   fillOnCallWeeks: { input: FillOnCallWeeksInput; output: FillOnCallWeeksOutput };
   finishConnectorSignIn: { input: FinishConnectorSignInInput; output: FinishConnectorSignInOutput };
   finishSetup: { input: FinishSetupInput; output: FinishSetupOutput };
+  getAccountingRun: { input: GetAccountingRunInput; output: GetAccountingRunOutput };
   getAccountingStatus: { input: GetAccountingStatusInput; output: GetAccountingStatusOutput };
   getAfterHoursRates: { input: GetAfterHoursRatesInput; output: GetAfterHoursRatesOutput };
   getAgreement: { input: GetAgreementInput; output: GetAgreementOutput };
@@ -31375,9 +31518,11 @@ export interface OperationTypes {
   getRecordHistory: { input: GetRecordHistoryInput; output: GetRecordHistoryOutput };
   getReferrals: { input: GetReferralsInput; output: GetReferralsOutput };
   getRegulatoryConstant: { input: GetRegulatoryConstantInput; output: GetRegulatoryConstantOutput };
+  getRenewalsKeeper: { input: GetRenewalsKeeperInput; output: GetRenewalsKeeperOutput };
   getRental: { input: GetRentalInput; output: GetRentalOutput };
   getRentalDispatch: { input: GetRentalDispatchInput; output: GetRentalDispatchOutput };
   getRentalOverage: { input: GetRentalOverageInput; output: GetRentalOverageOutput };
+  getReviewPolicy: { input: GetReviewPolicyInput; output: GetReviewPolicyOutput };
   getReviewReminders: { input: GetReviewRemindersInput; output: GetReviewRemindersOutput };
   getReviewWorkList: { input: GetReviewWorkListInput; output: GetReviewWorkListOutput };
   getRouteProposal: { input: GetRouteProposalInput; output: GetRouteProposalOutput };
@@ -31392,6 +31537,7 @@ export interface OperationTypes {
   getSoftphone: { input: GetSoftphoneInput; output: GetSoftphoneOutput };
   getSoftphoneCall: { input: GetSoftphoneCallInput; output: GetSoftphoneCallOutput };
   getStaffDocument: { input: GetStaffDocumentInput; output: GetStaffDocumentOutput };
+  getStatementCopy: { input: GetStatementCopyInput; output: GetStatementCopyOutput };
   getStatementSchedule: { input: GetStatementScheduleInput; output: GetStatementScheduleOutput };
   getTaskChecklist: { input: GetTaskChecklistInput; output: GetTaskChecklistOutput };
   getTaskCounts: { input: GetTaskCountsInput; output: GetTaskCountsOutput };
@@ -31965,6 +32111,7 @@ export interface OperationTypes {
   setRecordingPolicy: { input: SetRecordingPolicyInput; output: SetRecordingPolicyOutput };
   setRecurringScheduleActive: { input: SetRecurringScheduleActiveParams & SetRecurringScheduleActiveInput; output: SetRecurringScheduleActiveOutput };
   setReferralSettings: { input: SetReferralSettingsInput; output: SetReferralSettingsOutput };
+  setRenewalsKeeper: { input: SetRenewalsKeeperInput; output: SetRenewalsKeeperOutput };
   setRentalBillingTerms: { input: SetRentalBillingTermsParams & SetRentalBillingTermsInput; output: SetRentalBillingTermsOutput };
   setRentalCollectionTime: { input: SetRentalCollectionTimeParams & SetRentalCollectionTimeInput; output: SetRentalCollectionTimeOutput };
   setRentalDispatch: { input: SetRentalDispatchInput; output: SetRentalDispatchOutput };
@@ -31977,6 +32124,7 @@ export interface OperationTypes {
   setSafetyTalkScheduleActive: { input: SetSafetyTalkScheduleActiveParams & SetSafetyTalkScheduleActiveInput; output: SetSafetyTalkScheduleActiveOutput };
   setServiceRouteStopActive: { input: SetServiceRouteStopActiveParams & SetServiceRouteStopActiveInput; output: SetServiceRouteStopActiveOutput };
   setSoftphonePresence: { input: SetSoftphonePresenceInput; output: SetSoftphonePresenceOutput };
+  setStatementCopy: { input: SetStatementCopyParams & SetStatementCopyInput; output: SetStatementCopyOutput };
   setStatementSchedule: { input: SetStatementScheduleInput; output: SetStatementScheduleOutput };
   setStockTracking: { input: SetStockTrackingInput; output: SetStockTrackingOutput };
   setTechnicianCustomFields: { input: SetTechnicianCustomFieldsParams & SetTechnicianCustomFieldsInput; output: SetTechnicianCustomFieldsOutput };
@@ -32363,6 +32511,7 @@ export const OPERATIONS = {
   fillOnCallWeeks: { method: "POST", path: "/v1/on-call/weeks", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   finishConnectorSignIn: { method: "POST", path: "/v1/oauth/finish", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   finishSetup: { method: "POST", path: "/v1/setup/finish", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  getAccountingRun: { method: "GET", path: "/v1/accounting/runs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   getAccountingStatus: { method: "GET", path: "/v1/accounting/status", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   getAfterHoursRates: { method: "GET", path: "/v1/after-hours-rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getAgreement: { method: "GET", path: "/v1/agreements/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
@@ -32501,9 +32650,11 @@ export const OPERATIONS = {
   getRecordHistory: { method: "GET", path: "/v1/audit/history", pathParams: [], queryParams: ["entityType","entityId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["audit:read"] },
   getReferrals: { method: "GET", path: "/v1/marketing/referrals", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getRegulatoryConstant: { method: "GET", path: "/v1/compliance/constants", pathParams: [], queryParams: ["key","on","jurisdiction"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  getRenewalsKeeper: { method: "GET", path: "/v1/certification-renewals/keeper", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getRental: { method: "GET", path: "/v1/rentals/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalDispatch: { method: "GET", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalOverage: { method: "GET", path: "/v1/rentals/{id}/overage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  getReviewPolicy: { method: "GET", path: "/v1/reviews/policy", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getReviewReminders: { method: "GET", path: "/v1/reviews/reminders", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getReviewWorkList: { method: "GET", path: "/v1/reviews/work-list", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRouteProposal: { method: "GET", path: "/v1/dispatch/optimise", pathParams: [], queryParams: ["date","technicianId","facilityId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -32518,6 +32669,7 @@ export const OPERATIONS = {
   getSoftphone: { method: "GET", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   getSoftphoneCall: { method: "GET", path: "/v1/softphone/call", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   getStaffDocument: { method: "GET", path: "/v1/staff-documents/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  getStatementCopy: { method: "GET", path: "/v1/customers/{id}/statement-copy", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getStatementSchedule: { method: "GET", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getTaskChecklist: { method: "GET", path: "/v1/tasks/{id}/checklist", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   getTaskCounts: { method: "GET", path: "/v1/tasks/counts", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -33091,6 +33243,7 @@ export const OPERATIONS = {
   setRecordingPolicy: { method: "POST", path: "/v1/recording-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setRecurringScheduleActive: { method: "POST", path: "/v1/recurring-schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setReferralSettings: { method: "PUT", path: "/v1/marketing/referral-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setRenewalsKeeper: { method: "PUT", path: "/v1/certification-renewals/keeper", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setRentalBillingTerms: { method: "PUT", path: "/v1/rentals/{id}/billing-terms", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalCollectionTime: { method: "PUT", path: "/v1/rentals/{id}/collection-time", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalDispatch: { method: "PUT", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -33103,6 +33256,7 @@ export const OPERATIONS = {
   setSafetyTalkScheduleActive: { method: "POST", path: "/v1/safety/schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   setServiceRouteStopActive: { method: "POST", path: "/v1/service-routes/stops/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setSoftphonePresence: { method: "PUT", path: "/v1/softphone/presence", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
+  setStatementCopy: { method: "PUT", path: "/v1/customers/{id}/statement-copy", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   setStatementSchedule: { method: "POST", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   setStockTracking: { method: "PUT", path: "/v1/stock-tracking", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   setTechnicianCustomFields: { method: "PUT", path: "/v1/technicians/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read","user:write"] },
@@ -35422,6 +35576,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * What one sync pass sent and refused.
+   *
+   * GET /v1/accounting/runs/{id}. Needs accounting:sync.
+   */
+  getAccountingRun(input: GetAccountingRunInput, options?: CallOptions): Promise<GetAccountingRunOutput> {
+    return this.call("getAccountingRun", input, options);
+  }
+
+  /**
    * Whether the books are connected and up to date.
    *
    * GET /v1/accounting/status. Needs accounting:sync.
@@ -36664,6 +36827,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Who keeps the renewals list, and is told what is running out.
+   *
+   * GET /v1/certification-renewals/keeper. Needs compliance:read.
+   */
+  getRenewalsKeeper(input: GetRenewalsKeeperInput = {} as GetRenewalsKeeperInput, options?: CallOptions): Promise<GetRenewalsKeeperOutput> {
+    return this.call("getRenewalsKeeper", input, options);
+  }
+
+  /**
    * One hire.
    *
    * GET /v1/rentals/{id}. Needs asset:read.
@@ -36688,6 +36860,15 @@ export abstract class GeneratedOperations {
    */
   getRentalOverage(input: GetRentalOverageInput, options?: CallOptions): Promise<GetRentalOverageOutput> {
     return this.call("getRentalOverage", input, options);
+  }
+
+  /**
+   * The company's service standard, or null when none is set.
+   *
+   * GET /v1/reviews/policy. Needs settings:read.
+   */
+  getReviewPolicy(input: GetReviewPolicyInput = {} as GetReviewPolicyInput, options?: CallOptions): Promise<GetReviewPolicyOutput> {
+    return this.call("getReviewPolicy", input, options);
   }
 
   /**
@@ -36814,6 +36995,15 @@ export abstract class GeneratedOperations {
    */
   getStaffDocument(input: GetStaffDocumentInput, options?: CallOptions): Promise<GetStaffDocumentOutput> {
     return this.call("getStaffDocument", input, options);
+  }
+
+  /**
+   * Who a customer's statement can be copied to, and who the monthly run copies.
+   *
+   * GET /v1/customers/{id}/statement-copy. Needs invoice:read.
+   */
+  getStatementCopy(input: GetStatementCopyInput, options?: CallOptions): Promise<GetStatementCopyOutput> {
+    return this.call("getStatementCopy", input, options);
   }
 
   /**
@@ -41974,6 +42164,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Name who keeps the renewals list, or nobody.
+   *
+   * PUT /v1/certification-renewals/keeper. Needs compliance:write.
+   */
+  setRenewalsKeeper(input: SetRenewalsKeeperInput, options?: CallOptions): Promise<SetRenewalsKeeperOutput> {
+    return this.call("setRenewalsKeeper", input, options);
+  }
+
+  /**
    * Choose how a hire is invoiced, and whether disposal is passed on.
    *
    * PUT /v1/rentals/{id}/billing-terms. Needs asset:write.
@@ -42046,11 +42245,11 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Turn the one reminder on, or off.
+   * Turn the one reminder on or off, and change its words.
    *
    * PUT /v1/reviews/reminders. Needs settings:write.
    */
-  setReviewReminders(input: SetReviewRemindersInput, options?: CallOptions): Promise<SetReviewRemindersOutput> {
+  setReviewReminders(input: SetReviewRemindersInput = {} as SetReviewRemindersInput, options?: CallOptions): Promise<SetReviewRemindersOutput> {
     return this.call("setReviewReminders", input, options);
   }
 
@@ -42079,6 +42278,15 @@ export abstract class GeneratedOperations {
    */
   setSoftphonePresence(input: SetSoftphonePresenceInput, options?: CallOptions): Promise<SetSoftphonePresenceOutput> {
     return this.call("setSoftphonePresence", input, options);
+  }
+
+  /**
+   * Name the person the monthly statement is copied to.
+   *
+   * PUT /v1/customers/{id}/statement-copy. Needs invoice:send.
+   */
+  setStatementCopy(input: SetStatementCopyParams & SetStatementCopyInput, options?: CallOptions): Promise<SetStatementCopyOutput> {
+    return this.call("setStatementCopy", input, options);
   }
 
   /**

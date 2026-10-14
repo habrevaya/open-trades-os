@@ -14,17 +14,26 @@ import { E2E_ORGANIZATION_ID } from "./stripe-env";
  * `tokenUrl`, which only a server started with ALLOW_PROVIDER_BASE_URL obeys.
  * It counts the reads, because a read is what QuickBooks meters, and the page
  * must spend them only when somebody asks. No request leaves the machine.
+ *
+ * A sync pass run from the screen reaches two more: creating a customer, which
+ * the fake takes and numbers (every other create it refuses, so a spec that
+ * leaves accounts unmapped sees nothing else sent), and the change feed, which
+ * it answers with no changes.
  */
 export interface FakeQuickBooks {
   baseUrl: string;
   tokenUrl: string;
   /** Every query the server made, in order. */
   queries: string[];
+  /** Every document a sync created, by QuickBooks' entity name, in order. */
+  creates: string[];
   close(): Promise<void>;
 }
 
 export async function fakeQuickBooks(): Promise<FakeQuickBooks> {
   const queries: string[] = [];
+  const creates: string[] = [];
+  let next = 1;
   const server: Server = createServer((request, response) => {
     request.resume();
     request.on("end", () => {
@@ -35,6 +44,16 @@ export async function fakeQuickBooks(): Promise<FakeQuickBooks> {
       const url = new URL(request.url ?? "/", "http://fake");
       if (request.method === "POST" && url.pathname === "/token") {
         reply(200, { access_token: "e2e-fake-access", expires_in: 3600 });
+        return;
+      }
+      const created = /^\/v3\/company\/[^/]+\/([a-z]+)$/.exec(url.pathname);
+      if (request.method === "POST" && created && created[1] === "customer") {
+        creates.push("Customer");
+        reply(200, { Customer: { Id: `fake-customer-${next++}`, SyncToken: "0" } });
+        return;
+      }
+      if (request.method === "GET" && /^\/v3\/company\/[^/]+\/cdc$/.test(url.pathname)) {
+        reply(200, { CDCResponse: [{ QueryResponse: [] }], time: new Date().toISOString() });
         return;
       }
       if (request.method === "GET" && /^\/v3\/company\/[^/]+\/query$/.test(url.pathname)) {
@@ -69,6 +88,7 @@ export async function fakeQuickBooks(): Promise<FakeQuickBooks> {
     baseUrl: `http://127.0.0.1:${port}`,
     tokenUrl: `http://127.0.0.1:${port}/token`,
     queries,
+    creates,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

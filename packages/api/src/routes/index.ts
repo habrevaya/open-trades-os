@@ -238,6 +238,7 @@ export const handlers = {
   // Reviews. No endpoint here can carry a predicted rating, because asking
   // only the customers who will say something nice is what gets a listing
   // wiped, and an absent field is a better defence than a policy.
+  getReviewPolicy: reviews.handlers.getReviewPolicy,
   setReviewPolicy: reviews.handlers.setReviewPolicy,
   getReviewReminders: reviews.handlers.getReviewReminders,
   setReviewReminders: reviews.handlers.setReviewReminders,
@@ -447,6 +448,7 @@ export const handlers = {
   setAccountMapping: accounting.handlers.setAccountMapping,
   runAccountingSync: accounting.handlers.runAccountingSync,
   listAccountingRuns: accounting.handlers.listAccountingRuns,
+  getAccountingRun: accounting.handlers.getAccountingRun,
   listAccountingProblems: accounting.handlers.listAccountingProblems,
   retryAccountingDocument: accounting.handlers.retryAccountingDocument,
   listAccountingPeriods: accounting.handlers.listAccountingPeriods,
@@ -692,6 +694,8 @@ export const handlers = {
   emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
   textCustomerStatement: statementDelivery.handlers.textCustomerStatement,
   listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
+  getStatementCopy: statementDelivery.handlers.getStatementCopy,
+  setStatementCopy: statementDelivery.handlers.setStatementCopy,
   sendReportScheduleNow: deliverySchedules.handlers.sendReportScheduleNow,
   getStatementSchedule: deliverySchedules.handlers.getStatementSchedule,
   setStatementSchedule: deliverySchedules.handlers.setStatementSchedule,

@@ -444,6 +444,19 @@ export async function closePeriod(
         `The books are already closed through ${existing}, which is on or after ${input.periodEnd}.`,
       );
     }
+    /**
+     * Nor is a day that has not come. Closing through the end of a month
+     * that is still running would refuse every invoice and payment taken for
+     * the rest of it, from a typed year one out, and nothing a company files
+     * covers days that have not happened. The company's own day, so a Texas
+     * evening is not tomorrow.
+     */
+    const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+    if (input.periodEnd > today) {
+      throw new ConflictError(
+        `${input.periodEnd} has not come yet. A period can be closed through today at the latest.`,
+      );
+    }
 
     const [row] = await tx.insert(schema.accountingPeriod).values({
       organizationId: ctx.actor.organizationId,
@@ -853,7 +866,8 @@ export async function sync(
     return row!.id;
   });
 
-  const state = {
+  const state: PassState = {
+    runId,
     pushed: 0, adopted: 0, skipped: 0, failed: 0,
     reads: 0, writes: 0, changesSeen: 0,
     more: false,
@@ -952,6 +966,8 @@ export async function sync(
 
 /** Counters the pass carries, mutated as it goes. */
 interface PassState {
+  /** The `sync_run` row, which each document this pass sends or refuses is written against. */
+  runId: string;
   pushed: number; adopted: number; skipped: number; failed: number;
   reads: number; writes: number; changesSeen: number;
   more: boolean;
@@ -1006,8 +1022,7 @@ async function pushOne(
   if (claimed.kind === "recover") {
     const found = await meteredRead(() => item.find(claimed.idempotencyKey));
     if (found.read && found.value) {
-      const linked = await guardedWrite(ctx, "accounting:sync", (tx) =>
-        link(tx, claimed.linkId, connectionId, item.kind, found.value!));
+      const linked = await linkAndNote(ctx, connectionId, state, item, claimed.linkId, found.value, "found", true);
       if (!linked.ok) { state.failed += 1; return null; }
       state.adopted += 1;
       return found.value.externalId;
@@ -1034,8 +1049,7 @@ async function pushOne(
   state.writes += 1;
 
   if (result.ok) {
-    const linked = await guardedWrite(ctx, "accounting:sync", (tx) =>
-      link(tx, claimed.linkId, connectionId, item.kind, result));
+    const linked = await linkAndNote(ctx, connectionId, state, item, claimed.linkId, result, "sent", true);
     if (!linked.ok) { state.failed += 1; return null; }
     state.pushed += 1;
     return result.externalId;
@@ -1051,16 +1065,69 @@ async function pushOne(
      */
     const found = await meteredRead(() => item.find(item.idempotencyKey));
     if (found.read && found.value) {
-      const linked = await guardedWrite(ctx, "accounting:sync", (tx) =>
-        link(tx, claimed.linkId, connectionId, item.kind, found.value!));
+      /** A refusal here is noted below, with the books' own reason, so not twice. */
+      const linked = await linkAndNote(ctx, connectionId, state, item, claimed.linkId, found.value, "found", false);
       if (linked.ok) { state.adopted += 1; return found.value.externalId; }
     }
   }
 
-  await guardedWrite(ctx, "accounting:sync", (tx) =>
-    markFailed(tx, claimed.linkId, `${result.code}: ${result.message}`));
+  await guardedWrite(ctx, "accounting:sync", async (tx) => {
+    const message = `${result.code}: ${result.message}`;
+    await markFailed(tx, claimed.linkId, message);
+    await noteDocument(tx, ctx, state, item, claimed.linkId, "refused", message);
+  });
   state.failed += 1;
   return null;
+}
+
+/**
+ * Link what came back and write down what the pass did with it, in one
+ * transaction, so the history never says a document went that the link
+ * table does not have, or the other way round. `link` refuses a second
+ * record claiming one document over there (two customers of one name);
+ * that is noted as refused with its sentence when `noteRefusal` says so.
+ */
+async function linkAndNote(
+  ctx: ServiceContext,
+  connectionId: string,
+  state: PassState,
+  item: { kind: AccountingEntityKind; entityId: string; idempotencyKey: string },
+  linkId: string,
+  ref: ExternalRef,
+  outcome: "sent" | "found",
+  noteRefusal: boolean,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  return guardedWrite(ctx, "accounting:sync", async (tx) => {
+    const linked = await link(tx, linkId, connectionId, item.kind, ref);
+    if (linked.ok) await noteDocument(tx, ctx, state, item, linkId, outcome, null);
+    else if (noteRefusal) await noteDocument(tx, ctx, state, item, linkId, "refused", linked.message);
+    return linked;
+  });
+}
+
+/**
+ * One line of a pass's history: a document it sent, found already there, or
+ * refused. See `sync_run_document` for what is deliberately left out.
+ */
+async function noteDocument(
+  tx: Database,
+  ctx: ServiceContext,
+  state: PassState,
+  item: { kind: AccountingEntityKind; entityId: string; idempotencyKey: string },
+  linkId: string,
+  outcome: "sent" | "found" | "refused",
+  message: string | null,
+): Promise<void> {
+  await tx.insert(schema.syncRunDocument).values({
+    organizationId: ctx.actor.organizationId,
+    runId: state.runId,
+    linkId,
+    kind: item.kind,
+    entityId: item.entityId,
+    idempotencyKey: item.idempotencyKey,
+    outcome,
+    message,
+  });
 }
 
 /** The push arms of `PushResult`, named so `pushOne` can stay generic. */
@@ -1307,7 +1374,7 @@ async function pushOutbound(
        * exactly the thing a person needs told, and a pass that silently
        * skipped it would look identical to a pass with nothing to do.
        */
-      await recordRefusal(ctx, connection.id, "invoice", invoice.id, invoiceKey(invoice.number), resolved.accounts.message);
+      await recordRefusal(ctx, connection.id, "invoice", invoice.id, invoiceKey(invoice.number), resolved.accounts.message, state);
       state.failed += 1;
       continue;
     }
@@ -1372,7 +1439,7 @@ async function pushOutbound(
     }));
 
     if (!resolved.cash.ok) {
-      await recordRefusal(ctx, connection.id, "payment", payment.id, paymentKey(payment.id), resolved.cash.message);
+      await recordRefusal(ctx, connection.id, "payment", payment.id, paymentKey(payment.id), resolved.cash.message, state);
       state.failed += 1;
       continue;
     }
@@ -1464,7 +1531,7 @@ async function pushOutbound(
       branch: await postingBranch(tx, organizationId, connection.id, { sourceType: "invoice", sourceId: credit.id }),
     }));
     if (!resolved.ok) {
-      await recordRefusal(ctx, connection.id, "credit_memo", credit.id, creditKey(credit.number), resolved.message);
+      await recordRefusal(ctx, connection.id, "credit_memo", credit.id, creditKey(credit.number), resolved.message, state);
       state.failed += 1;
       continue;
     }
@@ -1554,7 +1621,7 @@ async function pushJournals(
     const push = deps.provider.pushJournal?.bind(deps.provider);
     if (!push) {
       await recordRefusal(ctx, connection.id, "journal", journal.id, key,
-        `${deps.provider.name} cannot be sent a manual journal from here. Enter journal ${journal.number} there by hand.`);
+        `${deps.provider.name} cannot be sent a manual journal from here. Enter journal ${journal.number} there by hand.`, state);
       state.failed += 1;
       continue;
     }
@@ -1577,7 +1644,7 @@ async function pushJournals(
       };
     });
     if (!resolved.accounts.ok) {
-      await recordRefusal(ctx, connection.id, "journal", journal.id, key, resolved.accounts.message);
+      await recordRefusal(ctx, connection.id, "journal", journal.id, key, resolved.accounts.message, state);
       state.failed += 1;
       continue;
     }
@@ -1807,7 +1874,7 @@ async function pushRefunds(
     if (!cash) {
       await recordRefusal(ctx, connection.id, "refund", refund.transactionId, key,
         `Account ${ledger.ACCOUNTS.CASH} is not mapped to anything in the accounting system. Map it on `
-        + "the accounting settings screen; this refund is not sent until you do.");
+        + "the accounting settings screen; this refund is not sent until you do.", state);
       state.failed += 1;
       continue;
     }
@@ -2013,7 +2080,7 @@ async function pushCreditNotes(
       sourceType: "credit_note", direction: "debit", noun: "credit note",
     });
     if (!document.ok) {
-      await recordRefusal(ctx, connection.id, "credit_note", note.id, key, document.message);
+      await recordRefusal(ctx, connection.id, "credit_note", note.id, key, document.message, state);
       state.failed += 1;
       continue;
     }
@@ -2069,7 +2136,7 @@ async function pushCreditNotes(
     const push = deps.provider.pushCreditNoteRefund?.bind(deps.provider);
     if (!push) {
       await recordRefusal(ctx, connection.id, "credit_note_refund", payout.id, key,
-        `${deps.provider.name} cannot be sent a credit paid out from here. Record credit note ${payout.number}'s refund there by hand.`);
+        `${deps.provider.name} cannot be sent a credit paid out from here. Record credit note ${payout.number}'s refund there by hand.`, state);
       state.failed += 1;
       continue;
     }
@@ -2077,7 +2144,7 @@ async function pushCreditNotes(
     if (!cash) {
       await recordRefusal(ctx, connection.id, "credit_note_refund", payout.id, key,
         `Account ${ledger.ACCOUNTS.CASH} is not mapped to anything in the accounting system. Map it on `
-        + "the accounting settings screen; this credit paid out is not sent until you do.");
+        + "the accounting settings screen; this credit paid out is not sent until you do.", state);
       state.failed += 1;
       continue;
     }
@@ -2119,7 +2186,7 @@ async function pushCreditNotes(
       sourceType: "credit_note_void", direction: "credit", noun: "voided credit note",
     });
     if (!document.ok) {
-      await recordRefusal(ctx, connection.id, "credit_note_void", note.id, key, document.message);
+      await recordRefusal(ctx, connection.id, "credit_note_void", note.id, key, document.message, state);
       state.failed += 1;
       continue;
     }
@@ -2426,11 +2493,14 @@ async function recordRefusal(
   entityId: string,
   idempotencyKey: string,
   message: string,
+  state: PassState,
 ): Promise<void> {
   await guardedWrite(ctx, "accounting:sync", async (tx) => {
     const claimed = await claim(tx, ctx.actor.organizationId, connectionId, kind, entityId, idempotencyKey);
     if (claimed.kind === "claimed" || claimed.kind === "recover") {
       await markFailed(tx, claimed.linkId, message);
+      /** Only when this pass offered it: one that has stopped is on the problems list, not in every pass. */
+      await noteDocument(tx, ctx, state, { kind, entityId, idempotencyKey }, claimed.linkId, "refused", message);
     }
   });
 }
@@ -2901,7 +2971,76 @@ export async function listRuns(ctx: ServiceContext, input: { limit?: number | un
       .where(eq(schema.syncRun.connectionId, connection.id))
       .orderBy(desc(schema.syncRun.startedAt))
       .limit(Math.min(input.limit ?? 20, 100));
-    return rows;
+
+    /** What each pass did, counted from its own history rather than kept as counters that could drift from it. */
+    const counts = rows.length === 0 ? [] : await tx.select({
+      runId: schema.syncRunDocument.runId,
+      outcome: schema.syncRunDocument.outcome,
+      count: sql<number>`count(*)::int`,
+    })
+      .from(schema.syncRunDocument)
+      .where(inArray(schema.syncRunDocument.runId, rows.map((row) => row.id)))
+      .groupBy(schema.syncRunDocument.runId, schema.syncRunDocument.outcome);
+    const counted = (runId: string, outcome: string) =>
+      counts.find((row) => row.runId === runId && row.outcome === outcome)?.count ?? 0;
+
+    return rows.map((row) => ({
+      ...row,
+      sent: counted(row.id, "sent"),
+      found: counted(row.id, "found"),
+      refused: counted(row.id, "refused"),
+    }));
+  });
+}
+
+/** How many of one pass's documents are listed. */
+const RUN_DOCUMENTS_SHOWN = 500;
+
+/**
+ * One pass, with every document it sent, found already in the books, or
+ * refused, and the reason for each refusal. A pass on this company's present
+ * connection only, like the history it is listed in.
+ */
+export async function runDocuments(ctx: ServiceContext, input: { runId: string }) {
+  return guardedRead(ctx, "accounting:sync", async (tx) => {
+    const connection = await connectionFor(tx, ctx.actor.organizationId);
+    const [run] = await tx.select({
+      id: schema.syncRun.id,
+      startedAt: schema.syncRun.startedAt,
+      finishedAt: schema.syncRun.finishedAt,
+      recordsRead: schema.syncRun.recordsRead,
+      recordsWritten: schema.syncRun.recordsWritten,
+      blockedReason: schema.syncRun.blockedReason,
+      error: schema.syncRun.error,
+    })
+      .from(schema.syncRun)
+      .where(and(eq(schema.syncRun.id, input.runId), eq(schema.syncRun.connectionId, connection.id)))
+      .limit(1);
+    if (!run) throw new NotFoundError("Sync run");
+
+    const documents = await tx.select({
+      id: schema.syncRunDocument.id,
+      kind: schema.syncRunDocument.kind,
+      entityId: schema.syncRunDocument.entityId,
+      idempotencyKey: schema.syncRunDocument.idempotencyKey,
+      outcome: schema.syncRunDocument.outcome,
+      message: schema.syncRunDocument.message,
+      at: schema.syncRunDocument.createdAt,
+    })
+      .from(schema.syncRunDocument)
+      .where(eq(schema.syncRunDocument.runId, run.id))
+      /** Refusals first, because they are what somebody opened the pass to find. */
+      .orderBy(
+        sql`case ${schema.syncRunDocument.outcome} when 'refused' then 0 else 1 end`,
+        asc(schema.syncRunDocument.createdAt),
+      )
+      .limit(RUN_DOCUMENTS_SHOWN + 1);
+    return {
+      ...run,
+      documents: documents.slice(0, RUN_DOCUMENTS_SHOWN),
+      /** A pass can touch more than a page shows; the refusals come first, so the cut is among what went. */
+      more: documents.length > RUN_DOCUMENTS_SHOWN,
+    };
   });
 }
 
@@ -3027,6 +3166,8 @@ export const handlers = {
   listAccountingRuns: async (ctx: ServiceContext, input: { limit?: number | undefined }) => ({
     runs: await listRuns(ctx, input),
   }),
+
+  getAccountingRun: (ctx: ServiceContext, input: { id: string }) => runDocuments(ctx, { runId: input.id }),
 
   listAccountingProblems: async (ctx: ServiceContext) => ({ problems: await listProblems(ctx) }),
 

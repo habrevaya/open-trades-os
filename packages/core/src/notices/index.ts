@@ -212,8 +212,14 @@ export function localWhen(instant: Date, timeZone: string): string {
 
 /* ------------------------------------------------------- running out */
 
-/** How many days before the last day the first notice is raised. */
+/**
+ * How many days before the last day the first notice is raised, for a record
+ * that says nothing of its own. A certification's type and a skill's record
+ * each carry their own renewal period, which is used instead.
+ */
 export const EXPIRY_NOTICE_DAYS = 30;
+/** The longest renewal period a notice follows: a year, past which "soon" means nothing. */
+export const MAX_EXPIRY_NOTICE_DAYS = 365;
 /**
  * How many days after the last day a notice for the day is still raised. A
  * worker that was down over a long weekend still says so on Tuesday; a record
@@ -229,20 +235,32 @@ export type ExpiryNotice = "soon" | "today";
  * plain dates in the company's calendar. A record is good on its last day
  * and gone from the next, as a certification is read everywhere else.
  *
- *   "soon" from thirty days before up to the day before. One notice, raised
- *     the first time the worker looks inside that window, which is thirty
- *     days out unless the record was entered later than that.
+ *   "soon" from `leadDays` before (the renewal period of the record's type,
+ *     or the record's own) up to the day before. One notice, raised the
+ *     first time the worker looks inside that window, which is that many
+ *     days out unless the record was entered later than that. A licence
+ *     with a six week renewal is on the person's phone six weeks out, the
+ *     day it goes on the renewals list, not thirty days out.
  *   "today" on the last day, or within a few days after it for a worker
  *     that was not running on the day.
  *
  * Each is raised once per record (the service keys it), so the person hears
- * twice about one licence: a month ahead and on the day.
+ * twice about one licence: when its renewal period starts and on the day. A
+ * period of nothing says only the day; one past a year is read as a year.
  */
-export function expiryNoticeDue(expiresOn: string, today: string): ExpiryNotice | null {
+export function expiryNoticeDue(expiresOn: string, today: string, leadDays: number = EXPIRY_NOTICE_DAYS): ExpiryNotice | null {
   if (compareDates(today, expiresOn) >= 0) {
     return compareDates(today, addDays(expiresOn, EXPIRY_LATE_DAYS)) <= 0 ? "today" : null;
   }
-  return compareDates(today, addDays(expiresOn, -EXPIRY_NOTICE_DAYS)) >= 0 ? "soon" : null;
+  const lead = noticeLead(leadDays);
+  if (lead === 0) return null;
+  return compareDates(today, addDays(expiresOn, -lead)) >= 0 ? "soon" : null;
+}
+
+/** A renewal period as a notice reads it: whole days, from none to a year. */
+export function noticeLead(leadDays: number): number {
+  if (!Number.isFinite(leadDays)) return EXPIRY_NOTICE_DAYS;
+  return Math.min(Math.max(Math.trunc(leadDays), 0), MAX_EXPIRY_NOTICE_DAYS);
 }
 
 /** Whole days from `today` to `expiresOn`, both plain dates. */

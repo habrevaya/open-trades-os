@@ -3,10 +3,10 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customers, statements, statementDelivery, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import { enumText } from "@/lib/labels";
-import { emailStatement, textStatement } from "./actions";
+import { emailStatement, setMonthlyCopy, textStatement } from "./actions";
 import { Crumb } from "@/components/Detail";
 import { PrintButton } from "@/components/PrintButton";
 import { StatementView } from "@/components/Statement";
@@ -51,6 +51,12 @@ export default async function StatementPage({ params, searchParams }: {
   const onFile = record?.email ?? null;
   const sent = await statementDelivery.deliveries(ctx, { customerId: id, limit: 5 });
   const sends = can(user.actor, "invoice:send");
+  /** The customer's own people a copy can go to, and who every monthly statement is copied to now. */
+  const copies = await statementDelivery.statementCopies(ctx, { id });
+  const copyChoices = [
+    { value: "", label: "Nobody" },
+    ...copies.candidates.map((c) => ({ value: c.id, label: `${c.name} (${c.email})` })),
+  ];
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -89,7 +95,15 @@ export default async function StatementPage({ params, searchParams }: {
           >
             <TextField label="Email address" name="email" type="email" className="block w-72"
                        placeholder={onFile ?? "The address on file"} />
+            {copies.candidates.length > 0 ? (
+              <Select label="Also send a copy to" name="copyContactId" options={copyChoices} defaultValue=""
+                      className="block w-72" />
+            ) : null}
           </ActionForm>
+          <p className="mt-1 text-xs text-ink-500">
+            A copy goes only to one of this customer&apos;s own people with an email address, as an email of its own.
+            {copies.candidates.length === 0 ? " Nobody on this customer has an email address yet." : ""}
+          </p>
           <h2 className="mt-5 text-sm font-medium text-ink-700">Or text it</h2>
           <p className="mt-0.5 text-xs text-ink-500">
             The same link by text, to their main contact&apos;s mobile or the number on file. A number that asked not
@@ -102,6 +116,23 @@ export default async function StatementPage({ params, searchParams }: {
             <TextField label="Mobile number" name="phone" type="tel" className="block w-72"
                        placeholder={record?.phone ?? "The number on file"} />
           </ActionForm>
+          <h2 className="mt-5 text-sm font-medium text-ink-700">Every month</h2>
+          <p className="mt-0.5 text-xs text-ink-500">
+            When monthly statements are on, each one this customer is sent can be copied to one of their own people
+            as well, by email, whichever way the statement goes.
+          </p>
+          <p className="mt-1 text-sm text-ink-700">
+            {copies.monthly
+              ? copies.monthly.usable
+                ? `Copied to ${copies.monthly.name} (${copies.monthly.email}).`
+                : `Named for the copy: ${copies.monthly.name}, who is no longer on this customer or has no email address. No copy goes until you choose again.`
+              : "Copied to nobody."}
+          </p>
+          <ActionForm action={setMonthlyCopy} submit="Save the monthly copy" tone="quiet"
+                      className="mt-2 flex flex-wrap items-end gap-3" hidden={{ id }}>
+            <Select label="Copy each monthly statement to" name="contactId" options={copyChoices}
+                    defaultValue={copies.monthly?.usable ? copies.monthly.contactId : ""} className="block w-72" />
+          </ActionForm>
           {sent.length > 0 && (
             <ul className="mt-3 space-y-0.5 text-sm text-ink-700" aria-label="Statements already sent">
               {sent.map((row) => (
@@ -110,6 +141,13 @@ export default async function StatementPage({ params, searchParams }: {
                   {row.destination ?? "no address"}:{" "}
                   {row.error ? <span className="text-red-600">not sent. {row.error}</span> : enumText(row.messageStatus ?? "queued")}
                   {row.note ? <span className="text-ink-500"> {row.note}</span> : null}
+                  {row.copyError ? (
+                    <span className="text-ink-500"> No copy: {row.copyError}</span>
+                  ) : row.copyDestination ? (
+                    <span className="text-ink-500">
+                      {" "}Copy to {row.copyContactName ?? "a contact"} at {row.copyDestination}: {enumText(row.copyMessageStatus ?? "queued")}.
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>

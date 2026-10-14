@@ -324,7 +324,38 @@ export const getSkillStanding = defineRoute({
  * path is about the door rather than about qualifications, and every caller
  * naming it keeps working.
  */
+const RenewalsKeeper = z.object({
+  /** Null: nobody besides the holder and their manager is told, which is how a company starts. */
+  userId: Uuid.nullable(),
+  name: z.string().nullable(),
+  /** Still here and able to read the list. False: nobody extra is told until somebody chooses again. */
+  active: z.boolean(),
+});
+
+export const getRenewalsKeeper = defineRoute({
+  method: "get",
+  path: "/v1/certification-renewals/keeper",
+  summary: "Who keeps the renewals list, and is told what is running out",
+  module: "M24",
+  permissions: ["compliance:read"],
+  input: z.object({}),
+  output: RenewalsKeeper,
+});
+
+export const setRenewalsKeeper = defineRoute({
+  method: "put",
+  path: "/v1/certification-renewals/keeper",
+  summary: "Name who keeps the renewals list, or nobody",
+  description:
+    "Off (`null`) unless the company names somebody. When named, they are told as well as the holder and the holder's manager when a certification or a skill reaches its renewal period (the type's, or the skill record's own number of days) and on its last day, once each. Only somebody active here who can read the renewals list (`compliance:read`). Audited.",
+  module: "M24",
+  permissions: ["compliance:write"],
+  input: z.object({ userId: Uuid.nullable() }),
+  output: RenewalsKeeper,
+});
+
 export const peopleRoutes = {
+  getRenewalsKeeper, setRenewalsKeeper,
   setMembershipActive,
   listPeople,
   listCertificationTypes, defineCertificationType, updateCertificationType,

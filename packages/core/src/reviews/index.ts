@@ -580,6 +580,81 @@ export function checkReminderDays(days: number | null): { ok: true } | { ok: fal
   return { ok: true };
 }
 
+/**
+ * THE WORDS OF A REVIEW MESSAGE, CHECKED BEFORE THEY ARE KEPT
+ *
+ * The reminder's words are the company's to change, and these are the rules
+ * the shipped words of the ask and the reminder are held to by tests, now
+ * applied to whatever a person types:
+ *
+ *   ONLY THE ASK'S PLACEHOLDERS. `{{ customer.name }}` (their first name),
+ *   `{{ organization.name }}` and `{{ review.url }}`. Anything else would
+ *   become an empty string in a customer's message, so it is refused by name.
+ *
+ *   THE LINK IN THE TEXT AND THE EMAIL. A reminder with no link is a message
+ *   asking for something the customer cannot find.
+ *
+ *   NOTHING OFFERED, NO STARS ASKED FOR. A discount, a gift or a reward for a
+ *   review, or a nudge toward five stars, breaks the rules of the sites
+ *   people review on and turns a review into a purchase. Matched on the
+ *   words that say it plainly; this is a guard against the obvious, not a
+ *   reading of intent.
+ */
+export interface ReviewWording { sms: string; emailSubject: string; emailBody: string }
+
+export const REVIEW_WORDING_PLACEHOLDERS: readonly string[] = Object.freeze([
+  "customer.name", "organization.name", "review.url",
+]);
+
+/** The longest text: four messages' worth, which is already more than anybody reads on a phone. */
+export const MAX_REVIEW_SMS = 640;
+export const MAX_REVIEW_SUBJECT = 150;
+export const MAX_REVIEW_EMAIL = 5000;
+
+const WORDING_PLACEHOLDER = /\{\{\s*([^}]*?)\s*\}\}/g;
+const OFFERS = /\b(discounts?|coupons?|vouchers?|gift(?: card)?s?|rewards?|prizes?|raffles?|giveaways?|in exchange|cash back|money off)\b|\$\s?\d|\d+\s?% off/i;
+const STARS = /\b(five|5)[\s-]?stars?\b|\b(5|five)\s?out of\s?(5|five)\b|\u2605/i;
+
+export function checkReviewWording(words: ReviewWording): { ok: true } | { ok: false; reason: string } {
+  const parts: { name: string; text: string; needsLink: boolean; max: number }[] = [
+    { name: "The text", text: words.sms, needsLink: true, max: MAX_REVIEW_SMS },
+    { name: "The email's subject", text: words.emailSubject, needsLink: false, max: MAX_REVIEW_SUBJECT },
+    { name: "The email", text: words.emailBody, needsLink: true, max: MAX_REVIEW_EMAIL },
+  ];
+  for (const part of parts) {
+    const text = part.text.trim();
+    if (text === "") return { ok: false, reason: `${part.name} is empty. Write something, or put back the words we ship.` };
+    if (text.length > part.max) {
+      return { ok: false, reason: `${part.name} is ${text.length} characters long. Keep it to ${part.max}.` };
+    }
+    const used = [...text.matchAll(WORDING_PLACEHOLDER)].map((m) => m[1]!.trim());
+    const unknown = used.find((name) => !REVIEW_WORDING_PLACEHOLDERS.includes(name));
+    if (unknown !== undefined) {
+      return {
+        ok: false,
+        reason: `${part.name} uses {{ ${unknown} }}, which is not something we can fill in. `
+          + "Use {{ customer.name }}, {{ organization.name }} or {{ review.url }}.",
+      };
+    }
+    if (part.needsLink && !used.includes("review.url")) {
+      return { ok: false, reason: `${part.name} has no {{ review.url }}, so the customer would have no link to leave a review.` };
+    }
+    if (OFFERS.test(text)) {
+      return {
+        ok: false,
+        reason: `${part.name} offers something for a review. Review sites do not allow it, and it makes the review a purchase. Take it out.`,
+      };
+    }
+    if (STARS.test(text)) {
+      return {
+        ok: false,
+        reason: `${part.name} asks for a number of stars. Ask for an honest review instead: review sites do not allow steering it.`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 export function decideReminder(facts: ReminderFacts, policy: ReminderPolicy, now: Date): ReminderDecision {
   const no = (withheld: ReminderWithheld, explanation: string, clearsOnItsOwn: boolean): ReminderDecision =>
     ({ remind: false, withheld, explanation, clearsOnItsOwn });

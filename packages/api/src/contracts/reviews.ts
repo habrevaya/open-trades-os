@@ -62,6 +62,18 @@ export const ReviewPolicy = z.object({
   reminderAfterDays: z.number().int().nullable(),
 });
 
+export const getReviewPolicy = defineRoute({
+  method: "get",
+  path: "/v1/reviews/policy",
+  summary: "The company's service standard, or null when none is set",
+  description:
+    "Null until somebody sets one with `PUT /v1/reviews/policy`: nothing is asked for a company that has not said how it asks.",
+  module: "M20",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: z.object({ policy: ReviewPolicy.nullable() }),
+});
+
 export const setReviewPolicy = defineRoute({
   method: "put",
   path: "/v1/reviews/policy",
@@ -95,9 +107,18 @@ export const setReviewPolicy = defineRoute({
   output: ReviewPolicy,
 });
 
+/** The words of a review message: the text, and the email's subject and body. */
+const ReviewWording = z.object({
+  sms: z.string().max(2000),
+  emailSubject: z.string().max(500),
+  emailBody: z.string().max(10000),
+});
+
 const Reminders = z.object({
   /** Days to wait before the one reminder. Null is off, which is how a company starts. */
   afterDays: z.number().int().nullable(),
+  /** The words it goes in. `custom` false: the words we ship. */
+  wording: ReviewWording.extend({ custom: z.boolean() }),
   /** The latest reminders, sent or decided against for good, newest first. */
   recent: z.array(z.object({
     requestId: Uuid,
@@ -124,13 +145,24 @@ export const getReviewReminders = defineRoute({
 export const setReviewReminders = defineRoute({
   method: "put",
   path: "/v1/reviews/reminders",
-  summary: "Turn the one reminder on, or off",
+  summary: "Turn the one reminder on or off, and change its words",
   description:
     "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy.",
   module: "M20",
   permissions: ["settings:write"],
   idempotent: true,
-  input: z.object({ afterDays: z.number().int().min(3).max(60).nullable() }),
+  input: z.object({
+    /** Left out, it stays as it was. */
+    afterDays: z.number().int().min(3).max(60).nullable().optional(),
+    /**
+     * The reminder's own words, all three, or null to put back the words we
+     * ship. Left out, they stay as they were. Only `{{ customer.name }}`,
+     * `{{ organization.name }}` and `{{ review.url }}`, the link in the text and
+     * the email, and nothing that offers something for a review or asks for
+     * stars; refused in words otherwise.
+     */
+    wording: ReviewWording.nullable().optional(),
+  }),
   output: Reminders,
 });
 
@@ -389,7 +421,7 @@ export const getRatingByTechnician = defineRoute({
 });
 
 export const reviewRoutes = {
-  setReviewPolicy, getReviewReminders, setReviewReminders, listReviewPlatforms, setReviewPlatform,
+  getReviewPolicy, setReviewPolicy, getReviewReminders, setReviewReminders, listReviewPlatforms, setReviewPlatform,
   requestReview, listDueRequests, markRequestSent, listWithheld,
   recordReview, getReviewWorkList, respondToReview, markReviewRecovered,
   getRating, getRatingByTechnician,

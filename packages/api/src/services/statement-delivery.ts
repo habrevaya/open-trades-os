@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { schema, type Database } from "@opentradesos/db";
 import {
   SYSTEM_USER_ID, branding as brand, money as m, reporting, type Actor, type Permission,
@@ -70,6 +71,17 @@ export interface StatementSendResult {
   explanation: string | null;
   /** Empty on a replay: the token exists once, at the moment it is minted. */
   portalUrl: string;
+  /** The copy to one more of the payer's own people, when one was asked for. */
+  copy: StatementCopyResult | null;
+}
+
+/** How the copy went: to whom, where, and why not when it did not. */
+export interface StatementCopyResult {
+  contactId: string | null;
+  contactName: string | null;
+  destination: string | null;
+  state: "queued" | "refused";
+  explanation: string | null;
 }
 
 const usd = (value: string) => m.money(value, "USD");
@@ -106,19 +118,31 @@ export function composeStatementEmail(input: {
   url: string;
   color: string | null;
   on: string | null;
+  /**
+   * The person a copy goes to, by name. The copy says whose statement it is
+   * and why they have it, rather than greeting them as the customer.
+   */
+  copyTo?: string | undefined;
 }): { subject: string; text: string; html: string } {
   const period = `${said(input.from)} to ${said(input.to)}`;
-  const subject = `Your statement from ${input.organizationName}`;
+  const copy = input.copyTo !== undefined;
+  const subject = copy
+    ? `A copy of ${input.customerName}'s statement from ${input.organizationName}`
+    : `Your statement from ${input.organizationName}`;
+  const opening = copy
+    ? `A copy of ${input.customerName}'s statement from ${input.organizationName} for ${period} is ready. `
+      + `You have it as one of the people on their account.`
+    : `Your statement from ${input.organizationName} for ${period} is ready.`;
   const text = [
-    `Hello ${input.customerName},`,
+    `Hello ${copy ? input.copyTo : input.customerName},`,
     "",
-    `Your statement from ${input.organizationName} for ${period} is ready.`,
+    opening,
     "It lists every invoice, payment and credit in that time, and what is still open.",
     "A copy as of today is attached as a PDF; the link always shows it as it is now.",
     "",
-    `Open your statement: ${input.url}`,
+    `${copy ? "Open the statement" : "Open your statement"}: ${input.url}`,
     "",
-    "The link opens your account without a password. Reply to this email if anything looks wrong.",
+    `${copy ? "The link opens their account without a password, so keep it to yourself." : "The link opens your account without a password."} Reply to this email if anything looks wrong.`,
     "",
     input.organizationName,
   ].join("\n");
@@ -126,14 +150,14 @@ export function composeStatementEmail(input: {
   const onFill = input.on ?? "#ffffff";
   const html = [
     `<div style="font-family:system-ui,sans-serif;color:#111827;max-width:560px">`,
-    `<p>Hello ${escapeHtml(input.customerName)},</p>`,
-    `<p>Your statement from ${escapeHtml(input.organizationName)} for ${escapeHtml(period)} is ready. `
+    `<p>Hello ${escapeHtml(copy ? input.copyTo! : input.customerName)},</p>`,
+    `<p>${escapeHtml(opening)} `
     + `It lists every invoice, payment and credit in that time, and what is still open.</p>`,
     `<p>A copy as of today is attached as a PDF; the link always shows it as it is now.</p>`,
     `<p><a href="${escapeHtml(input.url)}" style="display:inline-block;padding:10px 16px;`
     + `background:${escapeHtml(fill)};color:${escapeHtml(onFill)};text-decoration:none;border-radius:6px">`
-    + `Open your statement</a></p>`,
-    `<p style="font-size:14px;color:#4b5563">The link opens your account without a password. `
+    + `${copy ? "Open the statement" : "Open your statement"}</a></p>`,
+    `<p style="font-size:14px;color:#4b5563">${copy ? "The link opens their account without a password, so keep it to yourself." : "The link opens your account without a password."} `
     + `Reply to this email if anything looks wrong.</p>`,
     `<p style="font-size:14px;color:#4b5563">${escapeHtml(input.organizationName)}</p>`,
     `</div>`,
@@ -256,6 +280,12 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
   fallBack?: boolean | undefined;
   /** The person it goes to, when the monthly run chose one: their addresses, and why them. */
   recipient?: Recipient | undefined;
+  /**
+   * One more of the customer's own people to email a copy to. Checked here
+   * whoever asked, because the monthly run asks with nobody watching: a
+   * contact that is not this customer's, or has gone, gets no copy.
+   */
+  copyContactId?: string | null | undefined;
 }): Promise<StatementSendResult | null> {
   const organizationId = ctx.actor.organizationId;
   const statement = await buildStatement(tx, organizationId, input.customerId, {
@@ -297,6 +327,10 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
   await tx.update(schema.statementDelivery).set({ portalGrantId: grant.row.id })
     .where(eq(schema.statementDelivery.id, row.id));
 
+  /** The PDF, drawn once however many emails carry it. */
+  let printedFile: Awaited<ReturnType<typeof statementFileWithin>> | null = null;
+  const printedOnce = async () => (printedFile ??= await statementFileWithin(tx, organizationId, statement));
+
   /** The attempt by one channel: the message it became, or why it did not go. */
   const attemptBy = async (channel: StatementChannel): Promise<
     { sent: true; messageId: string; destination: string } | { sent: false; explanation: string }
@@ -332,7 +366,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
       from: statement.from, to: statement.to, url,
       color: identity.color, on: identity.on,
     });
-    const printed = await statementFileWithin(tx, organizationId, statement);
+    const printed = await printedOnce();
     const outcome = await email.queue(transportContext(ctx, tx), {
       to: emailTo,
       subject: composed.subject,
@@ -365,6 +399,65 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
   const note = [input.recipient?.note ?? null, textRefusal ? `Not texted: ${textRefusal} Emailed instead.` : null]
     .filter((n): n is string => n !== null).join(" ") || null;
 
+  /**
+   * THE COPY, by email whichever way the statement went, as a message of its
+   * own to the contact's own address: the email pipeline sends to one
+   * person, and a copy that is its own message is refused or suppressed on
+   * its own without taking the statement with it. Only once the statement
+   * itself went, because the link they share is revoked when it did not.
+   */
+  const went = outcome;
+  const copy = await (async (): Promise<StatementCopyResult | null> => {
+    if (!input.copyContactId) return null;
+    const [person] = await tx.select({
+      id: schema.contact.id, name: schema.contact.name, email: schema.contact.email,
+      customerId: schema.contact.customerId, deletedAt: schema.contact.deletedAt,
+    }).from(schema.contact).where(eq(schema.contact.id, input.copyContactId)).limit(1);
+    if (!person || person.customerId !== input.customerId) {
+      return {
+        contactId: null, contactName: null, destination: null, state: "refused",
+        explanation: "The person named for the copy is not one of this customer's people, so no copy went.",
+      };
+    }
+    const refusedCopy = (explanation: string, destination: string | null = null): StatementCopyResult => ({
+      contactId: person.id, contactName: person.name, destination, state: "refused", explanation,
+    });
+    if (person.deletedAt !== null) return refusedCopy(`${person.name} has been removed from this customer, so no copy went.`);
+    const address = (person.email ?? "").trim();
+    if (address === "") return refusedCopy(`${person.name} has no email address on file, so no copy went.`);
+    const destination = email.normalizeAddress(address);
+    if (!went.sent) return refusedCopy("The statement itself did not go, so neither did the copy.", destination);
+    if (channel === "email" && went.destination === destination) {
+      return refusedCopy(`The statement went to ${person.name}'s own address, so no copy was needed.`, destination);
+    }
+    const composed = composeStatementEmail({
+      organizationName,
+      customerName: statement.customerName,
+      from: statement.from, to: statement.to, url,
+      color: identity.color, on: identity.on,
+      copyTo: person.name,
+    });
+    const printed = await printedOnce();
+    const queued = await email.queue(transportContext(ctx, tx), {
+      to: address,
+      subject: composed.subject,
+      text: composed.text,
+      html: composed.html,
+      purpose: "transactional",
+      customerId: input.customerId,
+      attachments: [{ filename: printed.filename, contentType: "application/pdf", content: Buffer.from(printed.bytes) }],
+    });
+    if (!queued.queued) return refusedCopy(queued.explanation, destination);
+    await tx.update(schema.statementDelivery).set({ copyMessageId: queued.messageId })
+      .where(eq(schema.statementDelivery.id, row.id));
+    return { contactId: person.id, contactName: person.name, destination, state: "queued", explanation: null };
+  })();
+  if (copy) {
+    await tx.update(schema.statementDelivery).set({
+      copyContactId: copy.contactId, copyDestination: copy.destination, copyError: copy.explanation,
+    }).where(eq(schema.statementDelivery.id, row.id));
+  }
+
   if (!outcome.sent) {
     // A link that was never sent is a live key to somebody's account lying
     // in a table. Revoked, rather than left to expire in six weeks.
@@ -378,7 +471,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
     return {
       deliveryId: row.id, customerId: input.customerId, channel,
       destination: channel === "sms" ? (textTo || null) : (emailTo || null),
-      state: "refused", note: null, explanation, portalUrl: "",
+      state: "refused", note: null, explanation, portalUrl: "", copy,
     };
   }
 
@@ -387,7 +480,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
   }).where(eq(schema.statementDelivery.id, row.id));
   return {
     deliveryId: row.id, customerId: input.customerId, channel, destination: outcome.destination,
-    state: "queued", note, explanation: null, portalUrl: url,
+    state: "queued", note, explanation: null, portalUrl: url, copy,
   };
 }
 
@@ -406,6 +499,7 @@ function sendByHand(ctx: ServiceContext, input: {
   address?: string | undefined;
   from?: string | undefined;
   to?: string | undefined;
+  copyContactId?: string | undefined;
 }): Promise<StatementSendResult> {
   return guardedWrite(ctx, "invoice:send", async (tx) => {
     if (ctx.idempotencyKey) {
@@ -430,6 +524,13 @@ function sendByHand(ctx: ServiceContext, input: {
     if (typed && input.channel === "sms" && typed.replace(/\D/g, "").length < 10) {
       throw new ConflictError(`"${typed}" is not a phone number a text can go to.`);
     }
+    /**
+     * The copy is one of the customer's own people, chosen from their list,
+     * and refused here before anything goes rather than recorded as a copy
+     * that did not: the office is standing at the button and can choose again.
+     * An address typed for the copy is not taken at all.
+     */
+    if (input.copyContactId) await assertCopyable(tx, customer.id, input.copyContactId);
 
     const result = await sendOne(tx, ctx, {
       customerId: customer.id,
@@ -437,6 +538,7 @@ function sendByHand(ctx: ServiceContext, input: {
       address: typed || null,
       from: input.from, to: input.to,
       period: null,
+      copyContactId: input.copyContactId ?? null,
     });
     // A hand sent row has no period, so the unique index never applies to it.
     if (!result) throw new ConflictError("This statement could not be recorded.");
@@ -444,6 +546,7 @@ function sendByHand(ctx: ServiceContext, input: {
     await audit(tx, ctx, result.state === "queued" ? "statement.sent" : "statement.refused",
       "customer", customer.id, null, {
         deliveryId: result.deliveryId, channel: result.channel, to: result.destination, explanation: result.explanation,
+        ...(result.copy ? { copyTo: result.copy.destination, copyExplanation: result.copy.explanation } : {}),
       });
 
     if (ctx.idempotencyKey) {
@@ -460,8 +563,31 @@ function sendByHand(ctx: ServiceContext, input: {
 
 export function emailStatement(ctx: ServiceContext, input: {
   id: string; email?: string | undefined; from?: string | undefined; to?: string | undefined;
+  copyContactId?: string | undefined;
 }): Promise<StatementSendResult> {
-  return sendByHand(ctx, { id: input.id, channel: "email", address: input.email, from: input.from, to: input.to });
+  return sendByHand(ctx, {
+    id: input.id, channel: "email", address: input.email, from: input.from, to: input.to, copyContactId: input.copyContactId,
+  });
+}
+
+/**
+ * A contact a copy may go to: this customer's own, still on the customer,
+ * with an email address. Refused in words otherwise.
+ */
+async function assertCopyable(tx: Database, customerId: string, contactId: string) {
+  const [person] = await tx.select({
+    id: schema.contact.id, name: schema.contact.name, email: schema.contact.email,
+  }).from(schema.contact)
+    .where(and(
+      eq(schema.contact.id, contactId), eq(schema.contact.customerId, customerId), isNull(schema.contact.deletedAt),
+    )).limit(1);
+  if (!person) {
+    throw new ConflictError("A copy can go only to one of this customer's own people. Choose one from their list.");
+  }
+  if ((person.email ?? "").trim() === "") {
+    throw new ConflictError(`${person.name} has no email address on file, so a copy cannot go to them. Add one on the customer first.`);
+  }
+  return person;
 }
 
 /**
@@ -478,10 +604,19 @@ async function replay(tx: Database, deliveryId: string): Promise<StatementSendRe
   const [row] = await tx.select().from(schema.statementDelivery)
     .where(eq(schema.statementDelivery.id, deliveryId)).limit(1);
   if (!row) throw new NotFoundError("Statement delivery");
+  const [copied] = row.copyContactId
+    ? await tx.select({ name: schema.contact.name }).from(schema.contact)
+      .where(eq(schema.contact.id, row.copyContactId)).limit(1)
+    : [];
+  const asked = row.copyContactId !== null || row.copyError !== null;
   return {
     deliveryId: row.id, customerId: row.customerId, channel: row.channel as StatementChannel,
     destination: row.destination, state: row.messageId ? "queued" : "refused", note: row.note,
     explanation: row.error, portalUrl: "",
+    copy: asked ? {
+      contactId: row.copyContactId, contactName: copied?.name ?? null, destination: row.copyDestination,
+      state: row.copyMessageId ? "queued" : "refused", explanation: row.copyError,
+    } : null,
   };
 }
 
@@ -502,6 +637,8 @@ export interface StatementRunResult {
   texted: number;
   /** Of `queued`, how many were meant to be texted and were emailed because the text could not go. */
   emailedInstead: number;
+  /** Copies emailed to the second person a customer record names. */
+  copied: number;
 }
 
 /**
@@ -545,16 +682,21 @@ export async function deliverStatements(tx: Database, input: {
   };
 
   const result: StatementRunResult = {
-    month: month.key, owing: owing.length, queued: 0, refused: 0, alreadySent: 0, texted: 0, emailedInstead: 0,
+    month: month.key, owing: owing.length, queued: 0, refused: 0, alreadySent: 0, texted: 0, emailedInstead: 0, copied: 0,
   };
   for (const { customer_id: customerId } of owing) {
     /** The person their bills are addressed to, and the way that person prefers. */
     const recipient = await recipientOf(tx, customerId);
     const texts = input.textWhenPreferred === true && recipient.prefersText;
+    /** The copy the customer record names, if any: checked again inside the send, never taken on trust. */
+    const [named] = await tx.select({ copyContactId: schema.customer.statementCopyContactId })
+      .from(schema.customer).where(eq(schema.customer.id, customerId)).limit(1);
     const sent = await sendOne(tx, ctx, {
       customerId, channel: texts ? "sms" : "email", address: null, from: month.from, to: month.to,
       period: month.key, scheduleId: input.scheduleId, fallBack: true, recipient,
+      copyContactId: named?.copyContactId ?? null,
     });
+    if (sent?.copy?.state === "queued") result.copied += 1;
     if (!sent) result.alreadySent += 1;
     else if (sent.state === "queued") {
       result.queued += 1;
@@ -583,8 +725,16 @@ export interface StatementDeliveryRecord {
   messageStatus: string | null;
   error: string | null;
   note: string | null;
+  /** The second person it was copied to, when one was asked for, and how that went. */
+  copyContactName: string | null;
+  copyDestination: string | null;
+  copyMessageStatus: string | null;
+  copyError: string | null;
   createdAt: Date;
 }
+
+const copyContact = alias(schema.contact, "copy_contact");
+const copyMessage = alias(schema.message, "copy_message");
 
 /** Statements sent, newest first, for one customer or for everybody. */
 export function deliveries(ctx: ServiceContext, input: { customerId?: string | undefined; limit?: number | undefined } = {}) {
@@ -594,15 +744,19 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
       customerName: schema.customer.name,
       messageStatus: schema.message.status,
       contactName: schema.contact.name,
+      copyContactName: copyContact.name,
+      copyMessageStatus: copyMessage.status,
     })
       .from(schema.statementDelivery)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.statementDelivery.customerId))
       .leftJoin(schema.message, eq(schema.message.id, schema.statementDelivery.messageId))
       .leftJoin(schema.contact, eq(schema.contact.id, schema.statementDelivery.contactId))
+      .leftJoin(copyContact, eq(copyContact.id, schema.statementDelivery.copyContactId))
+      .leftJoin(copyMessage, eq(copyMessage.id, schema.statementDelivery.copyMessageId))
       .where(input.customerId ? eq(schema.statementDelivery.customerId, input.customerId) : undefined)
       .orderBy(desc(schema.statementDelivery.createdAt))
       .limit(Math.min(input.limit ?? 50, 200));
-    return rows.map(({ row, customerName, messageStatus, contactName }) => ({
+    return rows.map(({ row, customerName, messageStatus, contactName, copyContactName, copyMessageStatus }) => ({
       id: row.id,
       customerId: row.customerId,
       customerName,
@@ -616,8 +770,72 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
       messageStatus: messageStatus ?? null,
       error: row.error,
       note: row.note,
+      copyContactName: copyContactName ?? null,
+      copyDestination: row.copyDestination,
+      copyMessageStatus: copyMessageStatus ?? null,
+      copyError: row.copyError,
       createdAt: row.createdAt,
     }));
+  });
+}
+
+/* ------------------------------------------------------- the monthly copy */
+
+/**
+ * Who on a customer a statement can be copied to, and who the monthly run
+ * copies now. The people are the customer's own, still on it, with an email
+ * address, because a copy goes by email and only to them. Read with
+ * `invoice:read`, the statement's own permission, so whoever reads a
+ * statement can see who else gets it.
+ */
+export function statementCopies(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "invoice:read", async (tx) => {
+    const [customer] = await tx.select({ id: schema.customer.id, copyContactId: schema.customer.statementCopyContactId })
+      .from(schema.customer)
+      .where(and(eq(schema.customer.id, input.id), isNull(schema.customer.deletedAt))).limit(1);
+    if (!customer) throw new NotFoundError("Customer");
+    const people = await tx.select({ id: schema.contact.id, name: schema.contact.name, email: schema.contact.email })
+      .from(schema.contact)
+      .where(and(eq(schema.contact.customerId, customer.id), isNull(schema.contact.deletedAt)))
+      .orderBy(desc(schema.contact.isPrimary), asc(schema.contact.name));
+    const candidates = people
+      .filter((p) => (p.email ?? "").trim() !== "")
+      .map((p) => ({ id: p.id, name: p.name, email: email.normalizeAddress(p.email!) }));
+    const [named] = customer.copyContactId
+      ? await tx.select({ id: schema.contact.id, name: schema.contact.name, email: schema.contact.email, deletedAt: schema.contact.deletedAt })
+        .from(schema.contact).where(eq(schema.contact.id, customer.copyContactId)).limit(1)
+      : [];
+    return {
+      customerId: customer.id,
+      monthly: named ? {
+        contactId: named.id,
+        name: named.name,
+        email: (named.email ?? "").trim() || null,
+        /** Removed from the customer, or left with no address, since it was named: the run sends no copy and says why. */
+        usable: named.deletedAt === null && (named.email ?? "").trim() !== "",
+      } : null,
+      candidates,
+    };
+  });
+}
+
+/**
+ * Name the person the monthly run copies on this customer's statement, or
+ * nobody. One of the customer's own people with an email address, under
+ * `invoice:send` like the monthly run's own setting, and audited.
+ */
+export function setStatementCopy(ctx: ServiceContext, input: { id: string; contactId: string | null }) {
+  return guardedWrite(ctx, "invoice:send", async (tx) => {
+    const [customer] = await tx.select({ id: schema.customer.id, copyContactId: schema.customer.statementCopyContactId })
+      .from(schema.customer)
+      .where(and(eq(schema.customer.id, input.id), isNull(schema.customer.deletedAt))).limit(1);
+    if (!customer) throw new NotFoundError("Customer");
+    const person = input.contactId ? await assertCopyable(tx, customer.id, input.contactId) : null;
+    await tx.update(schema.customer).set({ statementCopyContactId: person?.id ?? null, updatedAt: new Date() })
+      .where(eq(schema.customer.id, customer.id));
+    await audit(tx, ctx, "customer.statement_copy_set", "customer", customer.id,
+      { statementCopyContactId: customer.copyContactId }, { statementCopyContactId: person?.id ?? null });
+    return { customerId: customer.id, contactId: person?.id ?? null, name: person?.name ?? null };
   });
 }
 
@@ -626,7 +844,10 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
 export const handlers = {
   emailCustomerStatement: (ctx: ServiceContext, input: {
     id: string; email?: string | undefined; from?: string | undefined; to?: string | undefined;
+    copyContactId?: string | undefined;
   }) => emailStatement(ctx, input),
+  getStatementCopy: (ctx: ServiceContext, input: { id: string }) => statementCopies(ctx, input),
+  setStatementCopy: (ctx: ServiceContext, input: { id: string; contactId: string | null }) => setStatementCopy(ctx, input),
   textCustomerStatement: (ctx: ServiceContext, input: {
     id: string; phone?: string | undefined; from?: string | undefined; to?: string | undefined;
   }) => textStatement(ctx, input),

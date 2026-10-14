@@ -107,6 +107,18 @@ export const StatementSent = z.object({
   explanation: z.string().nullable(),
   /** The link that went. Empty on a replay: the token exists once, when minted. */
   portalUrl: z.string(),
+  /**
+   * The copy to one more of the customer's own people, when one was asked
+   * for: by email, as a message of its own, only once the statement went.
+   * `refused` with why when it did not.
+   */
+  copy: z.object({
+    contactId: Uuid.nullable(),
+    contactName: z.string().nullable(),
+    destination: z.string().nullable(),
+    state: z.enum(["queued", "refused"]),
+    explanation: z.string().nullable(),
+  }).nullable(),
 });
 
 export const emailCustomerStatement = defineRoute({
@@ -114,7 +126,7 @@ export const emailCustomerStatement = defineRoute({
   path: "/v1/customers/{id}/statement/email",
   summary: "Email a customer their statement",
   description:
-    "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.",
+    "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). With `copyContactId`, one of the customer's own people (on the customer, not removed, with an email address; refused otherwise) is emailed a copy of their own once the statement goes: a typed address is never copied. The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.",
   module: "M13",
   permissions: ["invoice:send"],
   idempotent: true,
@@ -123,6 +135,7 @@ export const emailCustomerStatement = defineRoute({
     email: z.string().optional(),
     from: z.string().date().optional(),
     to: z.string().date().optional(),
+    copyContactId: Uuid.optional(),
   }),
   output: StatementSent,
 });
@@ -163,6 +176,11 @@ export const StatementDelivery = z.object({
   error: z.string().nullable(),
   /** A text the run could not send and emailed instead, with why. */
   note: z.string().nullable(),
+  /** Who it was copied to, where, the outbox's word for the copy, or why no copy went. Null when none was asked for. */
+  copyContactName: z.string().nullable().optional(),
+  copyDestination: z.string().nullable().optional(),
+  copyMessageStatus: z.string().nullable().optional(),
+  copyError: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
 });
 
@@ -231,7 +249,42 @@ export const setStatementSchedule = defineRoute({
   output: StatementSchedule,
 });
 
+const StatementCopy = z.object({
+  customerId: Uuid,
+  /** Who the monthly run copies now. `usable` false: removed, or no address left, so the run copies nobody and says why. */
+  monthly: z.object({
+    contactId: Uuid,
+    name: z.string(),
+    email: z.string().nullable(),
+    usable: z.boolean(),
+  }).nullable(),
+  /** The customer's own people with an email address: who a copy can go to. */
+  candidates: z.array(z.object({ id: Uuid, name: z.string(), email: z.string() })),
+});
+
+export const getStatementCopy = defineRoute({
+  method: "get",
+  path: "/v1/customers/{id}/statement-copy",
+  summary: "Who a customer's statement can be copied to, and who the monthly run copies",
+  module: "M13",
+  permissions: ["invoice:read"],
+  input: z.object({ id: Uuid }),
+  output: StatementCopy,
+});
+
+export const setStatementCopy = defineRoute({
+  method: "put",
+  path: "/v1/customers/{id}/statement-copy",
+  summary: "Name the person the monthly statement is copied to",
+  description:
+    "One of the customer's own people with an email address, or null for nobody. The monthly run emails them a copy of their own once the statement goes, whichever way the statement went; it checks again when it sends, so somebody removed from the customer since is not copied, and the row says why. Audited.",
+  module: "M13",
+  permissions: ["invoice:send"],
+  input: z.object({ id: Uuid, contactId: Uuid.nullable() }),
+  output: z.object({ customerId: Uuid, contactId: Uuid.nullable(), name: z.string().nullable() }),
+});
+
 export const statementRoutes = {
   getCustomerStatement, emailCustomerStatement, textCustomerStatement, listStatementDeliveries,
-  getStatementSchedule, setStatementSchedule,
+  getStatementSchedule, setStatementSchedule, getStatementCopy, setStatementCopy,
 } as const;
