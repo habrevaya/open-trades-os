@@ -77,6 +77,24 @@ to it but holds only part of what the haul earned, and a cost can be put on a
 job but nothing marks a supply as billed back. The four retention, renewal and
 churn figures moved when a cancellation got a coded reason (below).
 
+The nineteen were checked once more against everything that has shipped since:
+punches on a crew's visits, costs journalled to a job and overhead as a mix,
+staff notices, call queues and calling back, inspections signed on the phone,
+hauls to a disposal facility and a truck's own kind, shared commission, budgets
+by branch and job type, part days off, and review reminders. None of them
+supplies a datum one of the nineteen names, so none moved, and none is computed
+from something close to its datum instead. Where one of them comes near, the
+sentence now says how near: the company budget is money for a month and never
+hours for a job; a permit can be filed against a job as a compliance document,
+but not the city's visits to it; the pest pack's template already asks why no
+product was applied, so record completeness lacks only the list of fields a
+report was required to capture when it was written; the electrical pack
+declares a panel's rating, open spaces and known concern, but the register
+holds no value to that declaration; a job can be put on hold, but nothing says
+it is waiting on a part; and the phone's positions are kept three days by
+design, so a month's route miles are gone before a month's figure could read
+them.
+
 That is a product decision rather than an apology. **Most of these definitions
 name an exclusion**, and a KPI computed without its exclusions is worse than an
 absent one, because it looks like the definition. `drive_time_pct` excludes the
@@ -431,7 +449,23 @@ A dashboard tile is drawn by the same chart, and not by bars and columns of its
 own: a tile and the report it came from cannot disagree about which bar is
 longest, and the tile has the chart's accessibility, including "View as a table"
 under it, which a tile needs because it has no table of the report beneath it the
-way a report screen does. A tile keeps its one grouping and its columns over time.
+way a report screen does. A tile keeps its columns over time.
+
+A tile can be **broken down** the way a report's chart is. A tile on a report
+grouped by two things draws the first grouping (the date, for a trend) and cuts
+every bar or column by the second: "Stacked" puts the parts end to end, which
+needs something that adds up (a count or a sum), and "Side by side" sets them
+beside each other, which any measure allows. It is part of how the tile is
+drawn, like bars or a trend, so it is chosen when the tile is added ("Broken
+down" on the saved dashboard's Add a tile) and stored on the tile, not on the
+report it points at. The legend names every colour in words, "View as a table"
+has a column for each value and a total, a part opens the records of that bar
+and that value together, and a bar's own label opens the whole bar. A report
+grouped by two things on a tile that is not broken down is refused in words that
+say to break it down, a tile broken down needs exactly two groupings, and an
+average is refused stacked and offered side by side, all when the tile is
+saved rather than when somebody opens the dashboard. The Operations dashboard
+ships one: open jobs by type, stacked by status.
 The emailed PDF of a report draws the chart as the screen draws it before anybody
 breaks it down: a breakdown is a choice made on the screen, and is on the printed
 page and not in the schedule.
@@ -490,9 +524,14 @@ when they run it is still their own work.
 Every number on a report, and every number, bar and month on a dashboard tile,
 is a link to `/reports/drill`. The page names the row (Age: Over 90 days), says
 the report's filters and dates in words, lists the records with what each added
-to every measure, and totals them under the columns. Up to a thousand records
-are listed; the totals are always over every one, and the page says when the
-list was cut short.
+to every measure, and totals them under the columns. The records are listed a
+thousand to a page, newest first; past a thousand, "Next page" and "Previous
+page" walk the rest, the page lives in the address (`page`), and the line under
+the list says which records these are of how many. The totals are over every
+record on every page, so each page totals to the number that was clicked and
+never to its own thousand. A link to a page past the last (the list shrank since)
+opens the last page. The records behind a KPI (`/reports/scorecard/records`)
+page the same way, latest day first, with the half's own total on every page.
 
 ### Have a report emailed
 
@@ -580,7 +619,8 @@ which is the honest version of the same capability.
 
 **Why does my report stop at a thousand rows?** It says so when it does.
 Nobody reads a ten thousand row report on a screen, and a report cut off
-without saying so is the worst failure this screen has.
+without saying so is the worst failure this screen has. The records behind one
+of its numbers do not stop: they go on a thousand to a page.
 
 **Why is "To" exclusive?** So a range of one month does not silently include
 the first moment of the next one.
@@ -603,12 +643,15 @@ prefix off.
 Nineteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
-looks like the definition. The records behind a KPI are listed only for a
-reader whose scope is the whole company. A custom field on an address, a unit or a
+looks like the definition. They were checked again against everything shipped
+since they were written and none of the nineteen has its datum yet (above, "The
+unavailable list"); none is computed from something near it instead. The records
+behind a KPI are listed only for a reader whose scope is the whole company. A
+page of records, of a report or of a KPI, is always a thousand: the API takes
+which page, not how many to a page. A custom field on an address, a unit or a
 technician is on the datasets whose rows hang off one, never as a dataset of its
 own, because no dataset is a row of one; a unit's fields reach only the kinds of
-record that link a unit, and a technician's only Visits, through its lead. A drill, of a report or of a KPI, lists at most a thousand records (its
-totals still cover all of them).
+record that link a unit, and a technician's only Visits, through its lead.
 
 The retention, renewal and churn figures know a move or a sale only from a
 coded cancellation or from the customer's link to the address being ended.
@@ -631,6 +674,9 @@ not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
 Nothing is emailed until an email provider is connected. A chart draws one
-measure at a time, and a tile has one grouping, so a dashboard tile cannot be
-broken down by a second. No cross company report
+measure at a time. A tile is broken down only by the second grouping of the
+report it points at, in the order that report groups (first drawn, second cut
+by); to cut it the other way round, save the report grouped the other way.
+A dashboard is not emailed or printed: a schedule points at a report, so what
+arrives is the report as its own chart draws it, never a tile broken down. No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

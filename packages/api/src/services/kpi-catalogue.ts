@@ -1253,7 +1253,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "those and jobs held for a part order or an inspection, and 'including "
       + "planned return visits makes this meaningless'. Visit counts are "
       + "available; the plan is not, so an install scheduled across three days "
-      + "would count as three failures to fix it first time.",
+      + "would count as three failures to fix it first time. A job can be put on "
+      + "hold, but nothing records why, and a purchase order names no job, so a "
+      + "job waiting on a part cannot be told from one waiting on the customer.",
   },
 
   inspection_pass: {
@@ -1263,7 +1265,9 @@ export const CATALOGUE: Record<string, Entry> = {
       "The authority's inspection of a permitted job, and why one failed. M33's "
       + "`inspection` records the contractor's own statutory inspections of a "
       + "property (a backflow test, a fire system), not the city inspector signing "
-      + "off a panel change, and nothing records a permit or its inspections. Even "
+      + "off a panel change, and nothing records a permit's inspections: a permit "
+      + "can be filed as a compliance document against a job, with its number and "
+      + "expiry, but not the visits the city made or what they found. Even "
       + "there, `inspection.result` records a fail without a cause, and the "
       + "definition EXCLUDES jobs failed for something outside the electrical "
       + "scope because 'counting those hides whether the crews are the problem'.",
@@ -1274,8 +1278,10 @@ export const CATALOGUE: Record<string, Entry> = {
     format: "percent",
     needs:
       "Budgeted hours on the job. `job_type.default_duration_minutes` is a "
-      + "scheduling default rather than a budget for this job, and a project "
-      + "phase carries a budget in money, not hours. Change orders now exist "
+      + "scheduling default rather than a budget for this job, a project "
+      + "phase carries a budget in money, not hours, and the company budget "
+      + "(M15) is money for a month, by branch or job type, never hours for one "
+      + "job. Change orders now exist "
       + "(M12) and the definition EXCLUDES separately approved change order "
       + "hours, but a change order carries an amount and a cost and no hours, so "
       + "there is nothing to take out of the actual hours either.",
@@ -1329,7 +1335,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "and billed back at cost, and nothing marks a supply line, a stock "
       + "movement or a purchase as billed back, so a pass through would appear "
       + "as both a cost and a revenue and make the ratio look right for the "
-      + "wrong reason.",
+      + "wrong reason. The one pass through flag that exists, "
+      + "`rental.disposal_pass_through`, is a container hire's terms about a "
+      + "facility's fee and says nothing about a supply.",
   },
 
   record_completeness: {
@@ -1338,11 +1346,12 @@ export const CATALOGUE: Record<string, Entry> = {
     needs:
       "Which regulated fields the operator required WHEN the visit was "
       + "recorded. A service report template marks fields required and "
-      + "regulated, but a report keeps only the template's version number and "
-      + "editing a template rewrites its fields on the same row, so last spring's "
-      + "visits would be judged against today's list. The definition also "
-      + "EXCLUDES visits recorded with a no product applied reason, and a report "
-      + "has a skipped flag but no such reason.",
+      + "regulated, and editing its fields bumps its version, but a report keeps "
+      + "only that version number and the template keeps only its current fields "
+      + "on the same row, so last spring's visits would be judged against "
+      + "today's list. The exclusion is readable: the pest pack's template has a "
+      + "`no_product_reason` field, so a visit recorded with no product applied "
+      + "can be told apart. What it was required to capture cannot.",
   },
 
   diag_conversion: {
@@ -1427,7 +1436,12 @@ export const CATALOGUE: Record<string, Entry> = {
       + "it to panels 'recorded as full, flagged as a known concern, or rated "
       + "below 100 amps', and all three live in untyped `equipment.attributes`. "
       + "Published without the narrowing it would be the value of every declined "
-      + "recommendation, which is a different and much larger number.",
+      + "recommendation, which is a different and much larger number. The "
+      + "electrical pack declares those three on a service panel "
+      + "(`service_amps`, `spaces_open`, `known_concern`, with their kinds), but "
+      + "the register stores whatever it is sent under those keys and holds no "
+      + "value to the declaration, so a '100A' or a 'yes' would be read as no "
+      + "rating and no concern.",
   },
 
   replace_pipeline: {
@@ -1461,7 +1475,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "distances between two points are cached only for the pairs the planner "
       + "asked a routing provider about, so most days would be missing legs. "
       + "The timeclock's coordinates are a straight line between two points "
-      + "rather than a route.",
+      + "rather than a route, and the phone's positions on the clock are kept "
+      + "three days by design (thirty at most), so last month's miles are gone "
+      + "before a month's figure could read them.",
   },
 
   /* ------------------------------ the six the guard test found for me ------ */
