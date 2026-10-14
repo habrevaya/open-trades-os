@@ -8632,6 +8632,380 @@
         ]
       }
     },
+    "/v1/app-plugins": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listAppPlugins",
+        "summary": "Everything the connected applications added",
+        "description": "Every job workflow, pricing rule and report type any connected application registered with this company, with the application's name, the version in force and whether it is on: removed ones are listed and say so. Needs `integration:read`. What an application sees of its own is `GET /v1/plugins`.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M28"
+        ],
+        "responses": {
+          "200": {
+            "description": "Everything the connected applications added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAppPluginsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      }
+    },
+    "/v1/app-plugins/{id}/turn-off": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "turnPluginOff",
+        "summary": "Turn one plugin off, leaving its application on",
+        "description": "The company's own switch, with `integration:write`. A pricing rule turned off prices nothing from the next estimate or invoice priced, a job workflow turned off stops gating moves and stops showing its stages, and a report type turned off is no longer offered (a report saved on it does not run until it is on again). Nothing already priced or moved is changed. The application is not turned off and nothing is sent to it, though its own `GET /v1/plugins` shows the plugin as off; its other plugins carry on, and a new version it registers does not turn this one back on: only `POST /v1/app-plugins/{id}/turn-on` does. Audited with who and why. Turning off one that is already off changes nothing; one its application removed is refused.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnPluginOffInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Turn one plugin off, leaving its application on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnPluginOffOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
+    "/v1/app-plugins/{id}/turn-on": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "turnPluginOn",
+        "summary": "Turn a plugin the company turned off back on",
+        "description": "Undoes `turn-off`, with `integration:write`. It is in force again from the next thing that reads it. It does not bring back a plugin its application removed, or put an application that is turned off back to work: those come from the application and from Settings, Applications. Turning on one that is already on changes nothing.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M28"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnPluginOnInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Turn a plugin the company turned off back on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnPluginOnOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
     "/v1/apps": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -36228,6 +36602,18 @@
               },
               "maxItems": 10,
               "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "any",
+                "all"
+              ]
             }
           },
           {
@@ -150932,6 +151318,10 @@
             "type": "string",
             "maxLength": 200
           },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
+          },
           "issuedOn": {
             "type": "string",
             "format": "date"
@@ -151975,6 +152365,10 @@
               ]
             },
             "minItems": 1
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
           },
           "taxRateId": {
             "type": [
@@ -164634,6 +165028,13 @@
                     "value"
                   ]
                 }
+              },
+              "fieldMatch": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "any"
+                ]
               },
               "from": {
                 "type": "string",
@@ -197946,6 +198347,137 @@
           "people"
         ]
       },
+      "ListAppPluginsOutput": {
+        "type": "object",
+        "properties": {
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "appId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "appName": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "job_workflow",
+                    "pricing_rule",
+                    "report_type"
+                  ]
+                },
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "jobTypeId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "definition": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "on",
+                    "turned_off",
+                    "app_off",
+                    "removed"
+                  ]
+                },
+                "turnedOff": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "at": {
+                      "type": "string"
+                    },
+                    "by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "by",
+                    "reason"
+                  ]
+                },
+                "retiredAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "registeredAt": {
+                  "type": "string"
+                },
+                "changedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "appId",
+                "appName",
+                "kind",
+                "key",
+                "name",
+                "version",
+                "jobTypeId",
+                "definition",
+                "summary",
+                "on",
+                "state",
+                "turnedOff",
+                "retiredAt",
+                "registeredAt",
+                "changedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "plugins"
+        ]
+      },
       "ListAppsOutput": {
         "type": "object",
         "properties": {
@@ -198189,6 +198721,43 @@
                       "on": {
                         "type": "boolean"
                       },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "on",
+                          "turned_off",
+                          "app_off",
+                          "removed"
+                        ]
+                      },
+                      "turnedOff": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "properties": {
+                          "at": {
+                            "type": "string"
+                          },
+                          "by": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "reason": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "at",
+                          "by",
+                          "reason"
+                        ]
+                      },
                       "retiredAt": {
                         "type": [
                           "string",
@@ -198214,6 +198783,8 @@
                       "definition",
                       "summary",
                       "on",
+                      "state",
+                      "turnedOff",
                       "retiredAt",
                       "registeredAt",
                       "changedAt"
@@ -212538,6 +213109,43 @@
                 "on": {
                   "type": "boolean"
                 },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "on",
+                    "turned_off",
+                    "app_off",
+                    "removed"
+                  ]
+                },
+                "turnedOff": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "at": {
+                      "type": "string"
+                    },
+                    "by": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "by",
+                    "reason"
+                  ]
+                },
                 "retiredAt": {
                   "type": [
                     "string",
@@ -212563,6 +213171,8 @@
                 "definition",
                 "summary",
                 "on",
+                "state",
+                "turnedOff",
                 "retiredAt",
                 "registeredAt",
                 "changedAt"
@@ -215189,6 +215799,9 @@
                       },
                       "label": {
                         "type": "string"
+                      },
+                      "field": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -235471,6 +236084,10 @@
               "source",
               "id"
             ]
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
           }
         },
         "required": [
@@ -235617,6 +236234,43 @@
               "on": {
                 "type": "boolean"
               },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
               "retiredAt": {
                 "type": [
                   "string",
@@ -235642,6 +236296,8 @@
               "definition",
               "summary",
               "on",
+              "state",
+              "turnedOff",
               "retiredAt",
               "registeredAt",
               "changedAt"
@@ -235788,6 +236444,43 @@
               "on": {
                 "type": "boolean"
               },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
               "retiredAt": {
                 "type": [
                   "string",
@@ -235813,6 +236506,8 @@
               "definition",
               "summary",
               "on",
+              "state",
+              "turnedOff",
               "retiredAt",
               "registeredAt",
               "changedAt"
@@ -235957,6 +236652,43 @@
               "on": {
                 "type": "boolean"
               },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
               "retiredAt": {
                 "type": [
                   "string",
@@ -235982,6 +236714,8 @@
               "definition",
               "summary",
               "on",
+              "state",
+              "turnedOff",
               "retiredAt",
               "registeredAt",
               "changedAt"
@@ -240499,6 +241233,43 @@
               "on": {
                 "type": "boolean"
               },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
               "retiredAt": {
                 "type": [
                   "string",
@@ -240524,6 +241295,8 @@
               "definition",
               "summary",
               "on",
+              "state",
+              "turnedOff",
               "retiredAt",
               "registeredAt",
               "changedAt"
@@ -240592,6 +241365,43 @@
               "on": {
                 "type": "boolean"
               },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
               "retiredAt": {
                 "type": [
                   "string",
@@ -240617,6 +241427,8 @@
               "definition",
               "summary",
               "on",
+              "state",
+              "turnedOff",
               "retiredAt",
               "registeredAt",
               "changedAt"
@@ -240705,6 +241517,43 @@
               "on": {
                 "type": "boolean"
               },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
               "retiredAt": {
                 "type": [
                   "string",
@@ -240730,6 +241579,8 @@
               "definition",
               "summary",
               "on",
+              "state",
+              "turnedOff",
               "retiredAt",
               "registeredAt",
               "changedAt"
@@ -241950,6 +242801,43 @@
                     "on": {
                       "type": "boolean"
                     },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "on",
+                        "turned_off",
+                        "app_off",
+                        "removed"
+                      ]
+                    },
+                    "turnedOff": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "at": {
+                          "type": "string"
+                        },
+                        "by": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "reason": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "at",
+                        "by",
+                        "reason"
+                      ]
+                    },
                     "retiredAt": {
                       "type": [
                         "string",
@@ -241975,6 +242863,8 @@
                     "definition",
                     "summary",
                     "on",
+                    "state",
+                    "turnedOff",
                     "retiredAt",
                     "registeredAt",
                     "changedAt"
@@ -244275,6 +245165,10 @@
               "source",
               "id"
             ]
+          },
+          "customFields": {
+            "type": "object",
+            "additionalProperties": {}
           }
         }
       },
@@ -257103,6 +257997,275 @@
         },
         "required": [
           "movements"
+        ]
+      },
+      "TurnPluginOffInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "TurnPluginOffOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "state",
+              "turnedOff",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          }
+        },
+        "required": [
+          "plugin"
+        ]
+      },
+      "TurnPluginOnInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "TurnPluginOnOutput": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "appId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job_workflow",
+                  "pricing_rule",
+                  "report_type"
+                ]
+              },
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "definition": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "summary": {
+                "type": "string"
+              },
+              "on": {
+                "type": "boolean"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "turned_off",
+                  "app_off",
+                  "removed"
+                ]
+              },
+              "turnedOff": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "at",
+                  "by",
+                  "reason"
+                ]
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "registeredAt": {
+                "type": "string"
+              },
+              "changedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "appId",
+              "appName",
+              "kind",
+              "key",
+              "name",
+              "version",
+              "jobTypeId",
+              "definition",
+              "summary",
+              "on",
+              "state",
+              "turnedOff",
+              "retiredAt",
+              "registeredAt",
+              "changedAt"
+            ]
+          }
+        },
+        "required": [
+          "plugin"
         ]
       },
       "UnpinDisposalFacilityInput": {

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { todayIn } from "@/lib/dates";
 import { getDb } from "@/lib/db";
-import { apps } from "@opentradesos/api/services";
+import { apps, plugins } from "@opentradesos/api/services";
 
 export type AppsState = FormState;
 
@@ -85,6 +85,25 @@ export async function act(_previous: AppsState, form: FormData): Promise<AppsSta
         };
       }
 
+      /**
+       * One thing an application added, stopped or started again on its own.
+       * The application is not turned off and nothing it did before is undone:
+       * the next thing priced, moved or reported on simply leaves it out, or
+       * takes it back in.
+       */
+      case "plugin-off": {
+        const { plugin } = await plugins.switchPlugin(ctx, {
+          id: String(form.get("id") ?? ""), on: false,
+          ...(field(form, "reason") ? { reason: field(form, "reason")! } : {}),
+        });
+        return { message: `${plugin.name} is turned off. ${plugin.appName} carries on with the rest.` };
+      }
+
+      case "plugin-on": {
+        const { plugin } = await plugins.switchPlugin(ctx, { id: String(form.get("id") ?? ""), on: true });
+        return { message: `${plugin.name} is on again.` };
+      }
+
       case "refuse": {
         const { app, returnTo } = await apps.refuse(ctx, {
           id: String(form.get("id") ?? ""),
@@ -103,6 +122,7 @@ export async function act(_previous: AppsState, form: FormData): Promise<AppsSta
 
   if (state?.done) {
     revalidatePath("/settings/apps");
+    revalidatePath("/settings/apps/added");
     if (op === "approve" || op === "refuse") revalidatePath(`/settings/apps/requests/${String(form.get("id") ?? "")}`);
   }
   return state;

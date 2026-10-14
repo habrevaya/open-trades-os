@@ -48,9 +48,21 @@ import { remember, replayed } from "./once";
  * and asks that it is active, so turning an application off on Settings,
  * Applications turns off everything it added, at once, with no second step
  * to forget.
+ *
+ * AND ONLY WHILE THE COMPANY LEAVES IT ON. Somebody with `integration:write`
+ * can turn one plugin off on its own (`/settings/apps/added`), and back on,
+ * without turning the application off. It is a flag the company owns,
+ * separate from the application's own removal: a new version the application
+ * registers does not switch back on what the company stopped. Every read
+ * asks for it through the one `inForce` condition, so a rule turned off
+ * prices nothing, a workflow turned off gates nothing and a report type
+ * turned off is not offered, all from the same row at the same moment.
  */
 
 type PluginRow = typeof schema.appPlugin.$inferSelect;
+
+/** On; turned off by the company; its application turned off; or removed by its application. */
+export type PluginState = "on" | "turned_off" | "app_off" | "removed";
 
 export interface PluginView {
   id: string;
@@ -64,8 +76,12 @@ export interface PluginView {
   definition: Record<string, unknown>;
   /** What it does, in one sentence. */
   summary: string;
-  /** In force: its application is active and it has not been removed. */
+  /** In force: its application is active, it has not been removed and the company has not turned it off. */
   on: boolean;
+  /** Why it is not on, or that it is: the one word the screen draws a chip from. */
+  state: PluginState;
+  /** When the company turned it off, and who, and what they said. Null while it is on. */
+  turnedOff: { at: string; by: string | null; reason: string | null } | null;
   retiredAt: string | null;
   registeredAt: string;
   changedAt: string;
@@ -106,9 +122,14 @@ function assertReads(ctx: ServiceContext, reads: readonly Permission[]): void {
   for (const permission of reads) assertCan(ctx.actor, permission);
 }
 
-/** In force: not removed, and its application active (or a sandbox's own copy, which has none). */
+/**
+ * In force: not removed, not turned off by the company, and its application
+ * active (or a sandbox's own copy, which has none). The one place "in force"
+ * is written, so no read can forget one of the three.
+ */
 const inForce = () => and(
   isNull(schema.appPlugin.retiredAt),
+  isNull(schema.appPlugin.disabledAt),
   or(isNull(schema.appPlugin.appId), eq(schema.connectedApp.status, "active")),
 );
 
@@ -130,7 +151,13 @@ function summaryOf(row: Pick<PluginRow, "kind" | "definition">, jobTypeName?: st
   }
 }
 
-function view(row: PluginRow, appStatus: string | null, jobTypeName?: string | null): PluginView {
+function stateOf(row: PluginRow, appStatus: string | null): PluginState {
+  if (row.retiredAt !== null) return "removed";
+  if (row.appId !== null && appStatus !== "active") return "app_off";
+  return row.disabledAt !== null ? "turned_off" : "on";
+}
+
+function view(row: PluginRow, appStatus: string | null, jobTypeName?: string | null, disabledBy?: string | null): PluginView {
   return {
     id: row.id,
     appId: row.appId,
@@ -142,21 +169,28 @@ function view(row: PluginRow, appStatus: string | null, jobTypeName?: string | n
     jobTypeId: row.jobTypeId,
     definition: row.definition,
     summary: summaryOf(row, jobTypeName),
-    on: row.retiredAt === null && (row.appId === null || appStatus === "active"),
+    on: stateOf(row, appStatus) === "on",
+    state: stateOf(row, appStatus),
+    turnedOff: row.disabledAt
+      ? { at: row.disabledAt.toISOString(), by: disabledBy ?? null, reason: row.disabledReason }
+      : null,
     retiredAt: row.retiredAt?.toISOString() ?? null,
     registeredAt: row.createdAt.toISOString(),
     changedAt: row.updatedAt.toISOString(),
   };
 }
 
-async function viewsWithin(tx: Database, where: ReturnType<typeof and>): Promise<PluginView[]> {
-  const rows = await tx.select({ plugin: schema.appPlugin, appStatus: schema.connectedApp.status, jobType: schema.jobType.name })
+async function viewsWithin(tx: Database, where: ReturnType<typeof and> | undefined): Promise<PluginView[]> {
+  const rows = await tx.select({
+    plugin: schema.appPlugin, appStatus: schema.connectedApp.status, jobType: schema.jobType.name, turnedOffBy: schema.user.name,
+  })
     .from(schema.appPlugin)
     .leftJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appPlugin.appId))
     .leftJoin(schema.jobType, eq(schema.jobType.id, schema.appPlugin.jobTypeId))
+    .leftJoin(schema.user, eq(schema.user.id, schema.appPlugin.disabledByUserId))
     .where(where)
     .orderBy(asc(schema.appPlugin.kind), asc(schema.appPlugin.name), asc(schema.appPlugin.createdAt));
-  return rows.map((r) => view(r.plugin, r.appStatus, r.jobType));
+  return rows.map((r) => view(r.plugin, r.appStatus, r.jobType, r.turnedOffBy));
 }
 
 /**
@@ -278,7 +312,11 @@ async function takePlace(
   tx: Database, ctx: ServiceContext, appId: string, holder: { plugin: PluginRow; appStatus: string | null } | undefined, refusal: string,
 ): Promise<void> {
   if (!holder || holder.plugin.appId === appId) return;
-  if (holder.plugin.appId === null || holder.appStatus === "active") throw new ConflictError(refusal);
+  if (holder.plugin.appId === null || holder.appStatus === "active") {
+    throw new ConflictError(holder.plugin.disabledAt
+      ? `${refusal} The company has turned that one off, but it is still registered: only its application can remove it.`
+      : refusal);
+  }
   await tx.update(schema.appPlugin).set({ retiredAt: new Date(), updatedAt: new Date() })
     .where(eq(schema.appPlugin.id, holder.plugin.id));
   await audit(tx, ctx, "plugin.retired", "app_plugin", holder.plugin.id,
@@ -448,6 +486,84 @@ export async function retire(ctx: ServiceContext, input: { kind: rules.PluginKin
       .where(eq(schema.appPlugin.id, row.id)).returning();
     await audit(tx, ctx, "plugin.retired", "app_plugin", row.id, { retiredAt: null }, { retiredAt: after!.retiredAt });
     return { plugin: view(after!, "active") };
+  });
+}
+
+/* ------------------------------------------- the company's own control */
+
+/**
+ * EVERYTHING EVERY CONNECTED APPLICATION ADDED, for the company that let
+ * them in: the list on `/settings/apps/added` and `GET /v1/app-plugins`.
+ * Removed ones are kept in the list, said to be removed, because a priced
+ * line or a saved report may still name one; a sandbox's own copy of a
+ * workflow, which has no application, is listed too.
+ */
+export async function companyList(ctx: ServiceContext): Promise<PluginView[]> {
+  return guardedRead(ctx, "integration:read", (tx) => viewsWithin(tx, undefined));
+}
+
+/** What the screen and the audit line say, short, from whatever somebody typed. */
+const REASON_MAX = 300;
+
+/**
+ * TURN ONE PLUGIN OFF, OR BACK ON, WITHOUT TURNING ITS APPLICATION OFF.
+ *
+ * `integration:write`, the permission that lets an application in and takes
+ * it out: deciding which of what it added still runs is the same decision at
+ * a finer grain, and a company that wants one pricing rule to stop should not
+ * have to lose the application's other work to do it.
+ *
+ * WHAT OFF MEANS is whatever `inForce` says, everywhere at once: a rule
+ * prices nothing from the next estimate or invoice priced (a document already
+ * priced is not repriced, as with a rule an application removes), a workflow
+ * stops gating and stops showing its stages, a report type is no longer a
+ * dataset (a report saved on it stops running until it is back on, as when
+ * its application is off). Nothing the plugin already did is undone.
+ *
+ * A REMOVED PLUGIN CANNOT BE TURNED ON: its application took it away, and
+ * only its application can register it again. Switching one that is already
+ * in the state asked for changes nothing and writes nothing, so a retry or a
+ * second person pressing the same button is not a second audit line.
+ */
+export async function switchPlugin(
+  ctx: ServiceContext, input: { id: string; on: boolean; reason?: string | undefined },
+): Promise<{ plugin: PluginView }> {
+  return guardedWrite(ctx, "integration:write", async (tx) => {
+    const again = await replayed<{ plugin: PluginView }>(tx, ctx, "app_plugin_switch");
+    if (again) return again;
+    const [row] = await tx.select({ plugin: schema.appPlugin, appStatus: schema.connectedApp.status })
+      .from(schema.appPlugin)
+      .leftJoin(schema.connectedApp, eq(schema.connectedApp.id, schema.appPlugin.appId))
+      .where(eq(schema.appPlugin.id, input.id)).limit(1);
+    if (!row) throw new NotFoundError("Plugin");
+    const before = row.plugin;
+    if (before.retiredAt !== null) {
+      throw new ConflictError(
+        `${before.name} was removed by ${before.appName}, so there is nothing to turn ${input.on ? "on" : "off"}. `
+        + "It comes back only if the application registers it again.",
+      );
+    }
+    const reason = input.reason?.trim() ? input.reason.trim().slice(0, REASON_MAX) : null;
+    const already = input.on ? before.disabledAt === null : before.disabledAt !== null;
+    let after = before;
+    if (!already) {
+      const now = new Date();
+      [after] = await tx.update(schema.appPlugin).set(input.on
+        ? { disabledAt: null, disabledByUserId: null, disabledReason: null, updatedAt: now }
+        : { disabledAt: now, disabledByUserId: ctx.actor.userId, disabledReason: reason, updatedAt: now })
+        .where(eq(schema.appPlugin.id, before.id)).returning() as [PluginRow];
+      const shown = (r: PluginRow) => ({ name: r.name, kind: r.kind, key: r.key, app: r.appName, turnedOffAt: r.disabledAt, because: r.disabledReason });
+      await audit(tx, ctx, input.on ? "plugin.turned_on" : "plugin.turned_off", "app_plugin", before.id, shown(before), shown(after));
+    }
+    const [by] = after.disabledByUserId
+      ? await tx.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, after.disabledByUserId)).limit(1)
+      : [];
+    const [jobType] = after.jobTypeId
+      ? await tx.select({ name: schema.jobType.name }).from(schema.jobType).where(eq(schema.jobType.id, after.jobTypeId)).limit(1)
+      : [];
+    const answer = { plugin: view(after, row.appStatus, jobType?.name ?? null, by?.name ?? null) };
+    await remember(tx, ctx, "app_plugin_switch", after.id, answer);
+    return answer;
   });
 }
 
@@ -656,6 +772,10 @@ export async function applyRulesWithin(
 
 export const handlers = {
   listPlugins: async (ctx: ServiceContext) => ({ plugins: await mine(ctx) }),
+  listAppPlugins: async (ctx: ServiceContext) => ({ plugins: await companyList(ctx) }),
+  turnPluginOff: (ctx: ServiceContext, input: { id: string; reason?: string | undefined }) =>
+    switchPlugin(ctx, { id: input.id, on: false, ...(input.reason !== undefined ? { reason: input.reason } : {}) }),
+  turnPluginOn: (ctx: ServiceContext, input: { id: string }) => switchPlugin(ctx, { id: input.id, on: true }),
   registerJobWorkflow: (ctx: ServiceContext, input: JobWorkflowInput) => registerJobWorkflow(ctx, input),
   retireJobWorkflow: (ctx: ServiceContext, input: { key: string }) => retire(ctx, { kind: "job_workflow", key: input.key }),
   registerPricingRule: (ctx: ServiceContext, input: PricingRuleInput) => registerPricingRule(ctx, input),

@@ -37,8 +37,15 @@ export const PluginView = z.object({
   /** The definition in force, as core checked it. */
   definition: z.record(z.unknown()),
   summary: z.string(),
-  /** In force: its application is active and it has not been removed. */
+  /** In force: its application is active, it has not been removed and the company has not turned it off. */
   on: z.boolean(),
+  /**
+   * `on`; `turned_off` by the company on its own; `app_off` because its
+   * application is turned off; or `removed` by its application.
+   */
+  state: z.enum(["on", "turned_off", "app_off", "removed"]),
+  /** When the company turned it off, who and what they said. Null unless `turned_off` or off underneath another state. */
+  turnedOff: z.object({ at: z.string(), by: z.string().nullable(), reason: z.string().nullable() }).nullable(),
   retiredAt: z.string().nullable(),
   registeredAt: z.string(),
   changedAt: z.string(),
@@ -223,7 +230,48 @@ export const listReportDatasets = defineRoute({
   }),
 });
 
+export const listAppPlugins = defineRoute({
+  method: "get",
+  path: "/v1/app-plugins",
+  summary: "Everything the connected applications added",
+  description:
+    "Every job workflow, pricing rule and report type any connected application registered with this company, with the application's name, the version in force and whether it is on: removed ones are listed and say so. Needs `integration:read`. What an application sees of its own is `GET /v1/plugins`.",
+  module: "M28",
+  permissions: ["integration:read"],
+  input: z.object({}),
+  output: z.object({ plugins: z.array(PluginView) }),
+});
+
+export const turnPluginOff = defineRoute({
+  method: "post",
+  path: "/v1/app-plugins/{id}/turn-off",
+  summary: "Turn one plugin off, leaving its application on",
+  description:
+    "The company's own switch, with `integration:write`. A pricing rule turned off prices nothing from the next estimate or invoice priced, a job workflow turned off stops gating moves and stops showing its stages, and a report type turned off is no longer offered (a report saved on it does not run until it is on again). Nothing already priced or moved is changed. The application is not turned off and nothing is sent to it, though its own `GET /v1/plugins` shows the plugin as off; its other plugins carry on, and a new version it registers does not turn this one back on: only `POST /v1/app-plugins/{id}/turn-on` does. Audited with who and why. Turning off one that is already off changes nothing; one its application removed is refused.",
+  module: "M28",
+  permissions: ["integration:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, reason: z.string().max(300).optional() }),
+  output: z.object({ plugin: PluginView }),
+});
+
+export const turnPluginOn = defineRoute({
+  method: "post",
+  path: "/v1/app-plugins/{id}/turn-on",
+  summary: "Turn a plugin the company turned off back on",
+  description:
+    "Undoes `turn-off`, with `integration:write`. It is in force again from the next thing that reads it. It does not bring back a plugin its application removed, or put an application that is turned off back to work: those come from the application and from Settings, Applications. Turning on one that is already on changes nothing.",
+  module: "M28",
+  permissions: ["integration:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ plugin: PluginView }),
+});
+
 export const pluginRoutes = {
+  listAppPlugins,
+  turnPluginOff,
+  turnPluginOn,
   listReportDatasets,
   listPlugins,
   registerJobWorkflow,

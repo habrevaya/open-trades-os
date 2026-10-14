@@ -586,6 +586,13 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/apps", label: "Applications" },
           /**
+           * What those applications added (pricing rules, job stages, report
+           * types) and a switch for each, so one can stop without the whole
+           * application being turned off. Under Applications' own address
+           * because it is the same decision made a size smaller.
+           */
+          { href: "/settings/apps/added", label: "What apps changed" },
+          /**
            * Where this company's events are sent, and what each receiver said
            * back. Beside Applications because both are about other software,
            * and apart from it because an application reads from here and a

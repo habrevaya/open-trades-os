@@ -54,6 +54,8 @@ export interface PluginRow {
   version: number;
   summary: string;
   on: boolean;
+  /** Why it is not on, when it is not: turned off by the company, its application is off, or removed. */
+  state?: "on" | "turned_off" | "app_off" | "removed";
   retiredAt: string | null;
   registeredAt: string;
   changedAt: string;
@@ -267,7 +269,7 @@ function Plugins({ app }: { app: AppRow }) {
   if (plugins.length === 0) {
     return <p className="mt-1.5 text-sm text-ink-500">Nothing. It has not added stages, pricing rules or reports.</p>;
   }
-  return (
+  return (<>
     <Table
       label={`What ${app.name} added`}
       head={<><Th>What</Th><Th>Name</Th><Th>What it does</Th><Th>Version</Th><Th>State</Th></>}
@@ -283,12 +285,17 @@ function Plugins({ app }: { app: AppRow }) {
               ? <Chip tone="success">On</Chip>
               : plugin.retiredAt !== null
                 ? <Chip tone="neutral">Removed by the app</Chip>
-                : <Chip tone="neutral">Off: the app is turned off</Chip>}
+                : plugin.state === "turned_off"
+                  ? <Chip tone="warning">Turned off by you</Chip>
+                  : <Chip tone="neutral">Off: the app is turned off</Chip>}
           </Td>
         </tr>
       ))}
     </Table>
-  );
+    <p className="mt-1.5 text-sm text-ink-500">
+      To stop one of these without turning {app.name} off, use <a href="/settings/apps/added" className="underline underline-offset-4">What apps changed</a>.
+    </p>
+  </>);
 }
 
 function tokenState(token: TokenRow): ReactNode {
