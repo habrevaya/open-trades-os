@@ -76,10 +76,18 @@ export default async function PurchasingPage() {
       <PartOrder
         vendors={vendorList.map((v) => ({ id: v.id, name: v.name }))}
         locations={locations.map((l) => ({ id: l.id, name: l.name }))}
-        parts={parts.map((p) => ({
-          vendorId: p.vendorId, partNumber: p.partNumber, itemCode: p.itemCode, itemName: p.itemName, cost: p.cost,
-          packs: p.packs.map((x) => ({ packQuantity: x.packQuantity, purchaseUnit: x.purchaseUnit, eachCost: x.eachCost })),
-        }))}
+        parts={parts.flatMap((p) => [
+          {
+            vendorId: p.vendorId, partNumber: p.partNumber, itemCode: p.itemCode, itemName: p.itemName, cost: p.cost,
+            packs: p.packs.map((x) => ({ packQuantity: x.packQuantity, purchaseUnit: x.purchaseUnit, eachCost: x.eachCost })),
+          },
+          /** The box's own number is offered too, and means the box: the order picks that pack. */
+          ...(p.secondPack?.partNumber ? [{
+            vendorId: p.vendorId, partNumber: p.secondPack.partNumber, itemCode: p.itemCode, itemName: p.itemName,
+            cost: p.secondPack.cost,
+            packs: [{ packQuantity: p.secondPack.packQuantity, purchaseUnit: p.secondPack.purchaseUnit, eachCost: p.secondPack.eachCost }],
+          }] : []),
+        ])}
       />
 
       <section className="mt-10" aria-labelledby="needs-a-call">

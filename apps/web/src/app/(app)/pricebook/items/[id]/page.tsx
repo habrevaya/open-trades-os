@@ -234,6 +234,7 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                           : `a ${link.secondPack.purchaseUnit ?? "pack"} of ${Number(link.secondPack.packQuantity)}`}
                         {link.secondPack.cost ? <> at <Money value={link.secondPack.cost} muted /></> : null}
                         {link.secondPack.eachCost && Number(link.secondPack.packQuantity) !== 1 ? <>, <Money value={link.secondPack.eachCost} muted /> each</> : null}
+                        {link.secondPack.partNumber ? <>, their number <span className="font-mono">{link.secondPack.partNumber}</span></> : null}
                       </div>
                     ) : null}
                   </Td>
@@ -269,11 +270,13 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                 <TextField label="How many in one, the second way" name="secondPackQuantity" inputMode="decimal" placeholder="25" />
                 <TextField label="What they call that" name="secondPurchaseUnit" placeholder="box" maxLength={40} />
                 <TextField label="Their price for one of those" name="secondCost" inputMode="decimal" />
+                <TextField label="Their number for that, if it is different" name="secondPartNumber" maxLength={100} />
               </fieldset>
               <p className="text-xs text-ink-500">
                 Some suppliers sell the same part by the each and by the box at different prices. Fill this in and a
                 purchase order to them offers the cheaper per piece first, buying by the box when the quantity is whole
-                boxes. Leave it empty to keep what is there.
+                boxes. If the box has a number of its own, put it in: an order for boxes goes out with the box&apos;s
+                number, and typing it on an order picks the box. Leave it empty to keep what is there.
               </p>
             </ActionForm>
           ) : null}

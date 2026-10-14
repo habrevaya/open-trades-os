@@ -1447,9 +1447,23 @@ async function resolveLines(
      * at the break the order reaches among the packs this many is whole
      * packs of (`catalogue.choosePack`). One way is the rule below as it was.
      */
-    let chosen = { quantity: part.packQuantity, unit: part.purchaseUnit, cost: part.cost, breaks: part.priceBreaks };
+    let chosen: { quantity: string; unit: string | null; cost: string | null; breaks: readonly catalogue.PriceBreak[]; partNumber?: string | null | undefined } =
+      { quantity: part.packQuantity, unit: part.purchaseUnit, cost: part.cost, breaks: part.priceBreaks };
+    /**
+     * A NUMBER THAT IS THE BOX'S. A vendor that numbers the box apart from the
+     * each is ordered from by whichever number was typed: the box's number is
+     * the box, so the line is the box. It can contradict the way the line
+     * names, which is refused rather than guessed at.
+     */
+    const wanted = line.packQuantity?.trim() || null;
+    if (part.namedPack !== null && wanted !== null && m.compare(m.money(wanted), m.money(part.namedPack)) !== 0) {
+      throw new ConflictError(
+        `${line.partNumber ?? named} is this vendor's number for the pack of ${inv.quantityLabel(inv.quantity(part.namedPack))}, `
+        + `not the pack of ${inv.quantityLabel(inv.quantity(wanted))}.`,
+      );
+    }
     if (part.packs.length > 1) {
-      const choice = catalogue.choosePack(part.packs, quantity, line.packQuantity?.trim() || null);
+      const choice = catalogue.choosePack(part.packs, quantity, wanted ?? part.namedPack);
       if (!choice.ok) throw new ConflictError(`This vendor sells ${named} two ways. ${choice.reason}`);
       chosen = { ...choice.pack, breaks: [...choice.pack.breaks] };
     } else if (line.packQuantity?.trim() && m.compare(m.money(line.packQuantity.trim()), m.money(part.packQuantity)) !== 0) {
@@ -1487,7 +1501,8 @@ async function resolveLines(
     }
     resolved.push({
       itemId: part.itemId,
-      vendorPartNumber: part.partNumber,
+      /** The number of the pack the line ended up as: the box's own when it has one, else the link's. */
+      vendorPartNumber: chosen.partNumber ?? part.partNumber,
       /**
        * Per line, falling back to the order's default. A vendor drops the
        * condensers at the shop and the filters straight onto a van more

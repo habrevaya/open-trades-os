@@ -3673,3 +3673,42 @@ grant execute on function app.file_store_organizations(text, int) to background;
 create unique index if not exists visit_change_request_pending_idx
   on public.visit_change_request using btree (visit_id)
   where status in ('pending', 'proposed');
+
+-- ---- A vendor's part numbers are one namespace ------------------------------
+-- A link has a number for the way a vendor sells a part and, when the box has
+-- a number of its own, a second one. A purchase order line and a receipt find
+-- the item by whichever number they are given, so no number may name two
+-- links of one vendor, whether it is somebody's first or somebody's second.
+-- Two firsts and two seconds are the unique indexes; a first against a
+-- second cannot be an index (it spans two columns), so it is this trigger. It
+-- takes a lock per vendor first, because without one two transactions each
+-- writing the number into a different link would both look and find nothing.
+-- It reports as `vendor_item_part_number_idx`, the index the service already
+-- turns into a sentence.
+create or replace function app.vendor_item_numbers() returns trigger
+  language plpgsql
+  set search_path = public, pg_temp
+  as $$
+  begin
+    perform pg_advisory_xact_lock(hashtextextended('vendor_item_numbers:' || new.organization_id::text || ':' || new.vendor_id::text, 0));
+    if exists (
+      select 1 from public.vendor_item o
+       where o.organization_id = new.organization_id and o.vendor_id = new.vendor_id and o.id <> new.id
+         and (
+           (new.second_part_number is not null
+             and (lower(o.part_number) = lower(new.second_part_number)
+               or lower(o.second_part_number) = lower(new.second_part_number)))
+           or lower(o.second_part_number) = lower(new.part_number)
+         )
+    ) then
+      raise exception 'a part number of this vendor is already another link''s number'
+        using errcode = '23505', constraint = 'vendor_item_part_number_idx';
+    end if;
+    return new;
+  end;
+  $$;
+
+drop trigger if exists vendor_item_numbers on public.vendor_item;
+create trigger vendor_item_numbers
+  before insert or update of part_number, second_part_number on public.vendor_item
+  for each row execute function app.vendor_item_numbers();

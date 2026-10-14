@@ -144,6 +144,17 @@ export const vendorItem = pgTable("vendor_item", {
    */
   secondPackQuantity: quantity("second_pack_quantity"),
   secondPurchaseUnit: text("second_purchase_unit"),
+  /**
+   * THE VENDOR'S OWN NUMBER FOR THE SECOND PACK, when it is not the first's. A
+   * supply house prices wire nuts by the each as WN-25 and by the box as
+   * WN-25-BX: one item, two numbers, and a purchase order for boxes has to say
+   * the box's. Null is the same number as the first pack, as it always was.
+   * Like the first number it names one of our items for this vendor, so no
+   * other link of the vendor may use it as either of its numbers: the unique
+   * index below covers it against other seconds, and `app.vendor_item_numbers`
+   * (after.sql) covers it against firsts.
+   */
+  secondPartNumber: text("second_part_number"),
   /** Their price for one of the second pack. */
   secondCost: money("second_cost"),
   secondPriceBreaks: jsonb("second_price_breaks").$type<{ minimum: string; cost: string }[]>().notNull().default([]),
@@ -161,6 +172,12 @@ export const vendorItem = pgTable("vendor_item", {
   partNumberIdx: uniqueIndex("vendor_item_part_number_idx")
     .on(t.organizationId, t.vendorId, sql`lower(${t.partNumber})`),
   itemIdx: index("vendor_item_item_idx").on(t.organizationId, t.itemId),
+  secondPartNumberIdx: uniqueIndex("vendor_item_second_part_number_idx")
+    .on(t.organizationId, t.vendorId, sql`lower(${t.secondPartNumber})`)
+    .where(sql`${t.secondPartNumber} is not null`),
+  /** A second number belongs to a second pack, and is a different number from the first. */
+  secondNumberCheck: check("vendor_item_second_number",
+    sql`${t.secondPartNumber} is null or (${t.secondPackQuantity} is not null and lower(${t.secondPartNumber}) <> lower(${t.partNumber}))`),
   /** Two ways to buy it are two different packs, or they are one way written twice. */
   twoPacksCheck: check("vendor_item_two_packs",
     sql`${t.secondPackQuantity} is null or ${t.secondPackQuantity} <> ${t.packQuantity}`),

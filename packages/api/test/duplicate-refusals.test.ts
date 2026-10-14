@@ -88,6 +88,8 @@ const REFUSED: Record<string, Refused> = {
   vendor_name_idx: { file: "inventory.ts", how: "catch" },
   /** A vendor's part number typed onto a second item, or a catalogue naming it twice. */
   vendor_item_part_number_idx: { file: "vendor-catalogue.ts", how: "catch" },
+  /** A vendor's number for the box typed onto a second link. */
+  vendor_item_second_part_number_idx: { file: "vendor-catalogue.ts", how: "catch" },
   role_name_idx: { file: "roles.ts", how: "catch" },
   /** A technician added twice to one toolbox talk's sign in sheet. */
   safety_meeting_attendee_person_idx: {

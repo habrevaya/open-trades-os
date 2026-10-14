@@ -41,6 +41,14 @@ export interface CatalogueRow {
   unit?: string | undefined;
   /** Their price for one pack when buying at least so many packs, lowest first. */
   breaks?: PriceBreak[] | undefined;
+  /**
+   * The vendor's number for the pack THIS ROW sells, when it is not `sku`: a
+   * supply house that numbers the box differently from the each. `sku` still
+   * names the part (the link), so the box's row repeats the each's `sku` and
+   * gives its own number here. Absent when the file has no such column or the
+   * cell is empty.
+   */
+  packSku?: string | undefined;
 }
 
 /** Their price for one of THEIR units when ordering at least `minimum` of them. */
@@ -77,6 +85,11 @@ const COLUMNS: Record<"sku" | "description" | "cost" | "vendor", string[]> = {
  * are one column.
  */
 const PACK = ["pack", "packqty", "packquantity", "packsize", "qtyperpack", "perpack", "casequantity", "caseqty", "casepack", "unitsperpack", "unitspercase", "qtypercase"];
+/**
+ * The vendor's own number for the pack a row sells, where it differs from the
+ * part number: "Pack Part Number", "Box SKU", "Case Part No", "Second SKU".
+ */
+const PACK_SKU = ["packsku", "packpartnumber", "packpartno", "packnumber", "boxsku", "boxpartnumber", "boxpartno", "casesku", "casepartnumber", "casepartno", "secondsku", "secondpartnumber", "secondpartno", "altsku", "altpartnumber"];
 const UNIT = ["uom", "unit", "unitofmeasure", "sellunit", "purchaseunit", "packunit", "sellinguom"];
 
 /**
@@ -258,6 +271,7 @@ export function parseCatalogue(text: string): ParsedCatalogue {
   const at = { sku: find("sku"), description: find("description"), cost: find("cost"), vendor: find("vendor") };
   const packAt = names.findIndex((name) => PACK.includes(name));
   const unitAt = names.findIndex((name) => UNIT.includes(name));
+  const packSkuAt = names.findIndex((name) => PACK_SKU.includes(name));
   /** Break N's quantity column and price column, paired by N. A half pair is ignored and said. */
   const breakColumns = new Map<number, { quantity?: number; price?: number }>();
   names.forEach((name, index) => {
@@ -312,7 +326,8 @@ export function parseCatalogue(text: string): ParsedCatalogue {
       });
       continue;
     }
-    const extra: Pick<CatalogueRow, "pack" | "unit" | "breaks"> = {};
+    const extra: Pick<CatalogueRow, "pack" | "unit" | "breaks" | "packSku"> = {};
+    if (packSkuAt >= 0 && cell(record.cells, packSkuAt) !== "") extra.packSku = cell(record.cells, packSkuAt);
     if (packAt >= 0) {
       const rawPack = cell(record.cells, packAt);
       const pack = rawPack === "" ? "1" : parsePack(rawPack);
@@ -352,6 +367,8 @@ export interface KnownVendor { id: string; name: string }
 
 /** A second way a vendor sells the same part: by the box as well as by the each. */
 export interface SecondPack {
+  /** The vendor's own number for this pack, when it is not the link's. Null or absent is the link's number. */
+  partNumber?: string | null | undefined;
   packQuantity: string;
   purchaseUnit: string | null;
   cost: string | null;
@@ -434,6 +451,12 @@ interface Common {
    */
   slot: "first" | "second";
   /**
+   * The vendor's number for the second pack once this row is applied, when it
+   * has one of its own (null when it shares the link's number, and always null
+   * for the first pack).
+   */
+  packSku: string | null;
+  /**
    * How they sell it: so many of ours to a pack, what they call the pack, and
    * their breaks. `cost` is their price for one pack, and `eachCost` is what
    * one of ours comes to, which is what the price book's cost is compared
@@ -473,6 +496,8 @@ export type RowPlan =
   | Common & {
     action: "pack"; pairsWith: number | null; itemId: string | null; itemCode: string; itemName: string;
     cost: string; packBefore: string | null; costBefore: string | null;
+    /** The number the pack had before, when it had one of its own. */
+    packSkuBefore: string | null;
   }
   /** Already exactly this. */
   | Common & { action: "unchanged"; itemId: string; itemCode: string; itemName: string; cost: string }
@@ -520,6 +545,15 @@ const tidy = (value: string): string => toString(money(value));
  * link's first pack, as a single row always has, and the second row the
  * other. A third pack, or the same pack twice, is skipped with the reason. A
  * part the file names once leaves the other pack the link holds as it was.
+ *
+ * A PACK WITH ITS OWN NUMBER. A supplier that numbers the box differently
+ * from the each is two rows that repeat the part's `sku`, the box's giving
+ * its own number in a "Pack Part Number" column; the box is then always the
+ * link's second pack and carries that number. A row whose `sku` is a number
+ * the link already holds for its second pack states that pack. Either way the
+ * number must be nobody else's: this vendor's other links, and other rows of
+ * this file, may not use it, because a purchase order line and a receipt find
+ * the item by it.
  */
 export function planCatalogue(
   rows: readonly CatalogueRow[], state: CatalogueState, options: PlanOptions,
@@ -533,6 +567,11 @@ export function planCatalogue(
     itemsByCode.set(key, [...(itemsByCode.get(key) ?? []), item]);
   }
   const linkByPart = new Map(state.links.map((l) => [`${l.vendorId}:${l.partNumber.trim().toLowerCase()}`, l]));
+  /** Links by the number they hold for their second pack, when it has one of its own. */
+  const linkBySecond = new Map(state.links.filter((l) => l.second?.partNumber)
+    .map((l) => [`${l.vendorId}:${l.second!.partNumber!.trim().toLowerCase()}`, l]));
+  /** Pack numbers this same file has given, by vendor and number, to the line that gave them. */
+  const claimedNumbers = new Map<string, number>();
   const linkByItem = new Map(state.links.map((l) => [`${l.vendorId}:${l.itemId}`, l]));
 
   const marginRule = options.margin
@@ -601,30 +640,74 @@ export function planCatalogue(
      * re-priced from a file without the column is still a box of 25.
      */
     const codeMatches = itemsByCode.get(row.sku.trim().toLowerCase()) ?? [];
-    const existing = vendor.isNew ? undefined : linkByPart.get(key)
+    const bySecondNumber = vendor.isNew ? undefined : linkBySecond.get(key);
+    const existing = vendor.isNew ? undefined : bySecondNumber ?? linkByPart.get(key)
       ?? (codeMatches.length === 1 ? linkByItem.get(`${vendor.id}:${codeMatches[0]!.id}`) : undefined);
 
     /**
      * Which of the link's packs this row states: the one with its pack
      * quantity when the link holds it, else the first for the first row of
-     * the part and the second for the next.
+     * the part and the second for the next. A row that names the second pack
+     * by its own number, or gives a number for the pack it sells, is the
+     * second pack and nothing else.
      */
     const stated = row.pack !== undefined ? tidy(row.pack) : null;
+    const given = row.packSku?.trim() ?? "";
+    const numbered = given !== "" && given.toLowerCase() !== row.sku.trim().toLowerCase() ? given : null;
+    const forcedSecond = bySecondNumber !== undefined || numbered !== null;
     /** A skipped first row has already turned this one away above, so an earlier row here has a slot. */
     const earlierSlot = firstEarlier ? firstEarlier.slot : null;
-    let slot: "first" | "second" =
-      stated !== null && existing?.second && same(existing.second.packQuantity, stated) ? "second"
-        : stated !== null && existing && same(existing.packQuantity ?? "1", stated) ? "first"
-          : earlierSlot === "first" ? "second" : "first";
-    if (earlierSlot === slot) slot = slot === "first" ? "second" : "first";
+    let slot: "first" | "second" = "second";
+    if (!forcedSecond) {
+      slot =
+        stated !== null && existing?.second && same(existing.second.packQuantity, stated) ? "second"
+          : stated !== null && existing && same(existing.packQuantity ?? "1", stated) ? "first"
+            : earlierSlot === "first" ? "second" : "first";
+      if (earlierSlot === slot) slot = slot === "first" ? "second" : "first";
+    }
+    if (!forcedSecond) {
+      const takenBy = claimedNumbers.get(key);
+      if (takenBy !== undefined) return skip(`${row.sku} is the number line ${takenBy} gives the second pack of another part for ${vendor.name}.`);
+    }
+    if (bySecondNumber) {
+      const packOfNumber = bySecondNumber.second!.packQuantity;
+      if (stated !== null && !same(packOfNumber, stated)) {
+        return keep(skip(`${row.sku} is ${vendor.name}'s number for the pack of ${tidy(packOfNumber).replace(/\.?0+$/, "")}, but the file says packs of ${stated.replace(/\.?0+$/, "")}.`));
+      }
+      if (numbered !== null) {
+        return keep(skip(`${row.sku} is already ${vendor.name}'s number for a second pack, so the file cannot give it another number (${numbered}).`));
+      }
+    }
+    if (numbered !== null) {
+      if (stated === null && !existing?.second) {
+        return keep(skip(`${row.sku} gives ${numbered} for a second pack but the file has no pack size to say which pack that is.`));
+      }
+      if (existing && stated !== null && same(existing.packQuantity ?? "1", stated)) {
+        return keep(skip(`${numbered} is for the same pack as the first, packs of ${stated.replace(/\.?0+$/, "")}. A second number goes with a different pack.`));
+      }
+      const lower = numbered.toLowerCase();
+      const used = state.links.find((l) => l.vendorId === vendor.id && l.itemId !== existing?.itemId
+        && (l.partNumber.trim().toLowerCase() === lower || l.second?.partNumber?.trim().toLowerCase() === lower));
+      if (used) return keep(skip(`${numbered} is already ${vendor.name}'s number for another of your items. One number is one part.`));
+      const claimed = claimedNumbers.get(`${vendor.id}:${lower}`);
+      if (claimed !== undefined) return keep(skip(`${numbered} is already given on line ${claimed} of this file.`));
+      const holder = linkByPart.get(`${vendor.id}:${lower}`);
+      if (holder && holder.itemId !== existing?.itemId) {
+        return keep(skip(`${numbered} is already ${vendor.name}'s number for another of your items. One number is one part.`));
+      }
+    }
 
     const before = slot === "second" ? existing?.second ?? null : null;
     const pack = tidy(row.pack ?? (slot === "second" ? before?.packQuantity : existing?.packQuantity) ?? "1");
     const each = eachCost(cost, pack);
+    /** The second pack's own number once applied: the one the row gives, the one it is found by, or the one it had. */
+    const packSku = slot === "second"
+      ? (bySecondNumber ? row.sku.trim() : numbered ?? before?.partNumber ?? null)
+      : null;
     const unitStated = row.unit !== undefined ? row.unit
       : slot === "second" ? before?.purchaseUnit ?? null : existing?.purchaseUnit ?? null;
     const common = {
-      line: row.line, sku: row.sku, vendorId, vendorName: vendor.name, newVendor: vendor.isNew, slot,
+      line: row.line, sku: row.sku, vendorId, vendorName: vendor.name, newVendor: vendor.isNew, slot, packSku,
       pack, unit: unitStated?.trim() ? unitStated.trim() : null,
       breaks: row.breaks ?? [...((slot === "second" ? before?.priceBreaks : existing?.priceBreaks) ?? [])],
       eachCost: each,
@@ -639,7 +722,9 @@ export function planCatalogue(
       const itemCode = item?.code ?? (paired?.action === "create" ? paired.code : row.sku.trim());
       const itemName = item?.name ?? (paired?.action === "create" ? paired.name : "");
       if (!existing && !paired) return keep(skip(`${row.sku} has no link for ${vendor.name} to add a second way to buy it to.`));
-      if (before && same(before.cost, cost) && same(before.packQuantity, pack)
+      if (numbered !== null) claimedNumbers.set(`${vendor.id}:${numbered.toLowerCase()}`, row.line);
+      const sameNumber = (packSku ?? "").toLowerCase() === (before?.partNumber ?? "").toLowerCase();
+      if (before && same(before.cost, cost) && same(before.packQuantity, pack) && sameNumber
         && (row.unit === undefined || (before.purchaseUnit ?? null) === common.unit)
         && (row.breaks === undefined || sameBreaks(before.priceBreaks, common.breaks)) && itemId) {
         return keep({ ...common, action: "unchanged", itemId, itemCode, itemName, cost });
@@ -647,6 +732,7 @@ export function planCatalogue(
       return keep({
         ...common, action: "pack", pairsWith: paired ? paired.line : null, itemId: itemId ?? null, itemCode, itemName,
         cost, packBefore: before?.packQuantity ?? null, costBefore: before?.cost ?? null,
+        packSkuBefore: before?.partNumber ?? null,
       });
     }
 
@@ -757,6 +843,11 @@ export interface Pack {
   /** Their price for one pack, or null when nobody has said. */
   cost: string | null;
   breaks: readonly PriceBreak[];
+  /**
+   * The vendor's own number for this pack when it is not the link's: the box
+   * numbered differently from the each. Null or absent shares the link's.
+   */
+  partNumber?: string | null | undefined;
 }
 
 /** What one of ours comes to in a pack at the break so many packs reach, or null with no price. */

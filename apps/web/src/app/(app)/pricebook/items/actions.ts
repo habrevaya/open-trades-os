@@ -142,6 +142,7 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
               packQuantity: field(form, "secondPackQuantity"),
               purchaseUnit: field(form, "secondPurchaseUnit") ?? null,
               cost: field(form, "secondCost") ?? null,
+              partNumber: field(form, "secondPartNumber") ?? null,
             },
           } : {}),
         }));

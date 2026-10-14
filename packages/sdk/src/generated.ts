@@ -1039,6 +1039,8 @@ export interface ApplyVendorCatalogueOutput {
     slot?: "first" | "second";
     pairsWith?: number | null;
     packBefore?: string | null;
+    packSku?: string | null;
+    packSkuBefore?: string | null;
     itemId?: string | null;
     itemCode?: string;
     itemName?: string;
@@ -17147,6 +17149,7 @@ export interface ListVendorItemsOutput {
     }>;
     eachCost: string | null;
     secondPack: {
+      partNumber: string | null;
       packQuantity: string;
       purchaseUnit: string | null;
       cost: string | null;
@@ -17162,6 +17165,7 @@ export interface ListVendorItemsOutput {
       cost: string | null;
       eachCost: string | null;
       second: boolean;
+      partNumber: string;
     }>;
   }>;
 }
@@ -18865,6 +18869,8 @@ export interface PreviewVendorCatalogueOutput {
     slot?: "first" | "second";
     pairsWith?: number | null;
     packBefore?: string | null;
+    packSku?: string | null;
+    packSkuBefore?: string | null;
     itemId?: string | null;
     itemCode?: string;
     itemName?: string;
@@ -24165,6 +24171,7 @@ export interface SetVendorItemInput {
       minimum: string;
       cost: string;
     }> | null;
+    partNumber?: string | null;
   } | null;
 }
 
@@ -24187,6 +24194,7 @@ export interface SetVendorItemOutput {
   }>;
   eachCost: string | null;
   secondPack: {
+    partNumber: string | null;
     packQuantity: string;
     purchaseUnit: string | null;
     cost: string | null;
@@ -24202,6 +24210,7 @@ export interface SetVendorItemOutput {
     cost: string | null;
     eachCost: string | null;
     second: boolean;
+    partNumber: string;
   }>;
 }
 

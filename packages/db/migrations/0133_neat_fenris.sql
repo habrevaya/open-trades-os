@@ -1,0 +1,3 @@
+ALTER TABLE "vendor_item" ADD COLUMN "second_part_number" text;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "vendor_item_second_part_number_idx" ON "vendor_item" USING btree ("organization_id","vendor_id",lower("second_part_number")) WHERE "vendor_item"."second_part_number" is not null;--> statement-breakpoint
+ALTER TABLE "vendor_item" ADD CONSTRAINT "vendor_item_second_number" CHECK ("vendor_item"."second_part_number" is null or ("vendor_item"."second_pack_quantity" is not null and lower("vendor_item"."second_part_number") <> lower("vendor_item"."part_number")));

@@ -220,6 +220,36 @@ away, refused when it is the same pack as the first), the vendor's price shows
 takes it off. `GET /v1/vendor-items` returns `secondPack` and `packs`, both
 ways cheaper per one of ours first.
 
+**A box with a number of its own.** Some suppliers number the box differently
+from the each (wire nuts are WN-EA by the each and WN-BX by the box of 25). The
+second pack then carries the vendor's number for it (`secondPack.partNumber` on
+`PUT /v1/vendor-items`, "Their number for that, if it is different" on the
+item's page), and every `packs` entry says the number a purchase order for it is
+sent with. Left empty, the box shares the part's number, as before. The box's
+number is the vendor's alone, in the same way the first is: no other link of
+that vendor may use it as either of its numbers (refused in words; a number
+another vendor uses is no matter), the same number as the first is no second
+number, and it goes when the second way is taken off. A first number and a
+second number cannot both be checked by one index, so a trigger
+(`app.vendor_item_numbers`, in `packages/db/sql/after.sql`) holds the one
+against the other under a lock per vendor, and a unique index holds one box
+number against another. **On an order**, typing the box's number means the
+box: the line is the pack that number names, a quantity that is not whole boxes
+is refused ("Order 25 or 50 by the box of 25, not 30"), and naming a different
+pack with it (`packQuantity`) is refused rather than guessed at. Typing the each's
+number, or naming our item, still lets the quantity decide between the ways, and
+the line is sent with the number of the pack it became: fifty typed as WN-EA
+become two boxes under WN-BX. The number is copied onto the line, so the order,
+its email, its PDF and the vendor's link all carry it, and "Order by part
+number" offers the box's number beside the part's. **In a catalogue file**, a
+row whose part number is the box's number states that link's second pack (the
+pack column, when there is one, has to agree), and a "Pack Part Number" column
+(also "Box SKU", "Case Part Number", "Second SKU") on a second row of the same
+part gives the box its own number, or renumbers it when the supplier did; the
+each's row comes first. A number that is another item's, another line's of the
+same file, or a number given for the same pack as the first, is skipped with the
+reason.
+
 **Vendors the file names.** A vendor the file names that is not set up is
 skipped, unless the person importing ticks "Add the vendors this file names that
 are not set up yet" (`createVendors`, off by default). Then the preview lists the
@@ -578,9 +608,11 @@ A catalogue import reads a CSV, not a spreadsheet file or a supplier's API or
 EDI feed, and at most five thousand rows at a time. It adds the vendors a file
 names only when asked, and then with their name alone; it never matches a near
 spelling to a vendor already set up. A link keeps two ways to buy a part at most,
-both under one part number: a supplier that numbers its box differently from its
-each cannot have both numbers on one link, because one item has one link per
-vendor. An order line is one way to buy it; a quantity that is boxes and some
+each with a number of its own if it has one; a third (a case beside the box and
+the each) is not kept. A catalogue file pairs a box with its each by repeating
+the part's number on the box's row, or by the box's number once the link holds
+it: a file that lists the box under its own number and never says which part it
+belongs to is read as a different part. An order line is one way to buy it; a quantity that is boxes and some
 over is two lines, written by the person.
 
 Stock received outside an order carries whatever total cost was typed, and a

@@ -134102,7 +134102,7 @@
       "put": {
         "operationId": "setVendorItem",
         "summary": "Say what a vendor calls one of our items, and what they charge",
-        "description": "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks: replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.\n\nRequires a session holding: vendor:write.",
+        "description": "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks, and its own `partNumber` when the box is numbered apart from the each (a number this vendor uses for another of your items, or the same as the first, is refused or ignored): replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.\n\nRequires a session holding: vendor:write.",
         "tags": [
           "M16"
         ],
@@ -145697,6 +145697,18 @@
                     "null"
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "packSku": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "packSkuBefore": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "itemId": {
                   "type": [
@@ -229507,6 +229519,12 @@
                     "null"
                   ],
                   "properties": {
+                    "partNumber": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "packQuantity": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -229553,6 +229571,7 @@
                     }
                   },
                   "required": [
+                    "partNumber",
                     "packQuantity",
                     "purchaseUnit",
                     "cost",
@@ -229591,6 +229610,9 @@
                       },
                       "second": {
                         "type": "boolean"
+                      },
+                      "partNumber": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -229598,7 +229620,8 @@
                       "purchaseUnit",
                       "cost",
                       "eachCost",
-                      "second"
+                      "second",
+                      "partNumber"
                     ]
                   }
                 }
@@ -238125,6 +238148,18 @@
                     "null"
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "packSku": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "packSkuBefore": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "itemId": {
                   "type": [
@@ -263504,6 +263539,13 @@
                   ]
                 },
                 "maxItems": 10
+              },
+              "partNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 100
               }
             },
             "required": [
@@ -263610,6 +263652,12 @@
               "null"
             ],
             "properties": {
+              "partNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "packQuantity": {
                 "type": "string",
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -263656,6 +263704,7 @@
               }
             },
             "required": [
+              "partNumber",
               "packQuantity",
               "purchaseUnit",
               "cost",
@@ -263694,6 +263743,9 @@
                 },
                 "second": {
                   "type": "boolean"
+                },
+                "partNumber": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -263701,7 +263753,8 @@
                 "purchaseUnit",
                 "cost",
                 "eachCost",
-                "second"
+                "second",
+                "partNumber"
               ]
             }
           }

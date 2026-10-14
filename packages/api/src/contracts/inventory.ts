@@ -662,6 +662,8 @@ export const VendorItem = z.object({
   eachCost: MoneyString.nullable(),
   /** The second way they sell it, by the box as well as the each, or null for a part sold one way. */
   secondPack: z.object({
+    /** The vendor's own number for this pack when it is not `partNumber`, or null when they share one. */
+    partNumber: z.string().nullable(),
     packQuantity: QuantityString, purchaseUnit: z.string().nullable(), cost: MoneyString.nullable(),
     priceBreaks: z.array(z.object({ minimum: QuantityString, cost: MoneyString })), eachCost: MoneyString.nullable(),
   }).nullable(),
@@ -669,6 +671,8 @@ export const VendorItem = z.object({
   packs: z.array(z.object({
     packQuantity: QuantityString, purchaseUnit: z.string().nullable(), cost: MoneyString.nullable(),
     eachCost: MoneyString.nullable(), second: z.boolean(),
+    /** The number a purchase order for this pack is sent with: its own, or the link's `partNumber`. */
+    partNumber: z.string(),
   })),
 });
 
@@ -687,7 +691,7 @@ export const setVendorItem = defineRoute({
   method: "put",
   path: "/v1/vendor-items",
   summary: "Say what a vendor calls one of our items, and what they charge",
-  description: "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks: replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.",
+  description: "One number per item per vendor, so this replaces the item's existing link to that vendor. A number this vendor already uses for another of our items is refused. A blank cost keeps the one on record. `secondPack` is a second way they sell the same part (by the box as well as the each), with its own price and breaks, and its own `partNumber` when the box is numbered apart from the each (a number this vendor uses for another of your items, or the same as the first, is refused or ignored): replaced whole when given, taken away with null, kept when left out, and refused when it is the same pack as the first.",
   module: "M16",
   permissions: ["vendor:write"],
   idempotent: true,
@@ -707,6 +711,8 @@ export const setVendorItem = defineRoute({
       purchaseUnit: z.string().max(40).nullable().optional(),
       cost: z.string().max(20).nullable().optional(),
       priceBreaks: z.array(z.object({ minimum: z.string().max(20), cost: z.string().max(20) })).max(10).nullable().optional(),
+      /** The vendor's number for this pack when it is not the first's. Empty or left out means they share one. */
+      partNumber: z.string().max(100).nullable().optional(),
     }).nullable().optional(),
   }),
   output: VendorItem,
@@ -725,7 +731,7 @@ export const removeVendorItem = defineRoute({
 });
 
 const CatalogueOptions = {
-  /** The file, as text: a header line naming sku, description, cost and vendor columns, then a row per part. */
+  /** The file, as text: a header line naming sku, description, cost and vendor columns, then a row per part. A pack column and a unit column say how the supplier sells it, and a `Pack Part Number` column gives the supplier's number for the pack that row sells when it is not the part's. */
   csv: z.string().min(1).max(2_000_000),
   /** The vendor for rows that name none, or for a file with no vendor column. */
   vendorId: Uuid.nullable().optional(),
@@ -756,6 +762,9 @@ const CatalogueRow = z.object({
   pairsWith: z.number().int().nullable().optional(),
   /** For a second way to buy it: the pack it had before, or null when it is new. */
   packBefore: QuantityString.nullable().optional(),
+  /** For a second way to buy it: the vendor's number for that pack once applied (null when it shares the part's number), and the one it had. */
+  packSku: z.string().nullable().optional(),
+  packSkuBefore: z.string().nullable().optional(),
   itemId: Uuid.nullable().optional(),
   itemCode: z.string().optional(),
   itemName: z.string().optional(),
