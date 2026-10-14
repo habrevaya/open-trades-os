@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Call, Device } from "@twilio/voice-sdk";
 
 /**
@@ -18,11 +19,22 @@ import type { Call, Device } from "@twilio/voice-sdk";
  * first call of the morning.
  */
 
+/**
+ * A caller this person has on hold, to take back, or a colleague they are
+ * passing a caller to and have not rung yet. Both are rung from this
+ * browser, so the browser's own phone does it: `hold:{call}` and
+ * `transfer:{id}` are addresses the server answers, not numbers.
+ */
+export type Handover =
+  | { kind: "holding"; callId: string; who: string }
+  | { kind: "consulting"; consult: string; name: string };
+
 type Props = {
   callerId: string;
   takingCalls: boolean;
   getToken: () => Promise<{ token: string; identity: string } | { problem: string }>;
   setTakingCalls: (available: boolean) => Promise<{ takingCalls: boolean }>;
+  handover?: Handover | null | undefined;
 };
 
 type Line =
@@ -35,7 +47,8 @@ const HEARTBEAT_MS = 60_000;
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 const BUTTON = "inline-flex h-10 items-center justify-center rounded px-4 text-sm font-medium disabled:opacity-60";
 
-export function Softphone({ callerId, takingCalls: initiallyTaking, getToken, setTakingCalls }: Props) {
+export function Softphone({ callerId, takingCalls: initiallyTaking, getToken, setTakingCalls, handover }: Props) {
+  const router = useRouter();
   const device = useRef<Device | null>(null);
   const call = useRef<Call | null>(null);
   const [on, setOn] = useState(false);
@@ -78,10 +91,18 @@ export function Softphone({ callerId, takingCalls: initiallyTaking, getToken, se
   function follow(active: Call, other: string) {
     call.current = active;
     setMuted(false);
-    active.on("accept", () => setLine({ state: "talking", with: other, since: Date.now() }));
+    /**
+     * The page is read again when a call is picked up or ends, because what
+     * can be done with the caller (hold, pass on) is the server's to say.
+     */
+    active.on("accept", () => {
+      setLine({ state: "talking", with: other, since: Date.now() });
+      router.refresh();
+    });
     const done = () => {
       call.current = null;
       setLine({ state: "idle" });
+      router.refresh();
     };
     active.on("disconnect", done);
     active.on("cancel", done);
@@ -143,15 +164,15 @@ export function Softphone({ callerId, takingCalls: initiallyTaking, getToken, se
     setTaking(false);
   }
 
-  async function dial() {
-    const to = number.trim();
+  async function dial(address?: string, label?: string) {
+    const to = (address ?? number).trim();
     if (!to) return;
     const phone = device.current ?? await switchOn();
     if (!phone) return;
     setProblem(null);
     const placed = await phone.connect({ params: { To: to } });
-    setLine({ state: "calling", to });
-    follow(placed, to);
+    setLine({ state: "calling", to: label ?? to });
+    follow(placed, label ?? to);
   }
 
   const talkedFor = line.state === "talking" ? Math.max(0, Math.floor((now - line.since) / 1000)) : 0;
@@ -208,6 +229,22 @@ export function Softphone({ callerId, takingCalls: initiallyTaking, getToken, se
             <button type="button" className={`${BUTTON} border border-red-600 text-red-600`}
                     onClick={() => call.current?.disconnect()}>Hang up</button>
           </div>
+        </div>
+      ) : null}
+
+      {line.state === "idle" && handover ? (
+        <div className="mt-4 rounded border border-steel-300 bg-steel-100 p-3">
+          {handover.kind === "holding" ? (
+            <button type="button" className={`${BUTTON} bg-ink-900 text-white hover:bg-ink-700`} disabled={starting}
+                    onClick={() => void dial(`hold:${handover.callId}`, handover.who)}>
+              Take {handover.who} back
+            </button>
+          ) : (
+            <button type="button" className={`${BUTTON} bg-ink-900 text-white hover:bg-ink-700`} disabled={starting}
+                    onClick={() => void dial(handover.consult, handover.name)}>
+              Ring {handover.name}
+            </button>
+          )}
         </div>
       ) : null}
 

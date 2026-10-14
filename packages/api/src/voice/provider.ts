@@ -96,6 +96,14 @@ export interface VoiceProvider {
   saveApplication(input: {
     applicationSid: string | null; label: string; voiceUrl: string; statusUrl: string;
   }): Promise<VoiceResult<{ applicationSid: string }>>;
+  /**
+   * Move a call in progress to new instructions at `url`, which ends what it
+   * was doing: how a caller is put on hold or passed on from the browser
+   * phone, and how a colleague is joined to a caller on "Hand over".
+   */
+  redirectCall(input: { callSid: string; url: string }): Promise<VoiceResult<object>>;
+  /** Hang up a call in progress: a colleague's call on a pass that was called off. */
+  endCall(callSid: string): Promise<VoiceResult<object>>;
   fetchRecording(recordingUrl: string): Promise<VoiceResult<{ bytes: Uint8Array }>>;
   deleteRecording(recordingId: string): Promise<VoiceResult<object>>;
 }

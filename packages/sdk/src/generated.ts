@@ -1664,6 +1664,13 @@ export interface CancelAgreementOutput {
   endedLinks: number;
 }
 
+export type CancelCallTransferInput = Record<string, unknown>;
+
+export interface CancelCallTransferOutput {
+  id: string;
+  state: "holding";
+}
+
 export interface CancelCampaignInput {
   reason?: string;
 }
@@ -1894,6 +1901,13 @@ export interface CloseTaskInput {
 export interface CloseTaskOutput {
   id: string;
   status: "open" | "in_progress" | "done" | "dismissed";
+}
+
+export type CompleteCallTransferInput = Record<string, unknown>;
+
+export interface CompleteCallTransferOutput {
+  id: string;
+  state: "handing_over";
 }
 
 export interface CompleteVisitInput {
@@ -11014,6 +11028,19 @@ export interface GetSkillStandingOutput {
   }>;
 }
 
+export interface GetSoftphoneCallOutput {
+  call: {
+    id: string;
+    from: string;
+    customerId: string | null;
+    customerName: string | null;
+    state: "talking" | "holding" | "consulting" | "handing_over";
+    transferId: string | null;
+    consultWith: string | null;
+    consultAnswered: boolean;
+  } | null;
+}
+
 export interface GetSoftphoneOutput {
   ready: boolean;
   reason: string | null;
@@ -11465,6 +11492,13 @@ export interface HandOverOnCallOutput {
     technicianId: string;
     endsAt: string;
   };
+}
+
+export type HoldCallInput = Record<string, unknown>;
+
+export interface HoldCallOutput {
+  id: string;
+  state: "holding";
 }
 
 export interface ImportBudgetInput {
@@ -16201,6 +16235,22 @@ export interface ListTradePacksOutput {
     upgradable: boolean;
     priceBookItems: number;
     jobTypes: number;
+  }>;
+}
+
+export interface ListTransferTargetsOutput {
+  people: Array<{
+    userId: string;
+    name: string;
+    takingCalls: boolean;
+  }>;
+  ringGroups: Array<{
+    id: string;
+    name: string;
+  }>;
+  queues: Array<{
+    id: string;
+    name: string;
   }>;
 }
 
@@ -23899,6 +23949,26 @@ export interface TranscribeCallOutput {
   error: string | null;
 }
 
+export interface TransferCallInput {
+  to: {
+    kind: "person";
+    userId: string;
+  } | {
+    kind: "ring_group";
+    id: string;
+  } | {
+    kind: "queue";
+    id: string;
+  };
+  warm?: boolean;
+}
+
+export interface TransferCallOutput {
+  id: string;
+  state: "sent" | "consulting";
+  consult: string | null;
+}
+
 export interface TransferStockInput {
   itemId: string;
   fromLocationId: string;
@@ -26981,6 +27051,10 @@ export interface CancelAgreementParams {
   id: string;
 }
 
+export interface CancelCallTransferParams {
+  id: string;
+}
+
 export interface CancelCampaignParams {
   id: string;
 }
@@ -27035,6 +27109,10 @@ export interface CloseSafetyMeetingParams {
 }
 
 export interface CloseTaskParams {
+  id: string;
+}
+
+export interface CompleteCallTransferParams {
   id: string;
 }
 
@@ -27898,6 +27976,8 @@ export type GetSetupInput = Record<string, never>;
 
 export type GetSoftphoneInput = Record<string, never>;
 
+export type GetSoftphoneCallInput = Record<string, never>;
+
 export interface GetStaffDocumentInput {
   id: string;
 }
@@ -27978,6 +28058,10 @@ export interface GiveRoleWholeCompanyParams {
 
 export interface HandOverAssetParams {
   assetId: string;
+}
+
+export interface HoldCallParams {
+  id: string;
 }
 
 export interface ImportBudgetParams {
@@ -28905,6 +28989,8 @@ export interface ListTrackingCampaignsInput {
 export type ListTrackingNumbersInput = Record<string, never>;
 
 export type ListTradePacksInput = Record<string, never>;
+
+export type ListTransferTargetsInput = Record<string, never>;
 
 export type ListTruckFillsInput = Record<string, never>;
 
@@ -29929,6 +30015,10 @@ export interface TranscribeCallParams {
   id: string;
 }
 
+export interface TransferCallParams {
+  id: string;
+}
+
 export interface UnpinDisposalFacilityParams {
   id: string;
 }
@@ -30302,6 +30392,7 @@ export interface OperationTypes {
   campaignRecipients: { input: CampaignRecipientsInput; output: CampaignRecipientsOutput };
   campaignResults: { input: CampaignResultsInput; output: CampaignResultsOutput };
   cancelAgreement: { input: CancelAgreementParams & CancelAgreementInput; output: CancelAgreementOutput };
+  cancelCallTransfer: { input: CancelCallTransferParams & CancelCallTransferInput; output: CancelCallTransferOutput };
   cancelCampaign: { input: CancelCampaignParams & CancelCampaignInput; output: CancelCampaignOutput };
   cancelMailCampaign: { input: CancelMailCampaignParams & CancelMailCampaignInput; output: CancelMailCampaignOutput };
   cancelWebhookReplay: { input: CancelWebhookReplayParams & CancelWebhookReplayInput; output: CancelWebhookReplayOutput };
@@ -30322,6 +30413,7 @@ export interface OperationTypes {
   closePayPeriod: { input: ClosePayPeriodInput; output: ClosePayPeriodOutput };
   closeSafetyMeeting: { input: CloseSafetyMeetingParams & CloseSafetyMeetingInput; output: CloseSafetyMeetingOutput };
   closeTask: { input: CloseTaskParams & CloseTaskInput; output: CloseTaskOutput };
+  completeCallTransfer: { input: CompleteCallTransferParams & CompleteCallTransferInput; output: CompleteCallTransferOutput };
   completeVisit: { input: CompleteVisitParams & CompleteVisitInput; output: CompleteVisitOutput };
   configureAgent: { input: ConfigureAgentParams & ConfigureAgentInput; output: ConfigureAgentOutput };
   configureBookableService: { input: ConfigureBookableServiceParams & ConfigureBookableServiceInput; output: ConfigureBookableServiceOutput };
@@ -30622,6 +30714,7 @@ export interface OperationTypes {
   getSetup: { input: GetSetupInput; output: GetSetupOutput };
   getSkillStanding: { input: GetSkillStandingInput; output: GetSkillStandingOutput };
   getSoftphone: { input: GetSoftphoneInput; output: GetSoftphoneOutput };
+  getSoftphoneCall: { input: GetSoftphoneCallInput; output: GetSoftphoneCallOutput };
   getStaffDocument: { input: GetStaffDocumentInput; output: GetStaffDocumentOutput };
   getStatementSchedule: { input: GetStatementScheduleInput; output: GetStatementScheduleOutput };
   getTaskChecklist: { input: GetTaskChecklistInput; output: GetTaskChecklistOutput };
@@ -30644,6 +30737,7 @@ export interface OperationTypes {
   grantConsent: { input: GrantConsentInput; output: GrantConsentOutput };
   handOverAsset: { input: HandOverAssetParams & HandOverAssetInput; output: HandOverAssetOutput };
   handOverOnCall: { input: HandOverOnCallInput; output: HandOverOnCallOutput };
+  holdCall: { input: HoldCallParams & HoldCallInput; output: HoldCallOutput };
   importBudget: { input: ImportBudgetParams & ImportBudgetInput; output: ImportBudgetOutput };
   importCustomRecords: { input: ImportCustomRecordsParams & ImportCustomRecordsInput; output: ImportCustomRecordsOutput };
   importSpend: { input: ImportSpendInput; output: ImportSpendOutput };
@@ -30871,6 +30965,7 @@ export interface OperationTypes {
   listTrackingCampaigns: { input: ListTrackingCampaignsInput; output: ListTrackingCampaignsOutput };
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
+  listTransferTargets: { input: ListTransferTargetsInput; output: ListTransferTargetsOutput };
   listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
   listTruckKinds: { input: ListTruckKindsInput; output: ListTruckKindsOutput };
   listTruckMinimums: { input: ListTruckMinimumsInput; output: ListTruckMinimumsOutput };
@@ -31252,6 +31347,7 @@ export interface OperationTypes {
   traceEquipmentStock: { input: TraceEquipmentStockInput; output: TraceEquipmentStockOutput };
   traceStockUnit: { input: TraceStockUnitInput; output: TraceStockUnitOutput };
   transcribeCall: { input: TranscribeCallParams & TranscribeCallInput; output: TranscribeCallOutput };
+  transferCall: { input: TransferCallParams & TransferCallInput; output: TransferCallOutput };
   transferStock: { input: TransferStockInput; output: TransferStockOutput };
   unpinDisposalFacility: { input: UnpinDisposalFacilityParams & UnpinDisposalFacilityInput; output: UnpinDisposalFacilityOutput };
   unpinLocation: { input: UnpinLocationParams & UnpinLocationInput; output: UnpinLocationOutput };
@@ -31408,6 +31504,7 @@ export const OPERATIONS = {
   campaignRecipients: { method: "GET", path: "/v1/campaigns/{id}/recipients", pathParams: ["id"], queryParams: ["state","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   campaignResults: { method: "GET", path: "/v1/campaigns/{id}/results", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   cancelAgreement: { method: "POST", path: "/v1/agreements/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
+  cancelCallTransfer: { method: "POST", path: "/v1/call-transfers/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   cancelCampaign: { method: "POST", path: "/v1/campaigns/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   cancelMailCampaign: { method: "POST", path: "/v1/marketing/mail/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   cancelWebhookReplay: { method: "POST", path: "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel", pathParams: ["id","replayId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -31428,6 +31525,7 @@ export const OPERATIONS = {
   closePayPeriod: { method: "POST", path: "/v1/payroll/periods/close", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   closeSafetyMeeting: { method: "POST", path: "/v1/safety/meetings/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   closeTask: { method: "POST", path: "/v1/tasks/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
+  completeCallTransfer: { method: "POST", path: "/v1/call-transfers/{id}/complete", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   completeVisit: { method: "POST", path: "/v1/visits/{id}/complete", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:complete"] },
   configureAgent: { method: "PUT", path: "/v1/ai/agents/{agent}", pathParams: ["agent"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   configureBookableService: { method: "PUT", path: "/v1/booking/services/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -31728,6 +31826,7 @@ export const OPERATIONS = {
   getSetup: { method: "GET", path: "/v1/setup", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getSkillStanding: { method: "POST", path: "/v1/people/skill-standing", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getSoftphone: { method: "GET", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
+  getSoftphoneCall: { method: "GET", path: "/v1/softphone/call", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   getStaffDocument: { method: "GET", path: "/v1/staff-documents/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   getStatementSchedule: { method: "GET", path: "/v1/statement-schedule", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getTaskChecklist: { method: "GET", path: "/v1/tasks/{id}/checklist", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -31750,6 +31849,7 @@ export const OPERATIONS = {
   grantConsent: { method: "POST", path: "/v1/consent", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   handOverAsset: { method: "POST", path: "/v1/assets/{assetId}/hand-over", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   handOverOnCall: { method: "POST", path: "/v1/on-call/handover", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
+  holdCall: { method: "POST", path: "/v1/calls/{id}/hold", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   importBudget: { method: "POST", path: "/v1/budgets/{year}/import", pathParams: ["year"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   importCustomRecords: { method: "POST", path: "/v1/custom-objects/{key}/import", pathParams: ["key"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
   importSpend: { method: "POST", path: "/v1/marketing/spend/import", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -31977,6 +32077,7 @@ export const OPERATIONS = {
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listTransferTargets: { method: "GET", path: "/v1/softphone/transfer-targets", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listTruckKinds: { method: "GET", path: "/v1/truck-kinds", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listTruckMinimums: { method: "GET", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
@@ -32358,6 +32459,7 @@ export const OPERATIONS = {
   traceEquipmentStock: { method: "GET", path: "/v1/equipment/{id}/stock-trace", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   traceStockUnit: { method: "GET", path: "/v1/stock/units/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   transcribeCall: { method: "POST", path: "/v1/calls/{id}/transcribe", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
+  transferCall: { method: "POST", path: "/v1/calls/{id}/transfer", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   transferStock: { method: "POST", path: "/v1/stock/transfers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   unpinDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   unpinLocation: { method: "DELETE", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -33071,6 +33173,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Do not pass the caller on after all.
+   *
+   * POST /v1/call-transfers/{id}/cancel. Needs call:place.
+   */
+  cancelCallTransfer(input: CancelCallTransferParams & CancelCallTransferInput, options?: CallOptions): Promise<CancelCallTransferOutput> {
+    return this.call("cancelCallTransfer", input, options);
+  }
+
+  /**
    * Stop a campaign.
    *
    * POST /v1/campaigns/{id}/cancel. Needs campaign:write.
@@ -33248,6 +33359,15 @@ export abstract class GeneratedOperations {
    */
   closeTask(input: CloseTaskParams & CloseTaskInput, options?: CallOptions): Promise<CloseTaskOutput> {
     return this.call("closeTask", input, options);
+  }
+
+  /**
+   * Hand the caller over to the colleague you are talking to.
+   *
+   * POST /v1/call-transfers/{id}/complete. Needs call:place.
+   */
+  completeCallTransfer(input: CompleteCallTransferParams & CompleteCallTransferInput, options?: CallOptions): Promise<CompleteCallTransferOutput> {
+    return this.call("completeCallTransfer", input, options);
   }
 
   /**
@@ -35951,6 +36071,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The call you have now.
+   *
+   * GET /v1/softphone/call. Needs call:place.
+   */
+  getSoftphoneCall(input: GetSoftphoneCallInput = {} as GetSoftphoneCallInput, options?: CallOptions): Promise<GetSoftphoneCallOutput> {
+    return this.call("getSoftphoneCall", input, options);
+  }
+
+  /**
    * One document, and who has signed it.
    *
    * GET /v1/staff-documents/{id}. Needs user:read.
@@ -36146,6 +36275,15 @@ export abstract class GeneratedOperations {
    */
   handOverOnCall(input: HandOverOnCallInput, options?: CallOptions): Promise<HandOverOnCallOutput> {
     return this.call("handOverOnCall", input, options);
+  }
+
+  /**
+   * Put the caller on hold.
+   *
+   * POST /v1/calls/{id}/hold. Needs call:place.
+   */
+  holdCall(input: HoldCallParams & HoldCallInput, options?: CallOptions): Promise<HoldCallOutput> {
+    return this.call("holdCall", input, options);
   }
 
   /**
@@ -38189,6 +38327,15 @@ export abstract class GeneratedOperations {
    */
   listTradePacks(input: ListTradePacksInput = {} as ListTradePacksInput, options?: CallOptions): Promise<ListTradePacksOutput> {
     return this.call("listTradePacks", input, options);
+  }
+
+  /**
+   * Who and where a caller can be passed to.
+   *
+   * GET /v1/softphone/transfer-targets. Needs call:place.
+   */
+  listTransferTargets(input: ListTransferTargetsInput = {} as ListTransferTargetsInput, options?: CallOptions): Promise<ListTransferTargetsOutput> {
+    return this.call("listTransferTargets", input, options);
   }
 
   /**
@@ -41618,6 +41765,15 @@ export abstract class GeneratedOperations {
    */
   transcribeCall(input: TranscribeCallParams & TranscribeCallInput, options?: CallOptions): Promise<TranscribeCallOutput> {
     return this.call("transcribeCall", input, options);
+  }
+
+  /**
+   * Pass the caller to a colleague, a ring group or a waiting line.
+   *
+   * POST /v1/calls/{id}/transfer. Needs call:place.
+   */
+  transferCall(input: TransferCallParams & TransferCallInput, options?: CallOptions): Promise<TransferCallOutput> {
+    return this.call("transferCall", input, options);
   }
 
   /**

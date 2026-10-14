@@ -145,6 +145,109 @@ export const setSoftphonePresence = defineRoute({
   output: z.object({ takingCalls: z.boolean() }),
 });
 
+/* ----------------------------------------- hold and passing a call on */
+
+const CurrentCall = z.object({
+  id: Uuid,
+  /** The caller's number. */
+  from: z.string(),
+  customerId: Uuid.nullable(),
+  customerName: z.string().nullable(),
+  state: z.enum(["talking", "holding", "consulting", "handing_over"]),
+  /** The open hold or pass, when there is one. */
+  transferId: Uuid.nullable(),
+  /** The colleague being talked to first on a warm pass, by name. */
+  consultWith: z.string().nullable(),
+  consultAnswered: z.boolean(),
+});
+
+export const getSoftphoneCall = defineRoute({
+  method: "get",
+  path: "/v1/softphone/call",
+  summary: "The call you have now",
+  description:
+    "A call that came in and that you picked up, or that was passed to you, while it lasts: whether you are talking, have the caller on hold, or are talking to a colleague first. Null when you have none.",
+  module: "M18",
+  permissions: ["call:place"],
+  input: z.object({}),
+  output: z.object({ call: CurrentCall.nullable() }),
+});
+
+export const listTransferTargets = defineRoute({
+  method: "get",
+  path: "/v1/softphone/transfer-targets",
+  summary: "Who and where a caller can be passed to",
+  description:
+    "Colleagues who can be rung (a number to ring them on, or taking calls in the browser), and the ring groups and waiting lines, by name only.",
+  module: "M18",
+  permissions: ["call:place"],
+  input: z.object({}),
+  output: z.object({
+    people: z.array(z.object({ userId: Uuid, name: z.string(), takingCalls: z.boolean() })),
+    ringGroups: z.array(z.object({ id: Uuid, name: z.string() })),
+    queues: z.array(z.object({ id: Uuid, name: z.string() })),
+  }),
+});
+
+export const holdCall = defineRoute({
+  method: "post",
+  path: "/v1/calls/{id}/hold",
+  summary: "Put the caller on hold",
+  description:
+    "Only for the person who has the caller now, on a call that came in. The caller's leg is moved to a queue of its own with music, which ends the browser's call to them; ringing hold:{id} from the browser phone takes them back. Asking again while they are on hold answers with the same hold. A caller left on hold fifteen minutes goes to voicemail and the office gets a task to call them.",
+  module: "M18",
+  permissions: ["call:place"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, state: z.literal("holding") }),
+});
+
+export const transferCall = defineRoute({
+  method: "post",
+  path: "/v1/calls/{id}/transfer",
+  summary: "Pass the caller to a colleague, a ring group or a waiting line",
+  description:
+    "Only for the person who has the caller now. Cold (warm false): the caller is moved where a menu option would send them, at once; a colleague is rung in the browser when they are taking calls there, and on their phone otherwise, and a caller nobody picks up goes to voicemail. Warm, to a colleague only: the caller is put on hold and consult names the address the browser phone rings to talk to the colleague first (transfer:{id}); complete hands the caller over, cancel keeps them on hold.",
+  module: "M18",
+  permissions: ["call:place"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    to: z.union([
+      z.object({ kind: z.literal("person"), userId: Uuid }),
+      z.object({ kind: z.literal("ring_group"), id: Uuid }),
+      z.object({ kind: z.literal("queue"), id: Uuid }),
+    ]),
+    warm: z.boolean().optional(),
+  }),
+  output: z.object({ id: Uuid, state: z.enum(["sent", "consulting"]), consult: z.string().nullable() }),
+});
+
+export const completeCallTransfer = defineRoute({
+  method: "post",
+  path: "/v1/call-transfers/{id}/complete",
+  summary: "Hand the caller over to the colleague you are talking to",
+  description:
+    "For a warm pass, once the colleague has picked up: their call is joined to the caller on hold, which ends yours. Refused until they have picked up. Asking again answers with the same hand over.",
+  module: "M18",
+  permissions: ["call:place"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, state: z.literal("handing_over") }),
+});
+
+export const cancelCallTransfer = defineRoute({
+  method: "post",
+  path: "/v1/call-transfers/{id}/cancel",
+  summary: "Do not pass the caller on after all",
+  description: "Ends the call to the colleague, and keeps the caller on hold for you to take back.",
+  module: "M18",
+  permissions: ["call:place"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, state: z.literal("holding") }),
+});
+
 const Turn = z.object({ from: z.enum(["caller", "assistant"]), text: z.string(), at: z.string() });
 
 export const getCallAssistant = defineRoute({
@@ -172,5 +275,6 @@ export const getCallAssistant = defineRoute({
 export const callHandlingRoutes = {
   listCallQueues, createCallQueue, updateCallQueue, deleteCallQueue,
   getSoftphone, setUpSoftphone, mintSoftphoneToken, setSoftphonePresence,
+  getSoftphoneCall, listTransferTargets, holdCall, transferCall, completeCallTransfer, cancelCallTransfer,
   getCallAssistant,
 } as const;

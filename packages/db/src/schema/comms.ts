@@ -275,6 +275,39 @@ export const queueCallback = pgTable("queue_callback", {
 }));
 
 /**
+ * A CALLER PUT ON HOLD OR PASSED ON FROM THE BROWSER PHONE.
+ *
+ * `kind` is `hold`, `cold` (passed on at once) or `warm` (the person talks
+ * to the colleague first, with the caller on hold). One row is open at a time
+ * per call: `holding`, `consulting` while the colleague is rung and talked
+ * to, and `handing_over` once "Hand over" moved the colleague's leg. It ends
+ * `taken_back`, `handed_over`, `sent` (a cold pass, which ends as it starts),
+ * `caller_gone`, `timed_out` (left on hold too long), `replaced` (a hold
+ * that became a cold pass), or `failed` (the carrier would not move the call).
+ */
+export const callTransfer = pgTable("call_transfer", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  callId: uuid("call_id").notNull().references(() => call.id, { onDelete: "cascade" }),
+  /** The person who held or passed the caller on. */
+  fromUserId: uuid("from_user_id").references(() => user.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  /** Where the caller is passed: a colleague, a ring group or a waiting line. Null for a hold. */
+  toDestination: jsonb("to_destination").$type<StoredDestination | null>(),
+  /** The colleague, when it is one. */
+  toUserId: uuid("to_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** The colleague's leg of a warm pass once they pick up, which "Hand over" moves to the caller. */
+  consultLegSid: text("consult_leg_sid"),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => ({
+  callIdx: index("call_transfer_call_idx").on(t.callId),
+  openIdx: uniqueIndex("call_transfer_open_idx").on(t.callId)
+    .where(sql`${t.status} in ('holding', 'consulting', 'handing_over')`),
+}));
+
+/**
  * WHETHER A PERSON'S BROWSER CAN TAKE A CALL RIGHT NOW.
  *
  * The office app says so once a minute while "Take calls here" is on, and a
@@ -852,6 +885,12 @@ export const call = pgTable("call", {
    * call that came in.
    */
   placedByUserId: uuid("placed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * Who has the caller now: whoever picked them up, and after they are
+   * passed on, whoever took them. Kept apart from `answered_by_user_id`,
+   * which stays the first person to answer.
+   */
+  handledByUserId: uuid("handled_by_user_id").references(() => user.id, { onDelete: "set null" }),
   /**
    * The waiting line the caller was held in, when one was: when they joined
    * it, when its group was last rung for them and how many times, and how

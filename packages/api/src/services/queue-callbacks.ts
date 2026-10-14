@@ -32,17 +32,24 @@ export const BUSY_FOR_AT_MOST_HOURS = 3;
 export async function busyUsers(tx: Database, organizationId: string, now: Date): Promise<Set<string>> {
   const since = new Date(now.getTime() - BUSY_FOR_AT_MOST_HOURS * 3600_000);
   const rows = await tx.select({
-    answered: schema.call.answeredByUserId, placed: schema.call.placedByUserId,
+    answered: schema.call.answeredByUserId, placed: schema.call.placedByUserId, handled: schema.call.handledByUserId,
+    /** Named in full: a column in a select list is written unqualified, which inside this subquery would be the transfer's own id. */
+    moved: sql<boolean>`exists (select 1 from public.call_transfer t where t.call_id = "call"."id")`,
   }).from(schema.call).where(and(
     eq(schema.call.organizationId, organizationId),
     sql`${schema.call.status} in ('ringing', 'in_progress')`,
     isNull(schema.call.endedAt),
     sql`coalesce(${schema.call.startedAt}, ${schema.call.createdAt}) > ${since.toISOString()}::timestamptz`,
-    or(isNotNull(schema.call.answeredByUserId), isNotNull(schema.call.placedByUserId)),
+    or(isNotNull(schema.call.answeredByUserId), isNotNull(schema.call.placedByUserId), isNotNull(schema.call.handledByUserId)),
   ));
   const busy = new Set<string>();
   for (const row of rows) {
-    const who = row.answered ?? row.placed;
+    /**
+     * Whoever has the caller now. Once a caller has been held or passed on,
+     * that is only ever who took them last: a caller passed on is no longer
+     * with the person who first answered, even before somebody else has them.
+     */
+    const who = row.handled ?? (row.moved ? null : row.answered ?? row.placed);
     if (who) busy.add(who);
   }
   return busy;

@@ -103,6 +103,19 @@ for waiting callbacks on its passes and hands to the office those that have
 waited an hour, so run the worker if you turn callbacks on. Every round is an
 outbound call per phone on the company's Twilio bill.
 
+## Hold and passing a caller on
+
+From `/phone`, the person with a caller can put them on hold or pass them on.
+This installation asks Twilio's REST API to move the caller's leg of the call
+(`POST /Calls/{sid}.json` with a new address): to `/hold` beneath the voice
+URL, which puts them in a Twilio queue of their own with music, or to
+`/transfer`, which sends them where they were passed. Taking them back, or a
+colleague being handed them, is a `Dial` to that queue. The browser phone's
+application must be set up (Settings, Phone menus) for the browser to ring a
+held caller or a colleague, and the API key it uses needs no more than it
+already has: moving calls is done with the account's auth token, from this
+installation.
+
 ## The phone assistant and the voice relay
 
 The phone assistant (M27) is the company's own model answering a call. Twilio

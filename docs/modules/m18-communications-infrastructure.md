@@ -327,6 +327,35 @@ it up. A call placed from the browser on a number that records calls asks the
 person called to press 1 before anything is recorded, the same question a
 caller is asked on the way in, and recording starts only on their yes.
 
+**Hold and passing a caller on.** While somebody has a caller they picked up
+in the browser (or that was passed to them), `/phone` shows "Your call" with
+"Put on hold" and "Pass the caller on". On hold, the caller hears "Please
+hold." and music, and the person's own call ends; "Take them back" on the
+phone rings the caller's hold from the browser and picks them up again. A
+caller can be passed to a colleague (rung in the browser when they are taking
+calls there, on their phone otherwise), a ring group or a waiting line,
+straight away, in which case the person's call ends and the caller goes there
+as a menu option would send them (to voicemail if nobody picks up), or, to a
+colleague only, after talking to them first: the caller is held, "Ring" calls
+the colleague from the browser, who is told who is passing them a caller and
+from which number, and "Hand over the caller" joins the colleague to the
+caller and ends the person's call; "Do not pass them on" ends the colleague's
+call and keeps the caller on hold. A caller left on hold fifteen minutes goes
+to voicemail and the office gets a high priority task to call them back. Only
+the person who has the caller now can hold or pass them, whatever their role,
+and the caller's call says under "Where it went" who passed them on, to where,
+and who they were handed to. Whoever has the caller now is who a waiting line
+counts as busy.
+
+`GET /v1/softphone/call` (the call you have now),
+`GET /v1/softphone/transfer-targets` (colleagues who can be rung, and the ring
+groups and waiting lines by name), `POST /v1/calls/{id}/hold`,
+`POST /v1/calls/{id}/transfer`, `POST /v1/call-transfers/{id}/complete` and
+`POST /v1/call-transfers/{id}/cancel`, all `call:place`. On the carrier, the
+caller's leg is moved with Twilio's REST API: to a queue of its own for hold,
+or to where they are passed; "Hand over" moves the colleague's leg to the
+caller's queue.
+
 An owner sets it up once on `/settings/phone`: an API key made in the Twilio
 console (its SID, and the name of the secret in this installation's secret
 store that holds its secret) and the number calls show, which must be one
@@ -414,9 +443,9 @@ template is a standing decision about what the company says.
 | Role | Access |
 |---|---|
 | Owner, administrator | Everything |
-| Office manager | Reads and sends, manages consent and suppression, calls from the browser |
-| Dispatcher | Reads and sends, so they can text a customer about the day, calls from the browser |
-| CSR | Reads and sends, calls from the browser |
+| Office manager | Reads and sends, manages consent and suppression, calls from the browser, holds and passes on their own callers |
+| Dispatcher | Reads and sends, so they can text a customer about the day, calls from the browser, holds and passes on their own callers |
+| CSR | Reads and sends, calls from the browser, holds and passes on their own callers |
 | Technician | Reads and sends, scoped to their own conversations |
 | Accountant | Neither |
 
@@ -448,6 +477,12 @@ holds `message:send` because they text from the field. Without that scope,
 | `GET /v1/softphone` | `call:place` |
 | `POST /v1/softphone/token` | `call:place` |
 | `PUT /v1/softphone/presence` | `call:place` |
+| `GET /v1/softphone/call` | `call:place` |
+| `GET /v1/softphone/transfer-targets` | `call:place` |
+| `POST /v1/calls/{id}/hold` | `call:place` |
+| `POST /v1/calls/{id}/transfer` | `call:place` |
+| `POST /v1/call-transfers/{id}/complete` | `call:place` |
+| `POST /v1/call-transfers/{id}/cancel` | `call:place` |
 | `GET /v1/public/unsubscribe/{token}` | nothing: the token is the authority |
 | `POST /v1/public/unsubscribe/{token}` | nothing |
 
@@ -492,9 +527,20 @@ their place, said once as they join, and it is not said at all from fewer than
 five answered callers in the last three hours.
 
 Browser phone: a call lasts only as long as the `/phone` page stays open, so
-somebody taking calls keeps it in a tab of its own. There is no transfer to a
-colleague, no hold, no conference and no second call while on one (a second
-call to the browser is declined and rings the rest of the group). A browser
+somebody taking calls keeps it in a tab of its own. Hold and passing a caller
+on work only for calls that came in: on a call placed from the browser the
+person called is on a leg the carrier names only when the call ends, so it
+cannot be moved, and the screen does not offer it. Hold and passing on move
+the caller's leg with Twilio's REST API, built from its documentation and
+tested against a fake carrier, not a live line: in particular, that moving the
+caller out of a ring group's dial does not also run what the dial does when it
+ends is Twilio's documented behaviour, and the step here ignores that result
+while a caller is held, but has not been seen on a real call. Talking to a
+colleague first is to one colleague, never a ring group or a waiting line,
+and that call to the colleague is not on the call log. There is no conference
+of three and no second call while on one (a second call to the browser is
+declined and rings the rest of the group); somebody taking a caller back from
+hold, or a colleague handed one, picks them up as a new call in the browser. A browser
 whose page was closed without switching off may be rung for up to two and a
 half minutes before its owner's phone is rung again. The technician app has no
 browser phone. Nothing here limits which countries a browser may ring beyond

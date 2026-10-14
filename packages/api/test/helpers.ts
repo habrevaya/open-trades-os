@@ -202,6 +202,8 @@ const ORDER = [
   "voice_agent_session",
   /** A callback a caller asked for points at their call, the call that rang them back, and the line. */
   "queue_callback",
+  /** A hold or a pass from the browser phone points at the call. */
+  "call_transfer",
   "message_attachment", "message", "call", "conversation",
   "suppression", "communication_consent", "message_template",
   // Nothing points at a recording policy: it is matched by jurisdiction

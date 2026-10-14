@@ -249,6 +249,22 @@ export function createTwilioVoice(
       }));
     },
 
+    redirectCall(input) {
+      return call(
+        `${account}/Calls/${encodeURIComponent(input.callSid)}.json`,
+        { method: "POST", form: new URLSearchParams({ Url: input.url, Method: "POST" }) },
+        () => ({}),
+      );
+    },
+
+    endCall(callSid) {
+      return call(
+        `${account}/Calls/${encodeURIComponent(callSid)}.json`,
+        { method: "POST", form: new URLSearchParams({ Status: "completed" }) },
+        () => ({}),
+      );
+    },
+
     deleteRecording(recordingId) {
       return call(`${account}/Recordings/${encodeURIComponent(recordingId)}.json`, { method: "DELETE" }, () => ({}));
     },

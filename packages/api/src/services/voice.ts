@@ -15,6 +15,7 @@ import * as voiceAgent from "./voice-agent";
 import * as callQueues from "./call-queues";
 import * as softphone from "./softphone";
 import * as callbacks from "./queue-callbacks";
+import * as transfers from "./call-transfers";
 import { memberActor } from "./session";
 import { loadHolidays } from "./holidays";
 import { emit } from "./events";
@@ -329,6 +330,14 @@ export const STEPS = [
    * ringing the caller back went.
    */
   "queue-callback", "queue-leg", "callback-dialed",
+  /**
+   * The browser phone moving a caller: on hold and its music, how they left
+   * it and who took them, passed on cold, and a warm pass's colleague picking
+   * up, the browser's call to them ending, and the colleague joined to the
+   * caller on "Hand over".
+   */
+  "hold", "hold-wait", "hold-done", "hold-pickup",
+  "transfer", "transfer-answered", "transfer-consult-done", "transfer-bridge",
   /** A call somebody placed from the browser, the question put to the person called, and how it ended. */
   "softphone", "softphone-consent", "softphone-dialed",
 ] as const;
@@ -435,6 +444,14 @@ async function answerStep(
     case "queue-callback": return queueCallback(ctx, form, query, wire);
     case "queue-leg": return queueLeg(ctx, form, query, now);
     case "callback-dialed": return callbackDialed(ctx, form, query, wire);
+    case "hold": return holdStep(ctx, form, query, wire);
+    case "hold-wait": return holdWait(form);
+    case "hold-done": return holdDone(ctx, form, query, wire);
+    case "hold-pickup": return holdPickup(ctx, form, query, now);
+    case "transfer": return transferStep(ctx, form, query, wire);
+    case "transfer-answered": return transferAnswered(ctx, form, query, now);
+    case "transfer-consult-done": return transferConsultDone(ctx, form, query, now);
+    case "transfer-bridge": return transferBridge(ctx, query, wire);
     case "softphone": return softphoneCall(db, ctx, form, wire);
     case "softphone-consent": return softphoneConsent(ctx, form, query, wire);
     case "softphone-dialed": return softphoneDialed(ctx, form, now);
@@ -879,9 +896,12 @@ async function whisper(ctx: ServiceContext, form: Record<string, string>): Promi
      * one that runs on the answering leg, before the two are connected.
      */
     const answeredBy = await whoAnswered(tx, ctx.actor.organizationId, form["To"] ?? "");
-    if (answeredBy && !call.answeredByUserId) {
-      await tx.update(schema.call).set({ answeredByUserId: answeredBy, updatedAt: new Date() })
-        .where(eq(schema.call.id, call.id));
+    if (answeredBy) {
+      /** The first to answer stays the first; whoever picked up this leg has the caller now. */
+      await tx.update(schema.call).set({
+        ...(call.answeredByUserId ? {} : { answeredByUserId: answeredBy }),
+        handledByUserId: answeredBy, updatedAt: new Date(),
+      }).where(eq(schema.call.id, call.id));
     }
     const number = await numberOf(tx, call);
     if (number && !number.whisper) return empty;
@@ -920,6 +940,15 @@ async function dialed(
   return inTenant(ctx, async (tx) => {
     const call = await callBySid(tx, form["CallSid"]);
     if (!call) return reply([{ verb: "hangup" }]);
+    /**
+     * The office has the caller on hold or is passing them on from the
+     * browser: their leg was moved, which ends this dial. The call goes on
+     * where it was moved, so this result changes nothing.
+     */
+    const [moving] = await tx.select({ id: schema.callTransfer.id }).from(schema.callTransfer).where(and(
+      eq(schema.callTransfer.callId, call.id), sql`${schema.callTransfer.status} in ('holding', 'consulting', 'handing_over')`,
+    )).limit(1);
+    if (moving) return empty;
     const outcome = voice.dialOutcome(form["DialCallStatus"]);
     const talked = Number(form["DialCallDuration"] ?? 0);
     await tx.update(schema.call).set({
@@ -1335,6 +1364,7 @@ async function queueConnect(
       /** Off hold: the carrier's own word for how they left the line follows when the call ends. */
       queueResult: "bridged",
       ...(user && /^[0-9a-f-]{36}$/i.test(user) && !call.answeredByUserId ? { answeredByUserId: user } : {}),
+      handledByUserId: user && /^[0-9a-f-]{36}$/i.test(user) ? user : call.handledByUserId,
       updatedAt: now,
     }).where(eq(schema.call.id, call.id));
     return empty;
@@ -1617,6 +1647,14 @@ async function softphoneCall(
   const userId = voice.userOfIdentity(form["From"] ?? form["Caller"] ?? "");
   const refuse = (text: string) => reply([{ verb: "say", text }, { verb: "hangup" }]);
   if (!sid || !userId) return refuse("This call cannot be placed.");
+  if (/^(hold|transfer):/i.test(form["To"] ?? "")) {
+    return inTenant(ctx, async (tx) => {
+      const actor = await memberActor(tx, org, userId);
+      if (!actor || !can(actor, "call:place")) return refuse("You are not allowed to place calls from the browser.");
+      return (await softphoneHandover(tx, ctx, userId, (form["To"] ?? "").trim(), wire))
+        ?? refuse("This call cannot be placed.");
+    });
+  }
   const target = voice.dialable(form["To"] ?? "");
   if (!target.ok) return refuse(target.reason);
 
@@ -1712,6 +1750,262 @@ async function softphoneDialed(ctx: ServiceContext, form: Record<string, string>
     }).where(eq(schema.call.id, call.id));
     return reply([{ verb: "hangup" }]);
   });
+}
+
+/* ------------------------------------------- hold and passing a call on */
+
+/** A transfer row of this company, by the id in a step's address. */
+async function transferOf(tx: Database, organizationId: string, id: string | null) {
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const [row] = await tx.select().from(schema.callTransfer)
+    .where(and(eq(schema.callTransfer.organizationId, organizationId), eq(schema.callTransfer.id, id))).limit(1);
+  return row ?? null;
+}
+
+/** The call a hold step names, when the carrier request is from that call's own leg. */
+async function heldCall(tx: Database, organizationId: string, query: URLSearchParams, form: Record<string, string>) {
+  const id = query.get("c") ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const [call] = await tx.select().from(schema.call)
+    .where(and(eq(schema.call.organizationId, organizationId), eq(schema.call.id, id))).limit(1);
+  if (!call || call.providerCallId !== `twilio:${form["CallSid"] ?? ""}`) return null;
+  return call;
+}
+
+/**
+ * The caller's leg, moved here by the office to be put on hold: a carrier
+ * queue of their own, with music, until somebody dials it.
+ */
+async function holdStep(ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await heldCall(tx, ctx.actor.organizationId, query, form);
+    if (!call) return empty;
+    const c = { c: call.id };
+    return reply([{
+      verb: "enqueue", queue: transfers.holdQueueName(call.id),
+      waitUrl: wire.url("hold-wait", c), action: wire.url("hold-done", c),
+    }]);
+  });
+}
+
+/** Each turn of the music on hold. Past the longest hold, the caller is sent on. */
+async function holdWait(form: Record<string, string>): Promise<VoiceReply> {
+  const waited = Number(form["QueueTime"]);
+  if (Number.isFinite(waited) && waited >= transfers.HOLD_MAX_SECONDS) return reply([{ verb: "leave" }]);
+  return reply([
+    ...(!Number.isFinite(waited) || waited < 2 ? [{ verb: "say" as const, text: "Please hold." }] : []),
+    { verb: "play", url: voice.DEFAULT_HOLD_MUSIC },
+  ]);
+}
+
+/**
+ * The caller left their hold queue. Taken back or handed over, the call goes
+ * on with whoever took them, and its end is reported like any call's. Moved
+ * on by the office: nothing to do here. Hung up: said on the call. Left on
+ * hold past the longest hold: voicemail, and a task for the office, because
+ * somebody who was being helped and then forgotten is owed a call.
+ */
+async function holdDone(ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await heldCall(tx, ctx.actor.organizationId, query, form);
+    if (!call) return reply([{ verb: "hangup" }]);
+    const result = form["QueueResult"];
+    if (result === "bridged") return reply([{ verb: "hangup" }]);
+    if (result === "redirected" || result === "redirected-from-bridged") return empty;
+    const [open] = await tx.select().from(schema.callTransfer).where(and(
+      eq(schema.callTransfer.callId, call.id), sql`${schema.callTransfer.status} in ('holding', 'consulting', 'handing_over')`,
+    )).limit(1);
+    const waited = Math.round(Number(form["QueueTime"]) || 0);
+    if (result === "hangup") {
+      if (open) {
+        await tx.update(schema.callTransfer).set({ status: "caller_gone", endedAt: wire.now, updatedAt: wire.now })
+          .where(eq(schema.callTransfer.id, open.id));
+      }
+      await note(tx, call, `Hung up while on hold, after ${waited} seconds.`);
+      return reply([{ verb: "hangup" }]);
+    }
+    if (open) {
+      await tx.update(schema.callTransfer).set({ status: "timed_out", endedAt: wire.now, updatedAt: wire.now })
+        .where(eq(schema.callTransfer.id, open.id));
+    }
+    /** Nobody has the caller now: they are leaving a message. */
+    await tx.update(schema.call).set({ handledByUserId: null, updatedAt: wire.now }).where(eq(schema.call.id, call.id));
+    await note(tx, call, `Was left on hold for ${Math.round(waited / 60)} minutes, so it went to voicemail.`);
+    await tx.insert(schema.task).values({
+      organizationId: ctx.actor.organizationId,
+      title: `Call back ${call.fromE164}`.slice(0, 200),
+      body: "They were left on hold and nobody came back to them, so they were sent to voicemail.",
+      priority: "high",
+      entityType: call.customerId ? "customer" : "call",
+      entityId: call.customerId ?? call.id,
+    });
+    return reply(voicemailVerbs(wire.url));
+  });
+}
+
+/**
+ * Said on the caller's side as somebody dials their hold queue: the person
+ * who put them on hold taking them back, or the colleague they were handed
+ * to. Whoever it is has the caller now.
+ */
+async function holdPickup(ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, now: Date): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const call = await heldCall(tx, ctx.actor.organizationId, query, form);
+    if (!call) return empty;
+    const user = query.get("u");
+    const valid = user && /^[0-9a-f-]{36}$/i.test(user) ? user : null;
+    const [open] = await tx.select().from(schema.callTransfer).where(and(
+      eq(schema.callTransfer.callId, call.id), sql`${schema.callTransfer.status} in ('holding', 'consulting', 'handing_over')`,
+    )).limit(1);
+    if (open) {
+      const handed = open.status === "handing_over";
+      await tx.update(schema.callTransfer).set({
+        status: handed ? "handed_over" : "taken_back", endedAt: now, updatedAt: now,
+      }).where(eq(schema.callTransfer.id, open.id));
+      if (handed && valid) {
+        const directory = await phoneMenus.directoryFor(tx, ctx.actor.organizationId);
+        await note(tx, call, `Handed over to ${directory.people.get(valid)?.name ?? "a colleague"} after talking to them first.`);
+      }
+    }
+    await tx.update(schema.call).set({
+      status: voice.laterStatus(call.status, "in_progress"), ...(valid ? { handledByUserId: valid } : {}), updatedAt: now,
+    }).where(eq(schema.call.id, call.id));
+    return empty;
+  });
+}
+
+/**
+ * The caller's leg, moved here by the office to be passed on cold: where a
+ * menu option sending them there would. A colleague is rung in the browser
+ * when they are taking calls there, and on their phone otherwise.
+ */
+async function transferStep(ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire): Promise<VoiceReply> {
+  const org = ctx.actor.organizationId;
+  return inTenant(ctx, async (tx) => {
+    const row = await transferOf(tx, org, query.get("t"));
+    if (!row || row.kind !== "cold" || !row.toDestination) return empty;
+    const call = await callBySid(tx, form["CallSid"]);
+    if (!call || call.id !== row.callId) return empty;
+    const number = await numberOf(tx, call);
+    if (!number) return reply(voicemailVerbs(wire.url));
+    const directory = await phoneMenus.directoryFor(tx, org);
+    const to = row.toDestination as tel.RoutingDestination;
+    const by = row.fromUserId ? directory.people.get(row.fromUserId)?.name ?? "somebody" : "somebody";
+    await note(tx, call, `Passed on by ${by} to ${voice.describeIn(directory)(to)}.`);
+    const leg = legOf(tx, ctx, call, number, wire);
+    if (to.kind === "person") {
+      const online = await softphone.onlineUsers(tx, org, wire.now);
+      const person = directory.people.get(to.userId);
+      const ring = online.has(to.userId) ? voice.clientAddress(to.userId) : person?.phone ?? null;
+      if (!ring) {
+        await note(tx, call, `${person?.name ?? "The person"} could not be rung, so it went to voicemail.`);
+        await callTracking.emitMissed(tx, ctx, call.id);
+        return reply(voicemailVerbs(wire.url));
+      }
+      return reply([dialVerb(leg, [ring], 25, { h: 1 })]);
+    }
+    const answered = await answer(leg, to, 1);
+    if (answered.voicemail) await callTracking.emitMissed(tx, ctx, call.id);
+    return reply(answered.verbs);
+  });
+}
+
+/**
+ * The colleague picked up a warm pass, before the two are connected to the
+ * person passing it: their leg is kept so "Hand over" can move it, and they
+ * are told what it is about.
+ */
+async function transferAnswered(ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, now: Date): Promise<VoiceReply> {
+  const org = ctx.actor.organizationId;
+  return inTenant(ctx, async (tx) => {
+    const row = await transferOf(tx, org, query.get("t"));
+    if (!row || row.status !== "consulting" || !form["CallSid"]) return empty;
+    await tx.update(schema.callTransfer).set({ consultLegSid: form["CallSid"], updatedAt: now })
+      .where(eq(schema.callTransfer.id, row.id));
+    const [call] = await tx.select().from(schema.call).where(eq(schema.call.id, row.callId)).limit(1);
+    const directory = await phoneMenus.directoryFor(tx, org);
+    const by = row.fromUserId ? directory.people.get(row.fromUserId)?.name ?? "A colleague" : "A colleague";
+    return reply([{
+      verb: "say",
+      text: `${by} would like to pass you a caller${call ? ` from ${voice.spokenNumber(call.fromE164)}` : ""}. They are on hold while you talk.`,
+    }]);
+  });
+}
+
+/**
+ * The browser's call to the colleague ended. Handed over: done. Otherwise the
+ * caller is still on hold, which the person is told before their line closes.
+ */
+async function transferConsultDone(ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, now: Date): Promise<VoiceReply> {
+  const org = ctx.actor.organizationId;
+  return inTenant(ctx, async (tx) => {
+    const row = await transferOf(tx, org, query.get("t"));
+    if (!row || row.status !== "consulting") return reply([{ verb: "hangup" }]);
+    await tx.update(schema.callTransfer).set({
+      kind: "hold", status: "holding", toDestination: null, toUserId: null, consultLegSid: null, updatedAt: now,
+    }).where(eq(schema.callTransfer.id, row.id));
+    const answered = voice.dialOutcome(form["DialCallStatus"]).answered;
+    return reply([
+      { verb: "say", text: answered ? "Your caller is still on hold." : "They did not pick up. Your caller is still on hold." },
+      { verb: "hangup" },
+    ]);
+  });
+}
+
+/** The colleague's leg, moved here on "Hand over": joined to the caller waiting on hold. */
+async function transferBridge(ctx: ServiceContext, query: URLSearchParams, wire: Wire): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const row = await transferOf(tx, ctx.actor.organizationId, query.get("t"));
+    if (!row || row.status !== "handing_over") return reply([{ verb: "hangup" }]);
+    return reply([
+      { verb: "say", text: "Putting you through." },
+      {
+        verb: "dialQueue", queue: transfers.holdQueueName(row.callId),
+        url: wire.url("hold-pickup", { c: row.callId, ...(row.toUserId ? { u: row.toUserId } : {}) }),
+      },
+    ]);
+  });
+}
+
+/**
+ * The browser asked for one of the two places that are not a phone number:
+ * `hold:{call}` to take back a caller this person put on hold, and
+ * `transfer:{id}` to ring the colleague of a warm pass. Each only for the
+ * person who did it.
+ */
+async function softphoneHandover(
+  tx: Database, ctx: ServiceContext, userId: string, to: string, wire: Wire,
+): Promise<VoiceReply | null> {
+  const org = ctx.actor.organizationId;
+  const refuse = (text: string) => reply([{ verb: "say", text }, { verb: "hangup" }]);
+  const held = /^hold:([0-9a-f-]{36})$/i.exec(to);
+  if (held) {
+    const [open] = await tx.select().from(schema.callTransfer).where(and(
+      eq(schema.callTransfer.organizationId, org), eq(schema.callTransfer.callId, held[1]!),
+      eq(schema.callTransfer.status, "holding"),
+    )).limit(1);
+    if (!open || open.fromUserId !== userId) return refuse("That caller is no longer on hold for you.");
+    return reply([{
+      verb: "dialQueue", queue: transfers.holdQueueName(open.callId),
+      url: wire.url("hold-pickup", { c: open.callId, u: userId }),
+    }]);
+  }
+  const passing = /^transfer:([0-9a-f-]{36})$/i.exec(to);
+  if (!passing) return null;
+  const row = await transferOf(tx, org, passing[1]!);
+  if (!row || row.fromUserId !== userId || row.status !== "consulting" || !row.toUserId) {
+    return refuse("That call is no longer waiting to be passed on.");
+  }
+  const number = await softphone.callerIdFor(tx, org);
+  const online = await softphone.onlineUsers(tx, org, wire.now);
+  const directory = await phoneMenus.directoryFor(tx, org);
+  const ring = online.has(row.toUserId) ? voice.clientAddress(row.toUserId) : directory.people.get(row.toUserId)?.phone ?? null;
+  if (!ring || !number) return refuse("Your colleague cannot be rung right now. Your caller is still on hold.");
+  return reply([{
+    verb: "dial", to: ring, callerId: number.e164, timeoutSeconds: 25,
+    action: wire.url("transfer-consult-done", { t: row.id }),
+    whisperUrl: wire.url("transfer-answered", { t: row.id }),
+  }]);
 }
 
 /* ----------------------------------------------------------- housekeeping */
