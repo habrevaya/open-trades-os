@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   buildInspection, checkReading, resultLabel,
   type CheckpointEntry, type FieldInspectionProgram,
 } from "@opentradesos/field-client";
+import { SignatureCanvas, type InkHandle } from "./SignaturePad";
 
 export interface VisitInspection {
   id: string;
@@ -25,6 +26,12 @@ export interface VisitInspection {
  *
  * Filed into the same queue as everything else, so it survives losing the
  * signal halfway down a plant room and goes when the phone finds one.
+ *
+ * THE INSPECTOR SIGNS BY DRAWING, as on the phone app: a box to draw in with
+ * a finger, a stylus or a mouse, kept on the phone and sent with the
+ * inspection. Typing the name is still asked for and still files it, because a
+ * browser that cannot keep the picture (private browsing, no storage) must
+ * not stop an inspection being filed; the drawing then waits to be cleared.
  */
 export function InspectionRun({
   programs, filed, inspectorName, onFile, onPhoto,
@@ -38,7 +45,9 @@ export function InspectionRun({
     inspectorName: string;
     inspectorLicense: string;
     signedByName: string;
-  }) => Promise<void>;
+    /** The drawn signature as a PNG data URL, or null when only the name was typed. */
+    signature: string | null;
+  }) => Promise<string | null>;
   onPhoto: (file: File) => Promise<{ uploadId: string } | { problem: string }>;
 }) {
   const [programId, setProgramId] = useState<string | null>(null);
@@ -46,6 +55,8 @@ export function InspectionRun({
   const [inspector, setInspector] = useState(inspectorName);
   const [license, setLicense] = useState("");
   const [signedBy, setSignedBy] = useState("");
+  const [signature, setSignature] = useState<string | null>(null);
+  const ink = useRef<InkHandle | null>(null);
   const [confirming, setConfirming] = useState<string[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,8 +73,13 @@ export function InspectionRun({
     if (!signedBy.trim()) { setProblem("Type your name to sign the inspection off."); return; }
     if (built.unanswered.length > 0 && !force) { setConfirming(built.unanswered); return; }
     setBusy(true);
-    await onFile({ program, built, inspectorName: inspector, inspectorLicense: license, signedByName: signedBy });
+    const failed = await onFile({
+      program, built, inspectorName: inspector, inspectorLicense: license, signedByName: signedBy, signature,
+    });
     setBusy(false);
+    // Nothing is thrown away when it could not be kept: they can clear the drawing and file with the name.
+    if (failed) { setProblem(failed); setConfirming(null); return; }
+    setSignature(null);
     setProgramId(null);
     setEntries({});
     setConfirming(null);
@@ -198,6 +214,25 @@ export function InspectionRun({
             <label className="block text-sm">Type your name to sign it off
               <input value={signedBy} onChange={(e) => setSignedBy(e.target.value)} autoComplete="name" className="mt-1 h-12 w-full rounded border border-steel-300 px-3 text-base" />
             </label>
+            <div>
+              <p className="text-sm">Sign in the box</p>
+              <div className="mt-1">
+                <SignatureCanvas label="Inspector's signature" onChange={setSignature} handle={ink} />
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={!signature || busy}
+                  onClick={() => ink.current?.clear()}
+                  className="inline-flex h-10 items-center rounded border border-steel-300 px-4 text-sm font-medium disabled:opacity-60"
+                >
+                  Clear signature
+                </button>
+                <p className="text-xs text-ink-500">
+                  {signature ? "Signed." : "Draw it with your finger, or file it with your typed name only."}
+                </p>
+              </div>
+            </div>
           </div>
 
           {problem && <p role="alert" className="rounded bg-red-tint px-3 py-2 text-sm text-red-600">{problem}</p>}
