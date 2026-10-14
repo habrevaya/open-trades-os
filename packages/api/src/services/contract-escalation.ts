@@ -640,7 +640,7 @@ async function noticeOne(
   };
 
   const [claimed] = await tx.insert(schema.contractEscalationNotice).values({
-    organizationId: ctx.actor.organizationId, contractId: contract.id, anniversary, rate, key,
+    organizationId: ctx.actor.organizationId, contractId: contract.id, anniversary, rate, preparedFrom: key,
   }).onConflictDoNothing().returning();
 
   if (!claimed) {
@@ -650,11 +650,11 @@ async function noticeOne(
     )).limit(1);
     if (!notice || notice.appliedAt) return "unchanged";
     /** A notice from before rises differed knows only the rate it was prepared at. */
-    const same = notice.key !== null ? notice.key === key : sameRate(notice.rate, rate);
+    const same = notice.preparedFrom !== null ? notice.preparedFrom === key : sameRate(notice.rate, rate);
     if (same) return "unchanged";
     /** The rate or a rise on the contract changed since: the drafts are of a rise nobody now means. */
     await prepare();
-    await tx.update(schema.contractEscalationNotice).set({ rate, key, preparedAt: new Date() })
+    await tx.update(schema.contractEscalationNotice).set({ rate, preparedFrom: key, preparedAt: new Date() })
       .where(eq(schema.contractEscalationNotice.id, notice.id));
     if (notice.taskId) {
       await tx.update(schema.task).set({ body, updatedAt: new Date() })

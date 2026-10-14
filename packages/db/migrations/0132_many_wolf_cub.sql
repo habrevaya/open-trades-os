@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS "contract_escalation_rise" (
 	"deleted_at" timestamp with time zone
 );
 --> statement-breakpoint
-ALTER TABLE "contract_escalation_notice" ADD COLUMN "key" text;--> statement-breakpoint
+ALTER TABLE "contract_escalation_notice" ADD COLUMN "prepared_from" text;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "contract_escalation_rise" ADD CONSTRAINT "contract_escalation_rise_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION

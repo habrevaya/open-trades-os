@@ -11820,12 +11820,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "task_id": {
           "name": "task_id",
           "type": "uuid",
@@ -11851,6 +11845,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "prepared_from": {
+          "name": "prepared_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

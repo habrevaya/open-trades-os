@@ -458,7 +458,7 @@ export const contractEscalationNotice = pgTable("contract_escalation_notice", {
    * contract's rate and every rise that applies that year. A rise changed
    * since prepares them again. Null on a notice from before rises differed.
    */
-  key: text("key"),
+  preparedFrom: text("prepared_from"),
   /** The office task raised about it. A loose reference, as every task's subject is. */
   taskId: uuid("task_id"),
   preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
