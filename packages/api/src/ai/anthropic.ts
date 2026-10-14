@@ -1,8 +1,8 @@
 import {
-  registerAiProvider, fetchTransport, withoutSecret, retryableStatus,
+  registerAiProvider, fetchTransport, withoutSecret, retryableStatus, streamed,
   asArray, asObject, num, str, rateFromSettings,
   type AiContent, type AiProvider, type CompletionOutcome, type CompletionRequest,
-  type HttpTransport, type ModelListOutcome, type ModelRate, type StopReason,
+  type HttpTransport, type ModelListOutcome, type ModelRate, type StopReason, type StreamListener,
 } from "./provider";
 
 /**
@@ -221,6 +221,78 @@ export function anthropicProvider(
     };
   };
 
+  const bodyOf = (request: CompletionRequest): Record<string, unknown> => ({
+    model: request.model,
+    max_tokens: request.maxOutputTokens,
+    ...(request.system ? { system: request.system } : {}),
+    messages: request.messages.map((message) => ({
+      role: message.role,
+      content: blocksFor(message.content),
+    })),
+    ...(request.tools && request.tools.length > 0
+      ? {
+          tools: request.tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.inputSchema,
+          })),
+        }
+      : {}),
+  });
+
+  const parsed = (text: string): Record<string, unknown> => {
+    try {
+      return asObject(JSON.parse(text)) ?? {};
+    } catch {
+      return { error: { message: clean(text).slice(0, 500) } };
+    }
+  };
+
+  function read(status: number, json: Record<string, unknown>, request: CompletionRequest): CompletionOutcome {
+    if (status < 200 || status >= 300) return failure(status, json);
+
+    /**
+     * USAGE IS REQUIRED, and a response without it is a failure rather than
+     * a success reporting nothing.
+     *
+     * Reporting zero would be a claim that the call was free. An operator
+     * whose ceiling is built on these numbers would watch it stay still
+     * while the vendor's meter moved, which is the exact surprise this
+     * whole module exists to prevent. Not retryable: the call was made and
+     * billed, and asking again spends twice to learn the same thing.
+     */
+    const usage = asObject(json["usage"]);
+    const inputTokens = num(usage?.["input_tokens"]);
+    const outputTokens = num(usage?.["output_tokens"]);
+    if (inputTokens === null || outputTokens === null) {
+      return {
+        ok: false,
+        code: "no_usage",
+        message: "Anthropic answered without reporting token usage, so this call cannot be costed.",
+        retryable: false,
+      };
+    }
+
+    return {
+      ok: true,
+      completion: {
+        model: str(json["model"]) ?? request.model,
+        content: contentFrom(asArray(json["content"])),
+        stop: stopFrom(str(json["stop_reason"])),
+        usage: {
+          inputTokens,
+          outputTokens,
+          /**
+           * Null when absent rather than zero. Anthropic reports a cache
+           * read only on a request that used the cache, and zero is the
+           * different, stronger claim that it was asked and missed.
+           */
+          cachedInputTokens: num(usage?.["cache_read_input_tokens"]),
+        },
+      },
+    };
+  }
+
   return {
     name: "anthropic",
     toolCallIdentity: { kind: "vendor" },
@@ -240,67 +312,101 @@ export function anthropicProvider(
     },
 
     async complete(request: CompletionRequest): Promise<CompletionOutcome> {
-      const { status, json } = await call("/v1/messages", "POST", {
-        model: request.model,
-        max_tokens: request.maxOutputTokens,
-        ...(request.system ? { system: request.system } : {}),
-        messages: request.messages.map((message) => ({
-          role: message.role,
-          content: blocksFor(message.content),
-        })),
-        ...(request.tools && request.tools.length > 0
-          ? {
-              tools: request.tools.map((tool) => ({
-                name: tool.name,
-                description: tool.description,
-                input_schema: tool.inputSchema,
-              })),
-            }
-          : {}),
+      const { status, json } = await call("/v1/messages", "POST", bodyOf(request));
+      return read(status, json, request);
+    },
+
+    /**
+     * The same request with `stream: true`. The events are put back together
+     * into the message `complete` would have been answered with, and read by
+     * the same function, so a streamed answer is held to every check a whole
+     * one is. Each piece of text and of a tool call's arguments is handed on
+     * as it arrives.
+     */
+    async stream(request: CompletionRequest, listen: StreamListener): Promise<CompletionOutcome> {
+      const response = await transport(`${base}/v1/messages`, {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": VERSION, "content-type": "application/json" },
+        body: JSON.stringify({ ...bodyOf(request), stream: true }),
       });
+      const answer = await streamed(response);
+      if (answer.kind === "whole") return read(response.status, parsed(answer.text), request);
 
-      if (status < 200 || status >= 300) return failure(status, json);
-
-      /**
-       * USAGE IS REQUIRED, and a response without it is a failure rather than
-       * a success reporting nothing.
-       *
-       * Reporting zero would be a claim that the call was free. An operator
-       * whose ceiling is built on these numbers would watch it stay still
-       * while the vendor's meter moved, which is the exact surprise this
-       * whole module exists to prevent. Not retryable: the call was made and
-       * billed, and asking again spends twice to learn the same thing.
-       */
-      const usage = asObject(json["usage"]);
-      const inputTokens = num(usage?.["input_tokens"]);
-      const outputTokens = num(usage?.["output_tokens"]);
-      if (inputTokens === null || outputTokens === null) {
-        return {
-          ok: false,
-          code: "no_usage",
-          message: "Anthropic answered without reporting token usage, so this call cannot be costed.",
-          retryable: false,
-        };
+      const message: Record<string, unknown> = { content: [] as unknown[] };
+      const blocks: Record<string, unknown>[] = [];
+      const json: string[] = [];
+      let usage: Record<string, unknown> = {};
+      for await (const event of answer.events) {
+        let data: Record<string, unknown> | null = null;
+        try { data = asObject(JSON.parse(event.data)); } catch { data = null; }
+        if (!data) continue;
+        switch (str(data["type"])) {
+          case "message_start": {
+            const start = asObject(data["message"]) ?? {};
+            message["model"] = start["model"];
+            usage = { ...usage, ...(asObject(start["usage"]) ?? {}) };
+            break;
+          }
+          case "content_block_start": {
+            const index = num(data["index"]) ?? blocks.length;
+            const block = { ...(asObject(data["content_block"]) ?? {}) };
+            blocks[index] = block;
+            json[index] = "";
+            if (block["type"] === "tool_use") listen({ type: "toolStart", index, name: str(block["name"]) ?? "" });
+            break;
+          }
+          case "content_block_delta": {
+            const index = num(data["index"]) ?? 0;
+            const delta = asObject(data["delta"]) ?? {};
+            const block = blocks[index];
+            if (!block) break;
+            if (delta["type"] === "text_delta") {
+              const text = str(delta["text"]) ?? "";
+              block["text"] = `${str(block["text"]) ?? ""}${text}`;
+              listen({ type: "text", text });
+            } else if (delta["type"] === "input_json_delta") {
+              const piece = typeof delta["partial_json"] === "string" ? delta["partial_json"] : "";
+              json[index] = `${json[index] ?? ""}${piece}`;
+              listen({ type: "toolInput", index, partialJson: piece });
+            } else if (delta["type"] === "thinking_delta") {
+              block["thinking"] = `${str(block["thinking"]) ?? ""}${str(delta["thinking"]) ?? ""}`;
+            } else if (delta["type"] === "signature_delta") {
+              block["signature"] = str(delta["signature"]) ?? "";
+            }
+            break;
+          }
+          case "content_block_stop": {
+            const index = num(data["index"]) ?? 0;
+            const block = blocks[index];
+            if (block && block["type"] === "tool_use") {
+              let input: Record<string, unknown> | null = null;
+              try { input = asObject(JSON.parse(json[index] || "{}")); } catch { input = null; }
+              /** Arguments that are not a JSON object are not run as no arguments: the answer fails, as a whole one would. */
+              if (!input) {
+                return {
+                  ok: false, code: "unreadable_tool_arguments", retryable: false,
+                  message: `Anthropic asked to call ${str(block["name"]) ?? "a tool"} with arguments that are not a JSON object.`,
+                };
+              }
+              block["input"] = input;
+            }
+            break;
+          }
+          case "message_delta": {
+            const delta = asObject(data["delta"]) ?? {};
+            if (delta["stop_reason"] !== undefined) message["stop_reason"] = delta["stop_reason"];
+            usage = { ...usage, ...(asObject(data["usage"]) ?? {}) };
+            break;
+          }
+          case "error":
+            return failure(529, { error: data["error"] });
+          default:
+            break;
+        }
       }
-
-      return {
-        ok: true,
-        completion: {
-          model: str(json["model"]) ?? request.model,
-          content: contentFrom(asArray(json["content"])),
-          stop: stopFrom(str(json["stop_reason"])),
-          usage: {
-            inputTokens,
-            outputTokens,
-            /**
-             * Null when absent rather than zero. Anthropic reports a cache
-             * read only on a request that used the cache, and zero is the
-             * different, stronger claim that it was asked and missed.
-             */
-            cachedInputTokens: num(usage?.["cache_read_input_tokens"]),
-          },
-        },
-      };
+      message["content"] = blocks.filter(Boolean);
+      message["usage"] = usage;
+      return read(200, message, request);
     },
 
     async models(): Promise<ModelListOutcome> {

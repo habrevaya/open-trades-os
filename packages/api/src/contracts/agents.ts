@@ -90,7 +90,16 @@ const Settings = z.object({
    * prices are the `chat` ones on its own settings. Optional on the way in,
    * for a caller written before the phone assistant existed.
    */
-  voice: z.object({ transferRingGroupId: Uuid.nullable() }).default({ transferRingGroupId: null }),
+  voice: z.object({
+    transferRingGroupId: Uuid.nullable(),
+    /**
+     * Waiting lines and phone menus the phone assistant may send a caller to
+     * instead of a person, each with what it is for. Empty unless set.
+     */
+    places: z.array(z.object({
+      kind: z.enum(["queue", "menu"]), id: Uuid, label: z.string().min(1).max(80),
+    })).max(6).optional(),
+  }).default({ transferRingGroupId: null }),
 });
 
 export const listAgents = defineRoute({

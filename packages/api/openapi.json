@@ -146326,6 +146326,36 @@
                       "null"
                     ],
                     "format": "uuid"
+                  },
+                  "places": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "queue",
+                            "menu"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id",
+                        "label"
+                      ]
+                    },
+                    "maxItems": 6
                   }
                 },
                 "default": {
@@ -146544,6 +146574,36 @@
                       "null"
                     ],
                     "format": "uuid"
+                  },
+                  "places": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "queue",
+                            "menu"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id",
+                        "label"
+                      ]
+                    },
+                    "maxItems": 6
                   }
                 },
                 "default": {
@@ -198316,6 +198376,36 @@
                             "null"
                           ],
                           "format": "uuid"
+                        },
+                        "places": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "queue",
+                                  "menu"
+                                ]
+                              },
+                              "id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "id",
+                              "label"
+                            ]
+                          },
+                          "maxItems": 6
                         }
                       },
                       "default": {

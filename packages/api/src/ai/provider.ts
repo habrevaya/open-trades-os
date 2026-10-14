@@ -20,15 +20,19 @@ import { adapterSettings } from "../secrets/endpoints";
  * itself is a library that can change what it sends. Four hundred lines of
  * `fetch` against a documented HTTP shape does not.
  *
- * NO STREAMING, SAID OUT LOUD RATHER THAN LEFT AS AN ABSENCE.
+ * STREAMING, FOR THE ONE CALLER THAT CAN USE IT.
  *
- * Every one of these vendors streams and this interface does not, because a
- * streamed answer has nowhere to go: the callers here are a service layer
- * that returns a value and an MCP tool call that returns a result. Adding a
- * streaming method that two adapters implement and the service never calls
- * would be a feature in the interface and nothing in the product. When
- * something in this codebase can genuinely consume a token at a time, this
- * seam grows a second method and every adapter has to answer for it.
+ * The phone assistant can: a caller hears the first sentence of an answer
+ * while the rest is still being written, rather than silence until the whole
+ * thing is done. So `stream` is a second, optional method. It returns exactly
+ * what `complete` returns, held to exactly the same checks (usage required,
+ * tool arguments parsed, not trusted), and along the way hands the caller the
+ * pieces as they arrive (`StreamDelta`). A piece is a promise of nothing: the
+ * answer is only the answer once the whole of it has been read and checked,
+ * and a caller of `stream` decides for itself what it may do with a piece
+ * before then. An adapter without it is called with `complete`, and an
+ * adapter whose vendor answers a streamed request in one piece (a gateway, a
+ * test double) is read as one piece.
  *
  * WHAT IS DELIBERATELY NOT THE PROVIDER'S BUSINESS.
  *
@@ -257,9 +261,27 @@ export interface ModelRate {
   asOf: string | null;
 }
 
+/**
+ * A piece of an answer as it is written: words, the start of a tool call (by
+ * its position in the answer, and its name), or more of that call's arguments
+ * as JSON text that is not yet whole.
+ */
+export type StreamDelta =
+  | { type: "text"; text: string }
+  | { type: "toolStart"; index: number; name: string }
+  | { type: "toolInput"; index: number; partialJson: string };
+
+export type StreamListener = (delta: StreamDelta) => void;
+
 export interface AiProvider {
   readonly name: string;
   complete(request: CompletionRequest): Promise<CompletionOutcome>;
+  /**
+   * The same request, answered in pieces as the vendor writes it, and then
+   * whole, held to the same checks as `complete`. Optional: an adapter
+   * without it is asked with `complete`.
+   */
+  stream?(request: CompletionRequest, listen: StreamListener): Promise<CompletionOutcome>;
   /**
    * What this key can run.
    *
@@ -339,6 +361,12 @@ export const registeredAiProviders = (): string[] => [...registry.keys()];
 export interface HttpResponse {
   status: number;
   text(): Promise<string>;
+  /**
+   * The body as it arrives, for a streamed answer, and its content type. A
+   * transport without them is read whole, which is a stream of one piece.
+   */
+  chunks?: (() => AsyncIterable<string>) | undefined;
+  contentType?: string | null | undefined;
 }
 
 export type HttpTransport = (
@@ -352,8 +380,75 @@ export const fetchTransport: HttpTransport = async (url, init) => {
     headers: init.headers,
     ...(init.body === undefined ? {} : { body: init.body }),
   });
-  return { status: response.status, text: () => response.text() };
+  return {
+    status: response.status,
+    text: () => response.text(),
+    contentType: response.headers.get("content-type"),
+    chunks: async function* () {
+      if (!response.body) return;
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        yield decoder.decode(value, { stream: true });
+      }
+      const tail = decoder.decode();
+      if (tail) yield tail;
+    },
+  };
 };
+
+/**
+ * Server sent events, read from a body as it arrives: each event's name and
+ * its data, the data lines joined. A body that ends mid event ends with it.
+ */
+export async function* serverSentEvents(chunks: AsyncIterable<string>): AsyncIterable<{ event: string | null; data: string }> {
+  let buffer = "";
+  const parse = (block: string) => {
+    let event: string | null = null;
+    const data: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
+    }
+    return data.length > 0 ? { event, data: data.join("\n") } : null;
+  };
+  for await (const chunk of chunks) {
+    buffer += chunk;
+    let at = buffer.search(/\r?\n\r?\n/);
+    while (at >= 0) {
+      const block = buffer.slice(0, at);
+      buffer = buffer.slice(at).replace(/^\r?\n\r?\n/, "");
+      const found = parse(block);
+      if (found) yield found;
+      at = buffer.search(/\r?\n\r?\n/);
+    }
+  }
+  const last = parse(buffer);
+  if (last) yield last;
+}
+
+/**
+ * A streamed request's answer: its events as they arrive, or, when the
+ * vendor answered with something that is not a stream (an error, a gateway
+ * that does not stream), the whole body to read the ordinary way.
+ */
+export async function streamed(response: HttpResponse): Promise<
+  | { kind: "events"; events: AsyncIterable<{ event: string | null; data: string }> }
+  | { kind: "whole"; text: string }
+> {
+  const type = response.contentType ?? "";
+  if (response.status >= 200 && response.status < 300 && response.chunks && type.includes("text/event-stream")) {
+    return { kind: "events", events: serverSentEvents(response.chunks()) };
+  }
+  const text = await response.text();
+  /** A transport that hands the whole stream back as text is still a stream, read at once. */
+  if (response.status >= 200 && response.status < 300 && /^(event|data):/m.test(text) && !text.trimStart().startsWith("{")) {
+    return { kind: "events", events: serverSentEvents((async function* () { yield text; })()) };
+  }
+  return { kind: "whole", text };
+}
 
 /**
  * THE KEY NEVER LEAVES THIS DIRECTORY, AND NEVER REACHES A STRING ANYBODY

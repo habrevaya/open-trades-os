@@ -74,7 +74,16 @@ export async function saveAgent(_previous: FormState, form: FormData): Promise<F
       ? { texts: ticked("texts"), emails: ticked("emails"), calls: ticked("calls"), forms: ticked("forms") }
       : base.intake,
     collections: { steps: kind === "collections" ? steps : base.collections.steps },
-    voice: { transferRingGroupId: kind === "voice" ? field(form, "transferRingGroupId") ?? null : base.voice.transferRingGroupId },
+    voice: kind === "voice"
+      ? {
+          transferRingGroupId: field(form, "transferRingGroupId") ?? null,
+          /** Each ticked place with what it is for, typed beside it. */
+          places: form.getAll("place").map(String).filter(Boolean).map((key) => {
+            const [placeKind, id] = key.split(":");
+            return { kind: placeKind === "menu" ? "menu" as const : "queue" as const, id: id ?? "", label: field(form, `placeLabel:${key}`) ?? "" };
+          }),
+        }
+      : base.voice,
   };
 
   const state = await attempt(form, () => agents.configure(ctx, parsed(configureAgent.input, { agent: kind, settings })));

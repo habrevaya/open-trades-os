@@ -59,8 +59,13 @@ export function parseRelay(raw: string): RelayInbound | null {
   }
 }
 
-/** Words for the carrier to read aloud, as one complete piece. */
-export const relayText = (text: string): string => JSON.stringify({ type: "text", token: text, last: true });
+/**
+ * Words for the carrier to read aloud. A whole answer is one message with
+ * `last` true. An answer said as it is written is several: each finished
+ * sentence with `last` false, said as it arrives, and the rest with `last`
+ * true, which tells the carrier the answer is complete.
+ */
+export const relayText = (text: string, last = true): string => JSON.stringify({ type: "text", token: text, last });
 
 /**
  * End the conversation. The carrier then asks the call's next step what to

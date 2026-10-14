@@ -310,8 +310,10 @@ answering the call, through Twilio's ConversationRelay, which turns speech into
 text and back. It says first, in words no model wrote and that cannot be talked
 over, that it is an automated assistant and that the call is written down. What
 it may do, who it acts as and the log of what it did are M27's; on the call
-screen it shows what it heard, what it said and what it did. When it puts a
-caller through, they go to the ring group chosen on its settings, or voicemail.
+screen it shows what it heard, what it said and what it did. It says its
+replies a sentence at a time as the model writes them. When it puts a caller
+through, they go to the ring group chosen on its settings, or voicemail, or to
+one of the waiting lines and menus the owner allowed it when that fits better.
 When it is switched off, or this installation runs no relay, a call sent to it
 goes there too, with the reason under "Where it went".
 

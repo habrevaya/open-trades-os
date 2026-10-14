@@ -10,7 +10,7 @@ import { assertSecretName, readerFor } from "../secrets/store";
 import { providerEndpointOverridesAllowed } from "../secrets/endpoints";
 import {
   createAiProvider, registeredAiProviders, AiProviderNotConfiguredError,
-  type AiContent, type AiMessage, type AiProvider, type AiToolDefinition,
+  type AiContent, type AiMessage, type AiProvider, type AiToolDefinition, type StreamListener,
   type ModelRate,
 } from "../ai/provider";
 
@@ -719,13 +719,15 @@ export async function agentTurn(
   ctx: ServiceContext,
   input: Omit<CompleteInput, "offerTools"> & { permission: Permission; tools: AiToolDefinition[] },
   deps: AiDeps = DEFAULT_DEPS,
+  /** Handed each piece of the answer as it is written, when the adapter streams. */
+  listen?: StreamListener,
 ) {
-  return turn(ctx, input.permission, input, input.tools, deps);
+  return turn(ctx, input.permission, input, input.tools, deps, listen);
 }
 
 async function turn(
   ctx: ServiceContext, guard: Permission, input: Omit<CompleteInput, "offerTools">,
-  tools: AiToolDefinition[] | undefined, deps: AiDeps,
+  tools: AiToolDefinition[] | undefined, deps: AiDeps, listen?: StreamListener,
 ) {
   const now = (deps.now ?? (() => new Date()))();
 
@@ -825,14 +827,21 @@ async function turn(
    */
   if (plan.refusal !== null) throw new ConflictError(plan.refusal);
 
-  /* Phase two: the vendor, outside any transaction. */
-  const outcome = await plan.provider.complete({
+  /*
+   * Phase two: the vendor, outside any transaction. Streamed when the caller
+   * listens and the adapter can; the answer is the same whole answer either
+   * way, and is costed and recorded the same way below.
+   */
+  const request = {
     model: plan.model,
     ...(input.system ? { system: input.system } : {}),
     messages: input.messages,
     ...(tools && tools.length > 0 ? { tools } : {}),
     maxOutputTokens: input.maxOutputTokens,
-  });
+  };
+  const outcome = listen && plan.provider.stream
+    ? await plan.provider.stream(request, listen)
+    : await plan.provider.complete(request);
 
   /* Phase three: what it cost. */
   if (!outcome.ok) {

@@ -1,0 +1,1 @@
+ALTER TABLE "voice_agent_session" ADD COLUMN "transfer_to" jsonb;

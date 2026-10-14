@@ -1990,6 +1990,11 @@ export interface ConfigureAgentInput {
     };
     voice?: {
       transferRingGroupId: string | null;
+      places?: Array<{
+        kind: "queue" | "menu";
+        id: string;
+        label: string;
+      }>;
     };
   };
 }
@@ -2033,6 +2038,11 @@ export interface ConfigureAgentOutput {
     };
     voice?: {
       transferRingGroupId: string | null;
+      places?: Array<{
+        kind: "queue" | "menu";
+        id: string;
+        label: string;
+      }>;
     };
   };
 }
@@ -12021,6 +12031,11 @@ export interface ListAgentsOutput {
       };
       voice?: {
         transferRingGroupId: string | null;
+        places?: Array<{
+          kind: "queue" | "menu";
+          id: string;
+          label: string;
+        }>;
       };
     };
     runAs: {

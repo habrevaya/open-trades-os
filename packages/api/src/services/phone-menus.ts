@@ -277,6 +277,8 @@ async function usedBy(tx: Database, organizationId: string, target: Destination)
     if (assistant.voice.transferRingGroupId === target.id) found.push("the phone assistant");
   }
   if (target.kind === "ivr") {
+    const assistant = await settingWithin(tx, organizationId, "voice");
+    if ((assistant.voice.places ?? []).some((p) => p.kind === "menu" && p.id === target.menu)) found.push("the phone assistant");
     const numbers = await tx.select({ e164: schema.phoneNumber.e164 }).from(schema.phoneNumber)
       .where(and(eq(schema.phoneNumber.menuId, target.menu), sql`${schema.phoneNumber.releasedAt} is null`));
     for (const n of numbers) found.push(`the number ${n.e164}`);

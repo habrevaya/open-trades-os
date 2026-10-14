@@ -8,6 +8,7 @@ import {
 import { replayed, remember } from "./once";
 import { directoryFor } from "./phone-menus";
 import * as callbacks from "./queue-callbacks";
+import { settingWithin } from "./agents";
 
 /**
  * WAITING LINES
@@ -161,6 +162,8 @@ async function usedBy(tx: Database, organizationId: string, id: string): Promise
   for (const group of groups) if (same(group.noAnswerTo as Destination)) found.push(`the ${group.name} ring group`);
   const queues = await tx.select().from(schema.callQueue).where(eq(schema.callQueue.organizationId, organizationId));
   for (const queue of queues) if (queue.id !== id && same(queue.overflowTo as Destination)) found.push(`the ${queue.name} waiting line`);
+  const assistant = await settingWithin(tx, organizationId, "voice");
+  if ((assistant.voice.places ?? []).some((p) => p.kind === "queue" && p.id === id)) found.push("the phone assistant");
   return found;
 }
 

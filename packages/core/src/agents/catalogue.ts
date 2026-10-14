@@ -311,13 +311,15 @@ export const AGENTS: Readonly<Record<AgentKind, AgentDefinition>> = {
         name: "transfer",
         description:
           "Put the caller through to a person: when they ask, when they are upset, when they describe danger (gas "
-          + "smell, flooding, sparks), or when you are unsure or the facts do not cover it.",
+          + "smell, flooding, sparks), or when you are unsure or the facts do not cover it. When one of the places "
+          + "you were given fits what the caller needs better (a waiting line or a phone menu), name it as place.",
         permissions: [],
         consequential: false,
         inputSchema: {
           type: "object",
           properties: {
             reason: text(300, "Why a person should take it, for the office."),
+            place: text(64, "The id of one of the places you were given, only when it fits better than a person."),
             text: text(300, "What to tell the caller before they are put through."),
           },
           required: ["reason"],
