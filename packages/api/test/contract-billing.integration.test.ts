@@ -260,3 +260,153 @@ run("a contract billed on a schedule", () => {
     expect((await contractBilling.view(owner(), { contractId: contract.id })).standing).toMatch(/switched off/);
   });
 });
+
+/**
+ * IN ARREARS
+ *
+ * Billed the day after each period ends, for the period just gone. What has
+ * to hold: no period billed before it has run, a pause or an end billing only
+ * the days that ran (by the day, said on the line, whatever the contract says
+ * about part months), no paused day ever billed, and nothing credited by
+ * itself. Posted to the ledger the way any invoice is.
+ */
+run("a contract billed in arrears", () => {
+  const daysIn = (first: string) => cb.daysBetween(first, recurrence.addDays(recurrence.addMonths(first, 1), -1));
+
+  it("bills each month after it ends, never the month still running, and posts it like any invoice", async () => {
+    const contract = await contractFrom(firstOf(2));
+    const set = await contractBilling.set(owner(), {
+      contractId: contract.id, amount: "1200.00", frequency: "monthly", billingDay: 1, timing: "arrears",
+      description: "Planned maintenance, both sites",
+    });
+    expect(set.schedule).toMatchObject({ timing: "arrears", state: "active" });
+    expect(set.due).toBe(2);
+    expect(set.next).toMatchObject({ start: firstOf(0), billOn: firstOf(-1) });
+
+    const raised = await contractBilling.billingFor(db(), ORG);
+    expect(raised.error).toBeNull();
+    expect(raised.raised.map((r) => [r.periodStart, r.periodEnd])).toEqual([
+      [firstOf(2), recurrence.addDays(firstOf(1), -1)],
+      [firstOf(1), recurrence.addDays(firstOf(0), -1)],
+    ]);
+    expect((await contractBilling.raiseDue(owner(), { contractId: contract.id })).raised).toEqual([]);
+
+    const periods = await raw<{ bill_on: string }[]>`
+      select bill_on::text from public.contract_billing_period where contract_id = ${contract.id} order by period_start`;
+    expect(periods.map((p) => p.bill_on)).toEqual([firstOf(1), firstOf(0)]);
+    const lines = await raw<{ description: string; price_note: string }[]>`
+      select description, price_note from public.invoice_line where organization_id = ${ORG} order by created_at`;
+    expect(lines[0]!.description).toBe(cb.periodWords(firstOf(2), recurrence.addDays(firstOf(1), -1)));
+    expect(lines[0]!.price_note).toMatch(/billed in arrears/);
+
+    const entries = await raw<{ account_code: string; direction: string; amount: string }[]>`
+      select account_code, direction::text, sum(amount)::text as amount from public.ledger_entry
+      where organization_id = ${ORG} group by account_code, direction order by account_code`;
+    expect(entries).toEqual([
+      { account_code: "1200", direction: "debit", amount: "2400.0000" },
+      { account_code: "4000", direction: "credit", amount: "2400.0000" },
+    ]);
+  });
+
+  it("bills the days before a pause by the day, says so on the line, and never bills a paused day", async () => {
+    const contract = await contractFrom(firstOf(2));
+    await contractBilling.set(owner(), {
+      contractId: contract.id, amount: "1240.00", frequency: "monthly", billingDay: 1, timing: "arrears", description: "Fee",
+    });
+    const paused = await contractBilling.pause(owner(), { contractId: contract.id });
+    expect(paused.standing).toMatch(/part of the period that ran/);
+    /** Paused on the tenth of last month, as if it had been since then. */
+    const pausedOn = recurrence.addDays(firstOf(1), 9);
+    await raw`update public.contract_billing_schedule set paused_on = ${pausedOn} where contract_id = ${contract.id}`;
+    expect((await contractBilling.view(owner(), { contractId: contract.id })).due).toBe(2);
+
+    /** The worker visits a company with a schedule paused in arrears, for the part before the pause. */
+    const pass = (await contractBilling.billingPass(db(), { force: true, limit: 10_000 })).filter((r) => r.organizationId === ORG);
+    expect(pass).toHaveLength(1);
+    expect(pass[0]!.raised.map((r) => [r.periodStart, r.periodEnd])).toEqual([
+      [firstOf(2), recurrence.addDays(firstOf(1), -1)],
+      [firstOf(1), recurrence.addDays(pausedOn, -1)],
+    ]);
+    /** Once the day before the pause is billed, the worker has nothing more to visit it for. */
+    expect((await contractBilling.billingPass(db(), { force: true, limit: 10_000 })).filter((r) => r.organizationId === ORG)).toEqual([]);
+    const part = (await periodsOf(contract.id))[1]!;
+    expect(part.amount).toBe(m.toString(cb.prorate(m.money("1240.00"), 9, daysIn(firstOf(1)))));
+    const [line] = await raw<{ description: string; price_note: string; unit_price: string }[]>`
+      select description, price_note, unit_price::text from public.invoice_line
+      where invoice_id = ${part.invoice_id} limit 1`;
+    expect(line!.description).toBe(`${cb.periodWords(firstOf(1), recurrence.addDays(pausedOn, -1))}, 9 of ${daysIn(firstOf(1))} days, charged by the day`);
+    expect(line!.price_note).toMatch(new RegExp(`Billing was paused on ${pausedOn}, so this is the part of the period that ran`));
+
+    /** Started again today: the paused days are written down, and the month running is billed from today. */
+    const today = companyToday();
+    const resumed = await contractBilling.resume(owner(), { contractId: contract.id });
+    expect(resumed.periods[0]).toMatchObject({ start: pausedOn, end: recurrence.addDays(today, -1), status: "skipped", invoiceId: null });
+    expect(resumed.next).toMatchObject({ start: today, billOn: firstOf(-1), prorated: today !== firstOf(0) });
+    expect(resumed.due).toBe(0);
+
+    /** Nothing was credited: the two invoices stand, and no paused day is on any of them. */
+    const invoices = await invoicesOf();
+    expect(invoices).toHaveLength(2);
+    const billedDays = (await raw<{ days: number }[]>`
+      select days from public.contract_billing_period where contract_id = ${contract.id} and status = 'invoiced'`)
+      .reduce((sum, r) => sum + r.days, 0);
+    expect(billedDays).toBe(cb.daysBetween(firstOf(2), recurrence.addDays(pausedOn, -1)));
+    const credits = await raw`select 1 from public.credit_note where organization_id = ${ORG}`;
+    expect(credits).toHaveLength(0);
+  });
+
+  it("bills up to the last day it was ended on by the day, the day after, even when the contract bills part months whole", async () => {
+    const contract = await contractFrom(firstOf(2));
+    await contractBilling.set(owner(), {
+      contractId: contract.id, amount: "1240.00", frequency: "monthly", billingDay: 1, timing: "arrears", description: "Fee",
+    });
+    const lastDay = recurrence.addDays(firstOf(1), 9);
+    await contractBilling.end(owner(), { contractId: contract.id, lastDay });
+    await contractBilling.raiseDue(owner(), { contractId: contract.id });
+    const periods = await raw<{ period_start: string; period_end: string; bill_on: string; amount: string; prorated: boolean }[]>`
+      select period_start::text, period_end::text, bill_on::text, amount::text, prorated
+      from public.contract_billing_period where contract_id = ${contract.id} order by period_start`;
+    expect(periods).toEqual([
+      { period_start: firstOf(2), period_end: recurrence.addDays(firstOf(1), -1), bill_on: firstOf(1), amount: "1240.0000", prorated: false },
+      {
+        period_start: firstOf(1), period_end: lastDay, bill_on: recurrence.addDays(lastDay, 1),
+        amount: m.toString(cb.prorate(m.money("1240.00"), 10, daysIn(firstOf(1)))), prorated: true,
+      },
+    ]);
+    expect((await contractBilling.view(owner(), { contractId: contract.id })).next).toBeNull();
+  });
+
+  it("moves between in advance and in arrears without billing a day twice", async () => {
+    const contract = await contractFrom(firstOf(1));
+    await contractBilling.set(owner(), {
+      contractId: contract.id, amount: "1000.00", frequency: "monthly", billingDay: 1, description: "Fee",
+    });
+    await contractBilling.raiseDue(owner(), { contractId: contract.id });
+    /** This month is billed in advance already, so arrears starts with next month, billed the month after. */
+    const moved = await contractBilling.set(owner(), {
+      contractId: contract.id, amount: "1000.00", frequency: "monthly", billingDay: 1, timing: "arrears", description: "Fee",
+    });
+    expect(moved.schedule).toMatchObject({ timing: "arrears", startsOn: firstOf(-1) });
+    expect(moved.next).toMatchObject({ start: firstOf(-1), billOn: firstOf(-2) });
+    expect(moved.due).toBe(0);
+  });
+
+  it("started again after it was ended while paused, bills none of the pause", async () => {
+    const contract = await contractFrom(firstOf(2));
+    await contractBilling.set(owner(), {
+      contractId: contract.id, amount: "600.00", frequency: "monthly", billingDay: 1, timing: "arrears", description: "Fee",
+    });
+    await contractBilling.pause(owner(), { contractId: contract.id });
+    const pausedOn = recurrence.addDays(firstOf(1), 4);
+    await raw`update public.contract_billing_schedule set paused_on = ${pausedOn} where contract_id = ${contract.id}`;
+    await contractBilling.end(owner(), { contractId: contract.id });
+    await contractBilling.raiseDue(owner(), { contractId: contract.id });
+    const again = await contractBilling.set(owner(), {
+      contractId: contract.id, amount: "600.00", frequency: "monthly", billingDay: 1, description: "Fee",
+    });
+    const today = companyToday();
+    expect(again.schedule).toMatchObject({ state: "active", startsOn: today, timing: "arrears" });
+    expect(again.periods.find((p) => p.status === "skipped")).toMatchObject({ start: pausedOn, end: recurrence.addDays(today, -1) });
+    expect(again.due).toBe(0);
+  });
+});

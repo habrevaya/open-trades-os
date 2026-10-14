@@ -287,6 +287,8 @@ export const contractSite = pgTable("contract_site", {
  */
 export const contractBillingFrequency = pgEnum("contract_billing_frequency", ["monthly", "quarterly", "yearly"]);
 export const contractBillingState = pgEnum("contract_billing_state", ["active", "paused", "ended"]);
+/** In advance, each period on its first day; in arrears, the day after its last, for the period just gone. */
+export const contractBillingTiming = pgEnum("contract_billing_timing", ["advance", "arrears"]);
 
 export const contractBillingSchedule = pgTable("contract_billing_schedule", {
   id: pk(),
@@ -297,6 +299,13 @@ export const contractBillingSchedule = pgTable("contract_billing_schedule", {
   frequency: contractBillingFrequency("frequency").notNull().default("monthly"),
   /** 1 to 28, so every month has one. */
   billingDay: integer("billing_day").notNull(),
+  /**
+   * Billed at the start of each period for the period ahead, or at the end
+   * for the period just gone. In arrears a pause or an end bills the part of
+   * the period that ran, by the day; in advance it leaves what was billed as
+   * it is.
+   */
+  timing: contractBillingTiming("timing").notNull().default("advance"),
   /**
    * The first day billed for, and the day the pattern of billing days is
    * counted from. Changing how often or on which day it bills moves this to
@@ -338,6 +347,7 @@ export const contractBillingPeriod = pgTable("contract_billing_period", {
   scheduleId: uuid("schedule_id").notNull().references(() => contractBillingSchedule.id, { onDelete: "cascade" }),
   periodStart: date("period_start").notNull(),
   periodEnd: date("period_end").notNull(),
+  /** The day it is billed: its first day in advance, the day after its last in arrears. */
   billOn: date("bill_on").notNull(),
   /** What the period was billed, before tax, as worked out on the day. */
   amount: money("amount").notNull(),
@@ -346,7 +356,10 @@ export const contractBillingPeriod = pgTable("contract_billing_period", {
   fullDays: integer("full_days").notNull(),
   status: contractBillingPeriodStatus("status").notNull(),
   invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "set null" }),
-  /** Why it was skipped, in words. */
+  /**
+   * Why it was skipped, or why an invoiced one is a part period, in words. In
+   * arrears a skipped row is the days a pause took, which are never billed.
+   */
   note: text("note"),
   ...timestamps,
 }, (t) => ({

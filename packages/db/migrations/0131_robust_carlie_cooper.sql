@@ -1,0 +1,2 @@
+CREATE TYPE "public"."contract_billing_timing" AS ENUM('advance', 'arrears');--> statement-breakpoint
+ALTER TABLE "contract_billing_schedule" ADD COLUMN "timing" "contract_billing_timing" DEFAULT 'advance' NOT NULL;

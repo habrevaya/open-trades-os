@@ -109,9 +109,9 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
         <h2 className="text-base font-semibold">Billed on a schedule</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
           A fixed fee every month, three months or year, whether or not anybody
-          visited. On each billing day an invoice for the period starting that
-          day goes to {contract.customerName}, on their payment terms, with the
-          PO number above. Work done on jobs is still billed as usual.
+          visited. An invoice goes to {contract.customerName} for each period,
+          at its start or after it ends, on their payment terms, with the PO
+          number above. Work done on jobs is still billed as usual.
         </p>
         {fee.schedule ? (
           <div className="mt-3 space-y-1 text-sm">
@@ -119,7 +119,10 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
               <Money value={fee.schedule.amount} /> {cb.FREQUENCY_LABEL[fee.schedule.frequency].toLowerCase()},
               billed on day {fee.schedule.billingDay}, from {fee.schedule.startsOn}
               {fee.schedule.lastDay ? `, until ${fee.schedule.lastDay}` : ""}.
-              {fee.schedule.prorate ? " A part period is charged by the day." : " A part period is charged as a whole one."}
+              {fee.schedule.timing === "arrears"
+                ? " Billed after each period ends, for the period just gone. A period cut short by a pause or an end is charged by the day for the days it ran."
+                : " Billed at the start of each period, for the period ahead."}
+              {fee.schedule.prorate ? " A part period is charged by the day." : " A part period at the start is charged as a whole one."}
               {fee.schedule.taxable ? " Sales tax is added." : " No sales tax."}
             </p>
             {fee.standing ? <p className="text-ink-700">{fee.standing}</p> : null}
@@ -170,6 +173,8 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                         options={cb.FREQUENCIES.map((f) => ({ value: f, label: cb.FREQUENCY_LABEL[f] }))} />
                 <TextField label="Billing day of the month (1 to 28)" name="billingDay" inputMode="numeric" required
                            defaultValue={String(fee.schedule?.billingDay ?? billingDayFor(contract.startsOn))} />
+                <Select label="When it bills" name="timing" defaultValue={fee.schedule?.timing ?? "advance"}
+                        options={cb.TIMINGS.map((t) => ({ value: t, label: cb.TIMING_LABEL[t] }))} />
                 <TextField label="First day billed for" name="startsOn" type="date"
                            defaultValue={fee.schedule?.startsOn ?? contract.startsOn ?? ""} />
                 <TextField label="What the invoice says" name="description" required placeholder="Planned maintenance, all sites"
@@ -178,6 +183,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="prorate" value="1" className="h-4 w-4" defaultChecked={fee.schedule?.prorate ?? false} />
                 Charge a part month by the day. Without this, a part month at the start or end is charged in full.
+                Billed at the end of each period, a month cut short by a pause or an end is always charged by the day.
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="taxable" value="1" className="h-4 w-4" defaultChecked={fee.schedule?.taxable ?? false} />
@@ -190,7 +196,11 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
           <Table label="Periods billed" head={<><Th>Period</Th><Th>Billed on</Th><Th className="text-right">Amount</Th><Th>Invoice</Th></>}>
             {fee.periods.map((period) => (
               <tr key={period.id}>
-                <Td>{cb.periodWords(period.start, period.end)}{period.prorated ? `, ${period.days} of ${period.fullDays} days` : ""}</Td>
+                <Td>
+                  {cb.periodWords(period.start, period.end)}{period.prorated ? `, ${period.days} of ${period.fullDays} days` : ""}
+                  {period.status === "invoiced" && period.prorated && period.note
+                    ? <span className="block text-xs text-ink-500">{period.note}</span> : null}
+                </Td>
                 <Td>{period.billOn}</Td>
                 <Td className="text-right"><Money value={period.amount} /></Td>
                 <Td>

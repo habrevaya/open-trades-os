@@ -335,6 +335,7 @@ export const ContractBilling = z.object({
     frequency: BillingFrequency,
     /** 1 to 28. */
     billingDay: z.number().int(),
+    timing: BillingTiming,
     /** The first day billed for, and the day the billing days are counted from. */
     startsOn: z.string().date(),
     prorate: z.boolean(),
@@ -353,10 +354,11 @@ export const ContractBilling = z.object({
   due: z.number().int(),
   periods: z.array(BillingPeriod.extend({
     id: Uuid,
-    /** `skipped` for a period whose billing day fell while the schedule was paused. */
+    /** `skipped` for a period whose billing day fell while the schedule was paused, or in arrears the days a pause took. */
     status: z.enum(["invoiced", "skipped"]),
     invoiceId: Uuid.nullable(),
     invoiceNumber: z.number().int().nullable(),
+    /** Why it was skipped, or how an invoiced one was worked out, in words. */
     note: z.string().nullable(),
   })),
   /** Why nothing is being billed, in words, when nothing is. */
@@ -368,7 +370,7 @@ export const getContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing",
   summary: "A contract's fixed fee schedule, and every period it has billed",
   description:
-    "The schedule (the fee, how often, the billing day, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.",
+    "The schedule (the fee, how often, the billing day, in advance or in arrears, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.",
   module: "M31",
   permissions: ["contract:read"],
   input: z.object({ contractId: Uuid }),
@@ -380,7 +382,7 @@ export const setContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing",
   summary: "Bill a contract a fixed fee every month, quarter or year",
   description:
-    "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer on the period's billing day in the company's calendar, in advance, for the period that starts that day, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue like any invoice. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of. The billing day is 1 to 28. Changing how often or on which day it bills, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.",
+    "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer in the company's calendar, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue on the day it is raised like any invoice. With `timing` `advance` (the default) each period is billed on its billing day, for the period that starts that day; with `arrears` it is billed the day after it ends, for the period just gone. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of; in arrears a period cut short by a pause or an end is always charged by the day for the days that ran, and the invoice line says how many. The billing day is 1 to 28. Changing how often, on which day or in advance or arrears, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
@@ -389,6 +391,8 @@ export const setContractBilling = defineRoute({
     amount: MoneyString,
     frequency: BillingFrequency,
     billingDay: z.number().int().min(1).max(28),
+    /** Left off, a new schedule bills in advance and a change keeps what the schedule had. */
+    timing: BillingTiming.optional(),
     /** The first day billed for. Left off, the contract's start, or today. */
     startsOn: z.string().date().optional(),
     prorate: z.boolean().optional(),
@@ -403,7 +407,7 @@ export const pauseContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing/pause",
   summary: "Stop a contract's fixed fee until it is resumed",
   description:
-    "Nothing is billed while it is paused, and a period whose billing day falls in the pause is written down as skipped when it is resumed, so it is never billed afterwards. Pausing one already paused changes nothing.",
+    "Nothing is billed while it is paused. In advance, a period whose billing day falls in the pause is written down as skipped when it is resumed, so it is never billed afterwards, and a period already billed is left as it is. In arrears, the part of the running period before today is billed by the day on the next pass, as the part that ran, and no paused day is ever billed. Nothing is credited either way. Pausing one already paused changes nothing.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
@@ -416,7 +420,7 @@ export const resumeContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing/resume",
   summary: "Start a paused fixed fee again",
   description:
-    "Billing starts again from today. Each period whose billing day fell while it was paused is written down as skipped rather than billed, so a customer is not sent the paused months the morning it is resumed. A period owed from before the pause is still billed. Resuming one not paused changes nothing.",
+    "Billing starts again from today. In advance, each period whose billing day fell while it was paused is written down as skipped rather than billed, so a customer is not sent the paused months the morning it is resumed, and a period owed from before the pause is still billed. In arrears, the paused days are written down as skipped, and the period running today is billed at its end for the days from today, by the day. Resuming one not paused changes nothing.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
@@ -429,7 +433,7 @@ export const endContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing/end",
   summary: "End a contract's fixed fee on a last day",
   description:
-    "Periods up to `lastDay` (today when left off) are still billed, one cut short by it as a part period, and nothing after. An invoice already raised for a period the end cuts short is left as it is: crediting the rest is decided on that invoice. Saving the schedule again starts it again.",
+    "Periods up to `lastDay` (today when left off) are still billed, one cut short by it as a part period, and nothing after. In arrears the part period is charged by the day and billed the day after `lastDay`. In advance, an invoice already raised for a period the end cuts short is left as it is: crediting the rest is decided on that invoice. Saving the schedule again starts it again.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,

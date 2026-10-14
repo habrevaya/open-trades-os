@@ -175,6 +175,7 @@ export async function setContractBilling(_previous: FormState, form: FormData): 
     amount: field(form, "amount") ?? "",
     frequency: (frequency === "quarterly" || frequency === "yearly" ? frequency : "monthly"),
     billingDay: Number(field(form, "billingDay") ?? "0"),
+    timing: field(form, "timing") === "arrears" ? "arrears" : "advance",
     startsOn: field(form, "startsOn"),
     prorate: form.get("prorate") === "1",
     taxable: form.get("taxable") === "1",

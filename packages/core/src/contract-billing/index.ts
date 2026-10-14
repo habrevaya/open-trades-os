@@ -28,6 +28,18 @@ import { addDays, addMonths } from "../recurrence/index.js";
  * billed as a whole period, which is what a contract that says nothing about
  * part months means: the fee is the fee.
  *
+ * OR IN ARREARS, AT THE END. A contract can say it bills each period after
+ * it has run instead: the month of March is billed on the first of April,
+ * the day after its last day. The periods are the same; only the day each is
+ * billed moves. What arrears changes is what a pause or an end means. A
+ * period cut short by either is billed for the part of it that ran, by the
+ * day, always, because the cover was given for those days and not the rest;
+ * the invoice line says how many days of how many. A period that starts
+ * again on the day billing resumes is billed from that day, by the day, the
+ * same way. Nothing is ever credited by any of this: in arrears nothing was
+ * billed ahead to give back. A part period at the start of the contract
+ * still follows the contract's own word on prorating, as in advance.
+ *
  * ROUNDED ONCE. A prorated amount is the whole amount times the days over the
  * period's days, exactly, then rounded to the cent half up. Rounding the day
  * rate first and multiplying would be a cent out on a long month.
@@ -46,6 +58,29 @@ export const FREQUENCY_LABEL: Record<Frequency, string> = {
   yearly: "Every year",
 };
 
+/** When each period is billed: on its first day, or the day after its last. */
+export type Timing = "advance" | "arrears";
+
+export const TIMINGS: readonly Timing[] = ["advance", "arrears"];
+
+export const TIMING_LABEL: Record<Timing, string> = {
+  advance: "At the start of each period, for the period ahead",
+  arrears: "At the end of each period, for the period just gone",
+};
+
+/**
+ * Days nothing is billed for, in arrears: a pause, from the day it was paused
+ * to the day before billing started again, or with no end while it still is.
+ */
+export interface Stop {
+  from: string;
+  /** The last day of the pause, inclusive, or null while it is still paused. */
+  to: string | null;
+}
+
+/** Why a period is shorter than the whole period it is part of, at its end or its start. */
+export type Cut = "end" | "pause" | "resume" | null;
+
 export interface Schedule {
   /** The fee for one whole period. */
   amount: Money;
@@ -58,13 +93,17 @@ export interface Schedule {
   endsOn: string | null;
   /** Prorate a part period at either end by day. Off, a part period is billed whole. */
   prorate: boolean;
+  /** In advance (the default) or in arrears. */
+  timing?: Timing | undefined;
+  /** In arrears, the days paused, which are never billed. Ignored in advance, where a paused period is skipped whole. */
+  stops?: readonly Stop[] | undefined;
 }
 
 export interface Period {
   /** First and last day the period covers, inclusive. */
   start: string;
   end: string;
-  /** The day it is billed: its first day. */
+  /** The day it is billed: its first day in advance, the day after its last in arrears. */
   billOn: string;
   amount: Money;
   /** True when the amount is a share of the whole fee, by day. */
@@ -73,6 +112,8 @@ export interface Period {
   days: number;
   /** Days of the whole period it is part of, which a prorated amount is a share of. */
   fullDays: number;
+  /** What cut it short: the schedule's or contract's end, a pause, or billing starting again part way through. */
+  cut: Cut;
 }
 
 /** Whether a schedule's terms can be billed, and why not, in words. */
@@ -144,25 +185,79 @@ export function prorate(amount: Money, days: number, fullDays: number): Money {
   return { amount: (negative ? -cents : cents) * 100n, currency: amount.currency };
 }
 
-/** The period that begins on a day, cut at the schedule's end, priced. */
+const arrearsOf = (schedule: Schedule) => schedule.timing === "arrears";
+
+/** The stop a day falls in, in arrears. */
+function stopAround(schedule: Schedule, on: string): Stop | null {
+  if (!arrearsOf(schedule)) return null;
+  return (schedule.stops ?? []).find((s) => s.from <= on && (s.to === null || on <= s.to)) ?? null;
+}
+
+/**
+ * The period that begins on a day, cut at the schedule's end, priced.
+ *
+ * In arrears it is also cut the day before a pause begins, and one that
+ * begins the day billing started again, part way through a whole period, is
+ * that part. Either is charged by the day whatever the contract says about
+ * prorating, because what is billed after the fact is the days that ran.
+ */
 export function periodFrom(schedule: Schedule, start: string): Period | null {
   if (start < schedule.startsOn) return null;
   if (schedule.endsOn && start > schedule.endsOn) return null;
+  const arrears = arrearsOf(schedule);
   const whole = wholePeriodAround(schedule, start);
-  const end = schedule.endsOn && schedule.endsOn < whole.end ? schedule.endsOn : whole.end;
+  let end = whole.end;
+  let cut: Cut = null;
+  if (schedule.endsOn && schedule.endsOn < end) {
+    end = schedule.endsOn;
+    cut = "end";
+  }
+  if (arrears) {
+    const pause = (schedule.stops ?? [])
+      .filter((s) => s.from > start && s.from <= end)
+      .sort((a, b) => (a.from < b.from ? -1 : 1))[0];
+    if (pause) {
+      end = addDays(pause.from, -1);
+      cut = "pause";
+    }
+  }
+  const resumed = arrears && start > whole.start
+    && (schedule.stops ?? []).some((s) => s.to !== null && addDays(s.to, 1) === start);
   const days = daysBetween(start, end);
   const fullDays = daysBetween(whole.start, whole.end);
   const part = days < fullDays;
-  const prorated = part && schedule.prorate;
+  const prorated = part && (schedule.prorate || (arrears && (cut !== null || resumed)));
   return {
     start,
     end,
-    billOn: start,
+    billOn: arrears ? addDays(end, 1) : start,
     amount: prorated ? prorate(schedule.amount, days, fullDays) : round(schedule.amount, 2),
     prorated,
     days,
     fullDays,
+    cut: cut ?? (resumed ? "resume" : null),
   };
+}
+
+/**
+ * Every period from the schedule's first day, in order, stepping over the
+ * days a pause took in arrears. Stops at the schedule's end, and at a pause
+ * still running.
+ */
+function* walk(schedule: Schedule): Generator<Period> {
+  let start = schedule.startsOn;
+  for (;;) {
+    const stop = stopAround(schedule, start);
+    if (stop) {
+      if (stop.to === null) return;
+      start = addDays(stop.to, 1);
+      continue;
+    }
+    const period = periodFrom(schedule, start);
+    if (!period) return;
+    yield period;
+    start = addDays(period.end, 1);
+  }
 }
 
 /**
@@ -173,24 +268,22 @@ export function periodFrom(schedule: Schedule, start: string): Period | null {
  */
 export function periodsThrough(schedule: Schedule, through: string, limit = 120): Period[] {
   const out: Period[] = [];
-  let start = schedule.startsOn;
-  while (out.length < limit) {
-    const period = periodFrom(schedule, start);
-    if (!period || period.billOn > through) break;
+  if (limit <= 0) return out;
+  for (const period of walk(schedule)) {
+    if (period.billOn > through) break;
     out.push(period);
-    start = addDays(period.end, 1);
+    if (out.length >= limit) break;
   }
   return out;
 }
 
 /** The next period whose billing day has not come yet, for the screen: "next bills 1 April". */
 export function nextPeriod(schedule: Schedule, today: string): Period | null {
-  let start = schedule.startsOn;
-  for (let guard = 0; guard < 2000; guard += 1) {
-    const period = periodFrom(schedule, start);
-    if (!period) return null;
+  let guard = 0;
+  for (const period of walk(schedule)) {
     if (period.billOn > today) return period;
-    start = addDays(period.end, 1);
+    guard += 1;
+    if (guard >= 2000) return null;
   }
   return null;
 }
@@ -207,10 +300,25 @@ export function periodWords(start: string, end: string): string {
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** The working of a period's amount, in a sentence the invoice line carries. */
-export function periodNote(period: Period, amount: Money): string {
-  if (period.prorated) {
-    return `${period.days} of ${period.fullDays} days of ${edit(round(amount, 2))} a period, prorated by day.`;
+export function periodNote(period: Period, amount: Money, timing: Timing = "advance"): string {
+  const share = `${period.days} of ${period.fullDays} days of ${edit(round(amount, 2))} a period, prorated by day`;
+  if (timing === "arrears") {
+    if (period.prorated && period.cut === "pause") {
+      return `Billing was paused on ${addDays(period.end, 1)}, so this is the part of the period that ran: ${share}.`;
+    }
+    if (period.prorated && period.cut === "end") {
+      return `The last day billed for is ${period.end}, so this is the part of the period that ran: ${share}.`;
+    }
+    if (period.prorated && period.cut === "resume") {
+      return `Billing started again on ${period.start}, so this is the part of the period that ran: ${share}.`;
+    }
+    if (period.prorated) return `${share}, billed in arrears.`;
+    if (period.days < period.fullDays) {
+      return `A part period of ${period.days} days, billed in arrears as a whole period as the contract says.`;
+    }
+    return "The contract's fee for the period just gone, billed in arrears.";
   }
+  if (period.prorated) return `${share}.`;
   if (period.days < period.fullDays) {
     return `A part period of ${period.days} days, billed as a whole period as the contract says.`;
   }
