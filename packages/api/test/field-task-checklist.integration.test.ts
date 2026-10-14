@@ -36,7 +36,6 @@ const tech = (userId: string, technicianId: string): ServiceContext => ({
   actor: { userId, organizationId: ORG, roles: ["technician"], technicianId }, db: db(),
 });
 let rayTech = "";
-let samTech = "";
 const ray = () => tech(RAY, rayTech);
 
 async function technician(userId: string, name: string): Promise<string> {
@@ -53,7 +52,7 @@ beforeAll(async () => {
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: OWNER, name: "Task Checklist Co", slug: "task-checklist-co" });
   rayTech = await technician(RAY, "Ray Nunez");
-  samTech = await technician(SAM, "Sam Ortiz");
+  await technician(SAM, "Sam Ortiz");
 });
 afterAll(async () => { if (raw) await raw.end(); });
 

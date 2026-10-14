@@ -47,7 +47,6 @@ let propertyId = "";
 let nightItem = "";
 let nightVersion = "";
 let partItem = "";
-let partVersion = "";
 
 async function bookItem(code: string, name: string, price: string, kind: string, feeRole: string | null) {
   const [row] = await raw`insert into public.price_book_item (organization_id, code, kind, fee_role)
@@ -119,7 +118,6 @@ beforeAll(async () => {
   nightVersion = night.versionId;
   const part = await bookItem("CAP", "Run capacitor", "40.0000", "material", null);
   partItem = part.itemId;
-  partVersion = part.versionId;
 });
 
 afterAll(async () => { if (raw) await raw.end(); });

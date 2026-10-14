@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { test, expect, run, newCustomer, companyToday } from "./fixtures";
 
 /**
@@ -79,22 +79,6 @@ test("an estimate for an evening job offers the after hours rate, and puts it on
   await expect(owner).toHaveURL(/\/estimates\/[0-9a-f-]{36}$/);
   await expect(owner.getByText(item).first()).toBeVisible();
 });
-
-/** A signature drawn with a finger's worth of strokes, as the selling spec does. */
-async function sign(page: Page, pad: Locator, button: Locator) {
-  await expect(async () => {
-    await pad.scrollIntoViewIfNeeded();
-    const box = (await pad.boundingBox())!;
-    await page.mouse.move(box.x + 20, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 3, box.y + 20, { steps: 8 });
-    await page.mouse.move(box.x + (2 * box.width) / 3, box.y + box.height - 20, { steps: 8 });
-    await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2, { steps: 8 });
-    await page.mouse.up();
-    await expect(button).toBeEnabled({ timeout: 1_000 });
-  }).toPass({ timeout: 15_000 });
-  await button.click();
-}
 
 test("on /my-day the after hours rate is offered on the estimate and on the invoice, and added only when asked", async ({ owner, tech }) => {
   const item = `After hours call-out P ${run}`;

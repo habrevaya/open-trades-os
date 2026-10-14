@@ -94,12 +94,17 @@ async function technician(membershipId: string, name: string): Promise<string> {
   return row!.id;
 }
 
-/** A visit on the company's today, at a place on the map, with somebody on it or nobody. */
+/**
+ * A visit on the company's today, at a place on the map, with somebody on it or nobody.
+ * Anchored to the company's morning rather than to now, so a run on a Texas evening
+ * does not put it on tomorrow.
+ */
 async function visit(jobId: string, sequence: number, technicianId: string | null, hours: number): Promise<string> {
   const [row] = await raw<{ id: string }[]>`
     insert into public.visit (organization_id, job_id, sequence, status, window_start, window_end, estimated_duration_minutes)
     values (${ORG}, ${jobId}, ${sequence}, ${technicianId ? "dispatched" : "unassigned"}::public.visit_status,
-            ${new Date(Date.now() + hours * 3600_000)}, ${new Date(Date.now() + (hours + 2) * 3600_000)}, 30)
+            (${companyToday()}::date + make_interval(hours => ${8 + hours})) at time zone 'America/Chicago',
+            (${companyToday()}::date + make_interval(hours => ${10 + hours})) at time zone 'America/Chicago', 30)
     returning id`;
   if (technicianId) {
     await raw`insert into public.visit_assignment (organization_id, visit_id, technician_id, is_lead)

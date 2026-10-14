@@ -160,14 +160,6 @@ async function onPaper(ctx: ServiceContext, customerId: string, cardId: string, 
   });
 }
 
-/** A customer with one saved card and a sign in, for a test of its own. */
-async function aSavedCard(name: string) {
-  const customerId = await aCustomer(owner(), name, `${name.split(" ")[0]!.toLowerCase()}@office-agree.test`);
-  const token = await signedIn(customerId);
-  const card = await saveACard(token);
-  return { customerId, token, cardId: card.id };
-}
-
 const agreementRows = (customerId: string) => raw<Record<string, unknown>[]>`
   select * from public.payment_agreement where customer_id = ${customerId} order by created_at`;
 
