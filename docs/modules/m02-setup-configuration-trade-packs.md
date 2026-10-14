@@ -234,15 +234,45 @@ evening.
 ### Holidays
 
 `/settings/holidays` keeps the company's own list of days it is closed, or open
-with hours of its own (Christmas Eve until noon), by date. A day can repeat every
-year, which is what a fixed date holiday is; one that moves (the fourth Thursday
-of November) is added for the year it falls in. The list starts empty and holds
-only what the company adds: no calendar of public holidays is shipped, because
-which days a business closes is its own decision. The same list is drawn on the
-setup wizard's hours step.
+with hours of its own (Christmas Eve until noon). A day is a date, which can
+repeat every year (a fixed date holiday), or a day of the week in a month, which
+moves and repeats every year: the first to fourth such weekday, or the last
+("the fourth Thursday of November", "the last Monday of May"), worked out for
+each year in core (`holidays.weekdayOfMonth`). A day that repeats can be kept off
+a weekend: on the Monday after when it falls on a Sunday, or on the nearest
+weekday (the Friday before a Saturday, the Monday after a Sunday), and then the
+day it is kept is the holiday, not the date itself; the first of January on a
+Saturday is kept on the thirty first of December before it. A one off date is
+never moved, and asking for that is refused in words. The list shows each day
+in words ("Fourth Thursday of November") with the next date it falls on. The
+list starts empty and holds only what the company adds: no calendar of public
+holidays is shipped, because which days a business closes is its own decision.
+The same list is drawn on the setup wizard's hours step.
+
+A branch can keep its own days as well as the company's: a holiday is for the
+whole company or for one branch. A reader that knows which branch it is asking
+about reads the company's list and that branch's own, and on one date a
+branch's own entry is read before the company's; a reader that does not know a
+branch reads the company's alone, because one branch's day off is not the whole
+company's. Somebody who sees only their own branch's work sees the company's
+list and their branch's own, keeps only their branch's own, and cannot change
+the company's, which closes every branch; another branch's holiday reads to
+them as not found. A branch deleted takes its own holidays with it rather than
+leaving them to close the whole company.
 
 On a date in the list, its hours replace the week's, and everything that reads the
 company's hours reads it:
+
+Which branch each reader asks about:
+
+| Reader | Branch it reads |
+|---|---|
+| Online booking, and a booking request's date checked again | The bookable service's branch, or its job type's: the branch the booked job lands in |
+| The after hours and holiday rate offer, and a pricing rule on work outside the hours | The job's |
+| The crew check (a crew's people off for the working day) | The job's |
+| Task escalation counting working hours (M34) | A task about a job or one of its visits, that job's; any other task, the company's |
+| The multi day rebalance (M09) | Each visit's job's: a Houston visit is not moved onto Houston's day off, an Austin one still may be |
+| The phones, the phone and chat assistants, the reviews clock, recurring tasks set to skip holidays | The company's: none of them knows a branch |
 
 | Reader | On a closed date | On a short day |
 |---|---|---|
@@ -255,12 +285,17 @@ company's hours reads it:
 | After hours and holiday rates, below | The holiday rate is offered | The holiday rate is offered |
 
 A date entered for one year beats a yearly one on the same day, so "this year we
-open Christmas morning" is said on top of "we close every Christmas". A second
-entry for the same date is refused in words, and so is a yearly one on the 29th of
-February, which three years in four has no date. `GET /v1/holidays` reads the
-list (`settings:read`), and `POST /v1/holidays`, `PATCH /v1/holidays/{id}` and
-`DELETE /v1/holidays/{id}` change it with `booking:configure`, the permission the
-week's hours are set with.
+open Christmas morning" is said on top of "we close every Christmas", and a
+branch's own beats the company's. A second entry for the same date in the same
+list is refused in words, and so are two repeating ones that would meet on a day
+in the next ten years (a rule and a date meet only some years: the fourth
+Thursday of November is the 26th one year in seven), and a yearly one on the
+29th of February, which three years in four has no date. `GET /v1/holidays`
+reads the list (`settings:read`), and `POST /v1/holidays`, `PATCH
+/v1/holidays/{id}` and `DELETE /v1/holidays/{id}` change it with
+`booking:configure`, the permission the week's hours are set with: a holiday's
+`rule` (`month`, `weekday`, `week`), `observed` and `businessUnitId` are on the
+same calls.
 
 ### After hours and holiday rates
 
@@ -379,13 +414,16 @@ The 10DLC step records a registration made in the carrier's portal; it does
 not submit one to a carrier. Company licences are compliance documents rather
 than a setup step.
 
-Holidays are one list for the whole company: a branch cannot keep its own, and
-the week's hours a branch has (`business_hours` carries a business unit) are not
-read per branch by the holiday list's readers either. A holiday that moves is
-entered each year; nothing works out the fourth Thursday of November. The route
-density figures (M09) read the week's hours for a weekday, not a date, so a
-holiday does not change them. Task escalation counts clock hours unless a rule is set to
-count working hours (M34), in which case it reads this week and this holiday list.
+A moving holiday is a day of the week in a month; a holiday fixed to another
+calendar (Easter, a lunar new year) is entered for each year. The week's hours a
+branch has (`business_hours` carries a business unit) are not read per branch:
+a branch keeps its own holidays, not its own week. The phones, the assistants,
+the reviews clock and recurring tasks know no branch, so they read the company's
+list alone. The route density figures (M09) are asked of a weekday's template,
+not a date, so no holiday list applies to them, the company's or a branch's.
+Task escalation counts clock hours unless a rule is set to count working hours
+(M34), in which case it reads this week and the holiday list of the task's job's
+branch.
 
 The after hours rate is offered on an invoice or an estimate for a job, never on one
 with no job, and never on an invoice made from an option the customer signed for. Whether a visit was after hours is read from the window it was booked

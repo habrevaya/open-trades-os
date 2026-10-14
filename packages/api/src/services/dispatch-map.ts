@@ -260,6 +260,8 @@ export interface DayVisit {
   preferredDays: number[];
   /** What the stop does to a roll off truck: a drop, a collection, a swap, or nothing. */
   truckWork: routing.TruckWork;
+  /** The job's branch, whose own holidays are read beside the company's. */
+  branchId: string | null;
 }
 
 interface Start {
@@ -388,6 +390,7 @@ export async function loadDay(tx: Database, organizationId: string, date: string
     jobNumber: schema.job.number,
     summary: schema.job.summary,
     jobTypeId: schema.job.jobTypeId,
+    branchId: schema.job.businessUnitId,
     jobTypeCode: schema.jobType.code,
     capacityModel: schema.jobType.capacityModel,
     requiredSkills: schema.jobType.requiredSkills,
@@ -507,6 +510,7 @@ export async function loadDay(tx: Database, organizationId: string, date: string
         : owedWindow.get(r.visit.jobId) ?? null,
       preferredDays: (r.preferredDays ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
       truckWork: truckWorkOf(r.visit.rentalEvent, r.capacityModel, r.jobTypeCode),
+      branchId: r.branchId,
     })),
   };
 }

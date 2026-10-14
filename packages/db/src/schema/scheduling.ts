@@ -86,10 +86,17 @@ export const businessHours = pgTable("business_hours", {
  * rule, so every reader asks the same question the same way.
  *
  * `repeats_yearly` is a fixed date holiday: only the month and day of `date`
- * are read. A holiday that moves (the fourth Thursday of November) is added
- * for the year it falls in. Removed outright when the company takes one off
- * the list; nothing points at a row, and the audit log keeps what it said.
+ * are read. A holiday that moves carries its `rule` (the fourth Thursday of
+ * November) and is worked out for each year; `observed` keeps a repeating
+ * one off a weekend (the Monday after when it falls on a Sunday). A row with
+ * a `business_unit_id` is that branch's own, read by that branch's readers
+ * beside the company's; it goes with the branch if the branch is deleted
+ * rather than becoming the whole company's. Removed outright when the
+ * company takes one off the list; nothing points at a row, and the audit log
+ * keeps what it said.
  */
+export const holidayObserved = pgEnum("holiday_observed", ["as_is", "sunday_to_monday", "weekend_to_weekday"]);
+
 export const companyHoliday = pgTable("company_holiday", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -100,10 +107,17 @@ export const companyHoliday = pgTable("company_holiday", {
   closed: boolean("closed").notNull().default(true),
   opensAt: time("opens_at"),
   closesAt: time("closes_at"),
+  /** A day of the week in a month, `{ month, weekday, week }`, for a holiday that moves. Null for a date. */
+  rule: jsonb("rule").$type<{ month: number; weekday: number; week: 1 | 2 | 3 | 4 | "last" } | null>(),
+  /** Where a repeating holiday is kept when it lands on a weekend. */
+  observed: holidayObserved("observed").notNull().default("as_is"),
+  /** The branch whose own holiday this is. Null is the whole company's. */
+  businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   orgIdx: index("company_holiday_org_idx").on(t.organizationId, t.date),
+  branchIdx: index("company_holiday_branch_idx").on(t.businessUnitId),
 }));
 
 // ---------------------------------------------------------------------------

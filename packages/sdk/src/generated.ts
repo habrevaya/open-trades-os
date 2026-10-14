@@ -3156,8 +3156,15 @@ export interface CreateEstimateOutput {
 
 export interface CreateHolidayInput {
   name: string;
-  date: string;
+  date?: string;
   repeatsYearly?: boolean;
+  rule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed?: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId?: string | null;
   closed: boolean;
   opensAt?: string | null;
   closesAt?: string | null;
@@ -3168,6 +3175,15 @@ export interface CreateHolidayOutput {
   name: string;
   date: string;
   repeatsYearly: boolean;
+  rule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId: string | null;
+  branchName: string | null;
+  when: string;
   closed: boolean;
   opensAt: string | null;
   closesAt: string | null;
@@ -13756,6 +13772,15 @@ export interface ListHolidaysOutput {
     name: string;
     date: string;
     repeatsYearly: boolean;
+    rule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+    businessUnitId: string | null;
+    branchName: string | null;
+    when: string;
     closed: boolean;
     opensAt: string | null;
     closesAt: string | null;
@@ -24745,8 +24770,15 @@ export interface UpdateEquipmentOutput {
 
 export interface UpdateHolidayInput {
   name: string;
-  date: string;
+  date?: string;
   repeatsYearly?: boolean;
+  rule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed?: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId?: string | null;
   closed: boolean;
   opensAt?: string | null;
   closesAt?: string | null;
@@ -24757,6 +24789,15 @@ export interface UpdateHolidayOutput {
   name: string;
   date: string;
   repeatsYearly: boolean;
+  rule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId: string | null;
+  branchName: string | null;
+  when: string;
   closed: boolean;
   opensAt: string | null;
   closesAt: string | null;

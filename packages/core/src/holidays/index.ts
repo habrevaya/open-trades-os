@@ -1,5 +1,11 @@
 import { addDays, dateIn, dayBoundsIn, instantOfLocal, minutesInDay } from "../time/index.js";
 import type { Holiday as PhoneHoliday } from "../telephony/index.js";
+import {
+  checkRule, describeObserved, describeRule, observedDate, weekdayOfMonth,
+  type Observed, type WeekdayRule,
+} from "./moving.js";
+
+export * from "./moving.js";
 
 /**
  * THE COMPANY'S OWN DAYS OFF, AND ITS SHORT DAYS
@@ -12,8 +18,15 @@ import type { Holiday as PhoneHoliday } from "../telephony/index.js";
  * NOT A CALENDAR OF PUBLIC HOLIDAYS. Which days a business closes is the
  * business's decision, and a shipped list of national holidays would close a
  * plumbing company on a day it takes its best emergency calls. The list
- * starts empty and holds only what the company put on it. Holidays that move
- * (the fourth Thursday of November) are added for the year they fall in.
+ * starts empty and holds only what the company put on it. A holiday that
+ * moves is a rule (the fourth Thursday of November, or Christmas kept on the
+ * Monday after when it falls on a Sunday), worked out for each year in
+ * `moving.ts`.
+ *
+ * A BRANCH CAN KEEP ITS OWN. A holiday with a `branchId` is that branch's,
+ * on top of the company's: a reader that knows the branch asks with
+ * `forBranch`, and on one date the branch's own entry beats the company's,
+ * because it is the more particular thing somebody said.
  *
  * ON A DATE IN THE LIST, ITS HOURS REPLACE THE WEEK'S. One rule for every
  * reader, so online booking, the phones and the reviews clock never disagree
@@ -26,9 +39,15 @@ import type { Holiday as PhoneHoliday } from "../telephony/index.js";
 
 export interface CompanyHoliday {
   name: string;
-  /** For a yearly one, any year's date: only the month and day are read. */
+  /** For a yearly one, any year's date: only the month and day are read. For a rule, any year's date it fell on. */
   date: string;
   repeatsYearly: boolean;
+  /** A day of the week in a month, for a holiday that moves. Repeats every year; `date` is then not read. */
+  rule?: WeekdayRule | null | undefined;
+  /** Where a repeating holiday is kept when it lands on a weekend. Absent is on the day itself. */
+  observed?: Observed | undefined;
+  /** The branch whose own holiday this is, or null for the company's. */
+  branchId?: string | null | undefined;
   /** Closed all day. False means open, with the hours below. */
   closed: boolean;
   openMinute: number | null;
@@ -71,7 +90,15 @@ export function checkHoliday(holiday: CompanyHoliday): HolidayCheck {
   if (holiday.name.trim() === "") return { ok: false, field: "name", message: "Give the day a name, like Christmas Day." };
   if (holiday.name.trim().length > 80) return { ok: false, field: "name", message: "Keep the name to eighty characters." };
   if (!realDate(holiday.date)) return { ok: false, field: "date", message: "That is not a date." };
-  if (holiday.repeatsYearly && holiday.date.slice(5) === "02-29") {
+  if (holiday.rule) {
+    const wrong = checkRule(holiday.rule);
+    if (wrong) return { ok: false, field: "date", message: wrong };
+    if (!holiday.repeatsYearly) return { ok: false, field: "date", message: "A holiday that moves comes back every year." };
+  }
+  if ((holiday.observed ?? "as_is") !== "as_is" && !holiday.repeatsYearly) {
+    return { ok: false, field: "date", message: "Only a holiday that comes back every year is moved off a weekend. For one year, enter the day you close." };
+  }
+  if (holiday.repeatsYearly && !holiday.rule && holiday.date.slice(5) === "02-29") {
     return {
       ok: false, field: "date",
       message: "The 29th of February is not there three years in four, so it cannot repeat every year. Add it for the year you mean.",
@@ -104,18 +131,58 @@ const asDay = (holiday: CompanyHoliday, date: string): HolidayDay => ({
 });
 
 /**
+ * The date a holiday is kept in one year, or null when it is not kept that
+ * year: a one off date only in its own year; a yearly date or a rule every
+ * year, moved off a weekend when the company said to. A holiday moved off a
+ * weekend can land in the year next door (the first of January on a
+ * Saturday is kept on the thirty first of December), which `holidayOn`
+ * allows for by asking the years either side.
+ */
+export function occurrenceIn(holiday: CompanyHoliday, year: number): string | null {
+  if (!holiday.repeatsYearly) return Number(holiday.date.slice(0, 4)) === year ? holiday.date : null;
+  if (!holiday.rule && holiday.date.slice(5) === "02-29") return null;
+  const day = holiday.rule ? weekdayOfMonth(year, holiday.rule) : `${String(year).padStart(4, "0")}${holiday.date.slice(4)}`;
+  return observedDate(day, holiday.observed ?? "as_is");
+}
+
+/** Whether a holiday is kept on a date. */
+export function fallsOn(holiday: CompanyHoliday, date: string): boolean {
+  const year = Number(date.slice(0, 4));
+  return [year - 1, year, year + 1].some((y) => occurrenceIn(holiday, y) === date);
+}
+
+/**
  * What the list says about one date, or null when the week's hours apply.
  *
  * A date entered for one year wins over a yearly one on the same day: "this
  * year we open Christmas morning" is said on top of "we close every
- * Christmas", not instead of it.
+ * Christmas", not instead of it. Then a branch's own entry over the
+ * company's, for the same reason.
  */
 export function holidayOn(list: readonly CompanyHoliday[], date: string): HolidayDay | null {
-  const once = list.find((h) => !h.repeatsYearly && h.date === date);
-  if (once) return asDay(once, date);
-  const yearly = list.find((h) => h.repeatsYearly && h.date.slice(5) === date.slice(5));
-  return yearly ? asDay(yearly, date) : null;
+  const rank = (h: CompanyHoliday) => (h.repeatsYearly ? 2 : 0) + (h.branchId ? 0 : 1);
+  const hits = list.filter((h) => fallsOn(h, date)).sort((a, b) => rank(a) - rank(b));
+  return hits[0] ? asDay(hits[0], date) : null;
 }
+
+/**
+ * The company's holidays and one branch's own, for a reader that knows the
+ * branch. With no branch, the company's alone: a branch's day off is not
+ * the whole company's.
+ */
+export function forBranch(list: readonly CompanyHoliday[], branchId: string | null | undefined): CompanyHoliday[] {
+  return list.filter((h) => !h.branchId || (branchId != null && h.branchId === branchId));
+}
+
+/** When it falls, in words: "Every year on 12-25", "Fourth Thursday of November", "On 2026-12-24". */
+export function describeWhen(holiday: CompanyHoliday): string {
+  if (holiday.rule) return `${describeRule(holiday.rule)}${describeObserved(holiday.observed ?? "as_is")}`;
+  if (holiday.repeatsYearly) return `Every year on ${monthDay(holiday.date)}${describeObserved(holiday.observed ?? "as_is")}`;
+  return `On ${holiday.date}`;
+}
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const monthDay = (date: string) => `${MONTH_NAMES[Number(date.slice(5, 7)) - 1]} ${Number(date.slice(8, 10))}`;
 
 /** Every date in `[from, to]` the list says something about, in order. */
 export function holidaysBetween(list: readonly CompanyHoliday[], from: string, to: string): HolidayDay[] {
@@ -129,11 +196,16 @@ export function holidaysBetween(list: readonly CompanyHoliday[], from: string, t
   return out;
 }
 
-/** The next date a holiday falls on, on or after `today`. */
-export function nextDate(holiday: Pick<CompanyHoliday, "date" | "repeatsYearly">, today: string): string | null {
+/** The next date a holiday is kept, on or after `today`. */
+export function nextDate(holiday: CompanyHoliday, today: string): string | null {
   if (!holiday.repeatsYearly) return holiday.date >= today ? holiday.date : null;
-  const thisYear = `${today.slice(0, 4)}${holiday.date.slice(4)}`;
-  return thisYear >= today ? thisYear : `${String(Number(today.slice(0, 4)) + 1)}${holiday.date.slice(4)}`;
+  const year = Number(today.slice(0, 4));
+  /** Four years ahead, so a holiday that skips a year (none does yet) is still found. */
+  const coming = [year - 1, year, year + 1, year + 2, year + 3, year + 4]
+    .map((y) => occurrenceIn(holiday, y))
+    .filter((d): d is string => d !== null && d >= today)
+    .sort();
+  return coming[0] ?? null;
 }
 
 /** Whether a date is a day the company is shut. A short day is not. */

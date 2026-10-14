@@ -52193,7 +52193,7 @@
       "post": {
         "operationId": "createHoliday",
         "summary": "Add a holiday",
-        "description": "A date the company is closed, or open with hours of its own. `repeatsYearly` keeps a fixed date holiday every year; one that moves is added for the year it falls in. A second entry for the same date (or the same day every year) is refused; a one off date on the day of a yearly one is allowed and wins that year.\n\nRequires a session holding: booking:configure.",
+        "description": "A date the company is closed, or open with hours of its own. `repeatsYearly` keeps a fixed date holiday every year, and `observed` keeps it off a weekend (the Monday after a Sunday, or the nearest weekday). One that moves is a `rule`: a day of the week in a month, the first to fourth or the last, worked out each year. `businessUnitId` makes it one branch's own, read by that branch's readers beside the company's list; somebody who sees only their branch keeps only its own. A second entry for the same date in the same list (or two repeating ones that meet on a day in the next ten years) is refused; a one off date on the day of a yearly one is allowed and wins that year, and a branch's own wins over the company's.\n\nRequires a session holding: booking:configure.",
         "tags": [
           "M02"
         ],
@@ -151663,6 +151663,78 @@
           "repeatsYearly": {
             "type": "boolean"
           },
+          "rule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "observed": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "sunday_to_monday",
+              "weekend_to_weekday"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "closed": {
             "type": "boolean"
           },
@@ -151683,7 +151755,6 @@
         },
         "required": [
           "name",
-          "date",
           "closed"
         ]
       },
@@ -151702,6 +151773,87 @@
           },
           "repeatsYearly": {
             "type": "boolean"
+          },
+          "rule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "observed": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "sunday_to_monday",
+              "weekend_to_weekday"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "when": {
+            "type": "string"
           },
           "closed": {
             "type": "boolean"
@@ -151733,6 +151885,11 @@
           "name",
           "date",
           "repeatsYearly",
+          "rule",
+          "observed",
+          "businessUnitId",
+          "branchName",
+          "when",
           "closed",
           "opensAt",
           "closesAt",
@@ -206988,6 +207145,87 @@
                 "repeatsYearly": {
                   "type": "boolean"
                 },
+                "rule": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "month": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12
+                    },
+                    "weekday": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "week": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            3
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            4
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "last"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "month",
+                    "weekday",
+                    "week"
+                  ]
+                },
+                "observed": {
+                  "type": "string",
+                  "enum": [
+                    "as_is",
+                    "sunday_to_monday",
+                    "weekend_to_weekday"
+                  ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "when": {
+                  "type": "string"
+                },
                 "closed": {
                   "type": "boolean"
                 },
@@ -207018,6 +207256,11 @@
                 "name",
                 "date",
                 "repeatsYearly",
+                "rule",
+                "observed",
+                "businessUnitId",
+                "branchName",
+                "when",
                 "closed",
                 "opensAt",
                 "closesAt",
@@ -261419,6 +261662,78 @@
           "repeatsYearly": {
             "type": "boolean"
           },
+          "rule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "observed": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "sunday_to_monday",
+              "weekend_to_weekday"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "closed": {
             "type": "boolean"
           },
@@ -261439,7 +261754,6 @@
         },
         "required": [
           "name",
-          "date",
           "closed"
         ]
       },
@@ -261458,6 +261772,87 @@
           },
           "repeatsYearly": {
             "type": "boolean"
+          },
+          "rule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "observed": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "sunday_to_monday",
+              "weekend_to_weekday"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "when": {
+            "type": "string"
           },
           "closed": {
             "type": "boolean"
@@ -261489,6 +261884,11 @@
           "name",
           "date",
           "repeatsYearly",
+          "rule",
+          "observed",
+          "businessUnitId",
+          "branchName",
+          "when",
           "closed",
           "opensAt",
           "closesAt",

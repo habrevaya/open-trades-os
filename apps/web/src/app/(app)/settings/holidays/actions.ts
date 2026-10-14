@@ -19,14 +19,19 @@ function refresh() {
   revalidatePath("/setup/hours");
 }
 
-/** A holiday: closed all day, or open with hours of its own. */
+/** A holiday: a date or a day of the week in a month, the company's or one branch's, closed all day or open with hours of its own. */
 export async function addHoliday(_previous: FormState, form: FormData): Promise<FormState> {
   const result = await attempt(form, async () => {
     const open = field(form, "day") === "open";
+    const byRule = field(form, "kind") === "rule";
+    const week = field(form, "week");
     const input = parsed(createHoliday.input, {
       name: field(form, "name"),
-      date: field(form, "date"),
-      repeatsYearly: form.get("repeatsYearly") === "yes",
+      ...(byRule
+        ? { rule: { month: Number(field(form, "month")), weekday: Number(field(form, "weekday")), week: week === "last" ? "last" : Number(week) } }
+        : { date: field(form, "date") || undefined, repeatsYearly: form.get("repeatsYearly") === "yes" }),
+      observed: field(form, "observed") || "as_is",
+      businessUnitId: field(form, "businessUnitId") || null,
       closed: !open,
       ...(open ? { opensAt: field(form, "opensAt") ?? null, closesAt: field(form, "closesAt") ?? null } : {}),
     });

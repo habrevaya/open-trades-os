@@ -675,6 +675,27 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
   });
 }
 
+/**
+ * The branch each task's work is in: a task about a job is that job's, and
+ * one about a visit is its job's. Anything else is in no branch.
+ */
+async function taskBranches(tx: Database, tasks: (typeof schema.task.$inferSelect)[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  const jobIds = tasks.filter((t) => t.entityType === "job" && t.entityId).map((t) => t.entityId!);
+  const visitIds = tasks.filter((t) => t.entityType === "visit" && t.entityId).map((t) => t.entityId!);
+  const jobs = jobIds.length === 0 ? [] : await tx.select({ id: schema.job.id, branchId: schema.job.businessUnitId })
+    .from(schema.job).where(inArray(schema.job.id, jobIds));
+  const visits = visitIds.length === 0 ? [] : await tx.select({ id: schema.visit.id, branchId: schema.job.businessUnitId })
+    .from(schema.visit).innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId)).where(inArray(schema.visit.id, visitIds));
+  const byJob = new Map(jobs.map((j) => [j.id, j.branchId]));
+  const byVisit = new Map(visits.map((v) => [v.id, v.branchId]));
+  for (const t of tasks) {
+    out.set(t.id, t.entityType === "job" ? byJob.get(t.entityId ?? "") ?? null
+      : t.entityType === "visit" ? byVisit.get(t.entityId ?? "") ?? null : null);
+  }
+  return out;
+}
+
 /** Who a rule tells about one task, and why those people. */
 function recipientsFor(
   rule: typeof schema.taskEscalationRule.$inferSelect,
@@ -744,16 +765,29 @@ export async function escalateFor(
      * which is safe: working hours elapsed never exceed clock hours elapsed,
      * so a task that is not late by the clock is not late by working hours.
      */
-    const calendar: holidayRules.WorkingCalendar | null = rules.some((r) => r.workingHours)
-      ? {
-        week: await weekOf(tx),
-        holidays: await loadHolidays(tx, organizationId),
-        timeZone: await timezoneOf(tx, organizationId),
+    /**
+     * Per branch: a task about a job or one of its visits counts that job's
+     * branch's own holidays beside the company's, so Houston's rodeo day off
+     * is not a working day on Houston's work. A task about anything else
+     * counts the company's.
+     */
+    const counting = rules.some((r) => r.workingHours);
+    const week = counting ? await weekOf(tx) : null;
+    const zone = await timezoneOf(tx, organizationId);
+    const branchOf = counting ? await taskBranches(tx, late) : new Map<string, string | null>();
+    const calendars = new Map<string | null, holidayRules.WorkingCalendar>();
+    const calendarOf = async (taskId: string): Promise<holidayRules.WorkingCalendar | null> => {
+      if (!counting) return null;
+      const branchId = branchOf.get(taskId) ?? null;
+      if (!calendars.has(branchId)) {
+        calendars.set(branchId, { week, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone });
       }
-      : null;
+      return calendars.get(branchId)!;
+    };
 
     for (const rule of rules) {
       for (const task of late) {
+        const calendar = await calendarOf(task.id);
         if (!taskRules.escalationDue(
           { dueAt: task.dueAt, status: task.status, priority: task.priority },
           { afterHours: rule.afterHours, minimumPriority: rule.minimumPriority, workingHours: rule.workingHours },
