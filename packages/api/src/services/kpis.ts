@@ -510,6 +510,6 @@ export const handlers = {
   getKpiScorecard: (ctx: ServiceContext, input: { from: string; to: string }) =>
     scorecard(ctx, input),
   listKpiCatalogue: (ctx: ServiceContext, input: Record<string, never>) => catalogue(ctx, input),
-  getKpiRecords: (ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string; page?: number }) =>
+  getKpiRecords: (ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string; page?: number | undefined }) =>
     drill(ctx, input),
 } as const;
