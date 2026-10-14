@@ -197,3 +197,63 @@ export function installMargin(jobs: readonly InstallJob[]): {
     percent: isZero(revenue) ? null : combine("percent", Number(toString(earned)), Number(toString(revenue))),
   };
 }
+
+/* ------------------------------------------------- first time inspection pass */
+
+export interface PermitVisit {
+  jobId: string;
+  /** The day the inspector came, `YYYY-MM-DD`. */
+  inspectedOn: string;
+  result: "passed" | "failed";
+  /** Whose work a fail was about. Null on a pass. */
+  failureScope: "our_work" | "outside_our_work" | null;
+}
+
+/**
+ * Where a permitted job lands in the first time inspection pass rate.
+ *
+ * "Permitted jobs signed off on the first inspection divided by all permitted
+ * jobs inspected, EXCLUDING jobs failed for something outside the electrical
+ * scope."
+ *
+ *   `failed`   an inspection on it failed for our work, at any stage. The
+ *              strict reading, and the conservative one: a rough in that
+ *              passed and a final that failed for our work is not a job
+ *              signed off first time.
+ *   `excluded` none failed for our work and one failed for something outside
+ *              it. Out of both halves, and counted beside the figure so the
+ *              exclusion cannot quietly grow.
+ *   `passed`   every inspection on it passed the first time it was made.
+ *
+ * A job failed for our work AND for somebody else's is `failed`: the crew's
+ * miss is in it, which is the thing the number exists to show.
+ */
+export type PermitVerdict = "passed" | "failed" | "excluded";
+
+export function permitVerdict(visits: readonly Pick<PermitVisit, "result" | "failureScope">[]): PermitVerdict | null {
+  if (visits.length === 0) return null;
+  if (visits.some((v) => v.result === "failed" && v.failureScope === "our_work")) return "failed";
+  if (visits.some((v) => v.result === "failed")) return "excluded";
+  return "passed";
+}
+
+/**
+ * The jobs a window counts: each permitted job ONCE, on the day of its first
+ * inspection, with its verdict over every inspection recorded on it by now.
+ * So a failure recorded later on a job first inspected last month counts
+ * against last month, where the job is, rather than not at all.
+ */
+export function inspectionPass(visits: readonly PermitVisit[], window: { from: string; to: string }): {
+  passed: string[]; failed: string[]; excluded: string[];
+} {
+  const byJob = new Map<string, PermitVisit[]>();
+  for (const visit of visits) byJob.set(visit.jobId, [...(byJob.get(visit.jobId) ?? []), visit]);
+  const out = { passed: [] as string[], failed: [] as string[], excluded: [] as string[] };
+  for (const [jobId, own] of [...byJob.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const first = own.map((v) => v.inspectedOn).sort()[0]!;
+    if (first < window.from || first > window.to) continue;
+    const verdict = permitVerdict(own)!;
+    out[verdict].push(jobId);
+  }
+  return out;
+}

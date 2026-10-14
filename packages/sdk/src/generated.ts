@@ -14958,6 +14958,32 @@ export interface ListJobLinesOutput {
   }>;
 }
 
+export interface ListJobPermitInspectionsOutput {
+  jobId: string;
+  permits: Array<{
+    id: string;
+    name: string;
+    reference: string | null;
+    issuerName: string | null;
+    issuedOn: string | null;
+    expiresOn: string | null;
+    state: "active" | "superseded" | "withdrawn";
+    inspections: Array<{
+      id: string;
+      permitId: string;
+      jobId: string;
+      inspectedOn: string;
+      stage: string | null;
+      result: "passed" | "failed";
+      failureScope: "our_work" | "outside_our_work" | null;
+      findings: string | null;
+      inspectorName: string | null;
+      recordedAt: string;
+    }>;
+  }>;
+  verdict: "passed" | "failed" | "excluded" | null;
+}
+
 export interface ListJobTypesOutput {
   data: Array<{
     id: string;
@@ -20004,6 +20030,29 @@ export interface RecordPerDiemOutput {
   rate: string;
 }
 
+export interface RecordPermitInspectionInput {
+  permitId: string;
+  inspectedOn: string;
+  stage?: string | null;
+  result: "passed" | "failed";
+  failureScope?: "our_work" | "outside_our_work" | null;
+  findings?: string | null;
+  inspectorName?: string | null;
+}
+
+export interface RecordPermitInspectionOutput {
+  id: string;
+  permitId: string;
+  jobId: string;
+  inspectedOn: string;
+  stage: string | null;
+  result: "passed" | "failed";
+  failureScope: "our_work" | "outside_our_work" | null;
+  findings: string | null;
+  inspectorName: string | null;
+  recordedAt: string;
+}
+
 export interface RecordProjectLienRecordInput {
   kind: "notice" | "waiver";
   direction: "sent" | "received";
@@ -20881,6 +20930,12 @@ export type RemovePerDiemInput = Record<string, unknown>;
 export interface RemovePerDiemOutput {
   id: string;
   removed: true;
+}
+
+export type RemovePermitInspectionInput = Record<string, unknown>;
+
+export interface RemovePermitInspectionOutput {
+  removed: boolean;
 }
 
 export type RemovePlanPortalLayoutInput = Record<string, unknown>;
@@ -30253,6 +30308,10 @@ export interface ListJobLinesInput {
   id: string;
 }
 
+export interface ListJobPermitInspectionsInput {
+  id: string;
+}
+
 export interface ListJobTypesInput {
   includeInactive?: boolean;
 }
@@ -31155,6 +31214,10 @@ export interface RemoveOnboardingTemplateItemParams {
 }
 
 export interface RemovePerDiemParams {
+  id: string;
+}
+
+export interface RemovePermitInspectionParams {
   id: string;
 }
 
@@ -32626,6 +32689,7 @@ export interface OperationTypes {
   listItemTax: { input: ListItemTaxInput; output: ListItemTaxOutput };
   listJobClocks: { input: ListJobClocksInput; output: ListJobClocksOutput };
   listJobLines: { input: ListJobLinesInput; output: ListJobLinesOutput };
+  listJobPermitInspections: { input: ListJobPermitInspectionsInput; output: ListJobPermitInspectionsOutput };
   listJobTypes: { input: ListJobTypesInput; output: ListJobTypesOutput };
   listJobs: { input: ListJobsInput; output: ListJobsOutput };
   listJournal: { input: ListJournalInput; output: ListJournalOutput };
@@ -32855,6 +32919,7 @@ export interface OperationTypes {
   recordMessagingCampaign: { input: RecordMessagingCampaignInput; output: RecordMessagingCampaignOutput };
   recordPayment: { input: RecordPaymentInput; output: RecordPaymentOutput };
   recordPerDiem: { input: RecordPerDiemInput; output: RecordPerDiemOutput };
+  recordPermitInspection: { input: RecordPermitInspectionInput; output: RecordPermitInspectionOutput };
   recordProjectLienRecord: { input: RecordProjectLienRecordParams & RecordProjectLienRecordInput; output: RecordProjectLienRecordOutput };
   recordPublicTouch: { input: RecordPublicTouchInput; output: RecordPublicTouchOutput };
   recordPurchaseOrderAcknowledgement: { input: RecordPurchaseOrderAcknowledgementParams & RecordPurchaseOrderAcknowledgementInput; output: RecordPurchaseOrderAcknowledgementOutput };
@@ -32899,6 +32964,7 @@ export interface OperationTypes {
   removeNumberHoliday: { input: RemoveNumberHolidayParams & RemoveNumberHolidayInput; output: RemoveNumberHolidayOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
   removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
+  removePermitInspection: { input: RemovePermitInspectionParams & RemovePermitInspectionInput; output: RemovePermitInspectionOutput };
   removePlanPortalLayout: { input: RemovePlanPortalLayoutParams & RemovePlanPortalLayoutInput; output: RemovePlanPortalLayoutOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePortalFile: { input: RemovePortalFileParams & RemovePortalFileInput; output: RemovePortalFileOutput };
@@ -33777,6 +33843,7 @@ export const OPERATIONS = {
   listItemTax: { method: "GET", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listJobClocks: { method: "GET", path: "/v1/jobs/{id}/deadlines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  listJobPermitInspections: { method: "GET", path: "/v1/jobs/{id}/permit-inspections", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read","document:read"] },
   listJobTypes: { method: "GET", path: "/v1/job-types", pathParams: [], queryParams: ["includeInactive"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
   listJournal: { method: "GET", path: "/v1/ledger/journal", pathParams: [], queryParams: ["from","to","jobId","customerId","accountCode","businessUnitId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
@@ -34006,6 +34073,7 @@ export const OPERATIONS = {
   recordMessagingCampaign: { method: "POST", path: "/v1/messaging/campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordPayment: { method: "POST", path: "/v1/payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   recordPerDiem: { method: "POST", path: "/v1/per-diem", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
+  recordPermitInspection: { method: "POST", path: "/v1/permit-inspections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordProjectLienRecord: { method: "POST", path: "/v1/projects/{projectId}/lien-records", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   recordPublicTouch: { method: "POST", path: "/v1/public/touches", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   recordPurchaseOrderAcknowledgement: { method: "POST", path: "/v1/purchase-orders/{id}/acknowledgement", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -34050,6 +34118,7 @@ export const OPERATIONS = {
   removeNumberHoliday: { method: "DELETE", path: "/v1/phone-numbers/{id}/holidays/{holidayId}", pathParams: ["id","holidayId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
+  removePermitInspection: { method: "DELETE", path: "/v1/permit-inspections/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   removePlanPortalLayout: { method: "POST", path: "/v1/agreement-plans/{id}/portal-layout/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePortalFile: { method: "POST", path: "/v1/portal/files/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -39341,6 +39410,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * A job's permits and the authority's inspections under each.
+   *
+   * GET /v1/jobs/{id}/permit-inspections. Needs job:read, document:read.
+   */
+  listJobPermitInspections(input: ListJobPermitInspectionsInput, options?: CallOptions): Promise<ListJobPermitInspectionsOutput> {
+    return this.call("listJobPermitInspections", input, options);
+  }
+
+  /**
    * List job types.
    *
    * GET /v1/job-types. Needs job:read.
@@ -41402,6 +41480,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record the authority's inspection of a permitted job.
+   *
+   * POST /v1/permit-inspections. Needs job:write.
+   */
+  recordPermitInspection(input: RecordPermitInspectionInput, options?: CallOptions): Promise<RecordPermitInspectionOutput> {
+    return this.call("recordPermitInspection", input, options);
+  }
+
+  /**
    * Record a notice or a waiver.
    *
    * POST /v1/projects/{projectId}/lien-records. Needs invoice:write.
@@ -41795,6 +41882,15 @@ export abstract class GeneratedOperations {
    */
   removePerDiem(input: RemovePerDiemParams & RemovePerDiemInput, options?: CallOptions): Promise<RemovePerDiemOutput> {
     return this.call("removePerDiem", input, options);
+  }
+
+  /**
+   * Take off an inspection recorded by mistake.
+   *
+   * DELETE /v1/permit-inspections/{id}. Needs job:write.
+   */
+  removePermitInspection(input: RemovePermitInspectionParams & RemovePermitInspectionInput, options?: CallOptions): Promise<RemovePermitInspectionOutput> {
+    return this.call("removePermitInspection", input, options);
   }
 
   /**

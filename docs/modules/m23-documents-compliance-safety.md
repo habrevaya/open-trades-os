@@ -98,6 +98,26 @@ needed for work, and `GET /v1/compliance/documents/summary` is the counts.
 `POST /v1/compliance/documents/{id}/renew` renews it, and
 `POST /v1/compliance/documents/{id}/withdraw` takes one out of the register.
 
+### Permits on a job, and the city's inspections
+
+A permit is a document like any other, filed against the job it is for. On a
+job's page (`/jobs/{id}`), "Permits and inspections" files one (what it is, its
+number, who issued it and when it runs out, through
+`POST /v1/compliance/documents` with kind `permit` and the job as its subject,
+so it is in the register with its renewal) and records every visit the
+inspector made under it (`POST /v1/permit-inspections`): the day, the stage
+("Rough in", "Final"), passed or failed, and on a fail what the inspector found
+and whose work it was, ours or not ours (another trade, the site not ready, the
+customer's own equipment). A fail is refused until it says both, a day still to
+come or before the permit was issued is refused, and a pass names no work to
+blame. `GET /v1/jobs/{id}/permit-inspections` is each permit with its
+inspections and where the job stands: every inspection passed, one failed for
+our work, or one failed only for somebody else's. One recorded by mistake is
+taken off (`DELETE /v1/permit-inspections/{id}`) and the audit log keeps what it
+said. The electrical pack's first time inspection pass rate (M21) is read from
+these. The office records them, because the result reaches a company on the
+authority's portal or the tag left at the panel.
+
 ### Filings
 
 `GET /v1/compliance/submissions/declared` is what the trade pack says this trade
@@ -258,6 +278,8 @@ talk with `field:sync`.
 | `GET /v1/compliance/documents` | `document:read` |
 | `POST /v1/compliance/documents` | `document:write` |
 | `GET /v1/compliance/documents/blocking` | `document:read` |
+| `GET /v1/jobs/{id}/permit-inspections` | `job:read` and `document:read`, for a job you can see |
+| `POST /v1/permit-inspections`, `DELETE /v1/permit-inspections/{id}` | `job:write`, for a job you can see |
 | `GET /v1/compliance/submissions` | `compliance:read` |
 | `POST /v1/compliance/submissions` | `compliance:write` |
 | `GET /v1/compliance/constants` | `compliance:read` |
@@ -309,6 +331,11 @@ photographs leaves the job. A rule's clock start cannot be changed once written,
 only its period and whether it purges. A service report, an inspection and a lead
 form submission have no page of their own in the office screens, so they are held
 from the preview or by kind and id there.
+
+A permit inspection is typed in by the office: nothing reads an authority's
+portal, and the phone app does not record one. An inspection the inspector
+cancelled or never made is not recorded at all, and a partial approval is
+recorded as whichever of passed or failed the office judges it to be.
 
 Incident reports are not sent to anybody: no authority form (an OSHA 300 log, for
 one) is produced, and nothing decides whether an incident is reportable. The talk

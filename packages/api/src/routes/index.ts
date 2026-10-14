@@ -28,7 +28,7 @@ import {
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
-  safety, retention, holidays, businessHours, numberHours, afterHours, safetyTalks,
+  safety, retention, holidays, permitInspections, businessHours, numberHours, afterHours, safetyTalks,
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
@@ -832,6 +832,8 @@ export const handlers = {
   listRetentionPurgeRuns: retention.handlers.listRetentionPurgeRuns,
   // The company's holidays, read by everything that reads its hours (M02)
   ...holidays.handlers,
+  // The city's inspections of a permitted job, read by the first time pass rate (M23, M21)
+  ...permitInspections.handlers,
   // The week's hours, the company's and each branch's own (M02)
   listBusinessHours: businessHours.handlers.listBusinessHours,
   clearBranchHours: businessHours.handlers.clearBranchHours,

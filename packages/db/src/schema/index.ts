@@ -45,3 +45,4 @@ export * from "./knowledge";
 export * from "./portability";
 export * from "./plugins";
 export * from "./notices";
+export * from "./permit-inspections";

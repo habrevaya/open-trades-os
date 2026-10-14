@@ -101,7 +101,10 @@ const ORDER = [
   "custom_object_record",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
-  "visit", "entitlement", "job_party", "job",
+  "visit", "entitlement", "job_party",
+  /** The city's inspections of a permitted job point at the job and at the permit document. */
+  "permit_inspection",
+  "job",
   /** A card's labour rate points at the job type it is for and at its card, so it goes before both. */
   "rate_card_labour_rate",
   /**

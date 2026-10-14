@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty four of the forty seven are computed here, four are
- * M22's, and the nineteen that are not each name what they still lack.)
+ * (They are read now. Twenty five of the forty seven are computed here, four are
+ * M22's, and the eighteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -639,6 +639,32 @@ const besidesOf = (records: (pick: "excluded" | "unknown") => Records, what: str
   unknown: { label: `${what} counted whose reason was never recorded`, records: records("unknown") },
 });
 
+/**
+ * PERMITTED JOBS BY HOW THEIR INSPECTIONS WENT. Core's `inspectionPass`,
+ * written as SQL: each job with an authority's inspection recorded on it
+ * (`permit_inspection`, M23), ONCE, dated by its first inspection, with a
+ * verdict over every inspection recorded on it by now. `failed` when one
+ * failed for our work, `excluded` when one failed only for something outside
+ * it, `passed` otherwise. One row per job, which opens on the job.
+ */
+const permittedJobs = (verdicts: readonly string[]): Records => (from, to) => sql`
+  with jobs as (
+    select pi.job_id, min(pi.inspected_on) as first_on,
+           case when bool_or(pi.result = 'failed' and pi.failure_scope = 'our_work') then 'failed'
+                when bool_or(pi.result = 'failed') then 'excluded'
+                else 'passed' end as verdict
+    from public.permit_inspection pi
+    group by pi.job_id
+  )
+  select 'job'::text as kind, j.id::text as id, concat('#', j.number, ' ', j.summary) as label,
+         x.first_on::text as on_day, 1::numeric as value, '/jobs/' || j.id as href
+  from jobs x
+  join public.job j on j.id = x.job_id
+  where j.deleted_at is null
+    and x.first_on >= ${from}::date and x.first_on <= ${to}::date
+    and x.verdict = any(${sql.param([...verdicts])}::text[])
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1259,18 +1285,42 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   inspection_pass: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "The authority's inspection of a permitted job, and why one failed. M33's "
-      + "`inspection` records the contractor's own statutory inspections of a "
-      + "property (a backflow test, a fire system), not the city inspector signing "
-      + "off a panel change, and nothing records a permit's inspections: a permit "
-      + "can be filed as a compliance document against a job, with its number and "
-      + "expiry, but not the visits the city made or what they found. Even "
-      + "there, `inspection.result` records a fail without a cause, and the "
-      + "definition EXCLUDES jobs failed for something outside the electrical "
-      + "scope because 'counting those hides whether the crews are the problem'.",
+    measure: {
+      /**
+       * "Permitted jobs signed off on the first inspection divided by all
+       * permitted jobs inspected, EXCLUDING jobs failed for something outside
+       * the electrical scope. Counting those hides whether the crews are the
+       * problem."
+       *
+       * WHAT IT NEEDED: the authority's visits to a permitted job, and whose
+       * work a fail was about. M33's `inspection` is the contractor's own
+       * statutory inspection of a property and could not hold the city
+       * signing off a panel change. `permit_inspection` does: the day, the
+       * stage, pass or fail, and on a fail the inspector's words and whose
+       * work it was, chosen from two and required, never read from the words.
+       *
+       * A PERMITTED JOB is one with a permit filed against it (a compliance
+       * document of kind `permit`) and an inspection recorded under it. It is
+       * counted ONCE, in the window of its FIRST inspection, and judged on
+       * every inspection recorded on it since: a job is signed off first time
+       * only when none failed for our work, the strict reading, so a rough in
+       * that passed and a final that failed is not. One failed only for
+       * somebody else's work (another trade, a site not ready) is out of both
+       * halves and counted beside the figure, so the exclusion cannot quietly
+       * grow. A failure recorded next month on a job first inspected this
+       * month counts against this month, where the job is.
+       */
+      numerator: { label: "permitted jobs signed off with no fail for our work", records: permittedJobs(["passed"]) },
+      denominator: { label: "permitted jobs inspected", records: permittedJobs(["passed", "failed"]) },
+      besides: {
+        excluded: {
+          label: "Jobs left out because an inspector failed them only for something outside our work",
+          records: permittedJobs(["excluded"]),
+        },
+      },
+    },
   },
 
   budget_hour_variance: {

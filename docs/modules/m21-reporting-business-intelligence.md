@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty eight of the forty seven are answered: twenty four computed here, four
-by M22's fleet report. The other nineteen each name what they still lack.
+Twenty nine of the forty seven are answered: twenty five computed here, four
+by M22's fleet report. The other eighteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -77,7 +77,7 @@ to it but holds only part of what the haul earned, and a cost can be put on a
 job but nothing marks a supply as billed back. The four retention, renewal and
 churn figures moved when a cancellation got a coded reason (below).
 
-The nineteen were checked once more against everything that has shipped since:
+The nineteen that were left were checked once more against everything that had shipped:
 punches on a crew's visits, costs journalled to a job and overhead as a mix,
 staff notices, call queues and calling back, inspections signed on the phone,
 hauls to a disposal facility and a truck's own kind, shared commission, budgets
@@ -85,8 +85,8 @@ by branch and job type, part days off, and review reminders. None of them
 supplies a datum one of the nineteen names, so none moved, and none is computed
 from something close to its datum instead. Where one of them comes near, the
 sentence now says how near: the company budget is money for a month and never
-hours for a job; a permit can be filed against a job as a compliance document,
-but not the city's visits to it; the pest pack's template already asks why no
+hours for a job; a permit could be filed against a job as a compliance
+document, but not the city's visits to it (they can now, below); the pest pack's template already asks why no
 product was applied, so record completeness lacks only the list of fields a
 report was required to capture when it was written; the electrical pack
 declares a panel's rating, open spaces and known concern, but the register
@@ -163,6 +163,33 @@ a job's margin takes: reading it needs the job costing permission and the
 financial reports permission (`job.cost:read` and `report.financial:read`), and a
 reader without them is told which in the unavailable list instead of being shown
 a margin one division away from the cost column.
+
+### The first time inspection pass rate
+
+The electrical pack's **first time inspection pass rate** needed the city's
+visits to a permitted job, and whose work a fail was about. M33's inspections
+are the contractor's own, of a property, against a programme of checkpoints;
+the inspector signing off a panel change is neither. So the authority's visits
+are recorded against the permit itself (M23): a permit is a compliance document
+of kind `permit` filed against the job, and each visit under it has its day,
+its stage, passed or failed, and on a fail what the inspector wrote and whose
+work it was, ours or something outside our work. Both are required on a fail
+and the second is chosen from two words, never read out of the first.
+
+A permitted job is counted **once, in the window of its first inspection**, and
+judged on every inspection recorded on it since. It is signed off first time
+only when no inspection on it failed for our work, which is the strict reading:
+a rough in that passed and a final that failed for our work is not a first time
+pass. A job failed only for somebody else's work (another trade, a site not
+ready, the customer's own equipment) is out of both halves and counted beside
+the number, so the exclusion cannot quietly grow; one failed for both is
+counted as failed, because the crew's miss is in it. A failure recorded next
+month on a job first inspected this month counts against this month, where the
+job is, so a month's figure can go down after it ends; that is the conservative
+choice, made so a failure is never dropped for arriving late. The rule is
+core's `reporting.inspectionPass`, and `permit-inspections.integration.test.ts`
+puts the same rows through it and through the SQL and requires the same jobs in
+every half. The records open on the job.
 
 ### The four that waited on a coded cancellation reason
 
@@ -263,7 +290,7 @@ they come to disagree.
 Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
-assembly due a retest, a crew's day. The scorecard's number is the sum of those rows, and
+assembly due a retest, a crew's day, a permitted job. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -640,12 +667,14 @@ prefix off.
 
 ## What is not built
 
-Nineteen of the forty seven declared KPIs cannot be computed, and each one
+Eighteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
-looks like the definition. They were checked again against everything shipped
-since they were written and none of the nineteen has its datum yet (above, "The
-unavailable list"); none is computed from something near it instead. The records
+looks like the definition. None of them is computed from something near its
+datum instead (above, "The unavailable list"). The first time inspection pass
+rate is only as complete as what the office types in: an inspection nobody
+recorded is not counted, and a fail recorded as somebody else's work is left
+out on that word. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

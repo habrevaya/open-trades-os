@@ -281,6 +281,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "close_rate",
       "drive_time_pct",
       "hauls_per_truck_day",
+      "inspection_pass",
       "install_gross_margin",
       "maint_attach",
       "not_out_rate",
@@ -321,8 +322,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * link to the address, which moved the four retention, renewal and churn
      * figures, making twenty seven. `hauls_per_truck_day` made twenty eight when a
      * truck got a kind (M22): a driver is whoever has a vehicle with one checked out.
+     * `inspection_pass` made twenty nine when the city's inspections of a
+     * permitted job were recorded against its permit, each fail saying whose
+     * work it was about.
      */
-    expect(computed.length + elsewhere.length).toBe(28);
+    expect(computed.length + elsewhere.length).toBe(29);
     expect(KEYS.length).toBe(47);
   });
 });
