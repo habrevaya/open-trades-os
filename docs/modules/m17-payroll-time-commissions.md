@@ -224,6 +224,56 @@ write. `POST /v1/commissions` settles an earning,
 `POST /v1/payroll/commission-payments` records them as paid, which is a payroll
 act and takes `payroll:export`. `/payroll/commissions` is the screen.
 
+### An item's own rate
+
+A price book item can carry a commission rate of its own (M06). How it works with
+the plan on an invoice line priced from that item is **the company's choice**, one for
+everybody, made on `/payroll/commissions` under "When an item has its own rate"
+(`GET /v1/commissions/item-rule` with `commission:read`, `POST /v1/commissions/item-rule`
+with `commission:configure`, audited with the choice before and after). Each choice is a
+sentence the screen shows beside it:
+
+| Choice | What a line for an item with its own rate pays |
+|---|---|
+| The plan only (`plan_only`, the default) | The plan, as before: the item's rate pays nothing |
+| The item's rate, where it has one (`item_wins`) | The item's rate instead of the plan |
+| Whichever pays more (`higher`) | The item's rate or the plan's part of the line, whichever comes to more |
+| The item's rate on top of the plan (`item_adds`) | The plan's part and the item's rate |
+
+A line with no item rate pays the plan under every choice. The arithmetic is core's
+(`labor.computeCommission` with the plan's `itemRule`, unit tested with hand worked
+figures for every choice and every basis):
+
+- The plan is worked out on the whole invoice exactly as before. **The plan's part of a
+  line** is its rate on what the line charged for a percentage of revenue; for a margin,
+  a flat amount or a share of what was collected, which are not a rate on each line, it
+  is the line's share of the plan's figure by what the line charged. The item's part is
+  its rate on what the line charged, net of the line's discount and before tax.
+- The commission is the plan's figure with each item line's difference made, so a line
+  with no item rate pays the plan to the cent; it is made payable once, to the cent, and
+  then split between the people who share it exactly as any commission is.
+- A job that lost money still pays an item's own rate on its line (the plan pays
+  nothing), because the item's rate is a share of what the line charged. Lines that come
+  to less than nothing pay nothing; they are never taken off other commission.
+- The rate read is the one on **the price book version the line was priced from**, never
+  the item's version today, so raising a rate does not reprice what was already sold.
+- A plan that would refuse (a margin with no cost) still refuses under every choice.
+
+Settling records on the earning which choice produced it and, line by line, the version,
+the rate it carried, the plan's part, the item's part, what the line paid and which of
+the two that was (`commission_event.item_rule` and `lines`, returned as `itemRule` and
+`lines` by `POST /v1/commissions` and the split proposal, and `itemRule` on every entry of
+`GET /v1/commissions`). The reason is written into each person's part ("The company pays
+an item's own rate on its line instead of the plan. ... Water heater: 10% of $1,000.00
+is $100.00, paid instead of the plan's $80.00. Commission: $116.00."), which is what the
+payroll register and the person's pay statement show. The split screen shows the choice
+and a table of what each line pays, before settling and after.
+
+**A change applies from then on**: a commission is worked out under the choice in force
+when it is settled, and keeps it. A reversal recomputes under the choice the earning was
+made under, taking the credit off every line in proportion to what it charged, since a
+credit names an amount and not the lines it came off.
+
 ### A commission several people share
 
 `/payroll/commissions/splits` ("Shared commission" under Payroll) lists the
@@ -491,6 +541,8 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/commissions/shared` | `commission:read` |
 | `GET /v1/commissions/split-proposal` | `commission:read` |
 | `POST /v1/commissions/splits` | `commission:configure` |
+| `GET /v1/commissions/item-rule` | `commission:read` |
+| `POST /v1/commissions/item-rule` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
 | `POST /v1/payroll/tip-payments` | `payroll:export` |
 | `GET /v1/payroll/overtime-policies` | `timesheet:read` |
@@ -558,7 +610,15 @@ tax authority's rate. A claim in miles is not repriced when its rate is wrong: i
 office and entered again. There is no per diem that varies by place or by meal, and nothing checks
 a per diem against the tax authority's allowance: the company has one rate for a day away, and a
 list of places with an amount each was left out because a day away is recorded by the office for a
-whole span of days and a span that crosses places has no single answer. Certified payroll reporting is not built. A commission
+whole span of days and a span that crosses places has no single answer. Certified payroll reporting is not built. How an item's own commission rate works
+with the plan is one choice for the whole company: there is no choice per plan, per item
+or per person, and the plan's part of a line on a margin, flat or collected plan is its
+share by what it charged, not a margin or a cost worked out for the line. Three
+judgements the product owner has not made were taken the conservative way: the choice in
+force when a commission is settled applies (not the one when the invoice was raised); a
+credit comes off every line in proportion, because a credit does not say which lines it
+was for; and lines that come to less than nothing pay nothing rather than reducing other
+commission. A commission
 several people share is settled from the split screen one invoice at a time:
 there is no settling a page of them at once, no standing rule per job type or
 per person (a salesperson's fixed share, say), and nothing settles a commission

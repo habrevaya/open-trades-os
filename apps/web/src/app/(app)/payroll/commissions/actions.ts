@@ -10,7 +10,8 @@ import type { labor } from "@opentradesos/core";
 export type CommissionState = FormState;
 
 /**
- * Declaring and superseding a plan.
+ * Declaring and superseding a plan, and the company's choice of how an item's
+ * own rate works with the plan.
  *
  * There is no edit, deliberately and not as an omission: the service has none,
  * because editing a plan reprices commissions already earned and, on a plan
@@ -36,6 +37,9 @@ export async function act(_previous: CommissionState, form: FormData): Promise<C
           flatAmount: field(form, "flatAmount") ?? null,
           note: String(form.get("note") ?? ""),
         });
+        return;
+      case "itemRule":
+        await commissions.setItemRule(ctx, { rule: String(form.get("rule") ?? "") as labor.ItemRateRule });
         return;
       case "supersede":
         await commissions.deactivatePlan(ctx, { id: String(form.get("id") ?? "") });

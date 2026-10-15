@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { commissions } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, labor } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { Crumb } from "@/components/Detail";
@@ -74,6 +74,8 @@ export default async function SplitPage({
         {proposal.invoice.customerName}
         {proposal.invoice.jobNumber ? <>, job {proposal.invoice.jobNumber}</> : null}
       </p>
+
+      <ItemRates rule={proposal.itemRuleLabel} lines={proposal.lines} settled={proposal.settled !== null} />
 
       {proposal.settled ? (
         <section aria-label="How it was shared" className="mt-6">
@@ -178,5 +180,47 @@ export default async function SplitPage({
         </>
       )}
     </div>
+  );
+}
+
+const SOURCE: Record<string, string> = { plan: "The plan", item: "The item's rate", plan_and_item: "Both" };
+
+/**
+ * WHY EACH LINE PAID WHAT IT DID, under the company's choice of how an item's
+ * own rate works with the plan. Before settling it is the choice in force
+ * now; once settled it is the one the commission was worked out under, which
+ * a later change of choice does not touch. Nothing is shown under the plan
+ * only, which does not look at the lines.
+ */
+function ItemRates({ rule, lines, settled }: {
+  rule: string;
+  lines: { invoiceLineId: string; label: string; net: string; itemRate: string | null; planPart: string; itemPart: string | null; paid: string; source: string }[];
+  settled: boolean;
+}) {
+  if (lines.length === 0) return null;
+  return (
+    <section aria-label="Items with their own rate" className="mt-6">
+      <p className="text-sm text-ink-700">
+        {settled ? "Worked out under the company's choice: " : "The company's choice for items with their own rate: "}
+        <strong>{rule}</strong>.
+      </p>
+      <Table label="What each line pays" head={
+        <><Th>Line</Th><Th className="text-right">Charged</Th><Th className="text-right">Item&apos;s rate</Th>
+          <Th className="text-right">Plan&apos;s part</Th><Th className="text-right">Item&apos;s part</Th>
+          <Th className="text-right">Pays</Th><Th>From</Th></>
+      }>
+        {lines.map((line) => (
+          <tr key={line.invoiceLineId}>
+            <Td>{line.label}</Td>
+            <Td className="text-right"><Money value={line.net} /></Td>
+            <Td className="text-right tabular-nums">{line.itemRate === null ? "" : labor.percentWords(line.itemRate)}</Td>
+            <Td className="text-right"><Money value={line.planPart} /></Td>
+            <Td className="text-right">{line.itemPart === null ? "" : <Money value={line.itemPart} />}</Td>
+            <Td className="text-right"><Money value={line.paid} /></Td>
+            <Td>{SOURCE[line.source] ?? line.source}</Td>
+          </tr>
+        ))}
+      </Table>
+    </section>
   );
 }
