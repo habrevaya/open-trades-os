@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty of the forty seven are answered: twenty six computed here, four by
-M22's fleet report. The other seventeen each name what they still lack.
+Thirty one of the forty seven are answered: twenty seven computed here, four
+by M22's fleet report. The other sixteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -234,6 +234,24 @@ that week's timesheets. Because it is made from where people drove, the records
 are listed only to people who dispatch (`visit:dispatch`), who already see the
 map; turning sharing off for the company or a person deletes their route days
 with their positions.
+
+### The re-clean rate, from why a return was free
+
+The trash bin trade's **re-clean rate** is "free re-cleans divided by completed
+stops. Counts only our-fault returns, not bins that were not out." It was listed
+as needing whose fault a return was, and the product already records that: a
+job's coverage ("Who is paying, and why" on the job, M10) says why it is free.
+"Rework on our own work" (`no_charge_callback`) and "Our own warranty"
+(`our_warranty`) are our fault and are counted; "Goodwill", the free second trip
+for a bin that was not out, is not, which is the definition's exclusion. Counting
+our own warranty as our fault is the reading that makes the number higher, and
+it is chosen for that reason. A job counts in the window it was completed, over
+the window's completed visits, a return's own visit among them.
+
+A free return nobody gave a reason for (a job back for an earlier one, no
+revenue, no coverage recorded) is not counted, because nothing says it was our
+fault, and it is not hidden: how many there are is said beside the figure and
+opens on the jobs, so the office can say which they were.
 
 ### The four that waited on a coded cancellation reason
 
@@ -711,7 +729,7 @@ prefix off.
 
 ## What is not built
 
-Seventeen of the forty seven declared KPIs cannot be computed, and each one
+Sixteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. None of them is computed from something near its
@@ -721,7 +739,9 @@ recorded is not counted, and a fail recorded as somebody else's work is left
 out on that word. Route density has no figure for a company that does not share
 locations, counts only the days whose drives between stops were seen whole, and
 measures them as straight lines between positions rather than along the road; a
-route day is not shown anywhere but behind the figure. The records
+route day is not shown anywhere but behind the figure. The re-clean rate is only
+as good as the coverage the office records on a return: one left without a reason
+is counted beside the figure, not in it. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

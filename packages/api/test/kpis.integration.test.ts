@@ -291,6 +291,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "reapplication_rate",
       "reclean_rate",
       "recurring_retention",
+      "redo_rate",
       "referral_share",
       "renewal_rate",
       "replace_pipeline",
@@ -327,9 +328,12 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * permitted job were recorded against its permit, each fail saying whose
      * work it was about. `route_density` made thirty when the worker began
      * keeping each person's finished day of stops and miles between them
-     * before the positions it reads are deleted.
+     * before the positions it reads are deleted. `redo_rate` made thirty one
+     * when it turned out a job's coverage already says why a return was free:
+     * rework on our own work and our own warranty are our fault, goodwill for
+     * a bin that was not out is not.
      */
-    expect(computed.length + elsewhere.length).toBe(30);
+    expect(computed.length + elsewhere.length).toBe(31);
     expect(KEYS.length).toBe(47);
   });
 });

@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty six of the forty seven are computed here, four are
- * M22's, and the seventeen that are not each name what they still lack.)
+ * (They are read now. Twenty seven of the forty seven are computed here, four are
+ * M22's, and the sixteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -1633,15 +1633,59 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   redo_rate: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Whose fault a return visit was. The definition 'counts only our-fault "
-      + "returns, not bins that were not out', and a zero revenue return job does "
-      + "not say which it was. `reclean_rate` in the cleaning pack is published "
-      + "because its own exclusion is narrow; this one's exclusion is the "
-      + "commonest case in the trade, so publishing it would roughly double the "
-      + "number and point the owner at the crews instead of at reminder timing.",
+    measure: {
+      /**
+       * "Free re-cleans divided by completed stops. Counts only our-fault
+       * returns, not bins that were not out."
+       *
+       * This was listed as needing whose fault a return was, and the product
+       * already records it: a job's coverage (M10, "Who is paying, and why")
+       * says why it is free. `no_charge_callback` is "rework on our own work,
+       * we are back because of something we did", and `our_warranty` is "we
+       * stand behind our work, nobody is billed"; both are our fault, and both
+       * are counted, which is the reading that reads higher. A bin that was not
+       * out and was cleaned free on a second trip is `goodwill` (we chose to
+       * absorb it) and is not counted, which is the definition's exclusion. A
+       * job counts in the window it was completed.
+       *
+       * A FREE RETURN NOBODY GAVE A REASON FOR (a job back for a previous one,
+       * no revenue, no coverage recorded) is not counted, because nothing says
+       * it was our fault, and it is not hidden either: how many there are is
+       * said beside the figure and opens on the jobs, so the office can say
+       * which they were. The denominator is the window's completed visits, a
+       * return's own visit among them.
+       */
+      numerator: {
+        label: "free returns for our own work",
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
+          from public.job j
+          where j.deleted_at is null and j.completed_at is not null
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and exists (
+              select 1 from public.entitlement en
+              where en.job_id = j.id and en.source in ('no_charge_callback', 'our_warranty')
+            )
+        `,
+      },
+      denominator: { label: "completed stops", records: completedVisits() },
+      besides: {
+        unknown: {
+          label: "Free return visits not counted because nobody said whose fault they were",
+          records: (from, to, zone) => sql`
+            select ${jobRow("1", zone)}
+            from public.job j
+            where j.deleted_at is null and j.completed_at is not null
+              and j.parent_job_id is not null
+              and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+              and ${sql.raw(REVENUE_ON_JOB)} = 0
+              and not exists (select 1 from public.entitlement en where en.job_id = j.id)
+          `,
+        },
+      },
+    },
   },
 
   referral_share: {
