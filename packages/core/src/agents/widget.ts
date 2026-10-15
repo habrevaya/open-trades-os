@@ -23,9 +23,17 @@
  *   survives moving between pages and a reload, and a person's reply from the
  *   inbox appears while the visitor is still there.
  *
- * While a message is waiting for its answer it reads the chat once a second
- * and shows the reply as far as it has been written (`writing`), which the
- * answer itself replaces when it arrives.
+ * It shows the reply as it is written. A message is sent asking for the
+ * answer as Server-Sent Events, read with `fetch` as they arrive: each event
+ * is the reply so far, whole sentences the server held to the published price
+ * rule, shown in a bubble that the whole answer replaces when it comes (and
+ * that answer can be a hand over to a person). Where a stream cannot be opened
+ * (a browser without `fetch` streams, or a network that refuses the request
+ * before it gets anywhere) it sends the same message with the same key the
+ * old way and reads the chat once a second for the reply so far, so the
+ * visitor still sees it written, a second or so behind. A stream that breaks
+ * part way does not send again: the reply is still written on the server, and
+ * the chat is read for it.
  */
 export function chatWidgetSource(input: { apiBase: string; companyKey: string }): string {
   const config = JSON.stringify({ api: input.apiBase, key: input.companyKey });
@@ -72,9 +80,21 @@ function openPanel(){open=true;panel.className="p o";button.setAttribute("aria-e
 if(!timer){timer=setInterval(function(){if(open&&!document.hidden)poll();},5000);}setTimeout(function(){input.focus();},0);}
 function closePanel(){open=false;panel.className="p";button.setAttribute("aria-expanded","false");}
 button.addEventListener("click",function(){if(open){closePanel();}else{openPanel();}});close.addEventListener("click",closePanel);
+function stream(body,key,done){var called=false,opened=false,end=null;function fin(a,b,c){if(called)return;called=true;done(a,b,c);}
+if(!window.fetch||!window.ReadableStream||!window.TextDecoder){fin(false);return;}
+fetch(C.api+"/v1/public/chat/messages",{method:"POST",headers:{"Content-Type":"application/json","Accept":"text/event-stream","Idempotency-Key":key},body:JSON.stringify(body)}).then(function(r){opened=true;var type=r.headers.get("content-type")||"";
+if(!r.ok||type.indexOf("text/event-stream")<0||!r.body){return r.text().then(function(t){var d=null;try{d=JSON.parse(t);}catch(e){}fin(true,r.status,d);});}
+var reader=r.body.getReader(),dec=new TextDecoder(),buf="";
+function ev(block){var name=null,data=[],lines=block.split(/\\r?\\n/);for(var i=0;i<lines.length;i++){if(lines[i].indexOf("event:")===0){name=lines[i].slice(6).replace(/^\\s+/,"");}else if(lines[i].indexOf("data:")===0){data.push(lines[i].slice(5).replace(/^ /,""));}}
+if(!data.length)return;var d=null;try{d=JSON.parse(data.join("\\n"));}catch(e){return;}if(name==="writing"&&d){writing(d.text);}else if(name==="answer"){end=[r.status,d];}else if(name==="problem"){end=[(d&&d.status)||500,d];}}
+function pump(){return reader.read().then(function(x){if(x.done){if(buf){ev(buf);}if(end){fin(true,end[0],end[1]);}else{fin(true,-1,null);}return;}
+buf+=dec.decode(x.value,{stream:true});var at=buf.search(/\\r?\\n\\r?\\n/);while(at>=0){ev(buf.slice(0,at));buf=buf.slice(at).replace(/^\\r?\\n\\r?\\n/,"");at=buf.search(/\\r?\\n\\r?\\n/);}return pump();});}
+return pump();}).catch(function(){if(opened){fin(true,-1,null);}else{fin(false);}});}
 form.addEventListener("submit",function(e){e.preventDefault();var text=input.value.replace(/^\\s+|\\s+$/g,"");if(!text)return;
-var go=function(){send.disabled=true;sending=true;if(!fast){fast=setInterval(poll,1000);}var key=rid();req("POST","/v1/public/chat/messages",{companyKey:C.key,token:token,text:text},key,function(code,d){send.disabled=false;sending=false;if(fast){clearInterval(fast);fast=null;}writing(null);
-if(code===201||code===200){input.value="";show(d);}else if(code===404){token=null;try{localStorage.removeItem(STORE);}catch(e){}startChat(function(ok){if(ok)go();});}else{status.textContent=(d&&d.error)||"That did not send. Try again.";}});};
+var go=function(){send.disabled=true;sending=true;var key=rid(),body={companyKey:C.key,token:token,text:text};
+var finish=function(code,d){send.disabled=false;sending=false;if(fast){clearInterval(fast);fast=null;}writing(null);
+if(code===201||code===200){input.value="";show(d);}else if(code===-1){input.value="";poll();}else if(code===404){token=null;try{localStorage.removeItem(STORE);}catch(e){}startChat(function(ok){if(ok)go();});}else{status.textContent=(d&&d.error)||"That did not send. Try again.";}};
+stream(body,key,function(opened,code,d){if(opened){finish(code,d);return;}if(!fast){fast=setInterval(poll,1000);}req("POST","/v1/public/chat/messages",body,key,finish);});};
 if(token){go();}else{startChat(function(ok){if(ok)go();});}});
 req("GET","/v1/public/chat?companyKey="+encodeURIComponent(C.key),null,null,function(code,d){if(code!==200||!d||!d.enabled)return;title.textContent=d.companyName;document.body.appendChild(host);});
 })();

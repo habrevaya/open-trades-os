@@ -1,8 +1,8 @@
 import {
-  registerAiProvider, fetchTransport, withoutSecret, retryableStatus,
+  registerAiProvider, fetchTransport, withoutSecret, retryableStatus, streamed,
   asArray, asObject, num, str, rateFromSettings,
   type AiContent, type AiProvider, type CompletionOutcome, type CompletionRequest,
-  type HttpTransport, type ModelListOutcome, type ModelRate, type StopReason,
+  type HttpTransport, type ModelListOutcome, type ModelRate, type StopReason, type StreamListener,
 } from "./provider";
 
 /**
@@ -41,6 +41,17 @@ import {
  * message. Stripping the unsupported keywords here would be quieter and
  * worse: it would change what the model is told a tool accepts, and the model
  * would then call it with arguments the tool refuses.
+ *
+ * IT STREAMS THROUGH `streamGenerateContent?alt=sse`, Google's documented
+ * streaming method: each server sent event is a `GenerateContentResponse`
+ * holding the next part of the answer. The parts are put back together into
+ * the response `generateContent` would have given and read by the same
+ * function, so a streamed answer is held to every check a whole one is. Text
+ * is handed on as it arrives. A function call is handed on as it arrives
+ * too, but Google's documentation shows a function call's arguments only
+ * whole, never in pieces, so this adapter hands each call on in one piece
+ * when its event comes: an answer written as a tool call (every agent's is)
+ * appears at once, not a sentence at a time.
  */
 
 interface GoogleSettings {
@@ -154,6 +165,122 @@ export function googleProvider(
     };
   };
 
+  /** The request as Gemini takes it, the same whether it is answered whole or streamed. */
+  function bodyOf(request: CompletionRequest): Record<string, unknown> {
+    return {
+      contents: contentsFor(request.messages),
+      ...(request.system
+        ? { systemInstruction: { parts: [{ text: request.system }] } }
+        : {}),
+      generationConfig: { maxOutputTokens: request.maxOutputTokens },
+      ...(request.tools && request.tools.length > 0
+        ? {
+            tools: [{
+              functionDeclarations: request.tools.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.inputSchema,
+              })),
+            }],
+          }
+        : {}),
+    };
+  }
+
+  /** A `GenerateContentResponse`, whole or put back together from a stream, held to every check. */
+  function read(status: number, json: Record<string, unknown>, model: string): CompletionOutcome {
+    if (status < 200 || status >= 300) return failure(status, json);
+
+    const candidate = asObject(asArray(json["candidates"])[0]);
+    /**
+     * NO CANDIDATE IS A REFUSAL, NOT AN EMPTY ANSWER.
+     *
+     * Gemini answers a blocked prompt with 200, no candidates, and a
+     * `promptFeedback.blockReason`. Returning that as an empty success
+     * would show a user a blank answer and tell them nothing, and it is the
+     * single most common way this vendor says no.
+     */
+    if (!candidate) {
+      const reason = str(asObject(json["promptFeedback"])?.["blockReason"]);
+      return {
+        ok: false,
+        code: reason ? `blocked_${reason.toLowerCase()}` : "no_candidate",
+        message: reason
+          ? `Gemini declined to answer: ${reason}.`
+          : "Gemini accepted the request and returned no answer to read.",
+        retryable: false,
+      };
+    }
+
+    const content: AiContent[] = [];
+    let callIndex = 0;
+    for (const raw of asArray(asObject(candidate["content"])?.["parts"])) {
+      const part = asObject(raw);
+      if (!part) continue;
+      const text = str(part["text"]);
+      if (text) {
+        content.push({ type: "text", text });
+        continue;
+      }
+      const fn = asObject(part["functionCall"]);
+      const name = str(fn?.["name"]);
+      if (!name) continue;
+      content.push({
+        type: "toolCall",
+        /**
+         * Minted here, because the vendor issues none. The name is in it so
+         * a human reading a log can see which tool a call belongs to, and
+         * the index keeps two calls to one tool distinct above this seam
+         * even though the vendor cannot tell them apart.
+         */
+        callId: `gemini-${callIndex}-${name}`,
+        name,
+        input: asObject(fn?.["args"]) ?? {},
+      });
+      callIndex += 1;
+    }
+
+    const usage = asObject(json["usageMetadata"]);
+    const inputTokens = num(usage?.["promptTokenCount"]);
+    /**
+     * Absent when the model produced no output tokens at all, which happens
+     * on a turn cut short, so it reads as zero rather than as missing. The
+     * input count is the one that is always reported on a billed call, and
+     * its absence is what makes a response uncostable.
+     */
+    const outputTokens = num(usage?.["candidatesTokenCount"]) ?? 0;
+    if (inputTokens === null) {
+      return {
+        ok: false,
+        code: "no_usage",
+        message: "Gemini answered without reporting token usage, so this call cannot be costed.",
+        retryable: false,
+      };
+    }
+
+    return {
+      ok: true,
+      completion: {
+        model: str(json["modelVersion"]) ?? model,
+        content,
+        stop: content.some((part) => part.type === "toolCall")
+          /**
+           * This vendor reports `STOP` on a turn that asked for a function
+           * call, so the finish reason alone would say the answer is
+           * complete while a tool call is sitting in it unrun.
+           */
+          ? "toolUse"
+          : stopFrom(str(candidate["finishReason"])),
+        usage: {
+          inputTokens,
+          outputTokens,
+          /** Only reported when explicit context caching was used. */
+          cachedInputTokens: num(usage?.["cachedContentTokenCount"]),
+        },
+      },
+    };
+  }
+
   return {
     name: "google",
     toolCallIdentity: {
@@ -174,115 +301,80 @@ export function googleProvider(
     async complete(request: CompletionRequest): Promise<CompletionOutcome> {
       const model = bare(request.model);
       const { status, json } = await call(
-        `/${PREFIX}${encodeURIComponent(model)}:generateContent`, "POST", {
-          contents: contentsFor(request.messages),
-          ...(request.system
-            ? { systemInstruction: { parts: [{ text: request.system }] } }
-            : {}),
-          generationConfig: { maxOutputTokens: request.maxOutputTokens },
-          ...(request.tools && request.tools.length > 0
-            ? {
-                tools: [{
-                  functionDeclarations: request.tools.map((tool) => ({
-                    name: tool.name,
-                    description: tool.description,
-                    parameters: tool.inputSchema,
-                  })),
-                }],
-              }
-            : {}),
-        });
+        `/${PREFIX}${encodeURIComponent(model)}:generateContent`, "POST", bodyOf(request));
+      return read(status, json, model);
+    },
 
-      if (status < 200 || status >= 300) return failure(status, json);
-
-      const candidate = asObject(asArray(json["candidates"])[0]);
-      /**
-       * NO CANDIDATE IS A REFUSAL, NOT AN EMPTY ANSWER.
-       *
-       * Gemini answers a blocked prompt with 200, no candidates, and a
-       * `promptFeedback.blockReason`. Returning that as an empty success
-       * would show a user a blank answer and tell them nothing, and it is the
-       * single most common way this vendor says no.
-       */
-      if (!candidate) {
-        const reason = str(asObject(json["promptFeedback"])?.["blockReason"]);
-        return {
-          ok: false,
-          code: reason ? `blocked_${reason.toLowerCase()}` : "no_candidate",
-          message: reason
-            ? `Gemini declined to answer: ${reason}.`
-            : "Gemini accepted the request and returned no answer to read.",
-          retryable: false,
-        };
-      }
-
-      const content: AiContent[] = [];
-      let callIndex = 0;
-      for (const raw of asArray(asObject(candidate["content"])?.["parts"])) {
-        const part = asObject(raw);
-        if (!part) continue;
-        const text = str(part["text"]);
-        if (text) {
-          content.push({ type: "text", text });
-          continue;
+    /**
+     * The same request through `streamGenerateContent?alt=sse`. Each event
+     * is a `GenerateContentResponse` with the next parts; text parts are
+     * joined in order, function calls kept in order, and the last usage and
+     * finish reason reported win, as the vendor reports them cumulatively.
+     */
+    async stream(request: CompletionRequest, listen: StreamListener): Promise<CompletionOutcome> {
+      const model = bare(request.model);
+      const response = await transport(`${base}/${PREFIX}${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
+        body: JSON.stringify(bodyOf(request)),
+      });
+      const answer = await streamed(response);
+      if (answer.kind === "whole") {
+        let json: Record<string, unknown> = {};
+        try {
+          json = asObject(JSON.parse(answer.text)) ?? {};
+        } catch {
+          json = { error: { message: clean(answer.text).slice(0, 500) } };
         }
-        const fn = asObject(part["functionCall"]);
-        const name = str(fn?.["name"]);
-        if (!name) continue;
-        content.push({
-          type: "toolCall",
-          /**
-           * Minted here, because the vendor issues none. The name is in it so
-           * a human reading a log can see which tool a call belongs to, and
-           * the index keeps two calls to one tool distinct above this seam
-           * even though the vendor cannot tell them apart.
-           */
-          callId: `gemini-${callIndex}-${name}`,
-          name,
-          input: asObject(fn?.["args"]) ?? {},
-        });
-        callIndex += 1;
+        return read(response.status, json, model);
       }
 
-      const usage = asObject(json["usageMetadata"]);
-      const inputTokens = num(usage?.["promptTokenCount"]);
-      /**
-       * Absent when the model produced no output tokens at all, which happens
-       * on a turn cut short, so it reads as zero rather than as missing. The
-       * input count is the one that is always reported on a billed call, and
-       * its absence is what makes a response uncostable.
-       */
-      const outputTokens = num(usage?.["candidatesTokenCount"]) ?? 0;
-      if (inputTokens === null) {
-        return {
-          ok: false,
-          code: "no_usage",
-          message: "Gemini answered without reporting token usage, so this call cannot be costed.",
-          retryable: false,
-        };
+      const parts: Record<string, unknown>[] = [];
+      let finishReason: unknown = undefined;
+      let usage: unknown = undefined;
+      let modelVersion: unknown = undefined;
+      let promptFeedback: unknown = undefined;
+      let sawCandidate = false;
+      let calls = 0;
+      for await (const event of answer.events) {
+        let data: Record<string, unknown> | null = null;
+        try { data = asObject(JSON.parse(event.data)); } catch { data = null; }
+        if (!data) continue;
+        /** An error in the middle of a stream fails the answer, as the same error whole would. */
+        if (data["error"] !== undefined) return failure(500, data);
+        if (data["usageMetadata"] !== undefined) usage = data["usageMetadata"];
+        if (data["modelVersion"] !== undefined) modelVersion = data["modelVersion"];
+        if (data["promptFeedback"] !== undefined) promptFeedback = data["promptFeedback"];
+        const candidate = asObject(asArray(data["candidates"])[0]);
+        if (!candidate) continue;
+        sawCandidate = true;
+        if (candidate["finishReason"] !== undefined) finishReason = candidate["finishReason"];
+        for (const raw of asArray(asObject(candidate["content"])?.["parts"])) {
+          const part = asObject(raw);
+          if (!part) continue;
+          const text = str(part["text"]);
+          if (text) {
+            const last = parts.at(-1);
+            if (last && typeof last["text"] === "string") last["text"] = `${last["text"]}${text}`;
+            else parts.push({ text });
+            listen({ type: "text", text });
+            continue;
+          }
+          const fn = asObject(part["functionCall"]);
+          const name = str(fn?.["name"]);
+          if (!name) continue;
+          parts.push({ functionCall: fn });
+          listen({ type: "toolStart", index: calls, name });
+          listen({ type: "toolInput", index: calls, partialJson: JSON.stringify(asObject(fn?.["args"]) ?? {}) });
+          calls += 1;
+        }
       }
-
-      return {
-        ok: true,
-        completion: {
-          model: str(json["modelVersion"]) ?? model,
-          content,
-          stop: content.some((part) => part.type === "toolCall")
-            /**
-             * This vendor reports `STOP` on a turn that asked for a function
-             * call, so the finish reason alone would say the answer is
-             * complete while a tool call is sitting in it unrun.
-             */
-            ? "toolUse"
-            : stopFrom(str(candidate["finishReason"])),
-          usage: {
-            inputTokens,
-            outputTokens,
-            /** Only reported when explicit context caching was used. */
-            cachedInputTokens: num(usage?.["cachedContentTokenCount"]),
-          },
-        },
-      };
+      return read(200, {
+        ...(sawCandidate ? { candidates: [{ content: { parts }, finishReason }] } : {}),
+        ...(usage !== undefined ? { usageMetadata: usage } : {}),
+        ...(modelVersion !== undefined ? { modelVersion } : {}),
+        ...(promptFeedback !== undefined ? { promptFeedback } : {}),
+      }, model);
     },
 
     async models(): Promise<ModelListOutcome> {

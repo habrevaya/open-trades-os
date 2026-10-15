@@ -97,6 +97,18 @@ export interface RouteDefinition<
    * marked here writes only to the database.
    */
   dryRun?: boolean;
+  /**
+   * Can answer as it is written.
+   *
+   * Asked with `Accept: text/event-stream`, the route answers as Server-Sent
+   * Events: the answer so far as it grows, then the JSON it answers without a
+   * stream (src/http/stream.ts). Without that header it answers JSON exactly
+   * as before. The same service runs either way, with the same session, the
+   * same permissions and the same limits; a route marked here has an entry
+   * in `streamingHandlers` as well, which hands the service somewhere to put
+   * the pieces.
+   */
+  streams?: boolean;
 }
 
 export function defineRoute<

@@ -1206,6 +1206,28 @@ export const handlers = {
 
 export type ImplementedRoute = keyof typeof handlers;
 
+/** Handed the answer so far, by a handler that can show one (src/http/stream.ts). */
+export type Show = (text: string) => void;
+
+type StreamingHandlerFor<N extends RouteName> =
+  (typeof routes)[N] extends RouteDefinition<infer I, z.ZodTypeAny, infer _A>
+    ? AuthOf<(typeof routes)[N]> extends "session"
+      ? (ctx: ServiceContext, input: z.infer<I>, show: Show) => Promise<unknown>
+      : (db: Database, input: z.infer<I>, meta: RequestMeta | undefined, show: Show) => Promise<unknown>
+    : never;
+
+/**
+ * The routes that can answer as they are written (`streams` on the route),
+ * each with the same service its entry in `handlers` calls, handed somewhere
+ * to put the answer so far. The same function, so a stream is refused,
+ * limited and checked exactly as the JSON answer is; the test beside the
+ * contracts holds the two lists to each other.
+ */
+export const streamingHandlers = {
+  askFieldAssistant: (ctx, input, show) => agentField.ask(ctx, input, undefined, show),
+  ...agentChat.streamingHandlers,
+} as const satisfies { [N in RouteName]?: StreamingHandlerFor<N> };
+
 /**
  * Routes that are declared and deliberately not yet served.
  *

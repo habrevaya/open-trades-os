@@ -1,12 +1,13 @@
 import { z } from "zod";
 import type { Database } from "@opentradesos/db";
-import { handlers, type RequestMeta } from "../routes/index";
+import { handlers, streamingHandlers, type RequestMeta, type Show } from "../routes/index";
 import { DemoReadOnlyError, type ServiceContext } from "../services/context";
 import { problem, json, errorResponse } from "./problem";
 import { handleOperator, isOperatorPath, type OperatorConfig } from "./operator";
 import { matchRoute, queryToInput } from "./match";
 import type { RouteDefinition } from "../lib/define";
 import { dryRun, wantsDryRun } from "./dry-run";
+import { eventStream, wantsEventStream } from "./stream";
 
 /**
  * THE HTTP LAYER
@@ -277,6 +278,19 @@ async function route(request: Request, deps: DispatchDeps, url: URL, path: strin
     meta.connectedAppId = await deps.resolveApp(request);
   }
 
+  /**
+   * The same service, handed somewhere to put the answer so far, when the
+   * route can answer as it writes and the caller asked for that. Everything
+   * above (who, the read only refusal, the schema) has already been decided
+   * exactly as for JSON. See src/http/stream.ts.
+   */
+  const streaming = route.streams === true && wantsEventStream(request)
+    ? streamingHandlers[match.name as keyof typeof streamingHandlers] as
+      | ((first: unknown, input: unknown, ...rest: unknown[]) => Promise<unknown>)
+      | undefined
+    : undefined;
+  const success = route.method === "post" ? 201 : 200;
+
   try {
     const authorization = route.authorization ?? "session";
 
@@ -303,14 +317,16 @@ async function route(request: Request, deps: DispatchDeps, url: URL, path: strin
         return json(await dryRun(ctx, (inner) => handler(inner, parsed.data)), 200);
       }
 
+      if (streaming) return await eventStream((show: Show) => streaming(ctx, parsed.data, show), success);
       const result = await handler(ctx, parsed.data);
-      return json(result, route.method === "post" ? 201 : 200);
+      return json(result, success);
     }
 
     // grant and public both reach the database directly: there is no session
     // to resolve, and the handler checks the token itself where there is one.
+    if (streaming) return await eventStream((show: Show) => streaming(deps.db, parsed.data, meta, show), success);
     const result = await handler(deps.db, parsed.data, meta);
-    return json(result, route.method === "post" ? 201 : 200);
+    return json(result, success);
   } catch (error) {
     return errorResponse(error);
   }

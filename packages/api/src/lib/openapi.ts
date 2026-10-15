@@ -65,6 +65,8 @@ export interface OperationObject {
   "x-permissions": string[];
   /** Present and true on a bulk operation that can be asked what it would change. */
   "x-dry-run"?: boolean;
+  /** Present and true on a route that answers as Server-Sent Events when asked with `Accept: text/event-stream`. */
+  "x-streams"?: boolean;
 }
 
 export type PathItemObject = {
@@ -303,6 +305,7 @@ export function buildOpenApiDocument(
       "x-authorization": authorization,
       "x-permissions": [...route.permissions],
       ...(route.dryRun === true ? { "x-dry-run": true } : {}),
+      ...(route.streams === true ? { "x-streams": true } : {}),
     };
 
     const allowed = (servedAt.get(route.path) ?? []).map((m) => m.toUpperCase()).sort();
@@ -434,7 +437,27 @@ function responsesFor(
   const success = route.method === "post" ? "201" : "200";
   responses[success] = {
     description: route.summary,
-    content: { "application/json": { schema: { $ref: `#/components/schemas/${outputName}` } } },
+    content: {
+      "application/json": { schema: { $ref: `#/components/schemas/${outputName}` } },
+      /**
+       * Only when asked for with `Accept`, and only on a route that can
+       * (src/http/stream.ts). The same status: a refusal before the first
+       * event is the ordinary error below, and one after it is an event.
+       */
+      ...(route.streams === true
+        ? {
+            "text/event-stream": {
+              schema: {
+                type: "string",
+                description:
+                  "Server-Sent Events. `writing`: `{ \"text\": string }`, the answer so far, sent whole each time it grows. "
+                  + "`answer`: the JSON body above, sent once, last. `problem`: `{ \"error\": string, \"status\": number }`, "
+                  + "a refusal after the stream opened. A comment line is sent every fifteen seconds while nothing else is.",
+              },
+            },
+          }
+        : {}),
+    },
   };
 
   // A body is only read, and so only rejected as malformed, for methods that

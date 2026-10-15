@@ -98,8 +98,12 @@ interface FieldState {
    * the camera was cancelled.
    */
   takeReceipt(): Promise<KeptReceipt | { problem: string } | null>;
-  /** A question for the field assistant. Needs a signal. */
-  ask(question: string, visitId: string | null): Promise<AssistantAnswer | { problem: string }>;
+  /**
+   * A question for the field assistant. Needs a signal. `onWriting` is handed
+   * the answer so far while it is written; what the promise settles with
+   * takes its place.
+   */
+  ask(question: string, visitId: string | null, onWriting?: (text: string) => void): Promise<AssistantAnswer | { problem: string }>;
 }
 
 const Context = createContext<FieldState | null>(null);
@@ -522,11 +526,11 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const ask = useCallback<FieldState["ask"]>(async (question, visitId) => {
+  const ask = useCallback<FieldState["ask"]>(async (question, visitId, onWriting) => {
     const c = clientRef.current;
     if (!c) return { problem: "Not signed in." };
     try {
-      return await c.api.askAssistant(question, visitId, Crypto.randomUUID());
+      return await c.api.askAssistantAsItWrites(question, visitId, Crypto.randomUUID(), onWriting ?? (() => {}));
     } catch (error) {
       const offline = typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true;
       return {

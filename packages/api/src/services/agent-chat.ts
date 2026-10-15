@@ -179,6 +179,12 @@ export async function read(db: Database, input: { companyKey: string; token: str
 export async function say(
   db: Database, input: { companyKey: string; token: string; text: string },
   meta?: RequestMeta, deps: AiDeps = base.DEFAULT_AGENT_DEPS,
+  /**
+   * Handed the reply so far as it is written, for a caller reading it as a
+   * stream (`sayInChat` asked for events). The same text goes on the chat for
+   * a widget that reads it by polling, and for the inbox.
+   */
+  show?: (text: string) => void,
 ) {
   await throttle(db, `chat:say:${meta?.ip ?? "unknown"}`, LIMITS.perAddress);
   const { session, organizationId } = await sessionFor(db, input.companyKey, input.token);
@@ -203,7 +209,7 @@ export async function say(
     await inbound(tx, organizationId, session, text);
     return false;
   });
-  if (!replay) await answer(db, organizationId, session.id, deps);
+  if (!replay) await answer(db, organizationId, session.id, deps, show);
   const [fresh] = await inTenant(reader(db, organizationId), (tx) =>
     tx.select().from(schema.aiChatSession).where(eq(schema.aiChatSession.id, session.id)).limit(1));
   return inTenant(reader(db, organizationId), (tx) => transcript(tx, fresh!));
@@ -490,10 +496,17 @@ async function turn(
  * It is cleared in the same transaction that writes the checked reply, so the
  * visitor sees the one replace the other; and cleared whatever happens, so a
  * turn that fails leaves no reply half written on the screen.
+ *
+ * A visitor reading the answer as a stream is handed each piece as well, at
+ * once, by `stream`; the write to the session stays for a widget that could
+ * not open a stream and reads the chat instead.
  */
-async function answer(db: Database, organizationId: string, sessionId: string, deps: AiDeps): Promise<void> {
+async function answer(
+  db: Database, organizationId: string, sessionId: string, deps: AiDeps, stream?: (text: string) => void,
+): Promise<void> {
   let writes: Promise<unknown> = Promise.resolve();
   const show = (text: string) => {
+    stream?.(text);
     writes = writes.then(() => inTenant(reader(db, organizationId), (tx) => tx.update(schema.aiChatSession)
       .set({ writing: text, lastActivityAt: new Date() })
       .where(and(eq(schema.aiChatSession.id, sessionId), eq(schema.aiChatSession.status, "open")))))
@@ -657,4 +670,12 @@ export const handlers = {
     read(db, input, meta),
   sayInChat: (db: Database, input: { companyKey: string; token: string; text: string }, meta?: RequestMeta) =>
     say(db, input, meta),
+} as const;
+
+/** The same, handed somewhere to put the reply so far (`streamingHandlers`). */
+export const streamingHandlers = {
+  sayInChat: (
+    db: Database, input: { companyKey: string; token: string; text: string }, meta: RequestMeta | undefined,
+    show: (text: string) => void,
+  ) => say(db, input, meta, undefined, show),
 } as const;

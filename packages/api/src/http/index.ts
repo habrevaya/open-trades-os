@@ -6,3 +6,4 @@ export * from "./operator";
 export * from "./worker-tick";
 export * as oauthEndpoints from "./oauth";
 export * from "./dry-run";
+export * from "./stream";

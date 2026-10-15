@@ -391,6 +391,17 @@ whether the company takes tips and with which suggestions, whether a lender
 is connected and whether the field assistant (M27) is on, so the phone
 offers only what the server would accept.
 
+**Asking the field assistant.** **Ask** on the day, or **Ask about this job**
+on a visit, opens a question box. The answer appears as it is written, a
+finished sentence at a time under "Still writing...", and the whole answer
+takes its place once the server has checked it; that can be a line saying the
+answer cannot be shown. The phone asks `POST /v1/ai/field-assistant` for
+Server-Sent Events (`field:sync`, the same permission and limits as the whole
+answer) and reads them through React Native's own `XMLHttpRequest`, whose
+`responseText` grows as the answer arrives on Android and iOS alike, so no
+native module is added. A server that answers whole is read whole. A dropped
+signal mid answer says there is no signal, and the sentences shown so far go.
+
 ### Inspections
 
 A technician the company lets file inspections (`compliance:write`, which the
@@ -755,7 +766,9 @@ there for can be skipped, and the invoice is raised unsigned. A task with a
 checklist shows its items to tick, one at a time, and is finished with the reason the
 office asks for when some are unticked (M34). The
 lender's link and the field assistant need a signal; nothing about them is
-queued.
+queued. The assistant's answer as it is written has, like the rest of the app,
+been read only from a fake of `XMLHttpRequest` handing the body over in pieces,
+never from a real phone's network stack.
 
 Photographs and signatures are kept in Postgres by default, which is right
 for a self hoster with a few gigabytes, and in an S3 compatible bucket when the

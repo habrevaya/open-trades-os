@@ -374,4 +374,13 @@ describe("the website chat widget", () => {
     expect(source).toContain("fast=setInterval(poll,1000)");
     expect(source).toMatch(/sending=false;if\(fast\)\{clearInterval\(fast\);fast=null;\}writing\(null\);/);
   });
+
+  it("reads the reply as Server-Sent Events, and reads the chat each second only when a stream cannot open", () => {
+    expect(source).toContain('"Accept":"text/event-stream"');
+    expect(source).toContain("r.body.getReader()");
+    /** The fallback sends the same message under the same key, so a request that did arrive is not a second message. */
+    expect(source).toMatch(/if\(opened\)\{finish\(code,d\);return;\}if\(!fast\)\{fast=setInterval\(poll,1000\);\}req\("POST","\/v1\/public\/chat\/messages",body,key,finish\)/);
+    /** A stream that broke part way is not sent again. */
+    expect(source).toContain('else if(code===-1){input.value="";poll();}');
+  });
 });
