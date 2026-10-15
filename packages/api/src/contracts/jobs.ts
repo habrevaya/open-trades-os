@@ -126,6 +126,8 @@ export const Job = z.object({
    * job out. See `multiVisitPlanned`.
    */
   multiVisitPlannedAt: z.string().datetime().nullable().optional(),
+  /** Crew hours budgeted for the job, or null. See `budgetedHours` on create. */
+  budgetedHours: MoneyString.nullable().optional(),
   visits: z.array(Visit),
   /** Redacted unless the caller holds job.cost:read. */
   cost: MoneyString.nullable().optional(),
@@ -208,6 +210,13 @@ export const JobCreate = z.object({
    * described kindly. `false` takes the plan off at any time.
    */
   multiVisitPlanned: z.boolean().optional(),
+  /**
+   * CREW HOURS BUDGETED: people times hours, on site and travelling to it,
+   * as the bid was built. The budgeted hour variance reads it. Fixed once the
+   * first hour is punched on the job: hours the customer agrees to add come
+   * through a change order with its own crew hours.
+   */
+  budgetedHours: MoneyString.optional(),
   /**
    * Parties beyond the customer. Omit entirely for residential, where the
    * customer holds every role and the degenerate case should stay simple.
@@ -321,6 +330,8 @@ export const updateJob = defineRoute({
     status: JobStatus.optional(),
     /** Null clears the job's lead source; a value is checked against the channel list. */
     leadSource: z.string().max(100).nullable().optional(),
+    /** Null clears the budget. Refused once an hour has been punched on the job. */
+    budgetedHours: MoneyString.nullable().optional(),
     /**
      * Move the job to another branch, or out of every branch with null. Only
      * somebody who sees the whole company may move work out of their own.

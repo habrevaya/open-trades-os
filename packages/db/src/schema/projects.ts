@@ -316,6 +316,18 @@ export const projectChangeOrder = pgTable("project_change_order", {
    */
   scheduleDays: integer("schedule_days"),
   /**
+   * CREW HOURS THE CHANGE ADDS, and the job they are worked on. The budgeted
+   * hour variance EXCLUDES "change order hours that were separately
+   * approved, or every approved upsell reads as an overrun", so an approved
+   * change order's hours come off that job's actual hours. Both or neither,
+   * the job one of this project's own, and set only while the change order
+   * can still be edited, so nothing adds hours to a change order after the
+   * customer has been asked to sign it. They are the office's figure for the
+   * work and are not printed on the page the customer signs.
+   */
+  crewHours: money("crew_hours"),
+  jobId: uuid("job_id").references(() => job.id, { onDelete: "set null" }),
+  /**
    * WHEN A PERSON APPLIED THOSE DAYS TO THE SCHEDULE, and what that moved.
    * Null until then. Once set the days are never applied again, because
    * applying them twice would push every later phase out twice; a retry of the

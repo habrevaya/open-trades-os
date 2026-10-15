@@ -243,6 +243,19 @@ export const job = pgTable("job", {
    */
   multiVisitPlannedAt: timestamp("multi_visit_planned_at", { withTimezone: true }),
   multiVisitPlannedByUserId: uuid("multi_visit_planned_by_user_id"),
+  /**
+   * CREW HOURS BUDGETED FOR THIS JOB: people times hours, on site and
+   * travelling to it, as the bid was built.
+   *
+   * The budgeted hour variance (lawn and landscape) is actual crew hours less
+   * this, over this. `job_type.default_duration_minutes` is a scheduling
+   * default, a phase's budget is money and the company budget is money for a
+   * month, so none of them is a budget in hours for one job. Fixed once the
+   * first hour is punched on the job, which the jobs service enforces: hours
+   * the customer agreed to add come through a change order with its own crew
+   * hours, never by moving the budget after the work showed it was short.
+   */
+  budgetedHours: money("budgeted_hours"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   cancellationReason: text("cancellation_reason"),

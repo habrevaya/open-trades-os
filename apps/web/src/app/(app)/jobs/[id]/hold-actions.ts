@@ -48,3 +48,17 @@ export async function setMultiVisitPlanned(_previous: FormState, form: FormData)
   revalidatePath(`/jobs/${jobId}`);
   return result;
 }
+
+/** The crew hours budgeted, or none when the box is left empty. */
+export async function setBudgetedHours(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const typed = field(form, "budgetedHours");
+  if (typed !== undefined && !/^\d{1,6}(\.\d{1,2})?$/.test(typed)) {
+    return refused(form, "Give the crew hours as a number, like 32 or 32.5.");
+  }
+  const result = await attempt(form, async () => {
+    await jobs.update(await ctx(), { id: jobId, budgetedHours: typed ?? null });
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}

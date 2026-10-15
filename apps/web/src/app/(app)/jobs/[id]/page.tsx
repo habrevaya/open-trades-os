@@ -39,7 +39,8 @@ import { JobFiles } from "./Files";
 import { EstimateDrafts } from "./EstimateDrafts";
 import { Stages } from "./Stages";
 import { JobHoldPanel, PlannedVisits } from "./Hold";
-import { placeHold, releaseHold, setMultiVisitPlanned } from "./hold-actions";
+import { placeHold, releaseHold, setBudgetedHours, setMultiVisitPlanned } from "./hold-actions";
+import { CrewBudget } from "./Budget";
 
 export const dynamic = "force-dynamic";
 
@@ -220,6 +221,7 @@ export default async function JobPage({ params, searchParams }: {
       .map((o) => ({ id: o.id, number: o.number, vendorName: o.vendorName, status: o.status }))
     : [];
   const started = job.visits.some((v) => v.arrivedAt !== null || v.completedAt !== null);
+  const crewBudget = await jobs.hoursAgainstBudget(ctx, { id });
   const items = completes && openVisits.length > 0 && can(user.actor, "pricebook:read")
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
       .map((item) => ({ id: item.id, name: item.name, price: item.price }))
@@ -273,6 +275,7 @@ export default async function JobPage({ params, searchParams }: {
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
       <PlannedVisits jobId={id} plannedAt={job.multiVisitPlannedAt ?? null} started={started} writes={writes}
                      timezone={user.organizationTimezone} action={setMultiVisitPlanned} />
+      <CrewBudget jobId={id} budget={crewBudget} writes={writes} action={setBudgetedHours} />
       <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />
       <RequiredSkills jobId={id} actor={user.actor} writes={writes} timezone={user.organizationTimezone} />
 

@@ -142106,6 +142106,20 @@
               "null"
             ]
           },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -142247,6 +142261,8 @@
           "projectPhaseId",
           "phaseName",
           "scheduleDays",
+          "crewHours",
+          "jobId",
           "amount",
           "cost",
           "sentAt",
@@ -159848,6 +159864,10 @@
           "multiVisitPlanned": {
             "type": "boolean"
           },
+          "budgetedHours": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "parties": {
             "type": "array",
             "items": {
@@ -160154,6 +160174,13 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "budgetedHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "visits": {
             "type": "array",
@@ -167106,6 +167133,20 @@
               "null"
             ]
           },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -167247,6 +167288,8 @@
           "projectPhaseId",
           "phaseName",
           "scheduleDays",
+          "crewHours",
+          "jobId",
           "amount",
           "cost",
           "sentAt",
@@ -177143,6 +177186,20 @@
               "null"
             ]
           },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -177284,6 +177341,8 @@
           "projectPhaseId",
           "phaseName",
           "scheduleDays",
+          "crewHours",
+          "jobId",
           "amount",
           "cost",
           "sentAt",
@@ -187842,6 +187901,13 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "budgetedHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "visits": {
             "type": "array",
@@ -211180,6 +211246,20 @@
                     "null"
                   ]
                 },
+                "crewHours": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "amount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -211321,6 +211401,8 @@
                 "projectPhaseId",
                 "phaseName",
                 "scheduleDays",
+                "crewHours",
+                "jobId",
                 "amount",
                 "cost",
                 "sentAt",
@@ -219728,6 +219810,13 @@
                     "null"
                   ],
                   "format": "date-time"
+                },
+                "budgetedHours": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
                 "cost": {
                   "type": [
@@ -249150,6 +249239,20 @@
               "null"
             ]
           },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -249291,6 +249394,8 @@
           "projectPhaseId",
           "phaseName",
           "scheduleDays",
+          "crewHours",
+          "jobId",
           "amount",
           "cost",
           "sentAt",
@@ -251057,6 +251162,20 @@
             ],
             "minimum": -3650,
             "maximum": 3650
+          },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
@@ -251127,6 +251246,20 @@
               "integer",
               "null"
             ]
+          },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "amount": {
             "type": "string",
@@ -251269,6 +251402,8 @@
           "projectPhaseId",
           "phaseName",
           "scheduleDays",
+          "crewHours",
+          "jobId",
           "amount",
           "cost",
           "sentAt",
@@ -274067,6 +274202,20 @@
             ],
             "minimum": -3650,
             "maximum": 3650
+          },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -274134,6 +274283,20 @@
               "integer",
               "null"
             ]
+          },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "amount": {
             "type": "string",
@@ -274276,6 +274439,8 @@
           "projectPhaseId",
           "phaseName",
           "scheduleDays",
+          "crewHours",
+          "jobId",
           "amount",
           "cost",
           "sentAt",
@@ -277116,6 +277281,13 @@
           "multiVisitPlanned": {
             "type": "boolean"
           },
+          "budgetedHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -277302,6 +277474,13 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "budgetedHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "visits": {
             "type": "array",
@@ -286396,6 +286575,20 @@
               "null"
             ]
           },
+          "crewHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -286537,6 +286730,8 @@
           "projectPhaseId",
           "phaseName",
           "scheduleDays",
+          "crewHours",
+          "jobId",
           "amount",
           "cost",
           "sentAt",

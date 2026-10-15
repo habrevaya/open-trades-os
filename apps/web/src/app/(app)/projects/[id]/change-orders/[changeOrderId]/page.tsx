@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { priceBook, projectChangeOrders, projectSchedule, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, work } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { formatIn } from "@/lib/dates";
@@ -58,6 +58,8 @@ export default async function ChangeOrderPage({ params, searchParams }: {
     ? (await projectSchedule.schedule(ctx, { projectId: id })).phases
     : [];
   const field = "mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm";
+  const projectJobs = await projectChangeOrders.jobsFor(ctx, { projectId: id });
+  const crewJob = projectJobs.find((j) => j.id === order.jobId) ?? null;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -75,6 +77,15 @@ export default async function ChangeOrderPage({ params, searchParams }: {
         {order.cost !== null && <div><dt className="text-ink-500">Our cost</dt><dd className="tabular-nums"><Money value={order.cost} /></dd></div>}
         <div><dt className="text-ink-500">Lands on</dt><dd>{order.phaseName ?? "Its own line on the schedule of values"}</dd></div>
         {order.scheduleDays !== null && <div><dt className="text-ink-500">Time</dt><dd>{order.scheduleDays >= 0 ? `Adds ${order.scheduleDays} days` : `Saves ${-order.scheduleDays} days`}</dd></div>}
+        {order.crewHours !== null && (
+          <div>
+            <dt className="text-ink-500">Crew hours</dt>
+            <dd>
+              Adds {Number(order.crewHours)} on{" "}
+              {crewJob ? <Link href={`/jobs/${crewJob.id}`} className="underline underline-offset-4">job {work.documentNumber(crewJob.numberPrefix, crewJob.number)}</Link> : "a job"}
+            </dd>
+          </div>
+        )}
         {order.requestedBy && <div><dt className="text-ink-500">Asked for by</dt><dd>{order.requestedBy}</dd></div>}
         {order.reason && <div><dt className="text-ink-500">Why</dt><dd>{order.reason}</dd></div>}
       </dl>
@@ -160,6 +171,28 @@ export default async function ChangeOrderPage({ params, searchParams }: {
               )}
             </>
           )}
+        </section>
+      )}
+
+      {editable && prices && projectJobs.length > 0 && (
+        <section className="mt-8 max-w-2xl" aria-label="Crew hours it adds">
+          <h2 className="text-base font-semibold">Crew hours it adds</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            Once the customer approves it, these hours come off the job&apos;s hours in the budgeted hour variance. Not
+            printed on the page they sign. Leave both empty for none.
+          </p>
+          <ChangeOrderForm submit="Save crew hours" tone="quiet" hidden={{ ...hidden, op: "crew-hours" }}
+                           className="mt-2 grid gap-3 sm:grid-cols-2">
+            <TextField label="Crew hours" name="crewHours" inputMode="decimal"
+                       defaultValue={order.crewHours !== null ? String(Number(order.crewHours)) : ""} />
+            <label className="block">
+              <span className="text-sm font-medium text-ink-700">On which job</span>
+              <select name="crewJobId" defaultValue={order.jobId ?? ""} className={field}>
+                <option value="">No job</option>
+                {projectJobs.map((j) => <option key={j.id} value={j.id}>Job {work.documentNumber(j.numberPrefix, j.number)}, {j.summary}</option>)}
+              </select>
+            </label>
+          </ChangeOrderForm>
         </section>
       )}
 

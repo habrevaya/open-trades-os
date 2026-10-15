@@ -86,6 +86,8 @@ export interface AddChangeOrderLineOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -3596,6 +3598,7 @@ export interface CreateJobInput {
   isWarranty?: boolean;
   priceSource?: "price_book" | "rate_card" | "warranty_schedule" | "manufacturer_allowance" | "insurance_schedule" | "bid";
   multiVisitPlanned?: boolean;
+  budgetedHours?: string;
   parties?: Array<{
     role: "requester" | "site_contact" | "approver" | "bill_to" | "payer" | "referrer" | "owner";
     customerId?: string;
@@ -3652,6 +3655,7 @@ export interface CreateJobOutput {
   customFields: Record<string, unknown>;
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
+  budgetedHours?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -4952,6 +4956,8 @@ export interface DecideChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -6975,6 +6981,8 @@ export interface GetChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -9080,6 +9088,7 @@ export interface GetJobOutput {
   customFields: Record<string, unknown>;
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
+  budgetedHours?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -13425,6 +13434,8 @@ export interface ListChangeOrdersOutput {
     projectPhaseId: string | null;
     phaseName: string | null;
     scheduleDays: number | null;
+    crewHours: string | null;
+    jobId: string | null;
     amount: string;
     cost: string | null;
     sentAt: string | null;
@@ -15017,6 +15028,7 @@ export interface ListJobsOutput {
     customFields: Record<string, unknown>;
     businessUnitId?: string | null;
     multiVisitPlannedAt?: string | null;
+    budgetedHours?: string | null;
     cost?: string | null;
     grossMargin?: string | null;
     externalRef: {
@@ -20779,6 +20791,8 @@ export interface RemoveChangeOrderLineOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -21229,6 +21243,8 @@ export interface RequestChangeOrderInput {
   reason?: string | null;
   phaseId?: string | null;
   scheduleDays?: number | null;
+  crewHours?: string | null;
+  jobId?: string | null;
 }
 
 export interface RequestChangeOrderOutput {
@@ -21243,6 +21259,8 @@ export interface RequestChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -25985,6 +26003,8 @@ export interface UpdateChangeOrderInput {
   reason?: string | null;
   phaseId?: string | null;
   scheduleDays?: number | null;
+  crewHours?: string | null;
+  jobId?: string | null;
 }
 
 export interface UpdateChangeOrderOutput {
@@ -25999,6 +26019,8 @@ export interface UpdateChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -26554,6 +26576,7 @@ export interface UpdateJobInput {
   isWarranty?: boolean;
   priceSource?: "price_book" | "rate_card" | "warranty_schedule" | "manufacturer_allowance" | "insurance_schedule" | "bid";
   multiVisitPlanned?: boolean;
+  budgetedHours?: string | null;
   status?: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
   completedAt?: string;
   cancelVisits?: boolean;
@@ -26586,6 +26609,7 @@ export interface UpdateJobOutput {
   customFields: Record<string, unknown>;
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
+  budgetedHours?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -28310,6 +28334,8 @@ export interface WithdrawChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;

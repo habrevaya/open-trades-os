@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty five of the forty seven are computed here, four are
- * M22's, and the eighteen that are not each name what they still lack.)
+ * (They are read now. Twenty six of the forty seven are computed here, four are
+ * M22's, and the seventeen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -690,6 +690,40 @@ const firstTimeFixes = (pick: "numerator" | "denominator" | "excluded"): Records
     }[pick]}
 `;
 
+/**
+ * BUDGETED HOURS, per completed job with a budget whose hours are all in:
+ * crew hours (every working punch on the job, each person separately) less the
+ * crew hours of change orders approved for it, against the hours budgeted. The
+ * rule is core's `reporting.budgetVarianceOf`, and
+ * `kpi-budget-hours.integration.test.ts` puts the same jobs through both.
+ */
+const CREW_HOURS = `((
+  select coalesce(sum(te.minutes), 0) from public.timeclock_entry te
+  where te.job_id = j.id and te.deleted_at is null and te.ended_at is not null
+    and te.kind::text <> all(array['${reporting.NOT_A_DAY_WORKED.join("', '")}'])
+)::numeric / 60)`;
+
+const CHANGE_HOURS = `(
+  select coalesce(sum(co.crew_hours), 0) from public.project_change_order co
+  where co.job_id = j.id and co.status = 'approved' and co.crew_hours is not null
+)`;
+
+const budgetedJobs = (value: string): Records => (from, to, zone) => sql`
+  select ${jobRow(value, zone)}
+  from public.job j
+  join public.job_type jt on jt.id = j.job_type_id
+  where j.deleted_at is null and j.completed_at is not null
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and j.budgeted_hours is not null and j.budgeted_hours > 0
+    and not exists (
+      select 1 from public.timeclock_entry running
+      where running.job_id = j.id and running.deleted_at is null and running.ended_at is null
+        and running.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])
+    )
+    and ${sql.raw(CREW_HOURS)} > 0
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1357,17 +1391,31 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   budget_hour_variance: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Budgeted hours on the job. `job_type.default_duration_minutes` is a "
-      + "scheduling default rather than a budget for this job, a project "
-      + "phase carries a budget in money, not hours, and the company budget "
-      + "(M15) is money for a month, by branch or job type, never hours for one "
-      + "job. Change orders now exist "
-      + "(M12) and the definition EXCLUDES separately approved change order "
-      + "hours, but a change order carries an amount and a cost and no hours, so "
-      + "there is nothing to take out of the actual hours either.",
+    measure: {
+      /**
+       * "Actual crew hours minus budgeted hours on completed jobs, as a
+       * percentage of budgeted. EXCLUDES change order hours that were
+       * separately approved, or every approved upsell reads as an overrun."
+       *
+       * WHAT IT NEEDED, and what changed: budgeted hours on the job, and hours
+       * on a change order. A job now carries the crew hours it was budgeted
+       * (`job.budgeted_hours`), fixed once the first hour is punched on it, and
+       * a change order carries the crew hours it adds and the project job they
+       * are worked on (`project_change_order.crew_hours`, `job_id`). When the
+       * customer approves it, those hours come off the job's actual hours.
+       *
+       * Actual crew hours are every working punch on the job, each person
+       * separately: on site and travelling to it, never leave or an unpaid
+       * break. A job is LEFT OUT OF BOTH HALVES when it has no budget, a punch
+       * still running, or no hours at all, because a job nobody clocked would
+       * read as entirely under budget. Each half is the jobs counted, the first
+       * adding its hours over budget (negative under), the second its budget.
+       */
+      numerator: { label: "crew hours over budget, less approved change order hours", records: budgetedJobs(`${CREW_HOURS} - ${CHANGE_HOURS} - j.budgeted_hours`) },
+      denominator: { label: "crew hours budgeted on completed jobs", records: budgetedJobs("j.budgeted_hours") },
+    },
   },
 
   production_per_crew_hour: {

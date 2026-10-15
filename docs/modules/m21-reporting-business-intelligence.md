@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty nine of the forty seven are answered: twenty five computed here, four
-by M22's fleet report. The other eighteen each name what they still lack.
+Thirty of the forty seven are answered: twenty six computed here, four
+by M22's fleet report. The other seventeen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -85,7 +85,7 @@ by branch and job type, part days off, and review reminders. None of them
 supplies a datum one of the nineteen names, so none moved, and none is computed
 from something close to its datum instead. Where one of them comes near, the
 sentence now says how near: the company budget is money for a month and never
-hours for a job; a permit can be filed against a job as a compliance document,
+hours for a job (a job now carries its own crew hour budget, below); a permit can be filed against a job as a compliance document,
 but not the city's visits to it; the pest pack's template already asks why no
 product was applied, so record completeness lacks only the list of fields a
 report was required to capture when it was written; the electrical pack
@@ -196,6 +196,33 @@ again in SQL, and `kpi-first-time-fix.integration.test.ts` checks a month worked
 out by hand under each of the three trades and puts the same jobs through both.
 The catalogue's records take the company's trade for this one key, because the
 three packs define it three ways.
+
+### Budgeted hour variance, and the hours it waited on
+
+Lawn and landscape's **budgeted hour variance** is "actual crew hours minus
+budgeted hours on completed jobs, as a percentage of budgeted", and it EXCLUDES
+"change order hours that were separately approved, or every approved upsell
+reads as an overrun". It needed budgeted hours on a job, which nothing held (a
+job type's duration is a scheduling default, a phase's budget and the company
+budget are money), and hours on a change order, which carried only money. A job
+now carries the crew hours it was budgeted, fixed from the first punch on it
+(M10), and a change order the crew hours it adds and the project job they are
+worked on (M12).
+
+- Actual crew hours are every working punch on the job, each person separately:
+  on site and travelling to it, never leave or an unpaid break.
+- An approved change order's crew hours come off that job's actual hours. One
+  sent and not yet approved does not.
+- A completed job is **left out of both halves** with no budget, a punch still
+  running, or no hours at all, because a job nobody clocked would read as
+  entirely under budget. Customer work only, every class but internal.
+- The numerator's records are the jobs counted, each adding its hours over
+  budget (negative when under); the denominator's, each adding its budget. A
+  negative figure is under budget.
+
+The rule is core's `reporting.budgetVarianceOf`, with unit tests, written again
+in SQL, and `kpi-budget-hours.integration.test.ts` checks a month worked out by
+hand and puts the same jobs through both.
 
 ### The four that waited on a coded cancellation reason
 
@@ -673,11 +700,11 @@ prefix off.
 
 ## What is not built
 
-Eighteen of the forty seven declared KPIs cannot be computed, and each one
+Seventeen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the eighteen has its datum yet (above, "The
+since they were written and none of the seventeen has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
 
 First time fix leaves out a part hold only when it names a purchase order in
@@ -686,7 +713,13 @@ never written as an order counts as a return visit; the conservative choice,
 because a hold the office could claim without an order is the easiest way to
 tidy the figure. A job planned as several visits after somebody arrived counts
 as a return visit for the same reason. Holds are placed in the office, not on
-the phone. The records
+the phone.
+
+The budgeted hour variance is only as good as the budget typed: nothing takes a
+job's hours from its estimate, so a company that does not budget its jobs in
+hours sees "Not this window". A change order's crew hours are typed by the
+office and are not on the page the customer signs, so "separately approved" is
+the change order being approved, not those hours by name. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

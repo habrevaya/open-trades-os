@@ -190,6 +190,18 @@ arrived at a visit on the job, and the page stops offering it, because a plan
 said after the work is a return visit described kindly. Both are what the
 first time fix rate (M21) leaves out.
 
+### Budget its crew hours
+
+A job can carry the **crew hours it was budgeted**, people times hours with the
+drive, as the bid was built: "Budget the crew hours" on `/jobs/{id}`, or
+`budgetedHours` on `POST /v1/jobs` and `PATCH /v1/jobs/{id}` (null takes it
+off). The page then shows the budget against the working hours punched on the
+job so far, each person separately, and the hours of change orders the customer
+approved for it. The budget is fixed from the first punch on the job and the
+service refuses a change after that, because a budget moved once the hours are
+known is a budget fitted to them: hours the customer agrees to add go on a
+change order (M12). The budgeted hour variance (M21) reads both.
+
 ### Finish it
 
 `POST /v1/visits/{id}/complete` records what was done, the notes, the checklist
@@ -317,4 +329,6 @@ be held for "something else" with words, but it is not "held for a part
 order", so the first time fix rate counts it. A hold names one order; a job
 waiting on two orders names the one the work is waiting for. Nothing reminds
 anybody about a job that has been on hold a long time, and the board does not
-show the reason.
+show the reason. A job's crew hour budget is typed by the office; it is not
+taken from the estimate, whose lines carry quantities and prices and never say
+which of them are hours.

@@ -276,6 +276,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
     expect(computed).toEqual([
       "avg_ticket",
       "backflow_recert",
+      "budget_hour_variance",
       "callback_rate",
       "churn",
       "close_rate",
@@ -324,9 +325,10 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * truck got a kind (M22): a driver is whoever has a vehicle with one checked out.
      * `first_time_fix` made twenty nine when a job could say it was planned as
      * several visits and a hold could say it was waiting on a part order or an
-     * inspection.
+     * inspection. `budget_hour_variance` made thirty when a job could carry the
+     * crew hours it was budgeted and a change order the hours it adds.
      */
-    expect(computed.length + elsewhere.length).toBe(29);
+    expect(computed.length + elsewhere.length).toBe(30);
     expect(KEYS.length).toBe(47);
   });
 });

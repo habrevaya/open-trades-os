@@ -1,7 +1,7 @@
 import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
-import { assertCan, time } from "@opentradesos/core";
+import { assertCan, reporting, time } from "@opentradesos/core";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
@@ -30,6 +30,25 @@ import { closeOpenHold } from "./job-holds";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
+
+/**
+ * Crew hours budgeted, as stored: a positive number of hours. Zero is no
+ * budget rather than a budget of nothing, which every hour would overrun.
+ */
+function budgetOf(hours: string): string | null {
+  const value = Number(hours);
+  if (!(value > 0)) {
+    throw new UnprocessableError("A budget is a number of hours", [{
+      path: "budgetedHours", message: "Give the crew hours budgeted, more than nought, or leave it empty.",
+    }]);
+  }
+  if (value > 100_000) {
+    throw new UnprocessableError("A budget is a number of hours", [{
+      path: "budgetedHours", message: "That is more crew hours than one job is budgeted. Check the number.",
+    }]);
+  }
+  return value.toFixed(4);
+}
 
 /**
  * The next human-facing number for an organization.
@@ -546,6 +565,7 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       priceSource: input.priceSource ?? "price_book",
       /** Planned as several visits when it was booked, which is before any of them started. */
       ...(input.multiVisitPlanned ? { multiVisitPlannedAt: new Date(), multiVisitPlannedByUserId: ctx.actor.userId } : {}),
+      ...(input.budgetedHours !== undefined ? { budgetedHours: budgetOf(input.budgetedHours) } : {}),
       ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...provenance(input.externalRef),
     }).returning();
@@ -827,6 +847,28 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
      * and the first time fix rate would leave it out. Refused in words that
      * say what to do instead. Taking the plan off is always allowed.
      */
+    /**
+     * THE BUDGET IS FIXED ONCE THE WORK STARTS. A budget moved after the first
+     * hour was punched is a budget fitted to the hours, and the budgeted hour
+     * variance would read every overrun as on budget. Hours the customer agreed
+     * to add are a change order's crew hours, which the variance takes off.
+     */
+    let budget: { budgetedHours: string | null } | null = null;
+    if (input.budgetedHours !== undefined) {
+      const next = input.budgetedHours === null ? null : budgetOf(input.budgetedHours);
+      if (next !== before.budgetedHours && Number(next ?? -1) !== Number(before.budgetedHours ?? -1)) {
+        const [punched] = await tx.select({ id: schema.timeclockEntry.id }).from(schema.timeclockEntry)
+          .where(eq(schema.timeclockEntry.jobId, input.id)).limit(1);
+        if (punched) {
+          throw new ConflictError(
+            "Hours have already been punched on this job, so its budget can no longer change. "
+            + "If the customer agreed to more work, put the hours on a change order.",
+          );
+        }
+        budget = { budgetedHours: next };
+      }
+    }
+
     let planned: { multiVisitPlannedAt: Date | null; multiVisitPlannedByUserId: string | null } | null = null;
     if (input.multiVisitPlanned === true && before.multiVisitPlannedAt === null) {
       /** An arrival is stamped by the phone's `visit.arrive` (`services/field.ts`), a finish by either side. */
@@ -898,6 +940,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(planned ?? {}),
+      ...(budget ?? {}),
       // Completion is a timestamp as well as a status, and a job that reaches
       // "completed" without one is invisible to every report that asks what
       // was finished this week.
@@ -1442,6 +1485,37 @@ export async function lines(ctx: ServiceContext, input: z.infer<typeof listJobLi
           occurredAt: row.occurredAt.toISOString(),
         };
       }),
+    };
+  });
+}
+
+/**
+ * A job's crew hours against its budget, for its page: what was budgeted,
+ * the working hours punched on it so far (each person separately, as the
+ * budgeted hour variance counts them), and whether the budget is fixed, which
+ * it is from the first punch.
+ */
+export async function hoursAgainstBudget(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({ budgetedHours: schema.job.budgetedHours }).from(schema.job)
+      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf(ctx, "job"), ctx.actor)))
+      .limit(1);
+    if (!job) throw new NotFoundError("Job");
+    const [row] = await tx.execute<{ punches: string; minutes: string; running: string; changed: string }>(sql`
+      select count(*)::text as punches,
+             coalesce(sum(te.minutes) filter (where te.ended_at is not null
+               and te.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])), 0)::text as minutes,
+             count(*) filter (where te.ended_at is null)::text as running,
+             (select coalesce(sum(co.crew_hours), 0) from public.project_change_order co
+               where co.job_id = ${input.id} and co.status = 'approved')::text as changed
+      from public.timeclock_entry te
+      where te.job_id = ${input.id} and te.deleted_at is null`);
+    return {
+      budgetedHours: job.budgetedHours,
+      crewHours: (Number(row?.minutes ?? 0) / 60).toFixed(2),
+      approvedChangeHours: Number(row?.changed ?? 0).toFixed(2),
+      punchStillRunning: Number(row?.running ?? 0) > 0,
+      locked: Number(row?.punches ?? 0) > 0,
     };
   });
 }

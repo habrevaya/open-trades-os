@@ -25,6 +25,10 @@ import { dateIn } from "../time/index.js";
  *
  *   A FIRST TIME FIX. A completed job done in one visit, with the jobs that
  *   were planned as several visits, or held for a part order, left out.
+ *
+ *   A JOB'S HOURS AGAINST ITS BUDGET. Crew hours less the hours of change
+ *   orders the customer approved, against the hours budgeted, counted only
+ *   over jobs whose hours are all in.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -283,4 +287,51 @@ export function firstTimeFixOf(job: FixJob, trade: string): "unknown" | "exclude
 
   if (planned || held) return "excluded";
   return done.length === 1 ? "fixed" : "returned";
+}
+
+/* ------------------------------------------------- budgeted hour variance */
+
+export interface BudgetPunch {
+  kind: string;
+  minutes: number | null;
+  /** Punched out. A punch still running has no hours yet. */
+  ended: boolean;
+}
+
+export interface BudgetJob {
+  /** Crew hours budgeted, as a number, or null when nobody set one. */
+  budgetedHours: number | null;
+  /** The punches on the job. */
+  punches: readonly BudgetPunch[];
+  /** Crew hours on change orders the customer approved that name this job. */
+  approvedChangeHours: number;
+}
+
+/**
+ * One completed job's hours against its budget, or why it is not counted.
+ *
+ * "Actual crew hours minus budgeted hours on completed jobs, as a percentage
+ * of budgeted. EXCLUDES change order hours that were separately approved, or
+ * every approved upsell reads as an overrun."
+ *
+ * ACTUAL is every working punch on the job, each person separately, which is
+ * what crew hours are: on site and travelling to it, and not leave or an
+ * unpaid break (`NOT_A_DAY_WORKED`). The approved change order hours come off
+ * it. A job is LEFT OUT OF BOTH HALVES when it has no budget, a punch still
+ * running, or no hours at all: a job nobody clocked would read as a hundred
+ * per cent under budget, the most flattering misreading of "not recorded".
+ */
+export function budgetVarianceOf(job: BudgetJob):
+  | { counted: false; why: "no_budget" | "punch_open" | "no_hours" }
+  | { counted: true; overHours: number; budgetedHours: number } {
+  if (job.budgetedHours === null || job.budgetedHours <= 0) return { counted: false, why: "no_budget" };
+  const working = job.punches.filter((p) => !(NOT_A_DAY_WORKED as readonly string[]).includes(p.kind));
+  if (working.some((p) => !p.ended)) return { counted: false, why: "punch_open" };
+  const minutes = working.reduce((sum, p) => sum + (p.minutes ?? 0), 0);
+  if (minutes === 0) return { counted: false, why: "no_hours" };
+  return {
+    counted: true,
+    overHours: minutes / 60 - job.approvedChangeHours - job.budgetedHours,
+    budgetedHours: job.budgetedHours,
+  };
 }

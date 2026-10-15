@@ -967,6 +967,13 @@
       "when": 1792020479680,
       "tag": "0137_conscious_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1792043383447,
+      "tag": "0138_needy_white_tiger",
+      "breakpoints": true
     }
   ]
 }
