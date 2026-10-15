@@ -11,8 +11,8 @@ import { Empty } from "@/components/Table";
 import { Register } from "./Register";
 import { PinEditor } from "@/components/PinEditor";
 import { tileSource } from "@/lib/map-tiles";
-import { placePropertyPin, clearPropertyPin, setPropertyTaxRate } from "./actions";
-import { ActionForm, Select } from "@/components/ActionForm";
+import { placePropertyPin, clearPropertyPin, setPropertyTaxRate, setPropertyStreet, clearPropertyStreet } from "./actions";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +51,12 @@ export default async function PropertyPage({
     customerId: property.customers[0]?.id ?? null, propertyId: id, permission: "property:read",
   });
   const ownRate = (property as { taxRateId?: string | null }).taxRateId ?? null;
+
+  /** The streets already recorded in this town, offered so one street is not spelled two ways. */
+  const writesProperty = can(user.actor, "property:write");
+  const townStreets = writesProperty
+    ? await properties.streetsIn(ctx, { city: property.address.city, state: property.address.state })
+    : [];
 
   const readsEquipment = can(user.actor, "equipment:read");
   const register = readsEquipment
@@ -114,6 +120,38 @@ export default async function PropertyPage({
             clear={can(user.actor, "property:write") ? clearPropertyPin : null}
           />
         </div>
+      </section>
+
+      {/*
+        The street, kept apart from the street line. Homes per served street
+        counts streets by it, so it is the street's name only, filled by the
+        map's service where it names one, and typed or picked here otherwise.
+      */}
+      <section aria-label="Street" className="mt-8">
+        <h2 className="text-base font-semibold">Street</h2>
+        <p className="mt-1 text-sm text-ink-700">
+          {property.street
+            ? <>On <span className="font-medium">{property.street}</span>{property.streetSource === "typed" ? ", typed by your office." : ", from the map's service."}</>
+            : "No street recorded yet. Homes per served street leaves this address out until it has one."}
+        </p>
+        {writesProperty ? (
+          <>
+            <ActionForm action={setPropertyStreet} submit="Save street" tone="quiet" hidden={{ id }}
+                        className="mt-2 flex max-w-xl flex-wrap items-end gap-3">
+              <TextField label="Street name, without the house number" name="street" list="streets-in-town"
+                         defaultValue={property.street ?? ""} placeholder="Oak Street" className="min-w-64 flex-1" />
+              <datalist id="streets-in-town">
+                {townStreets.map((street) => <option key={street} value={street} />)}
+              </datalist>
+            </ActionForm>
+            {townStreets.length > 0 ? (
+              <p className="mt-1 text-xs text-ink-500">Pick a street already on file in {property.address.city} when it is the same one, so it is not counted twice.</p>
+            ) : null}
+            {property.street ? (
+              <ActionForm action={clearPropertyStreet} submit="Take the street off" tone="quiet" hidden={{ id }} className="mt-2" />
+            ) : null}
+          </>
+        ) : null}
       </section>
 
       <section aria-label="Sales tax here" className="mt-8">

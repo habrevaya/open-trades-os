@@ -1,4 +1,4 @@
-import { trimTrailingSlashes, type geo } from "@opentradesos/core";
+import { trimTrailingSlashes, geo } from "@opentradesos/core";
 import {
   registerGeocoder, pace, realClock, failureFrom, USER_AGENT,
   type GeocoderOptions, type GeocodingProvider,
@@ -46,6 +46,8 @@ interface Place {
   category?: string;
   type?: string;
   display_name?: string;
+  /** The parts of the address, asked for with `addressdetails`. `road` is the street's name. */
+  address?: { road?: string };
 }
 
 /**
@@ -88,7 +90,12 @@ export function nominatimGeocoder(options: GeocoderOptions): GeocodingProvider {
     name: "nominatim",
     async geocode(request) {
       const a = request.address;
-      const params = new URLSearchParams({ format: "jsonv2", limit: "1" });
+      /**
+       * `addressdetails` asks for the answer in parts as well, because the
+       * street's own name (`road`) is what "homes per served street" counts,
+       * and reading it back out of the street line is the guess it avoids.
+       */
+      const params = new URLSearchParams({ format: "jsonv2", limit: "1", addressdetails: "1" });
       if (a.addressLine1) params.set("street", a.addressLine1.trim());
       if (a.city) params.set("city", a.city.trim());
       if (a.state) params.set("state", a.state.trim());
@@ -129,7 +136,11 @@ export function nominatimGeocoder(options: GeocoderOptions): GeocodingProvider {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
         return { kind: "failed", retryable: false, reason: "The geocoder's answer had no usable coordinates." };
       }
-      return { kind: "found", lat, lng, precision: precisionOf(place), label: place.display_name ?? null };
+      const street = geo.streetName(place.address?.road);
+      return {
+        kind: "found", lat, lng, precision: precisionOf(place), label: place.display_name ?? null,
+        ...(street !== null ? { street } : {}),
+      };
     },
   };
 }

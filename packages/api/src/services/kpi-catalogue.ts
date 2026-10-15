@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty two of the forty seven are computed here, four are
- * M22's, and the eleven that are not each name what they still lack.)
+ * (They are read now. Thirty three of the forty seven are computed here, four are
+ * M22's, and the ten that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -63,8 +63,8 @@ export type Format = "percent" | "money" | "number" | "duration";
  * Every records query returns the same six columns:
  *
  *   kind     job, estimate, agreement, visit, customer, technician_day,
- *            crew_day, time, deficiency, equipment or route_day: what the row
- *            is, which decides who may see it listed
+ *            crew_day, time, deficiency, equipment, route_day or street: what
+ *            the row is, which decides who may see it listed
  *   id       the record's id, as text
  *   label    what to call it on a list
  *   on_day   the date it falls on in the window, as YYYY-MM-DD
@@ -648,6 +648,55 @@ const churned = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Re
       unknown: sql`and not ${runningOn("a", to)} and not ${leftTheHome(to)} and ${REASON_UNKNOWN}`,
     }[pick]}
 `;
+
+/**
+ * HOMES PER SERVED STREET: every subscription running on the window's last
+ * day, with whether its customer is commercial and the street its address is
+ * on, keyed as core's `geo.streetKey` keys it (the street, the town and the
+ * state, trimmed, spaced once, in small letters). The street counts only when
+ * it answers for the address as it is now (`street_for_address`), which is
+ * `geo.streetOf`. `reporting.streetDensityOf` is the rule, and
+ * `kpi-street-density.integration.test.ts` puts the same plans through both.
+ */
+const tidied = (column: string) => `lower(btrim(regexp_replace(coalesce(${column}, ''), '[[:space:]]+', ' ', 'g')))`;
+const subscriptionsOnStreets = (to: string) => sql`
+  select a.id as agreement_id, a.plan_id, a.customer_id, p.id as property_id,
+         coalesce(c.type = 'commercial', false) as commercial,
+         case when p.id is not null and p.street_for_address = p.address_key and ${sql.raw(tidied("p.street"))} <> ''
+              then ${sql.raw(tidied("p.street"))} || '|' || ${sql.raw(tidied("p.city"))} || '|' || ${sql.raw(tidied("p.state"))}
+         end as street_key,
+         btrim(regexp_replace(p.street, '[[:space:]]+', ' ', 'g')) as street, p.city, p.state
+  from public.agreement a
+  join public.customer c on c.id = a.customer_id
+  left join public.property p on p.id = a.property_id and p.deleted_at is null
+  where ${runningOn("a", to)}
+`;
+
+const streetSubscriptionRow = (to: string) => sql`
+  'agreement'::text as kind, x.agreement_id::text as id,
+  concat((select pl.name from public.agreement_plan pl where pl.id = x.plan_id), ' for ', ${customerName},
+         coalesce(', ' || x.street, '')) as label,
+  ${to}::text as on_day, 1::numeric as value`;
+
+/** Street density's records: which plans, and which streets, by which test. See `street_density`. */
+const streetDensity = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (_from, to) => pick === "denominator"
+  ? sql`
+    select 'street'::text as kind, x.street_key as id,
+           concat(min(x.street), ', ', min(x.city), ' ', min(x.state), ': ', count(*), case when count(*) = 1 then ' home' else ' homes' end) as label,
+           ${to}::text as on_day, 1::numeric as value,
+           '/properties/' || min(x.property_id::text) as href
+    from (${subscriptionsOnStreets(to)}) as x
+    where not x.commercial and x.street_key is not null
+    group by x.street_key`
+  : sql`
+    select ${streetSubscriptionRow(to)},
+           ${pick === "unknown" ? sql`coalesce('/properties/' || x.property_id, '/agreements/' || x.agreement_id)` : sql`'/agreements/' || x.agreement_id`} as href
+    from (${subscriptionsOnStreets(to)}) as x
+    where ${{
+      numerator: sql`not x.commercial and x.street_key is not null`,
+      excluded: sql`x.commercial`,
+      unknown: sql`not x.commercial and x.street_key is null`,
+    }[pick]}`;
 
 /** The two counts every one of the four shows beside its number. */
 const besidesOf = (records: (pick: "excluded" | "unknown") => Records, what: string): NonNullable<Measure["besides"]> => ({
@@ -2088,15 +2137,37 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   street_density: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "A street rather than an address line. The definition divides active "
-      + "subscriptions by distinct streets on the route, and `property` stores "
-      + "`address_line1` whole: '12 Oak Street' and '14 Oak St' are the same "
-      + "street and two different strings. Splitting on the first space would "
-      + "count them separately and report twice the streets and half the density, "
-      + "which is the single most important number in this trade.",
+    measure: {
+      /**
+       * "Active subscriptions divided by the number of distinct streets on the
+       * route. ... Excludes commercial stops, which have their own economics."
+       *
+       * WHAT IT NEEDED: a street rather than an address line. `address_line1`
+       * is the whole line, and "12 Oak Street" and "14 Oak St" are one street
+       * and two strings, so splitting the line would count twice the streets
+       * and report half the density. A property now keeps its street apart
+       * (M03): the geocoder's own street component where it gives one, or
+       * typed or picked from the streets already in the town by a person, and
+       * never read out of the line.
+       *
+       * Active is running on the window's last day, as churn reads it. A
+       * commercial customer's plan leaves both halves and is counted beside. A
+       * home whose street is not recorded for its address as it is now (or a
+       * plan with no address of its own) is LEFT OUT OF BOTH HALVES and
+       * counted beside as not known, opening on the address so the office can
+       * record it: counted on top and not underneath it would read as a denser
+       * route than the one driven. Two spellings of one street typed by hand
+       * count as two streets, which reads lower, never higher.
+       */
+      numerator: { label: "active subscriptions on a recorded street", records: streetDensity("numerator") },
+      denominator: { label: "distinct streets they are on", records: streetDensity("denominator") },
+      besides: {
+        excluded: { label: "Commercial subscriptions, left out of both halves", records: streetDensity("excluded") },
+        unknown: { label: "Subscriptions left out because the street of their address is not recorded", records: streetDensity("unknown") },
+      },
+    },
   },
 
   water_per_stop: {

@@ -102580,6 +102580,135 @@
         ]
       }
     },
+    "/v1/properties/{id}/street": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setPropertyStreet",
+        "summary": "Record the street a property is on",
+        "description": "The street's name only, without the house number (\"Oak Street\"). A typed street wins over the geocoder's for this address; null takes it off and asks the geocoder again. Homes per served street counts distinct streets by this value, its town and its state, and leaves a home with no street out of both halves.\n\nRequires a session holding: property:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPropertyStreetInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record the street a property is on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPropertyStreetOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "property:write"
+        ]
+      }
+    },
     "/v1/proposal-templates": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -199633,6 +199762,18 @@
           },
           "equipmentCount": {
             "type": "integer"
+          },
+          "street": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "streetSource": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -199656,7 +199797,9 @@
           "createdAt",
           "updatedAt",
           "customers",
-          "equipmentCount"
+          "equipmentCount",
+          "street",
+          "streetSource"
         ]
       },
       "GetPropertyCeilingOutput": {
@@ -267048,6 +267191,47 @@
           "id",
           "status",
           "completedAt"
+        ]
+      },
+      "SetPropertyStreetInput": {
+        "type": "object",
+        "properties": {
+          "street": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "street"
+        ]
+      },
+      "SetPropertyStreetOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "street": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "streetSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "street",
+          "streetSource"
         ]
       },
       "SetProposalTermsInput": {

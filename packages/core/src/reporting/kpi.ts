@@ -1,6 +1,7 @@
 import { type Money, add, subtract, zero, toString, isZero } from "../money/index.js";
 import { dateIn } from "../time/index.js";
 import { distanceKm } from "../location/index.js";
+import { streetKey } from "../geo/index.js";
 
 /**
  * THE DEFINITIONS BEHIND THE TRADE SCORECARD, AS PURE RULES
@@ -49,6 +50,10 @@ import { distanceKm } from "../location/index.js";
  *
  *   A ROUTE DAY'S MILES. Driven between stops, never to the first or home from
  *   the last, and not counted at all when the phone's positions have a gap.
+ *
+ *   HOMES PER SERVED STREET. Active subscriptions over the distinct streets
+ *   they are on, commercial stops left out and an address whose street is not
+ *   recorded left out of both halves rather than guessed from its line.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -685,4 +690,48 @@ export function routeDay(input: {
     status: "counted",
     note: null,
   };
+}
+
+/* ------------------------------------------------------ homes per served street */
+
+export interface StreetSubscription {
+  /** The street recorded for the address as it is now, or null when none is (`geo.streetOf`). */
+  street: string | null;
+  city: string;
+  state: string;
+  /** The customer is a commercial account, which the definition leaves out. */
+  commercial: boolean;
+  /** The plan has an address of its own; one covering the customer anywhere has no street. */
+  hasAddress: boolean;
+}
+
+/**
+ * "Active subscriptions divided by the number of distinct streets on the
+ * route. Excludes commercial stops, which have their own economics."
+ *
+ * A COMMERCIAL STOP is a subscription of a commercial customer, and leaves
+ * both halves: its count and, unless a home is on it too, its street.
+ *
+ * A HOME WHOSE STREET IS NOT RECORDED (no street for its address as it is now,
+ * or a plan with no address) is LEFT OUT OF BOTH HALVES and counted beside the
+ * figure, never guessed. Counted in the top and not the bottom it would read
+ * as a denser route than the one driven.
+ *
+ * Distinct streets are `geo.streetKey`: the street, the town and the state.
+ */
+export function streetDensityOf(subscriptions: readonly StreetSubscription[]): {
+  subscriptions: number; streets: number; commercial: number; unknown: number;
+} {
+  const streets = new Set<string>();
+  let counted = 0;
+  let commercial = 0;
+  let unknown = 0;
+  for (const s of subscriptions) {
+    if (s.commercial) { commercial += 1; continue; }
+    const key = s.hasAddress ? streetKey(s.street, s.city, s.state) : null;
+    if (key === null) { unknown += 1; continue; }
+    counted += 1;
+    streets.add(key);
+  }
+  return { subscriptions: counted, streets: streets.size, commercial, unknown };
 }

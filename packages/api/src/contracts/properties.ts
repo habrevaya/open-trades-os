@@ -134,7 +134,36 @@ export const getProperty = defineRoute({
   output: Property.extend({
     customers: z.array(z.object({ id: Uuid, name: z.string(), role: PropertyRole })),
     equipmentCount: z.number().int(),
+    /**
+     * The street the address is on, kept apart from the street line: the
+     * geocoder's own street, or one typed by a person. Null when none is
+     * recorded for the address as it is now.
+     */
+    street: z.string().nullable(),
+    /** `typed`, or the geocoder that named it. */
+    streetSource: z.string().nullable(),
   }),
+});
+
+/**
+ * THE STREET A HOME IS ON, AS ITS OWN VALUE.
+ *
+ * The trash bin trade's "homes per served street" counts distinct streets,
+ * and the street line holds the house number and the street together, so the
+ * street is recorded apart from it. The geocoder fills it from its own address
+ * components; this is a person typing or correcting it, which then wins for
+ * this address. Never read out of the street line.
+ */
+export const setPropertyStreet = defineRoute({
+  method: "put",
+  path: "/v1/properties/{id}/street",
+  summary: "Record the street a property is on",
+  description:
+    "The street's name only, without the house number (\"Oak Street\"). A typed street wins over the geocoder's for this address; null takes it off and asks the geocoder again. Homes per served street counts distinct streets by this value, its town and its state, and leaves a home with no street out of both halves.",
+  module: "M03",
+  permissions: ["property:write"],
+  input: z.object({ id: Uuid, street: z.string().max(120).nullable() }),
+  output: z.object({ id: Uuid, street: z.string().nullable(), streetSource: z.string().nullable() }),
 });
 
 export const createProperty = defineRoute({
@@ -169,6 +198,6 @@ export const linkCustomerToProperty = defineRoute({
 });
 
 export const propertyRoutes = {
-  updateProperty,
+  updateProperty, setPropertyStreet,
   listProperties, getProperty, createProperty, linkCustomerToProperty,
 } as const;

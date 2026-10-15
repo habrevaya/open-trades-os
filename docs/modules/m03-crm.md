@@ -258,6 +258,29 @@ audit log. A merge moves the duplicate's notes to the record kept.
 technician has to see before they get out of the truck live here, not on the
 job, because they are true of the place rather than of one visit.
 
+### Record the street an address is on
+
+The street line holds the house number and the street together, and "12 Oak
+Street" and "14 Oak St" are one street and two strings. The trash bin trade's
+homes per served street (M21) counts distinct streets, so an address keeps its
+street apart from the line, and the street is never read out of the line by a
+pattern.
+
+The geocoder fills it from its own address components where it gives one
+(OpenStreetMap's road, Mapbox's street name), when it puts the address on the
+map. An address the geocoder located before streets were kept is asked once
+more, for its street alone, last in the worker's queue. A pin the office placed
+by hand is never sent to the geocoder, so its street is typed.
+
+Otherwise it is typed on the address's page (`/properties/{id}`, "Street"),
+which offers the streets already recorded in the same town so one street is
+picked rather than spelled a second way, or with `PUT /v1/properties/{id}/street`
+(`property:write`, on the audit log). A typed street wins over the geocoder for
+that address, as a placed pin does. Taking it off hands the address back to the
+geocoder. A street answers for the address it was recorded against: an address
+that changes has no street until one is recorded for it again. `GET
+/v1/properties/{id}` says the street and who named it (`street`, `streetSource`).
+
 ## Permissions
 
 | Role | Access |
@@ -285,6 +308,7 @@ attached afterwards, which would have sent it to everybody.
 | `GET /v1/properties` | `property:read` |
 | `POST /v1/properties` | `property:write` |
 | `PATCH /v1/properties/{id}` | `property:write` |
+| `PUT /v1/properties/{id}/street` | `property:write` |
 | `POST /v1/properties/{id}/customers` | `property:write` |
 | `GET /v1/customers/{id}/duplicates` | `customer:read` |
 | `GET /v1/customers/{id}/deletability` | `customer:read` |
@@ -398,6 +422,12 @@ explain, and both are worse than refusing. The refusal names what is in the way,
 which is also the case where merging is the right answer.
 
 ## What is not built
+
+An address's street is the geocoder's or a person's, and two spellings of one
+street typed by hand ("Oak St" and "Oak Street") are two streets: nothing
+expands an abbreviation, which would be reading the words by a pattern. The
+screen offers the town's streets to pick from instead. The phone does not
+record a street; addresses are the office's.
 
 A contact attached to an address and no customer is reached through neither the
 customer's page nor the customer's contact routes, which are about a customer's

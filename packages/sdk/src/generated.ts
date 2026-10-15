@@ -11033,6 +11033,8 @@ export interface GetPropertyOutput {
     role: "owner" | "tenant" | "manager" | "billing";
   }>;
   equipmentCount: number;
+  street: string | null;
+  streetSource: string | null;
 }
 
 export interface GetProposalTemplateOutput {
@@ -24322,6 +24324,16 @@ export interface SetProjectPhaseStatusOutput {
   completedAt: string | null;
 }
 
+export interface SetPropertyStreetInput {
+  street: string | null;
+}
+
+export interface SetPropertyStreetOutput {
+  id: string;
+  street: string | null;
+  streetSource: string | null;
+}
+
 export interface SetProposalTermsInput {
   terms: string;
 }
@@ -31992,6 +32004,10 @@ export interface SetProjectPhaseStatusParams {
   id: string;
 }
 
+export interface SetPropertyStreetParams {
+  id: string;
+}
+
 export interface SetPurchaseOrderStatusParams {
   id: string;
 }
@@ -33463,6 +33479,7 @@ export interface OperationTypes {
   setProjectPhaseDates: { input: SetProjectPhaseDatesParams & SetProjectPhaseDatesInput; output: SetProjectPhaseDatesOutput };
   setProjectPhaseDependency: { input: SetProjectPhaseDependencyParams & SetProjectPhaseDependencyInput; output: SetProjectPhaseDependencyOutput };
   setProjectPhaseStatus: { input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput; output: SetProjectPhaseStatusOutput };
+  setPropertyStreet: { input: SetPropertyStreetParams & SetPropertyStreetInput; output: SetPropertyStreetOutput };
   setProposalTerms: { input: SetProposalTermsInput; output: SetProposalTermsOutput };
   setPurchaseOrderStatus: { input: SetPurchaseOrderStatusParams & SetPurchaseOrderStatusInput; output: SetPurchaseOrderStatusOutput };
   setPurchasingSettings: { input: SetPurchasingSettingsInput; output: SetPurchasingSettingsOutput };
@@ -34625,6 +34642,7 @@ export const OPERATIONS = {
   setProjectPhaseDates: { method: "POST", path: "/v1/project-phases/{id}/dates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseDependency: { method: "POST", path: "/v1/project-phases/{id}/dependency", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseStatus: { method: "POST", path: "/v1/project-phases/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  setPropertyStreet: { method: "PUT", path: "/v1/properties/{id}/street", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
   setProposalTerms: { method: "PUT", path: "/v1/proposal-terms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPurchaseOrderStatus: { method: "POST", path: "/v1/purchase-orders/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   setPurchasingSettings: { method: "POST", path: "/v1/purchasing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -43741,6 +43759,15 @@ export abstract class GeneratedOperations {
    */
   setProjectPhaseStatus(input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput, options?: CallOptions): Promise<SetProjectPhaseStatusOutput> {
     return this.call("setProjectPhaseStatus", input, options);
+  }
+
+  /**
+   * Record the street a property is on.
+   *
+   * PUT /v1/properties/{id}/street. Needs property:write.
+   */
+  setPropertyStreet(input: SetPropertyStreetParams & SetPropertyStreetInput, options?: CallOptions): Promise<SetPropertyStreetOutput> {
+    return this.call("setPropertyStreet", input, options);
   }
 
   /**

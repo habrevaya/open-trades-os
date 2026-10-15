@@ -226,6 +226,7 @@ export const handlers = {
 
   // Things a published field needed before it could ever be written.
   updateProperty: properties.update,
+  setPropertyStreet: properties.setStreet,
   setPriceBookItemActive: priceBook.setActive,
   setMembershipActive: roleService.setMembershipActive,
 

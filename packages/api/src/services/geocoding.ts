@@ -175,6 +175,10 @@ async function noteConnectionError(ctx: ServiceContext, reason: string | null): 
 
 type GeoRow = {
   id: string;
+  street: string | null;
+  street_source: string | null;
+  street_for_address: string | null;
+  street_attempted_address: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
@@ -192,6 +196,27 @@ type GeoRow = {
 /** All three tables carry the same columns, so one statement serves any of them. */
 const tableOf = (entity: Entity) => sql.identifier(entity);
 
+/** Only a property has a street of its own; the other two read it as nothing. */
+const streetColumns = (entity: Entity) => entity === "property"
+  ? sql`street, street_source, street_for_address, street_attempted_address`
+  : sql`null::text as street, null::text as street_source, null::text as street_for_address, null::text as street_attempted_address`;
+
+/**
+ * The street a found answer gives, written only on a property, only when the
+ * geocoder's components named one, and never over a street a person typed
+ * for this address (which wins, as a placed pin does). Asked once per
+ * address either way, found or not.
+ */
+const streetWrite = (outcome: geo.GeocodeOutcome, provider: string, key: string) => {
+  const street = outcome.kind === "found" ? geo.streetName(outcome.street) : null;
+  const notTyped = sql`not (street_source is not distinct from ${geo.STREET_TYPED} and street_for_address is not distinct from address_key)`;
+  return sql`
+    street_attempted_address = ${key},
+    street = case when ${notTyped} then ${street} else street end,
+    street_source = case when ${notTyped} then ${street === null ? null : provider} else street_source end,
+    street_for_address = case when ${notTyped} then ${street === null ? null : key} else street_for_address end`;
+};
+
 async function lookUp(
   ctx: ServiceContext, provider: GeocodingProvider, entity: Entity, id: string, deps: GeocodeDeps,
 ): Promise<geo.GeocodeOutcome | null> {
@@ -201,21 +226,43 @@ async function lookUp(
   const claimed = await inTenant(ctx, async (tx) => {
     const rows = await tx.execute<GeoRow>(sql`
       select id, address_line1, address_line2, city, state, postal_code, country, address_key,
-             located_address, location_source, geocode_attempted_address, geocode_retry_at, geocode_attempts
+             located_address, location_source, geocode_attempted_address, geocode_retry_at, geocode_attempts,
+             ${streetColumns(entity)}
       from ${tableOf(entity)} where id = ${id} for update`);
     const row = rows[0];
     if (!row) return null;
+    const retryAt = row.geocode_retry_at === null ? null : new Date(row.geocode_retry_at);
     const state: geo.GeocodeState = {
       addressKey: row.address_key,
       locatedAddress: row.located_address,
       locationSource: row.location_source,
       attemptedAddress: row.geocode_attempted_address,
-      retryAt: row.geocode_retry_at === null ? null : new Date(row.geocode_retry_at),
+      retryAt,
       attempts: row.geocode_attempts,
     };
-    if (!geo.geocodeDue(state, now)) return null;
+    /**
+     * THE WHOLE ANSWER, OR ONLY ITS STREET. A property the geocoder already
+     * located for this address is asked again once for its street alone,
+     * which is how every address located before streets were kept gets one
+     * without anybody typing it. Nothing but the street is written from that
+     * answer. A pin placed by hand is never sent to the geocoder at all: the
+     * office placed it because the geocoder had the place wrong, and its
+     * street is typed on the same page.
+     */
+    const settled = state.locationSource !== geo.PLACED_BY_HAND && state.locatedAddress === state.addressKey;
+    const mode: "full" | "street" | null = geo.geocodeDue(state, now)
+      ? "full"
+      : entity === "property" && settled && geo.streetDue({
+        addressKey: row.address_key, street: row.street, streetSource: row.street_source,
+        streetForAddress: row.street_for_address, streetAttemptedAddress: row.street_attempted_address, retryAt,
+      }, now)
+        ? "street"
+        : null;
+    if (mode === null) return null;
 
-    const attempts = row.geocode_attempted_address === row.address_key ? row.geocode_attempts + 1 : 1;
+    const attempts = mode === "street"
+      ? row.geocode_attempts + 1
+      : row.geocode_attempted_address === row.address_key ? row.geocode_attempts + 1 : 1;
     /**
      * A provisional retry time, written before the call. If this process
      * dies while the geocoder is answering, the row is due again after the
@@ -223,12 +270,18 @@ async function lookUp(
      * service with a one a second limit is the difference between a crash
      * and a flood.
      */
-    await tx.execute(sql`
-      update ${tableOf(entity)}
-         set geocode_attempted_address = address_key,
-             geocode_attempts = ${attempts},
-             geocode_retry_at = ${geo.retryAfter(attempts, now).toISOString()}::timestamptz
-       where id = ${id}`);
+    await tx.execute(mode === "street"
+      ? sql`
+        update ${tableOf(entity)}
+           set geocode_attempts = ${attempts},
+               geocode_retry_at = ${geo.retryAfter(attempts, now).toISOString()}::timestamptz
+         where id = ${id}`
+      : sql`
+        update ${tableOf(entity)}
+           set geocode_attempted_address = address_key,
+               geocode_attempts = ${attempts},
+               geocode_retry_at = ${geo.retryAfter(attempts, now).toISOString()}::timestamptz
+         where id = ${id}`);
 
     const query = geo.addressQuery({
       addressLine1: row.address_line1, city: row.city, state: row.state,
@@ -238,17 +291,17 @@ async function lookUp(
       organizationId: ctx.actor.organizationId,
       direction: "outbound",
       provider: provider.name,
-      eventType: "geocode",
-      idempotencyKey: `geocode:${entity}:${id}:${createHash("sha256").update(row.address_key).digest("hex").slice(0, 16)}:${attempts}`,
+      eventType: mode === "street" ? "geocode.street" : "geocode",
+      idempotencyKey: `${mode === "street" ? "geocode-street" : "geocode"}:${entity}:${id}:${createHash("sha256").update(row.address_key).digest("hex").slice(0, 16)}:${attempts}`,
       status: "in_flight",
       attempts: 1,
-      requestPayload: { entity, query },
+      requestPayload: { entity, query, ...(mode === "street" ? { only: "street" } : {}) },
       entityType: entity,
       entityId: id,
     }).returning({ id: schema.integrationEvent.id });
 
     return {
-      key: row.address_key, attempts, eventId: event!.id, query,
+      mode, key: row.address_key, attempts, eventId: event!.id, query,
       address: {
         addressLine1: row.address_line1, addressLine2: row.address_line2, city: row.city,
         state: row.state, postalCode: row.postal_code, country: row.country,
@@ -268,7 +321,24 @@ async function lookUp(
 
   /** 3. Write what it said. */
   await inTenant(ctx, async (tx) => {
-    if (outcome.kind === "found") {
+    if (claimed.mode === "street") {
+      /**
+       * Only the street, and only for the address it was asked about. A
+       * failure that might clear is asked again after its back off; an
+       * answer, found or not, is the answer for this address.
+       */
+      const retry = outcome.kind === "failed" && outcome.retryable;
+      await tx.execute(retry
+        ? sql`
+          update public.property
+             set geocode_retry_at = ${geo.retryAfter(claimed.attempts, now).toISOString()}::timestamptz
+           where id = ${id} and address_key = ${claimed.key}`
+        : sql`
+          update public.property
+             set ${streetWrite(outcome, provider.name, claimed.key)},
+                 geocode_retry_at = null, geocode_attempts = 0
+           where id = ${id} and address_key = ${claimed.key}`);
+    } else if (outcome.kind === "found") {
       /**
        * Not over a pin placed while the geocoder was answering, and not for
        * an address that changed while it was answering: the key in the
@@ -287,6 +357,7 @@ async function lookUp(
                geocode_retry_at = null,
                geocode_error = null,
                geocode_attempts = 0
+               ${entity === "property" ? sql`, ${streetWrite(outcome, provider.name, claimed.key)}` : sql``}
          where id = ${id}
            and location_source is distinct from ${geo.PLACED_BY_HAND}
            and address_key = ${claimed.key}`);
@@ -308,6 +379,7 @@ async function lookUp(
                longitude = case when located_address is distinct from address_key then null else longitude end,
                location_precision = case when located_address is distinct from address_key then null else location_precision end,
                location_source = case when located_address is distinct from address_key then null else location_source end
+               ${entity === "property" && retryAt === null ? sql`, ${streetWrite(outcome, provider.name, claimed.key)}` : sql``}
          where id = ${id}
            and location_source is distinct from ${geo.PLACED_BY_HAND}`);
     }

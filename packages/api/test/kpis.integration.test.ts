@@ -305,6 +305,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "revenue_per_tech",
       "route_density",
       "stops_per_day",
+      "street_density",
       "supply_cost_pct",
     ]);
 
@@ -345,9 +346,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * before the positions it reads are deleted. `redo_rate` made thirty six
      * when it turned out a job's coverage already says why a return was free:
      * rework on our own work and our own warranty are our fault, goodwill for
-     * a bin that was not out is not.
+     * a bin that was not out is not. `street_density` made thirty seven when a
+     * property kept its street apart from the street line, from the
+     * geocoder's own parts or typed, never read out of the line.
      */
-    expect(computed.length + elsewhere.length).toBe(36);
+    expect(computed.length + elsewhere.length).toBe(37);
     expect(KEYS.length).toBe(47);
   });
 });

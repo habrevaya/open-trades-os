@@ -356,12 +356,15 @@ const KIND_NEEDS: Record<string, Permission> = {
    * dispatch, who see the map.
    */
   route_day: "visit:dispatch",
+  /** A street served, which opens on one of the addresses on it. */
+  street: "property:read",
 };
 
 const KIND_WORDS: Record<string, string> = {
   job: "jobs", estimate: "estimates", agreement: "agreements", visit: "visits", customer: "customers",
   technician_day: "timesheets", crew_day: "timesheets", time: "timesheets", deficiency: "the equipment register", equipment: "the equipment register",
   route_day: "each person's route days, made from where they drove",
+  street: "the streets you serve",
 };
 
 /**

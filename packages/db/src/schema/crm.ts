@@ -340,6 +340,28 @@ export const property = pgTable("property", {
    * hand from the property page, which then wins. See `geocodeColumns`.
    */
   ...geocodeColumns(),
+  /**
+   * THE STREET, KEPT APART FROM THE STREET LINE.
+   *
+   * The trash bin trade's street density divides active subscriptions by the
+   * distinct streets served, and `address_line1` is the whole line: "12 Oak
+   * Street" and "14 Oak St" are one street and two strings, and splitting the
+   * line on a space would count them as two and report half the density. So
+   * the street is its own value, never read out of the line by a pattern: the
+   * geocoder's own street component where it gives one, or typed (or picked
+   * from the streets already recorded in the town) by a person, which then wins
+   * over the geocoder as a placed pin does.
+   *
+   * `street_source` is the geocoder's key or `typed`. `street_for_address` is
+   * the `address_key` the street answers for, so an address that changes
+   * leaves the street it had as not known rather than as the old street, and
+   * `street_attempted_address` is the address the geocoder was last asked the
+   * street of, found or not, so it is asked once per address.
+   */
+  street: text("street"),
+  streetSource: text("street_source"),
+  streetForAddress: text("street_for_address"),
+  streetAttemptedAddress: text("street_attempted_address"),
   /** Resolved at save time from the service-area territories. Drives dispatch zoning. */
   territoryId: uuid("territory_id"),
   /** Jurisdiction stack for sales tax. Historical rates live on the invoice line. */

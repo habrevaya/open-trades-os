@@ -1496,7 +1496,7 @@ grant execute on function app.dwell_workflows(int) to background;
 -- ordered without where it starts; then properties with work in the coming week, because
 -- those are the pins a dispatcher is about to look for; then the newest,
 -- because a customer added this morning is likelier to be booked than one
--- from 2019.
+-- from 2019; and last, a located address asked again for its street alone.
 -- =========================================================================
 
 create or replace function app.addresses_to_geocode(p_limit int default 50)
@@ -1555,6 +1555,24 @@ returns table (organization_id uuid, entity text, entity_id uuid)
         and d.located_address is distinct from d.address_key
         and (d.geocode_attempted_address is distinct from d.address_key
              or (d.geocode_retry_at is not null and d.geocode_retry_at <= now()))
+      union all
+      -- A property the geocoder already located for this address, whose street
+      -- it has not yet been asked for this address: asked once, for the street
+      -- alone, last of all. This is how every address located before streets
+      -- were kept gets one. Never one whose street a person typed for this
+      -- address, and never a pin placed by hand, which the geocoder is not sent.
+      -- The same rule as `geo.streetDue` in core, which the worker checks again
+      -- in the tenant.
+      select p.organization_id, 'property'::text, p.id, 3, p.created_at
+      from public.property p
+      join geocoding g on g.organization_id = p.organization_id
+      where p.deleted_at is null
+        and btrim(p.address_line1) <> ''
+        and p.location_source is distinct from 'manual'
+        and p.located_address = p.address_key
+        and not (p.street_source is not distinct from 'typed' and p.street_for_address is not distinct from p.address_key)
+        and p.street_attempted_address is distinct from p.address_key
+        and (p.geocode_retry_at is null or p.geocode_retry_at <= now())
     )
     -- Round robin across companies, so one company whose geocoder is broken,
     -- or who connected one with forty thousand customers on file, cannot

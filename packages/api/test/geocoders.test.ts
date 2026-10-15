@@ -259,3 +259,57 @@ describe("mapbox", () => {
     expect(outcome.kind === "failed" && outcome.reason).toMatch(/credential/);
   });
 });
+
+/* ------------------------------------------------------------- the street */
+
+describe("the street, from the geocoder's own parts", () => {
+  /**
+   * "Homes per served street" counts distinct streets, so the street is kept
+   * apart from the street line. It comes from the geocoder's own address
+   * components and from nowhere else: never read out of the line it was asked
+   * ("4102 Ramsey Ave") or out of its own label.
+   */
+  it("reads Nominatim's road, having asked for the answer in parts", async () => {
+    const http = fakeFetch(() => json([{
+      lat: "30.3170", lon: "-97.7400", place_rank: 30, addresstype: "building",
+      display_name: "4102, Ramsey Avenue, Austin", address: { house_number: "4102", road: "Ramsey  Avenue", city: "Austin" },
+    }]));
+    const geocoder = createGeocoder("nominatim", { settings: {}, secret: null, fetch: http.fn, clock: fakeClock() });
+    expect(await geocoder.geocode(ADDRESS)).toMatchObject({ kind: "found", street: "Ramsey Avenue" });
+    expect(http.calls[0]!.url.searchParams.get("addressdetails")).toBe("1");
+  });
+
+  it("says no street when Nominatim's parts name none, rather than reading the line", async () => {
+    const geocoder = createGeocoder("nominatim", {
+      settings: {}, secret: null, clock: fakeClock(),
+      fetch: fakeFetch(() => json([{ lat: "30.3", lon: "-97.7", place_rank: 21, addresstype: "postcode", address: { postcode: "78756" } }])).fn,
+    });
+    const outcome = await geocoder.geocode(ADDRESS);
+    expect(outcome.kind).toBe("found");
+    expect(outcome).not.toHaveProperty("street");
+  });
+
+  it("reads Mapbox's street name from an address, and a street's own name from a street", async () => {
+    const answer = (context: unknown, featureType = "address") => json({
+      type: "FeatureCollection",
+      features: [{ geometry: { coordinates: [-97.74, 30.317] }, properties: { feature_type: featureType, context } }],
+    });
+    const address = createGeocoder("mapbox", {
+      settings: {}, secret: "pk.x", clock: fakeClock(),
+      fetch: fakeFetch(() => answer({ address: { address_number: "4102", street_name: "Ramsey Avenue" }, street: { name: "Ramsey Avenue" } })).fn,
+    });
+    expect(await address.geocode(ADDRESS)).toMatchObject({ street: "Ramsey Avenue" });
+    resetPace();
+    const street = createGeocoder("mapbox", {
+      settings: {}, secret: "pk.x", clock: fakeClock(),
+      fetch: fakeFetch(() => answer({ street: { name: "Ramsey Avenue" } }, "street")).fn,
+    });
+    expect(await street.geocode(ADDRESS)).toMatchObject({ street: "Ramsey Avenue" });
+    resetPace();
+    const place = createGeocoder("mapbox", {
+      settings: {}, secret: "pk.x", clock: fakeClock(),
+      fetch: fakeFetch(() => answer({ place: { name: "Austin" } }, "place")).fn,
+    });
+    expect(await place.geocode(ADDRESS)).not.toHaveProperty("street");
+  });
+});

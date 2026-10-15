@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty six of the forty seven are answered: thirty two computed here, four
-by M22's fleet report. The other eleven each name what they still lack.
+Thirty seven of the forty seven are answered: thirty three computed here, four
+by M22's fleet report. The other ten each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -403,6 +403,39 @@ revenue, no coverage recorded) is not counted, because nothing says it was our
 fault, and it is not hidden: how many there are is said beside the figure and
 opens on the jobs, so the office can say which they were.
 
+### Homes per served street, and the street it waited on
+
+The trash bin trade's **homes per served street** is "active subscriptions
+divided by the number of distinct streets on the route", and it EXCLUDES
+"commercial stops, which have their own economics". It waited on a street
+rather than an address line: `address_line1` is the whole line, "12 Oak
+Street" and "14 Oak St" are one street and two strings, and splitting the line
+on a space would count twice the streets and report half the density. An
+address now keeps its street apart from the line (M03): the geocoder's own
+street component where it gives one, or typed on the address's page (picked
+from the streets already recorded in the town), never read out of the line.
+
+- **Active** is a subscription running on the window's last day, as churn
+  reads it.
+- **Distinct streets** are the street, the town and the state, trimmed, spaced
+  once and in small letters (core's `geo.streetKey`). A Main Street in two
+  towns is two streets. Nothing expands an abbreviation, so two spellings typed
+  by hand count as two streets, which reads lower and never higher.
+- A **commercial** customer's subscription leaves both halves and is counted
+  beside the number.
+- A home whose street is **not recorded** for its address as it is now, or a
+  plan with no address of its own, is **left out of both halves** and counted
+  beside as not known, each opening on the address so the office can record
+  it. Counted on top and not underneath it would read as a denser route than
+  the one driven.
+
+Each street served is a record of its own ("Oak Street, Austin TX: 2 homes"),
+opening on one of its addresses. The rule is core's `reporting.streetDensityOf`,
+with unit tests, written again in SQL, and
+`kpi-street-density.integration.test.ts` checks a month worked out by hand, puts
+the same plans through both, and checks the geocoder writing the street from
+its own parts, once per address, never over a typed one.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -502,12 +535,13 @@ they come to disagree.
 Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
-assembly due a retest, a crew's day, a permitted job, a person's route day. The scorecard's number is the sum of those rows, and
+assembly due a retest, a crew's day, a permitted job, a person's route day, a
+street served. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
 agreement, a visit, a customer, the week's timesheets (a crew's day and a
-route day open on them too), or the unit.
+route day open on them too), the unit, or an address on the street.
 
 It is refused, in words, rather than trimmed, in three cases. The figure is the
 whole company's, so somebody whose scope is narrower (a technician who sees their
@@ -880,12 +914,19 @@ prefix off.
 
 ## What is not built
 
-Eleven of the forty seven declared KPIs cannot be computed, and each one
+Ten of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the eleven has its datum yet (above, "The
+since they were written and none of the ten has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
+
+Homes per served street is only as complete as the streets recorded: an
+address the geocoder could not name a street for, and one with a pin placed by
+hand, has none until the office types it, and is counted beside the figure
+until then. "Oak St" and "Oak Street" typed by hand are two streets; the screen
+offers the town's streets to pick from rather than guessing they are one.
+Which customers are commercial is the customer's type, not the plan's.
 
 First time fix leaves out a part hold only when it names a purchase order in
 this product that went to the supplier, so a part bought over the counter and
