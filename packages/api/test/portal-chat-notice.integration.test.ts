@@ -131,6 +131,9 @@ async function longAgo(conversationId: string, notified = true) {
   }
 }
 
+/** This company's counters only: another file's chat is counting its own at the same time. */
+const rateLimitsReset = () => raw`delete from public.public_rate_limit where key like ${'%' + ORG + '%'}`;
+
 let dana = "";
 let tex = "";
 let eve = "";
@@ -144,11 +147,10 @@ beforeAll(async () => {
   raw = postgres(url, { max: 1, onnotice: () => {} });
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Cedar Heating", slug: SLUG });
   await raw`update public.organization set timezone = ${ZONE} where id = ${ORG}`;
-  await raw`delete from public.public_rate_limit where key like 'portal-%'`;
   await raw`insert into public.integration_connection (organization_id, capability, provider, status, settings)
     values (${ORG}, 'email', 'fake', 'connected', ${raw.json({ fromAddress: "office@chat-notice.test" })})`;
   await raw`insert into public.phone_number (organization_id, e164, purpose, sms_registered)
-    values (${ORG}, '+15125559911', 'main', true)`;
+    values (${ORG}, '+15125559948', 'main', true)`;
   await ai.connect(owner(), { provider: "anthropic", credentialRef: "TEST_AI_KEY", settings: { defaultModel: "fake-model" } });
   dana = await aCustomer("Dana Cedar", DANA);
   tex = await aCustomer("Tex Cedar", TEX, { phone: TEX_PHONE });
@@ -164,7 +166,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!raw) return;
   await raw`delete from public.ai_agent_setting where organization_id = ${ORG}`;
-  await raw`delete from public.public_rate_limit where key like 'portal-%'`;
+  await rateLimitsReset();
   await resetOrg(raw, ORG);
   await raw.end();
 });
@@ -242,8 +244,24 @@ run("telling a customer the office answered", () => {
   });
 });
 
+/**
+ * The company's quiet hours, set so the clock cannot decide a test: by default
+ * a text waits from nine at night to eight in the morning, and the suite runs
+ * at any hour. The window is one hour, twelve hours from now, or the hour now
+ * and the two after it when `now` is asked for.
+ */
+async function quietHours(now: boolean) {
+  const hour = Math.floor(time.minutesInDay(new Date(), ZONE) / 60);
+  const window = now ? { startHour: hour, endHour: (hour + 2) % 24 } : { startHour: (hour + 12) % 24, endHour: (hour + 13) % 24 };
+  await raw`update public.organization
+    set settings = coalesce(settings, '{}'::jsonb) || ${raw.json({ quietHours: window })}
+    where id = ${ORG}`;
+}
+
 run("by text, through the gates texts go through", () => {
   let conversation = "";
+
+  beforeAll(async () => { if (url) await quietHours(false); });
 
   it("is a text to the number on the record when the customer prefers texts", async () => {
     await portalChat.say(db(), { token: texToken, text: "Can you come Friday?" }, { ip: ip() }, deps());
@@ -272,17 +290,14 @@ run("by text, through the gates texts go through", () => {
   });
 
   it("never texts inside the company's quiet hours, and emails instead", async () => {
-    const hour = Math.floor(time.minutesInDay(new Date(), ZONE) / 60);
-    await raw`update public.organization
-      set settings = coalesce(settings, '{}'::jsonb) || ${raw.json({ quietHours: { startHour: hour, endHour: (hour + 2) % 24 } })}
-      where id = ${ORG}`;
+    await quietHours(true);
     await portalChat.read(db(), { token: texToken });
     await longAgo(conversation, true);
     await comms.reply(owner(), { id: conversation, body: "Third answer." });
     expect(await sentTo(TEX_E164)).toHaveLength(1);
     expect(await sentTo(TEX)).toHaveLength(2);
     expect(await noticeOf(conversation)).toMatch(/quiet hours/);
-    await raw`update public.organization set settings = settings - 'quietHours' where id = ${ORG}`;
+    await quietHours(false);
   });
 
   it("says plainly when there is no way to reach them, and tries again at the next answer", async () => {
@@ -339,7 +354,7 @@ run("a website chat", () => {
 
 run("pictures from the customer", () => {
   beforeEach(async () => {
-    await raw`delete from public.public_rate_limit where key like 'portal-chat%'`;
+    await raw`delete from public.public_rate_limit where key like ${'portal-chat%' + ORG + '%'}`;
   });
 
   it("are kept, shown on their page, and served to them alone", async () => {
@@ -401,13 +416,13 @@ run("pictures from the customer", () => {
   });
 
   it("count against the hour a file added to a job counts against", async () => {
-    await raw`delete from public.public_rate_limit where key like 'portal-file:%' or key like 'portal-chat%'`;
+    await raw`delete from public.public_rate_limit where key like ${'%' + ORG + '%'}`;
     for (let i = 0; i < 19; i += 1) await portalFiles.countUpload(db(), ORG, dana);
     await portalChat.say(db(), { token: danaToken, text: "twentieth", pictures: [asInput(jpeg())] }, { ip: ip() }, deps());
     await expect(portalChat.say(db(), {
       token: danaToken, text: "twenty first", pictures: [asInput(jpeg())],
     }, { ip: ip() }, deps())).rejects.toThrow(TooManyRequestsError);
-    await raw`delete from public.public_rate_limit where key like 'portal-file:%'`;
+    await raw`delete from public.public_rate_limit where key like ${'portal-file:' + ORG + '%'}`;
   });
 
   it("go to a person, and the assistant is never asked to read one", async () => {
@@ -418,7 +433,7 @@ run("pictures from the customer", () => {
         chat: { ...coreAgents.defaultSettings("chat").chat, portal: true },
       },
     });
-    await raw`delete from public.public_rate_limit where key like 'portal-chat%'`;
+    await raw`delete from public.public_rate_limit where key like ${'portal-chat%' + ORG + '%'}`;
     const sent = await portalChat.say(db(), {
       token: fayToken, text: "", pictures: [asInput(jpeg())],
     }, { ip: ip() }, deps());
@@ -435,7 +450,7 @@ run("pictures from the customer", () => {
 
 run("pictures from the office", () => {
   beforeEach(async () => {
-    await raw`delete from public.public_rate_limit where key like 'portal-chat%'`;
+    await raw`delete from public.public_rate_limit where key like ${'portal-chat%' + ORG + '%'}`;
   });
 
   it("reach the customer's page, are served to them alone, and the notice still goes", async () => {

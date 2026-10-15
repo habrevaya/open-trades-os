@@ -1,6 +1,8 @@
-import { eq, desc, and, like } from "drizzle-orm";
+import { eq, desc, and, like, sql } from "drizzle-orm";
 import { createClient, schema } from "@opentradesos/db";
 import { test, expect, run, newCustomer } from "./fixtures";
+
+test.afterAll(async () => { await quietHoursAway(false); });
 
 /**
  * THE OFFICE ANSWERS A CUSTOMER'S CHAT, WITH PICTURES, AND THE CUSTOMER IS TOLD
@@ -57,11 +59,32 @@ async function leftTheChat(conversationId: string): Promise<void> {
   }
 }
 
+/**
+ * The company's quiet hours, moved to an hour twelve hours away (or taken off
+ * again with `null`), so the clock cannot decide the test: by default a text
+ * waits from nine at night to eight in the morning.
+ */
+async function quietHoursAway(on: boolean): Promise<void> {
+  const db = createClient();
+  try {
+    const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", hour12: false }).format(new Date())) % 24;
+    const window = JSON.stringify({ quietHours: { startHour: (hour + 12) % 24, endHour: (hour + 13) % 24 } });
+    await db.update(schema.organization).set({
+      settings: on
+        ? sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${window}::jsonb`
+        : sql`coalesce(${schema.organization.settings}, '{}'::jsonb) - 'quietHours'`,
+    }).where(eq(schema.organization.slug, "ridgeline"));
+  } finally {
+    await db.$close();
+  }
+}
+
 test("a customer sends a photo, the office answers with one, and the customer is texted and sees a mark", async ({ owner, stranger }) => {
   const digits = String(Date.now()).slice(-7);
   const phone = `(737) ${digits.slice(0, 3)}-${digits.slice(3)}`;
   const e164 = `+1737${digits}`;
   const name = `Juno Snapper ${run}`;
+  await quietHoursAway(true);
 
   await owner.goto("/settings/portal");
   const signInUrl = (await owner.getByLabel("The sign in address").textContent())!.trim();
