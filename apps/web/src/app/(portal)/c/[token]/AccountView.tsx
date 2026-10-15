@@ -52,6 +52,10 @@ export interface ReportData {
 }
 
 export interface AccountExtrasData {
+  /** The plan pages the customer can choose between: only when they are a member of two or more with a page of their own. */
+  pages?: { planId: string; name: string }[];
+  /** The plan whose page this is, or null for the company's. */
+  page?: string | null;
   blocks: { kind: BlockKind; title: string; config: Record<string, unknown>; declared: boolean }[];
   history: {
     visitId: string; jobId: string; jobNumber: number; jobNumberPrefix?: string | null; summary: string; date: string | null; status: string;
@@ -216,7 +220,10 @@ export function AccountView({
   account, pay, returned = null, statementHref, changeHref, pdfHref, open, top, after, referral, photoHref, estimatePdfHref, fileHref, bookHref,
   sendFileHref,
   closing = "Questions? Reply to the message that brought you here.",
+  planHref,
 }: {
+  /** Where one of the customer's plan pages opens, when they have more than one to choose between. */
+  planHref?: (planId: string) => string;
   /** The customer's referral link, drawn where the layout puts it, or last. */
   referral?: ReactNode;
   /** Where one of their photographs is served from, when the page can serve them. */
@@ -607,6 +614,20 @@ export function AccountView({
         )}
         {top}
       </header>
+
+      {planHref && (extras.pages?.length ?? 0) > 1 && (
+        <nav aria-label="Your plans" className="text-center text-sm text-ink-700">
+          <span>Your plans: </span>
+          {extras.pages!.map((p, i) => (
+            <span key={p.planId}>
+              {i > 0 ? " · " : ""}
+              {p.planId === extras.page
+                ? <strong aria-current="page" className="font-semibold text-ink-900">{p.name}</strong>
+                : <a href={planHref(p.planId)} className="text-blue-600 underline underline-offset-4">{p.name}</a>}
+            </span>
+          ))}
+        </nav>
+      )}
 
       {(returned === "succeeded" || returned === "processing") && (
         <p className="rounded-md border border-steel-200 bg-canvas p-4 text-center text-sm text-ink-700" role="status">

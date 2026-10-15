@@ -653,9 +653,25 @@ visit.
 Who sees it: a customer with an active or past due agreement on the plan. A
 pending agreement has not started, and a paused, lapsed or cancelled one is no
 longer a membership, so those customers see the company's page. A customer
-on several plans that have a page of their own sees the page of the plan of
+on several plans that have a page of their own lands on the page of the plan of
 their oldest active agreement, so the page does not change from one visit to
-the next. Everyone else sees the company's layout, and a customer's page is
+the next, and is offered the others: a line under their name, **Your plans**,
+lists each plan by name (one entry for a plan however many agreements they hold on
+it, oldest agreement first) with the one they are on marked, and choosing another
+opens that plan's page with its own blocks, order and headings
+(`/c/{token}?plan={planId}`, `/portal/{slug}/account?plan={planId}`, and `plan` on
+`GET /v1/portal/account`, which also gives `extras.pages` and `extras.page`).
+Which page they last looked at is not remembered: the next visit lands on the
+oldest agreement's again. They are offered the line only when there is a choice,
+that is two or more plans of theirs with a page; a second plan with no page of
+its own is the company's page, which they are not offered, since it is not a
+plan's. The plan in the address only chooses among their own pages: another
+company's plan, a plan they are not a member of, a plan whose page was taken away
+and a made up id all draw the page they would have had, and say nothing about it,
+so the address cannot be used to read a plan's page they are not a member of.
+Everything else on the account that is not a block (the plans' visits, the
+agreements, the invoices) is the customer's whole account on every page. Everyone
+else sees the company's layout, and a customer's page is
 drawn the same way at `/c/{token}`, `/portal/{slug}/account` and in
 `GET /v1/portal/account`. A plan's page is never the company's default and
 never a trade pack's, so a pack upgrade never reads or writes it and the
@@ -943,7 +959,7 @@ its own: the company's paper form has to carry the words the screen shows, and
 the office confirms that it does. One scan stands behind one card. The words,
 for the phone script and for the form, are the product's and the company
 cannot edit them. A layout is the company's, or a plan's for its
-members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer on several plans sees only the oldest one's, a block's
+members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer's choice of plan page is not remembered and the company's own page is not one of the choices, a block's
 settings (which readings a trend shows) are not changed on the screen, and
 there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises no task and sends nobody a notice: the office sees it when it opens the job and the technician on the visit. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, on the web or on the phone (the phone reads a file with its own sign in, which is not opening it from the job's page, so it never marks it seen). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling

@@ -62,8 +62,11 @@ export default async function SignedInAccountPage({
       }));
   }
 
+  /** Which of their plan pages, when they have more than one. A value that is not a plan of theirs is the usual page. */
+  const plan = typeof query["plan"] === "string" && /^[0-9a-f-]{36}$/i.test(query["plan"]) ? query["plan"] : undefined;
+
   const [account, cards, referral, chat] = await Promise.all([
-    portalAccount.viewAccount(db, { token }),
+    portalAccount.viewAccount(db, { token, ...(plan ? { plan } : {}) }),
     savedCards.list(db, { token }),
     referrals.forPortal(db, { token }).catch(() => null),
     portalChat.unreadReplies(db, { token }).catch(() => ({ unread: 0 })),
@@ -85,6 +88,7 @@ export default async function SignedInAccountPage({
         photoHref={(photoId) => `${base}/account/photos/${photoId}`}
         estimatePdfHref={(estimateId) => `${base}/account/estimates/${estimateId}/pdf`}
         fileHref={(fileId) => `${base}/account/files/${fileId}`}
+        planHref={(planId) => `${base}/account?plan=${planId}`}
         bookHref={`${base}/account/book`}
         sendFileHref={`${base}/account/your-files`}
         referral={referral ? <ReferralBlock referral={referral} /> : null}

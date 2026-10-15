@@ -2898,7 +2898,7 @@
       "put": {
         "operationId": "setPlanPortalLayout",
         "summary": "Give a plan's members an account page of their own, or change it",
-        "description": "Arranged exactly as the company's layout is: name every block once, in order, each shown or not, with a heading or none. Starts from the company's layout when the plan has none. Members are customers with an active or past due agreement on the plan; a customer on several plans with a layout sees the one of their oldest active agreement; everyone else sees the company's layout. Never touched by a trade pack upgrade.\n\nRequires a session holding: settings:write.",
+        "description": "Arranged exactly as the company's layout is: name every block once, in order, each shown or not, with a heading or none. Starts from the company's layout when the plan has none. Members are customers with an active or past due agreement on the plan; a customer on several plans with a layout lands on the one of their oldest active agreement and is offered the others to choose; everyone else sees the company's layout. Never touched by a trade pack upgrade.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M05"
         ],
@@ -90610,7 +90610,7 @@
       "get": {
         "operationId": "viewPortalAccount",
         "summary": "The customer's whole account",
-        "description": "Homes, work, visits, invoices with what is owed, estimates, plans and deposits, from a customer scope token: a sign in or an account link. Built field by field from what the customer may see; no cost, no margin, no internal note, no other customer.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
+        "description": "Homes, work, visits, invoices with what is owed, estimates, plans and deposits, from a customer scope token: a sign in or an account link. Built field by field from what the customer may see; no cost, no margin, no internal note, no other customer. A customer who is a member of two or more plans that each have a page of their own is offered those pages in `extras.pages` and lands on the oldest agreement's; `plan` draws another of theirs. A plan that is not theirs is the page they would have had.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` query parameter, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
         ],
@@ -90623,6 +90623,15 @@
               "type": "string",
               "minLength": 20,
               "maxLength": 200
+            }
+          },
+          {
+            "name": "plan",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -286469,6 +286478,32 @@
           "extras": {
             "type": "object",
             "properties": {
+              "pages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "planId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "planId",
+                    "name"
+                  ]
+                }
+              },
+              "page": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
               "blocks": {
                 "type": "array",
                 "items": {
@@ -287077,6 +287112,8 @@
               }
             },
             "required": [
+              "pages",
+              "page",
               "blocks",
               "history",
               "equipment",

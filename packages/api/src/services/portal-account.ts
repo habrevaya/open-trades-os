@@ -109,8 +109,11 @@ export interface PortalAccount {
  * the grant names, inside row level security for the company it names.
  * Drafts are left out, because a draft invoice or estimate is the office's
  * work in progress and not something the customer has been sent.
+ *
+ * `plan` chooses among the customer's own plan pages (see `planLayoutBlocks`):
+ * the page of a plan they are not a member of is the page they would have had.
  */
-export async function viewAccount(db: Database, input: { token: string }): Promise<PortalAccount> {
+export async function viewAccount(db: Database, input: { token: string; plan?: string | undefined }): Promise<PortalAccount> {
   const grant = await peek(db, input.token);
   const customerId = requireCustomer(grant);
 
@@ -292,7 +295,7 @@ export async function viewAccount(db: Database, input: { token: string }): Promi
           .map((id) => invoiceRows.find((row) => row.id === id)?.number)
           .filter((n): n is number => n !== undefined),
       })),
-      extras: await accountExtras(tx, grant.organizationId, customerId),
+      extras: await accountExtras(tx, grant.organizationId, customerId, { plan: input.plan ?? null }),
       records: await recordsForPortal(tx, customerId),
       requested: await pendingBookingsFor(tx, customerId),
     };

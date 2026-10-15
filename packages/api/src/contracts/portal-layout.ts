@@ -104,7 +104,7 @@ export const setPlanPortalLayout = defineRoute({
   path: "/v1/agreement-plans/{id}/portal-layout",
   summary: "Give a plan's members an account page of their own, or change it",
   description:
-    "Arranged exactly as the company's layout is: name every block once, in order, each shown or not, with a heading or none. Starts from the company's layout when the plan has none. Members are customers with an active or past due agreement on the plan; a customer on several plans with a layout sees the one of their oldest active agreement; everyone else sees the company's layout. Never touched by a trade pack upgrade.",
+    "Arranged exactly as the company's layout is: name every block once, in order, each shown or not, with a heading or none. Starts from the company's layout when the plan has none. Members are customers with an active or past due agreement on the plan; a customer on several plans with a layout lands on the one of their oldest active agreement and is offered the others to choose; everyone else sees the company's layout. Never touched by a trade pack upgrade.",
   module: "M05",
   permissions: ["settings:write"],
   idempotent: true,

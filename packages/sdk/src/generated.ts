@@ -28137,6 +28137,11 @@ export interface ViewPortalAccountOutput {
     reason: string | null;
   }>;
   extras: {
+    pages: Array<{
+      planId: string;
+      name: string;
+    }>;
+    page: string | null;
     blocks: Array<{
       kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
       title: string;
@@ -32417,6 +32422,7 @@ export interface ViewPayerPortalInput {
 
 export interface ViewPortalAccountInput {
   token: string;
+  plan?: string;
 }
 
 export interface ViewPortalChangeOrderInput {
@@ -34795,7 +34801,7 @@ export const OPERATIONS = {
   verifyCertification: { method: "POST", path: "/v1/certifications/{id}/verify", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   verifyPortalCode: { method: "POST", path: "/v1/public/portal/{organizationSlug}/sign-in", pathParams: ["organizationSlug"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   viewPayerPortal: { method: "GET", path: "/v1/portal/payer", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
-  viewPortalAccount: { method: "GET", path: "/v1/portal/account", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  viewPortalAccount: { method: "GET", path: "/v1/portal/account", pathParams: [], queryParams: ["token","plan"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   viewPortalChangeOrder: { method: "GET", path: "/v1/portal/change-order", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   viewPortalEstimate: { method: "GET", path: "/v1/portal/estimate", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   viewPortalInvoice: { method: "GET", path: "/v1/portal/invoice", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },

@@ -141,7 +141,7 @@ run("closing the chat", () => {
 
   it("shows the customer a closed, empty chat and closes the conversation in the inbox", async () => {
     await portalChat.say(db(), { token: danaToken, text: "The furnace is out" }, { ip: ip() }, deps());
-    [first] = (await conversationsOf(dana)).map((c) => c.id);
+    first = (await conversationsOf(dana))[0]!.id;
     const closed = await portalChat.close(db(), { token: danaToken });
     expect(closed).toMatchObject({ status: "closed", messages: [], bookingTaken: false });
     expect((await portalChat.read(db(), { token: danaToken })).status).toBe("closed");
