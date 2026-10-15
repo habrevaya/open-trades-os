@@ -145,10 +145,10 @@ run("the company's choice", () => {
 
     // The same choice again changes nothing and is not audited twice.
     await commissions.setItemRule(owner(), { rule: "item_wins" });
-    const [{ count }] = await raw<{ count: number }[]>`
+    const [audited] = await raw<{ count: number }[]>`
       select count(*)::int as count from public.audit_log where organization_id = ${ORG} and action = 'commission_item_rule.set'
         and after->>'itemRule' = 'item_wins'`;
-    expect(count).toBe(1);
+    expect(audited!.count).toBe(1);
   });
 
   it("refuses a choice that is not one of the four", async () => {
