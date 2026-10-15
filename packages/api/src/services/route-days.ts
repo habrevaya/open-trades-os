@@ -39,11 +39,11 @@ function workerActor(organizationId: string): Actor {
   };
 }
 
-interface DueDay {
+type DueDay = {
   technician_id: string;
   day: string;
   fixes: number;
-}
+};
 
 /**
  * Sum every finished day of one company's positions that is not summed yet,

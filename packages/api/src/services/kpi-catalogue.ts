@@ -1378,8 +1378,12 @@ export const CATALOGUE: Record<string, Entry> = {
       + "(`visit_change_request`, with when they asked), but a customer who rings "
       + "and asks the office to cancel is recorded exactly like the company "
       + "cancelling for rain: `visit.status` says cancelled and nothing says by "
-      + "whom. Counting only the portal's half would undercount, and counting "
-      + "every cancellation would read a week of rain as customers leaving.",
+      + "whom, nor when: a visit keeps no time it was cancelled (only a job "
+      + "does). Counting only the portal's half would undercount, and counting "
+      + "every cancellation would read a week of rain as customers leaving. "
+      + "Recording it means every path that cancels a visit (the office, a job "
+      + "cancelled with its visits, a portal request, a plan's skipped visit) "
+      + "saying who asked and when, which none of them does yet.",
   },
 
   chemical_cost_per_stop: {
@@ -1434,7 +1438,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "equipment another trade owns, 'which the electrician was never going to "
       + "close', and nothing on a job or a visit records that. Those calls are a "
       + "large share of troubleshooting, so the number would read low for a "
-      + "reason the technicians do not control.",
+      + "reason the technicians do not control. Nor does the electrical pack mark "
+      + "which of its job types is a troubleshooting call: `revenue_class` puts "
+      + "it among all `service` work.",
   },
 
   drain_conversion: {
@@ -1457,7 +1463,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "replacement as a move with that reason. The definition EXCLUDES units "
       + "the customer has already scheduled with someone else, 'so the ones "
       + "nobody followed up on stay visible', and a declined recommendation "
-      + "records why in free text, so those units cannot be told apart.",
+      + "records why in free text (`deficiency.decline_reason`), so those units "
+      + "cannot be told apart without reading words for a reason, which this "
+      + "catalogue never does.",
   },
 
   backflow_recert: {
