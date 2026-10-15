@@ -24,10 +24,11 @@ test("a condenser's details are held to the kinds the trade declares", async ({ 
   });
   const { data } = await api<{ data: { id: string }[] }>(owner, "get", `/v1/properties?customerId=${customerId}`);
   /** Through the API, by label, and stored as its kinds. */
-  const made = await api<{ id: string; attributes: Record<string, unknown> }>(owner, "post", "/v1/equipment", {
+  const made = await api<{ id: string }>(owner, "post", "/v1/equipment", {
     propertyId: data[0]!.id, category: "condenser", attributes: { Tonnage: "3.0", SEER2: "16" },
   });
-  expect(made.attributes).toEqual({ tonnage: "3.0", seer: 16 });
+  const stored = await api<{ attributes: Record<string, unknown> }>(owner, "get", `/v1/equipment/${made.id}`);
+  expect(stored.attributes).toEqual({ tonnage: "3.0", seer: 16 });
 
   await owner.goto(`/equipment/${made.id}`);
   await owner.getByText("Correct its details").click();
