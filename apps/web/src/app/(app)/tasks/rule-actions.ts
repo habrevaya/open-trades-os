@@ -252,7 +252,14 @@ export async function setRuleWorkingHours(_previous: FormState, form: FormData):
   return state;
 }
 
+/**
+ * Say who somebody answers to. The escalation screen and the person's own page
+ * post here, so there is one permission (`user:write`), one set of refusals and
+ * one audit line, whichever the office used. `membershipId` is sent from the
+ * person's page so that page shows the change.
+ */
 export async function setManager(_previous: FormState, form: FormData): Promise<FormState> {
+  const membershipId = String(form.get("membershipId") ?? "");
   const state = await attempt(form, async () => {
     const { ctx } = await session();
     const input = parsed(setReportingLine.input, {
@@ -260,6 +267,6 @@ export async function setManager(_previous: FormState, form: FormData): Promise<
     });
     await taskRules.setReportsTo(ctx, input);
   });
-  refresh("/tasks/escalation");
+  refresh("/tasks/escalation", "/people", ...(membershipId ? [`/people/${membershipId}`] : []));
   return state;
 }

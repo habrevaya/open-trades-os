@@ -261,7 +261,16 @@ other task reads the company's week and list.
 (`user:write`, because it is a fact about people), and which the person's own
 page at `/people/{membershipId}` shows as "Reports to", linked to the manager's
 page, with "Nobody recorded" when there is none and a note when the manager has
-since left (`GET /v1/people/{membershipId}` carries it as `reportsTo`). With no manager recorded, an
+since left (`GET /v1/people/{membershipId}` carries it as `reportsTo`, with the
+person's `userId` and the manager's, which `POST /v1/reporting-lines` is set by).
+Somebody with `user:write` also sets it on that page, from a list of the people who
+work there now (never the person themselves), or clears it with "Nobody recorded":
+the page posts the same call as the escalation screen, so it is the same permission,
+the same refusals ("Somebody cannot be their own manager", "A manager has to be
+somebody who works here now") and the same audit line (`membership.reports_to_set`,
+with the line it replaced), and either screen shows what the other set. A manager who
+has left stays in the list, marked, so saving the page does not take the line off
+unnoticed. Without `user:write` the page shows the line and no list. With no manager recorded, an
 unassigned task, nobody in the chosen role, or a named person who has left, the
 owners are told and the escalation says so in words.
 `GET /v1/task-escalation-rules`, `POST /v1/task-escalation-rules`,
@@ -482,9 +491,11 @@ recurring screen adds templates, pauses and resumes them, switches skipping
 holidays and changes an existing one's title, schedule, person and checklist on its own
 page, with the change applying from the next occurrence.
 
-Reporting lines are set only on the escalation screen, and are read by escalation
-and shown on the person's own page; nothing else in the product reads them, and
-the page does not change them.
+Reporting lines are read by escalation and by the licence notice, and shown on the
+person's own page, where they can also be set; nothing else in the product reads them.
+They are one manager per person, with no limit on how long a chain is and no check that
+it does not loop: A reports to B and B to A is accepted, and escalation looks one step
+up and no further, so it does no harm, but nothing warns about it.
 
 Obligations are raised by work finished on a cancelled visit, by a contract's
 clocks on a job (respond by, on site by, finished by, invoice by and claim by,

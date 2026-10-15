@@ -10349,6 +10349,7 @@ export interface GetPerformanceOutput {
 
 export interface GetPersonRecordOutput {
   membershipId: string;
+  userId: string;
   name: string | null;
   email: string;
   role: string;
@@ -10449,6 +10450,7 @@ export interface GetPersonRecordOutput {
   } | null;
   reportsTo: {
     membershipId: string;
+    userId: string;
     name: string | null;
     email: string;
     active: boolean;

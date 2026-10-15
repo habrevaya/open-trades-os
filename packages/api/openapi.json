@@ -195919,6 +195919,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": [
               "string",
@@ -196463,6 +196467,10 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
               "name": {
                 "type": [
                   "string",
@@ -196478,6 +196486,7 @@
             },
             "required": [
               "membershipId",
+              "userId",
               "name",
               "email",
               "active"
@@ -196649,6 +196658,7 @@
         },
         "required": [
           "membershipId",
+          "userId",
           "name",
           "email",
           "role",

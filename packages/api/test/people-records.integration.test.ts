@@ -77,7 +77,7 @@ run("who a person reports to", () => {
     const danaUser = fixtureId("pr:tech:dana");
     await taskRules.setReportsTo(owner(), { userId: danaUser, reportsToUserId: samUser });
     expect((await records.person(owner(), { membershipId: danaMember })).reportsTo)
-      .toEqual({ membershipId: samMember!.id, name: "Sam Lee", email: "pr-sam@test.local", active: true });
+      .toEqual({ membershipId: samMember!.id, userId: samUser, name: "Sam Lee", email: "pr-sam@test.local", active: true });
 
     // A manager who has left is still named, and said to have left.
     await raw`update public.membership set active = false where id = ${samMember!.id}`;
@@ -87,6 +87,28 @@ run("who a person reports to", () => {
 
     await taskRules.setReportsTo(owner(), { userId: danaUser, reportsToUserId: null });
     expect((await records.person(owner(), { membershipId: danaMember })).reportsTo).toBeNull();
+  });
+
+  it("is set from the person's page by the id that page is given, with the escalation screen's permission and audit", async () => {
+    const person = await records.person(owner(), { membershipId: danaMember });
+    expect(person.userId).toBe(fixtureId("pr:tech:dana"));
+    const samUser = fixtureId("pr:tech:sam");
+
+    // The person's page posts the same call, so it is held to the same rules.
+    await expect(taskRules.setReportsTo(as(["office_manager"]), { userId: person.userId, reportsToUserId: samUser }))
+      .rejects.toThrow(/user:write/);
+    await expect(taskRules.setReportsTo(owner(), { userId: person.userId, reportsToUserId: person.userId }))
+      .rejects.toThrow(/own manager/);
+    await taskRules.setReportsTo(owner(), { userId: person.userId, reportsToUserId: samUser });
+    expect((await records.person(owner(), { membershipId: danaMember })).reportsTo).toMatchObject({ userId: samUser });
+
+    // Somebody who may read people sees the line and cannot move it.
+    expect((await records.person(as(["office_manager"]), { membershipId: danaMember })).reportsTo).toMatchObject({ userId: samUser });
+    const [audited] = await raw<{ n: number }[]>`
+      select count(*)::int as n from public.audit_log
+      where organization_id = ${ORG} and action = 'membership.reports_to_set' and entity_id = ${person.userId}`;
+    expect(audited!.n).toBeGreaterThan(0);
+    await taskRules.setReportsTo(owner(), { userId: person.userId, reportsToUserId: null });
   });
 });
 
