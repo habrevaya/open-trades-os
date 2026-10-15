@@ -62,3 +62,13 @@ export async function setBudgetedHours(_previous: FormState, form: FormData): Pr
   revalidatePath(`/jobs/${jobId}`);
   return result;
 }
+
+/** Marking a supply on the job as billed back to the customer at cost, or taking the mark off. */
+export async function setBilledBack(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const result = await attempt(form, async () => {
+    await jobs.markBilledBack(await ctx(), { id: field(form, "lineId") ?? "", billedBack: field(form, "billedBack") === "1" });
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}

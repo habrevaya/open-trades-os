@@ -492,6 +492,12 @@ export const JobLine = z.object({
   invoiceLineId: Uuid.nullable(),
   /** Set when it is deliberately not billed: warranty, goodwill, rework. */
   nonBillableReason: z.string().nullable(),
+  /**
+   * When a supply was marked as billed back to the customer at cost, or null.
+   * The supply cost share of revenue leaves such a supply out of both halves
+   * once it is on an issued invoice.
+   */
+  billedBackAt: z.string().datetime().nullable().optional(),
   occurredAt: z.string().datetime(),
 });
 
@@ -507,6 +513,20 @@ export const listJobLines = defineRoute({
   output: z.object({ data: z.array(JobLine) }),
 });
 
+export const markJobLineBilledBack = defineRoute({
+  method: "post",
+  path: "/v1/job-lines/{id}/billed-back",
+  summary: "Mark a supply as billed back to the customer at cost, or take the mark off",
+  description:
+    "For a supply (a part line) stocked for a customer and billed back at what it cost: a pass through, not a margin leak. The supply cost share of revenue leaves it out of both halves once it is on an issued invoice. Setting what is already set changes nothing, so a replay is harmless.",
+  module: "M10",
+  permissions: ["job:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, billedBack: z.boolean() }),
+  output: JobLine,
+});
+
 export const jobRoutes = {
   listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines,
+  markJobLineBilledBack,
 } as const;

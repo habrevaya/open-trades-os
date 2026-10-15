@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty six of the forty seven are computed here, four are
- * M22's, and the seventeen that are not each name what they still lack.)
+ * (They are read now. Twenty seven of the forty seven are computed here, four are
+ * M22's, and the sixteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -722,6 +722,58 @@ const budgetedJobs = (value: string): Records => (from, to, zone) => sql`
         and running.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])
     )
     and ${sql.raw(CREW_HOURS)} > 0
+`;
+
+/**
+ * SUPPLIES AGAINST REVENUE, per completed job. A supply is a `part` line; a
+ * PASS THROUGH is one marked billed back at cost that is on an invoice issued
+ * and not voided, and it leaves both halves: its cost from the top, what it
+ * was billed at (net of discounts, before tax, as the ledger credits revenue)
+ * from the bottom. The rule is core's `reporting.supplyCostOf`, and
+ * `kpi-supply-cost.integration.test.ts` puts the same jobs through both.
+ */
+const PASSED_THROUGH = `(jl.billed_back_at is not null and exists (
+  select 1 from public.invoice_line il join public.invoice i on i.id = il.invoice_id
+  where il.id = jl.invoice_line_id and i.status not in ('draft', 'void')
+))`;
+
+const SUPPLY_COST = `(
+  select coalesce(sum(jl.quantity * jl.unit_cost), 0) from public.job_line jl
+  where jl.job_id = j.id and jl.kind = 'part' and not ${PASSED_THROUGH}
+)`;
+
+const PASSED_REVENUE = `(
+  select coalesce(sum(il.quantity * il.unit_price - il.discount_amount - il.member_discount_amount), 0)
+  from public.job_line jl join public.invoice_line il on il.id = jl.invoice_line_id
+  where jl.job_id = j.id and jl.kind = 'part' and ${PASSED_THROUGH}
+)`;
+
+/** Completed customer jobs in the window with no supply whose cost is unknown. */
+const suppliedJobs = (from: string, to: string, zone: string) => sql`
+  from public.job j
+  join public.job_type jt on jt.id = j.job_type_id
+  where j.deleted_at is null and j.completed_at is not null
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and not exists (
+      select 1 from public.job_line jl
+      where jl.job_id = j.id and jl.kind = 'part' and jl.unit_cost is null and not ${sql.raw(PASSED_THROUGH)}
+    )
+`;
+
+const supplyHalf = (value: string): Records => (from, to, zone) => sql`
+  select ${jobRow(value, zone)} ${suppliedJobs(from, to, zone)}
+`;
+
+/** Each supply passed through on a counted job: one row, opening on the job. */
+const passedThrough: Records = (from, to, zone) => sql`
+  select 'job'::text as kind, jl.id::text as id,
+         concat('#', j.number, ' ', j.summary, ': ', jl.name, ', billed back at cost') as label,
+         to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/jobs/' || j.id as href
+  from public.job_line jl
+  join (select j.* ${suppliedJobs(from, to, zone)}) as j on j.id = jl.job_id
+  where jl.kind = 'part' and ${sql.raw(PASSED_THROUGH)}
 `;
 
 /* ------------------------------------------------------------- the entries */
@@ -1457,18 +1509,37 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   supply_cost_pct: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A flag for supplies billed back. A cost can now be put on a job from the "
-      + "office (a journal line naming the job, M14) and job costing counts it, "
-      + "but the definition EXCLUDES supplies stocked for a commercial account "
-      + "and billed back at cost, and nothing marks a supply line, a stock "
-      + "movement or a purchase as billed back, so a pass through would appear "
-      + "as both a cost and a revenue and make the ratio look right for the "
-      + "wrong reason. The one pass through flag that exists, "
-      + "`rental.disposal_pass_through`, is a container hire's terms about a "
-      + "facility's fee and says nothing about a supply.",
+    /** What supplies cost is what jobs cost, so it takes what a job's margin takes. */
+    permissions: ["job.cost:read", "report.financial:read"],
+    measure: {
+      /**
+       * "Chemical, consumable and equipment consumable cost divided by
+       * invoiced revenue. EXCLUDES supplies stocked for a commercial account
+       * and billed back at cost, which are a pass through and not a margin
+       * leak."
+       *
+       * WHAT IT NEEDED, and what changed: a flag for supplies billed back. A
+       * supply used on a job (a `part` line, which is what a chemical, a
+       * consumable and an equipment consumable are; equipment fitted is
+       * capital and labour is hours) can now be marked billed back to the
+       * customer at cost (`job_line.billed_back_at`, M10).
+       *
+       * Revenue is the ledger's, on completed customer jobs, as every revenue
+       * figure here is. A supply marked billed back that is on an issued
+       * invoice leaves BOTH halves, its cost and what it was billed at; one
+       * marked and not billed yet counts as a cost, because nothing has come
+       * back for it. A job with a supply whose cost nobody recorded is left
+       * out of both halves, rather than read as free. The supplies passed
+       * through are counted beside the number.
+       */
+      numerator: { label: "dollars of supplies used", money: true, records: supplyHalf(SUPPLY_COST) },
+      denominator: { label: "revenue on those jobs, less supplies billed back at cost", money: true, records: supplyHalf(`${REVENUE_ON_JOB} - ${PASSED_REVENUE}`) },
+      besides: {
+        excluded: { label: "supplies billed back at cost, left out of both halves", records: passedThrough },
+      },
+    },
   },
 
   record_completeness: {

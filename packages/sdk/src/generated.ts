@@ -14985,6 +14985,7 @@ export interface ListJobLinesOutput {
     taxable: boolean;
     invoiceLineId: string | null;
     nonBillableReason: string | null;
+    billedBackAt?: string | null;
     occurredAt: string;
   }>;
 }
@@ -18082,6 +18083,29 @@ export interface MarkExternalWorkOrderPushedOutput {
   pendingPush: boolean;
   lastPushError: string | null;
   weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
+}
+
+export interface MarkJobLineBilledBackInput {
+  billedBack: boolean;
+}
+
+export interface MarkJobLineBilledBackOutput {
+  id: string;
+  jobId: string;
+  visitId: string | null;
+  kind: string;
+  source: string;
+  priceBookItemVersionId: string | null;
+  name: string;
+  description: string | null;
+  quantity: string;
+  unitPrice: string;
+  unitCost?: string | null;
+  taxable: boolean;
+  invoiceLineId: string | null;
+  nonBillableReason: string | null;
+  billedBackAt?: string | null;
+  occurredAt: string;
 }
 
 export interface MarkRequestSentInput {
@@ -30905,6 +30929,10 @@ export interface MarkExternalWorkOrderPushedParams {
   id: string;
 }
 
+export interface MarkJobLineBilledBackParams {
+  id: string;
+}
+
 export interface MarkRequestSentParams {
   id: string;
 }
@@ -32880,6 +32908,7 @@ export interface OperationTypes {
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
   markExternalWorkOrderPushed: { input: MarkExternalWorkOrderPushedParams & MarkExternalWorkOrderPushedInput; output: MarkExternalWorkOrderPushedOutput };
+  markJobLineBilledBack: { input: MarkJobLineBilledBackParams & MarkJobLineBilledBackInput; output: MarkJobLineBilledBackOutput };
   markRequestSent: { input: MarkRequestSentParams & MarkRequestSentInput; output: MarkRequestSentOutput };
   markReviewRecovered: { input: MarkReviewRecoveredParams & MarkReviewRecoveredInput; output: MarkReviewRecoveredOutput };
   markSafetyMeetingSigned: { input: MarkSafetyMeetingSignedParams & MarkSafetyMeetingSignedInput; output: MarkSafetyMeetingSignedOutput };
@@ -34034,6 +34063,7 @@ export const OPERATIONS = {
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   markExternalWorkOrderPushed: { method: "POST", path: "/v1/external-work-orders/{id}/pushed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  markJobLineBilledBack: { method: "POST", path: "/v1/job-lines/{id}/billed-back", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   markRequestSent: { method: "POST", path: "/v1/reviews/requests/{id}/sent", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   markReviewRecovered: { method: "POST", path: "/v1/reviews/{id}/recovered", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   markSafetyMeetingSigned: { method: "POST", path: "/v1/safety/meetings/{id}/attendees/{attendeeId}/signed", pathParams: ["id","attendeeId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
@@ -40806,6 +40836,15 @@ export abstract class GeneratedOperations {
    */
   markExternalWorkOrderPushed(input: MarkExternalWorkOrderPushedParams & MarkExternalWorkOrderPushedInput, options?: CallOptions): Promise<MarkExternalWorkOrderPushedOutput> {
     return this.call("markExternalWorkOrderPushed", input, options);
+  }
+
+  /**
+   * Mark a supply as billed back to the customer at cost, or take the mark off.
+   *
+   * POST /v1/job-lines/{id}/billed-back. Needs job:write.
+   */
+  markJobLineBilledBack(input: MarkJobLineBilledBackParams & MarkJobLineBilledBackInput, options?: CallOptions): Promise<MarkJobLineBilledBackOutput> {
+    return this.call("markJobLineBilledBack", input, options);
   }
 
   /**

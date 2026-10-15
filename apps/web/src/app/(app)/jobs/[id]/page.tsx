@@ -39,7 +39,7 @@ import { JobFiles } from "./Files";
 import { EstimateDrafts } from "./EstimateDrafts";
 import { Stages } from "./Stages";
 import { JobHoldPanel, PlannedVisits } from "./Hold";
-import { placeHold, releaseHold, setBudgetedHours, setMultiVisitPlanned } from "./hold-actions";
+import { placeHold, releaseHold, setBilledBack, setBudgetedHours, setMultiVisitPlanned } from "./hold-actions";
 import { CrewBudget } from "./Budget";
 
 export const dynamic = "force-dynamic";
@@ -594,7 +594,7 @@ export default async function JobPage({ params, searchParams }: {
         </details>
       )}
 
-      <UsedOnJob lines={used} />
+      <UsedOnJob lines={used} jobId={id} {...(writes ? { markBilledBack: setBilledBack } : {})} />
 
       {can(user.actor, "estimate:write") && job.status !== "cancelled" && (
         <p className="mt-10 text-sm">

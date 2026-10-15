@@ -120,6 +120,7 @@ export const handlers = {
   completeVisit: jobs.complete,
   listJobLines: jobs.lines,
   listJobTypes: jobs.listTypes,
+  markJobLineBilledBack: jobs.markBilledBack,
   listJobHolds: jobHolds.handlers.listJobHolds,
   placeJobHold: jobHolds.handlers.placeJobHold,
   releaseJobHold: jobHolds.handlers.releaseJobHold,

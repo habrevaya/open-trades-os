@@ -245,7 +245,14 @@ A cancelled visit is left off.
 
 ### See what it cost
 
-`GET /v1/jobs/{id}/lines` is what was used. `GET /v1/jobs/{jobId}/material-cost`
+`GET /v1/jobs/{id}/lines` is what was used. A supply on it (a part) can be
+marked **billed back to the customer at cost**, for paper, liners and soap a
+company stocks for an account and bills back at what it paid: "Billed back at
+cost" beside the supply on `/jobs/{id}`'s "Used on this job", or
+`POST /v1/job-lines/{id}/billed-back` (`job:write`), with "Not billed back" to
+take it off. It is a pass through, so the supply cost share of revenue (M21)
+leaves it out once it is on an issued invoice. Labour and equipment fitted are
+refused, because they are not supplies. `GET /v1/jobs/{jobId}/material-cost`
 is the stock side and needs `inventory:read`.
 `GET /v1/jobs/{jobId}/attribution` is where the job came from and needs
 `adspend:read`, because that is a marketing question about a job rather than a
@@ -275,6 +282,7 @@ because a technician may finish work and may not re-describe it.
 | `POST /v1/jobs` | `job:write` |
 | `PATCH /v1/jobs/{id}` | `job:write`, and `visit:reschedule` with `cancelVisits` |
 | `GET /v1/jobs/{id}/lines` | `job:read` |
+| `POST /v1/job-lines/{id}/billed-back` | `job:write` |
 | `GET /v1/jobs/{id}/holds` | `job:read` |
 | `POST /v1/jobs/{id}/holds` | `job:write`, and `po:read` to name a purchase order |
 | `POST /v1/job-holds/{id}/released` | `job:write` |
@@ -331,4 +339,7 @@ waiting on two orders names the one the work is waiting for. Nothing reminds
 anybody about a job that has been on hold a long time, and the board does not
 show the reason. A job's crew hour budget is typed by the office; it is not
 taken from the estimate, whose lines carry quantities and prices and never say
-which of them are hours.
+which of them are hours. A supply is marked billed back by the office, one line
+at a time, not from the phone and not by the customer or the price book item: a
+pass through is the account's arrangement, and the same paper can be billed back
+to one office and absorbed for another.

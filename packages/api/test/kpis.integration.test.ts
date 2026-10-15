@@ -300,6 +300,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "revenue_per_stop",
       "revenue_per_tech",
       "stops_per_day",
+      "supply_cost_pct",
     ]);
 
     const elsewhere = KEYS.filter((key) => CATALOGUE[key]!.state === "elsewhere").sort();
@@ -326,9 +327,10 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * `first_time_fix` made twenty nine when a job could say it was planned as
      * several visits and a hold could say it was waiting on a part order or an
      * inspection. `budget_hour_variance` made thirty when a job could carry the
-     * crew hours it was budgeted and a change order the hours it adds.
+     * crew hours it was budgeted and a change order the hours it adds, and
+     * `supply_cost_pct` thirty one when a supply could be marked billed back.
      */
-    expect(computed.length + elsewhere.length).toBe(30);
+    expect(computed.length + elsewhere.length).toBe(31);
     expect(KEYS.length).toBe(47);
   });
 });

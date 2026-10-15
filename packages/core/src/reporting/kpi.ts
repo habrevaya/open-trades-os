@@ -26,6 +26,10 @@ import { dateIn } from "../time/index.js";
  *   A FIRST TIME FIX. A completed job done in one visit, with the jobs that
  *   were planned as several visits, or held for a part order, left out.
  *
+ *   A JOB'S SUPPLIES AGAINST ITS REVENUE. What its supplies cost over what it
+ *   billed, with the supplies billed back to the customer at cost taken out
+ *   of both.
+ *
  *   A JOB'S HOURS AGAINST ITS BUDGET. Crew hours less the hours of change
  *   orders the customer approved, against the hours budgeted, counted only
  *   over jobs whose hours are all in.
@@ -334,4 +338,64 @@ export function budgetVarianceOf(job: BudgetJob):
     overHours: minutes / 60 - job.approvedChangeHours - job.budgetedHours,
     budgetedHours: job.budgetedHours,
   };
+}
+
+/* -------------------------------------------- supply cost share of revenue */
+
+export interface SupplyLine {
+  /** The job line's kind. A supply is a `part`: equipment fitted is capital, and labour is hours. */
+  kind: string;
+  quantity: number;
+  /** Null when nobody recorded what it cost. */
+  unitCost: number | null;
+  /** Marked as billed back to the customer at cost. */
+  billedBack: boolean;
+  /**
+   * What it was billed at, net of discounts, on an invoice that was issued and
+   * not voided; null when it is on no such invoice.
+   */
+  billedRevenue: number | null;
+}
+
+export interface SupplyJob {
+  /** The ledger's revenue on the job. */
+  revenue: number;
+  lines: readonly SupplyLine[];
+}
+
+/**
+ * One completed job's supply cost and the revenue it is a share of, or why it
+ * is not counted.
+ *
+ * "Chemical, consumable and equipment consumable cost divided by invoiced
+ * revenue. EXCLUDES supplies stocked for a commercial account and billed back
+ * at cost, which are a pass through and not a margin leak."
+ *
+ * A PASS THROUGH is a supply marked billed back that is on an issued invoice:
+ * its cost leaves the top and what it was billed at leaves the bottom, so it
+ * moves neither. One marked and not yet billed is still a cost with nothing
+ * against it, and counts as one; the office marking a supply is a promise,
+ * and the invoice is the fact.
+ *
+ * A job with a supply whose cost nobody recorded is LEFT OUT OF BOTH HALVES:
+ * unknown is not free, and counted at nothing it would read as a cheaper job
+ * than it was.
+ */
+export function supplyCostOf(job: SupplyJob):
+  | { counted: false; why: "uncosted" }
+  | { counted: true; supplyCost: number; revenue: number; passedThrough: number } {
+  let supplyCost = 0;
+  let passed = 0;
+  let passedRevenue = 0;
+  for (const line of job.lines) {
+    if (line.kind !== "part") continue;
+    if (line.billedBack && line.billedRevenue !== null) {
+      passed += 1;
+      passedRevenue += line.billedRevenue;
+      continue;
+    }
+    if (line.unitCost === null) return { counted: false, why: "uncosted" };
+    supplyCost += line.quantity * line.unitCost;
+  }
+  return { counted: true, supplyCost, revenue: job.revenue - passedRevenue, passedThrough: passed };
 }

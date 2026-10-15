@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty of the forty seven are answered: twenty six computed here, four
-by M22's fleet report. The other seventeen each name what they still lack.
+Thirty one of the forty seven are answered: twenty seven computed here, four
+by M22's fleet report. The other sixteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -74,7 +74,7 @@ purchasing returns and late freight, part days off, estimate expiry, credit
 payouts, retainage, push notices). Where something answers half of one the
 `needs` sentence says which half is still missing: a hire's invoice is linked
 to it but holds only part of what the haul earned, and a cost can be put on a
-job but nothing marks a supply as billed back. The four retention, renewal and
+job but nothing marked a supply as billed back (something does now, below). The four retention, renewal and
 churn figures moved when a cancellation got a coded reason (below).
 
 The nineteen (as they then were) were checked once more against everything that has shipped since:
@@ -116,7 +116,9 @@ the ones somebody makes a hiring decision on.
 - **A flag for supplies billed back.** Two cost ratios need it. A cost posting
   was the other half of this item, and it exists now: an accountant can journal a
   subcontractor's bill or a disposal receipt to a job (M14) and job costing counts
-  it, which is what unlocked install gross margin.
+  it, which is what unlocked install gross margin. The flag itself arrived
+  later: a supply on a job can be marked billed back at cost (M10), which
+  unlocked the supply cost share of revenue (below).
 - **A finer job type class.** `job_revenue_class` was added for these and
   unlocked five. A trade's own upsell path (a drain job that became a lining, a
   troubleshooting call that converted on the visit) needs the pack to mark which
@@ -223,6 +225,35 @@ worked on (M12).
 The rule is core's `reporting.budgetVarianceOf`, with unit tests, written again
 in SQL, and `kpi-budget-hours.integration.test.ts` checks a month worked out by
 hand and puts the same jobs through both.
+
+### Supply cost share of revenue, and the flag it waited on
+
+Cleaning's **supply cost share of revenue** is "chemical, consumable and
+equipment consumable cost divided by invoiced revenue", and it EXCLUDES
+"supplies stocked for a commercial account and billed back at cost, which are a
+pass through and not a margin leak". A cost could already be put on a job; what
+was missing was a flag for supplies billed back, and a supply used on a job can
+now be marked billed back to the customer at cost (M10).
+
+- A supply is a job's `part` line: what a chemical, a consumable and an
+  equipment consumable are. Equipment fitted is capital and labour is hours.
+- Revenue is the ledger's on completed customer jobs, as every revenue figure
+  here is.
+- A supply marked billed back that is **on an invoice issued and not voided**
+  leaves both halves: its cost from the top, what it was billed at (net of
+  discounts, before tax) from the bottom. One marked and not yet billed counts
+  as a cost, because nothing has come back for it.
+- A job with a supply whose cost nobody recorded is **left out of both halves**,
+  rather than read as free.
+- The supplies passed through are counted beside the number and open like a
+  half.
+
+It is what supplies cost, so like install margin it needs `job.cost:read` and
+`report.financial:read`, and a reader without them sees it in the unavailable
+list with the permissions named. The rule is core's `reporting.supplyCostOf`,
+with unit tests, written again in SQL, and
+`kpi-supply-cost.integration.test.ts` checks a month worked out by hand and puts
+the same jobs through both.
 
 ### The four that waited on a coded cancellation reason
 
@@ -643,9 +674,10 @@ sent once per run, so a run resumed after a wait does not send it again.
 `report:build` saves and deletes reports and sets up, changes, pauses and stops
 schedules. The financial datasets additionally need `report.financial:read`, and
 a drill is refused exactly where its report would be, in the same words.
-Install gross margin on the trade scorecard is what jobs cost, so it needs
-`job.cost:read` and `report.financial:read` on top of `report:read`, and a reader
-without them sees it in the unavailable list with the permissions named.
+Install gross margin and the supply cost share on the trade scorecard are what
+jobs cost, so they need `job.cost:read` and `report.financial:read` on top of
+`report:read`, and a reader without them sees them in the unavailable list with
+the permissions named.
 
 ## API
 
@@ -700,11 +732,11 @@ prefix off.
 
 ## What is not built
 
-Seventeen of the forty seven declared KPIs cannot be computed, and each one
+Sixteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the seventeen has its datum yet (above, "The
+since they were written and none of the sixteen has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
 
 First time fix leaves out a part hold only when it names a purchase order in
@@ -719,7 +751,13 @@ The budgeted hour variance is only as good as the budget typed: nothing takes a
 job's hours from its estimate, so a company that does not budget its jobs in
 hours sees "Not this window". A change order's crew hours are typed by the
 office and are not on the page the customer signs, so "separately approved" is
-the change order being approved, not those hours by name. The records
+the change order being approved, not those hours by name.
+
+The supply cost share counts what a supply cost on the job line, as job costing
+does; stock bought for a van and never put on a job is not a supply cost here,
+and neither is a receipt for supplies paid back to a cleaner (M17) unless it was
+put on the job as a line. A supply billed back is left out only once its
+invoice is issued, so a month's figure can move when the invoice goes out. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

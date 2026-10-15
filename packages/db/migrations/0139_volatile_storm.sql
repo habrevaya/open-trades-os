@@ -1,0 +1,1 @@
+ALTER TABLE "job_line" ADD COLUMN "billed_back_at" timestamp with time zone;

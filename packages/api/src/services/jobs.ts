@@ -1482,9 +1482,51 @@ export async function lines(ctx: ServiceContext, input: z.infer<typeof listJobLi
           quantity: row.quantity, unitPrice: row.unitPrice,
           ...("unitCost" in shown ? { unitCost: row.unitCost } : {}),
           taxable: row.taxable, invoiceLineId: row.invoiceLineId, nonBillableReason: row.nonBillableReason,
+          billedBackAt: row.billedBackAt?.toISOString() ?? null,
           occurredAt: row.occurredAt.toISOString(),
         };
       }),
+    };
+  });
+}
+
+/**
+ * A SUPPLY BILLED BACK AT COST, marked or unmarked.
+ *
+ * Supplies a company stocks for a customer and bills back at what it paid
+ * are a pass through, and the supply cost share of revenue leaves them out,
+ * so the office says which they are. Only a supply (a `part` line): labour is
+ * hours, and equipment fitted is capital rather than a consumable. Setting
+ * the mark it already has changes nothing, so a replay is harmless. Scoped
+ * like the job it is on, and on the audit log.
+ */
+export async function markBilledBack(ctx: ServiceContext, input: { id: string; billedBack: boolean }) {
+  return guardedWrite(ctx, "job:write", async (tx) => {
+    const [line] = await tx.select().from(schema.jobLine).where(eq(schema.jobLine.id, input.id)).limit(1);
+    if (!line) throw new NotFoundError("Job line");
+    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+      .where(and(eq(schema.job.id, line.jobId), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf(ctx, "job"), ctx.actor)))
+      .limit(1);
+    if (!job) throw new NotFoundError("Job line");
+    if (line.kind !== "part") {
+      throw new ConflictError("Only a supply can be billed back at cost. Labour and equipment fitted are not supplies.");
+    }
+    let after = line;
+    if (input.billedBack !== (line.billedBackAt !== null)) {
+      [after] = await tx.update(schema.jobLine).set({
+        billedBackAt: input.billedBack ? new Date() : null, updatedAt: new Date(),
+      }).where(eq(schema.jobLine.id, line.id)).returning() as [typeof line];
+      await audit(tx, ctx, input.billedBack ? "job_line.billed_back" : "job_line.not_billed_back", "job_line", line.id, line, after);
+    }
+    const shown = clean(ctx, "jobLine", after);
+    return {
+      id: after.id, jobId: after.jobId, visitId: after.visitId, kind: after.kind, source: after.source,
+      priceBookItemVersionId: after.priceBookItemVersionId, name: after.name, description: after.description,
+      quantity: after.quantity, unitPrice: after.unitPrice,
+      ...("unitCost" in shown ? { unitCost: after.unitCost } : {}),
+      taxable: after.taxable, invoiceLineId: after.invoiceLineId, nonBillableReason: after.nonBillableReason,
+      billedBackAt: after.billedBackAt?.toISOString() ?? null,
+      occurredAt: after.occurredAt.toISOString(),
     };
   });
 }

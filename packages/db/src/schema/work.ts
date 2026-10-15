@@ -426,6 +426,18 @@ export const jobLine = pgTable("job_line", {
   invoiceLineId: uuid("invoice_line_id"),
   /** Set when the line is deliberately not billable: warranty, goodwill, rework. */
   nonBillableReason: text("non_billable_reason"),
+  /**
+   * BILLED BACK TO THE CUSTOMER AT COST, and when somebody said so.
+   *
+   * Paper, liners and soap a cleaning company stocks for a commercial account
+   * and bills back at what it paid are a pass through, not a margin leak, and
+   * the supply cost share of revenue EXCLUDES them. Without a mark the pass
+   * through appears as both a cost and a revenue and makes the ratio look
+   * right for the wrong reason. A supply (a `part` line) only; set and taken
+   * off by the office. The KPI leaves it out once it is on an issued invoice,
+   * cost and billed amount both.
+   */
+  billedBackAt: timestamp("billed_back_at", { withTimezone: true }),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   ...sourceRef,
   ...timestamps,
