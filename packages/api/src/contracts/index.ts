@@ -96,6 +96,7 @@ import { callHandlingRoutes } from "./call-handling";
 import { safetyRoutes } from "./safety";
 import { retentionRoutes } from "./retention";
 import { holidayRoutes } from "./holidays";
+import { permitInspectionRoutes } from "./permit-inspections";
 import { numberHoursRoutes } from "./number-hours";
 import { afterHoursRoutes } from "./after-hours";
 import { safetyTalkRoutes } from "./safety-talks";
@@ -176,6 +177,7 @@ export * from "./reports";
 export * from "./safety";
 export * from "./retention";
 export * from "./holidays";
+export * from "./permit-inspections";
 export * from "./number-hours";
 export * from "./after-hours";
 export * from "./safety-talks";
@@ -337,6 +339,7 @@ export const routes = {
   ...safetyRoutes,
   ...retentionRoutes,
   ...holidayRoutes,
+  ...permitInspectionRoutes,
   ...numberHoursRoutes,
   ...afterHoursRoutes,
   ...safetyTalkRoutes,

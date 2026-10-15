@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, timestamp, jsonb, doublePrecision, date, numeric } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef } from "./_shared";
 import { organization, technician, user } from "./tenancy";
 import { message } from "./comms";
@@ -433,4 +433,52 @@ export const technicianPosition = pgTable("technician_position", {
   latestIdx: index("technician_position_latest_idx").on(t.organizationId, t.technicianId, t.recordedAt),
   visitIdx: index("technician_position_visit_idx").on(t.visitId, t.recordedAt),
   purgeIdx: index("technician_position_purge_idx").on(t.recordedAt),
+}));
+
+/**
+ * A PERSON'S ROUTE DAY: HOW MANY STOPS AND HOW FAR BETWEEN THEM.
+ *
+ * Route density (the pest and lawn packs) divides completed stops by the miles
+ * driven between them, and a month's figure needs a month of miles. The
+ * positions they come from are deleted after a few days by design, so the
+ * worker reads each finished day before its positions go and keeps only this:
+ * a count of stops, a count of drives, and a distance, per person per day.
+ * No position, no place, no time of day beyond what a gap's note says.
+ *
+ * Worked out by core's `reporting.routeDay`: the drives are from each stop's
+ * completion to the next stop's arrival, so the way out from the yard and the
+ * way home are never in it, and a day whose positions have a gap on a drive is
+ * kept as `gap` with no miles rather than read short. A day with fewer than two
+ * stops is `no_route`, kept so the worker does not read it again, and counted
+ * nowhere.
+ *
+ * Deleted with the person's positions when sharing is turned off for them or
+ * for the company: it is made from where they drove, and "stop tracking me"
+ * means the history too.
+ */
+export const routeDayStatus = pgEnum("route_day_status", ["counted", "gap", "no_route"]);
+
+export const routeDay = pgTable("route_day", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  technicianId: uuid("technician_id").notNull().references(() => technician.id, { onDelete: "cascade" }),
+  /** The day, in the company's calendar. */
+  day: date("day").notNull(),
+  /** Completed stops with an arrival, that day. */
+  stops: integer("stops").notNull(),
+  /** Drives between one stop and the next. */
+  drives: integer("drives").notNull(),
+  /** Miles driven between the first stop and the last. Nought on a day that is not counted. */
+  miles: numeric("miles", { precision: 10, scale: 3 }).notNull(),
+  /** How many positions it was worked out from, so a later pass never redoes it from fewer. */
+  fixes: integer("fixes").notNull(),
+  status: routeDayStatus("status").notNull(),
+  /** Why a day is not counted, in words. */
+  note: text("note"),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /** One per person per day, upserted by the worker. */
+  personDayIdx: uniqueIndex("route_day_person_day_idx").on(t.technicianId, t.day),
+  dayIdx: index("route_day_day_idx").on(t.organizationId, t.day),
 }));

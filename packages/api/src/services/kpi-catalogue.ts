@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty nine of the forty seven are computed here, four are
- * M22's, and the fourteen that are not each name what they still lack.)
+ * (They are read now. Thirty two of the forty seven are computed here, four are
+ * M22's, and the eleven that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -62,9 +62,9 @@ export type Format = "percent" | "money" | "number" | "duration";
  *
  * Every records query returns the same six columns:
  *
- *   kind     job, estimate, agreement, visit, customer, technician_day, time,
- *            deficiency or equipment: what the row is, which decides who may
- *            see it listed
+ *   kind     job, estimate, agreement, visit, customer, technician_day,
+ *            crew_day, time, deficiency, equipment or route_day: what the row
+ *            is, which decides who may see it listed
  *   id       the record's id, as text
  *   label    what to call it on a list
  *   on_day   the date it falls on in the window, as YYYY-MM-DD
@@ -304,6 +304,18 @@ const haulVisits = (done: boolean): Records => (from, to, zone) => sql`
       where va.visit_id = v.id
         and ${onATruck(sql`va.technician_id`, sql`((${done ? sql`v.completed_at` : sql`v.arrived_at`}) at time zone ${zone})::date`)}
     )
+`;
+
+/** Visits completed in the window, one row each, which opens on the visit. */
+const completedVisits = (): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, v.id::text as id,
+         concat('#', j.number, ' visit ', v.sequence) as label,
+         to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit v
+  join public.job j on j.id = v.job_id
+  where v.deleted_at is null and v.status = 'completed'
+    and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
 `;
 
 /** An agreement as a row: the plan, for whom, from when. */
@@ -896,6 +908,52 @@ const panelRecommendations = (value: string, pick: "in" | "unknown"): Records =>
   `;
 };
 
+/**
+ * PERMITTED JOBS BY HOW THEIR INSPECTIONS WENT. Core's `inspectionPass`,
+ * written as SQL: each job with an authority's inspection recorded on it
+ * (`permit_inspection`, M23), ONCE, dated by its first inspection, with a
+ * verdict over every inspection recorded on it by now. `failed` when one
+ * failed for our work, `excluded` when one failed only for something outside
+ * it, `passed` otherwise. One row per job, which opens on the job.
+ */
+const permittedJobs = (verdicts: readonly string[]): Records => (from, to) => sql`
+  with jobs as (
+    select pi.job_id, min(pi.inspected_on) as first_on,
+           case when bool_or(pi.result = 'failed' and pi.failure_scope = 'our_work') then 'failed'
+                when bool_or(pi.result = 'failed') then 'excluded'
+                else 'passed' end as verdict
+    from public.permit_inspection pi
+    group by pi.job_id
+  )
+  select 'job'::text as kind, j.id::text as id, concat('#', j.number, ' ', j.summary) as label,
+         x.first_on::text as on_day, 1::numeric as value, '/jobs/' || j.id as href
+  from jobs x
+  join public.job j on j.id = x.job_id
+  where j.deleted_at is null
+    and x.first_on >= ${from}::date and x.first_on <= ${to}::date
+    and x.verdict = any(${sql.param([...verdicts])}::text[])
+`;
+
+/**
+ * A PERSON'S ROUTE DAYS (`route_day`), summed by the worker from the phone's
+ * positions before they are deleted: core's `routeDay`, the drives from each
+ * stop's completion to the next stop's arrival, so the way out and the way
+ * home are never in it. `value` is what the row adds: its stops, its miles,
+ * or one. Each row is a person's day, and opens on that week's timesheets.
+ */
+const routeDays = (status: "counted" | "gap", value: "stops" | "miles" | "one"): Records => (from, to) => sql`
+  select 'route_day'::text as kind, rd.id::text as id,
+         concat(t.display_name, ', ', to_char(rd.day, 'Mon FMDD'), ': ', rd.stops, ' stops',
+                ${status === "counted" ? sql`', ', rd.miles, ' miles between them'` : sql`', not counted: ', rd.note`}) as label,
+         rd.day::text as on_day,
+         ${value === "stops" ? sql`rd.stops::numeric` : value === "miles" ? sql`rd.miles::numeric` : sql`1::numeric`} as value,
+         '/timesheets?week=' || rd.day::text as href
+  from public.route_day rd
+  join public.technician t on t.id = rd.technician_id
+  where rd.status = ${status}
+    and rd.day >= ${from}::date and rd.day <= ${to}::date
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1254,19 +1312,7 @@ export const CATALOGUE: Record<string, Entry> = {
             and ${sql.raw(REVENUE_ON_JOB)} = 0
         `,
       },
-      denominator: {
-        label: "completed visits",
-        records: (from, to, zone) => sql`
-          select 'visit'::text as kind, v.id::text as id,
-                 concat('#', j.number, ' visit ', v.sequence) as label,
-                 to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
-                 1::numeric as value, '/visits/' || v.id as href
-          from public.visit v
-          join public.job j on j.id = v.job_id
-          where v.deleted_at is null and v.status = 'completed'
-            and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
-        `,
-      },
+      denominator: { label: "completed visits", records: completedVisits() },
     },
   },
 
@@ -1548,18 +1594,42 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   inspection_pass: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "The authority's inspection of a permitted job, and why one failed. M33's "
-      + "`inspection` records the contractor's own statutory inspections of a "
-      + "property (a backflow test, a fire system), not the city inspector signing "
-      + "off a panel change, and nothing records a permit's inspections: a permit "
-      + "can be filed as a compliance document against a job, with its number and "
-      + "expiry, but not the visits the city made or what they found. Even "
-      + "there, `inspection.result` records a fail without a cause, and the "
-      + "definition EXCLUDES jobs failed for something outside the electrical "
-      + "scope because 'counting those hides whether the crews are the problem'.",
+    measure: {
+      /**
+       * "Permitted jobs signed off on the first inspection divided by all
+       * permitted jobs inspected, EXCLUDING jobs failed for something outside
+       * the electrical scope. Counting those hides whether the crews are the
+       * problem."
+       *
+       * WHAT IT NEEDED: the authority's visits to a permitted job, and whose
+       * work a fail was about. M33's `inspection` is the contractor's own
+       * statutory inspection of a property and could not hold the city
+       * signing off a panel change. `permit_inspection` does: the day, the
+       * stage, pass or fail, and on a fail the inspector's words and whose
+       * work it was, chosen from two and required, never read from the words.
+       *
+       * A PERMITTED JOB is one with a permit filed against it (a compliance
+       * document of kind `permit`) and an inspection recorded under it. It is
+       * counted ONCE, in the window of its FIRST inspection, and judged on
+       * every inspection recorded on it since: a job is signed off first time
+       * only when none failed for our work, the strict reading, so a rough in
+       * that passed and a final that failed is not. One failed only for
+       * somebody else's work (another trade, a site not ready) is out of both
+       * halves and counted beside the figure, so the exclusion cannot quietly
+       * grow. A failure recorded next month on a job first inspected this
+       * month counts against this month, where the job is.
+       */
+      numerator: { label: "permitted jobs signed off with no fail for our work", records: permittedJobs(["passed"]) },
+      denominator: { label: "permitted jobs inspected", records: permittedJobs(["passed", "failed"]) },
+      besides: {
+        excluded: {
+          label: "Jobs left out because an inspector failed them only for something outside our work",
+          records: permittedJobs(["excluded"]),
+        },
+      },
+    },
   },
 
   budget_hour_variance: {
@@ -1611,8 +1681,12 @@ export const CATALOGUE: Record<string, Entry> = {
       + "(`visit_change_request`, with when they asked), but a customer who rings "
       + "and asks the office to cancel is recorded exactly like the company "
       + "cancelling for rain: `visit.status` says cancelled and nothing says by "
-      + "whom. Counting only the portal's half would undercount, and counting "
-      + "every cancellation would read a week of rain as customers leaving.",
+      + "whom, nor when: a visit keeps no time it was cancelled (only a job "
+      + "does). Counting only the portal's half would undercount, and counting "
+      + "every cancellation would read a week of rain as customers leaving. "
+      + "Recording it means every path that cancels a visit (the office, a job "
+      + "cancelled with its visits, a portal request, a plan's skipped visit) "
+      + "saying who asked and when, which none of them does yet.",
   },
 
   chemical_cost_per_stop: {
@@ -1708,7 +1782,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "equipment another trade owns, 'which the electrician was never going to "
       + "close', and nothing on a job or a visit records that. Those calls are a "
       + "large share of troubleshooting, so the number would read low for a "
-      + "reason the technicians do not control.",
+      + "reason the technicians do not control. Nor does the electrical pack mark "
+      + "which of its job types is a troubleshooting call: `revenue_class` puts "
+      + "it among all `service` work.",
   },
 
   drain_conversion: {
@@ -1731,7 +1807,9 @@ export const CATALOGUE: Record<string, Entry> = {
       + "replacement as a move with that reason. The definition EXCLUDES units "
       + "the customer has already scheduled with someone else, 'so the ones "
       + "nobody followed up on stay visible', and a declined recommendation "
-      + "records why in free text, so those units cannot be told apart.",
+      + "records why in free text (`deficiency.decline_reason`), so those units "
+      + "cannot be told apart without reading words for a reason, which this "
+      + "catalogue never does.",
   },
 
   backflow_recert: {
@@ -1824,19 +1902,48 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   route_density: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "Miles driven between stops. The definition divides completed stops by "
-      + "route miles and EXCLUDES the drive from the yard to the first stop and "
-      + "back. A van's odometer readings are recorded (M22), but as one "
-      + "reading per vehicle per day, which includes both yard legs, and road "
-      + "distances between two points are cached only for the pairs the planner "
-      + "asked a routing provider about, so most days would be missing legs. "
-      + "The timeclock's coordinates are a straight line between two points "
-      + "rather than a route, and the phone's positions on the clock are kept "
-      + "three days by design (thirty at most), so last month's miles are gone "
-      + "before a month's figure could read them.",
+    measure: {
+      /**
+       * Pest: "Completed stops divided by driving miles on the route ...
+       * EXCLUDES the first leg from the yard and the last leg home." Lawn:
+       * "Completed stops divided by route miles driven for the day. EXCLUDES
+       * the drive from the yard to the first stop and back from the last."
+       *
+       * WHAT IT NEEDED: a month of miles between stops, when the positions
+       * they come from are deleted after a few days by design. The worker now
+       * reads each finished day before the purge and keeps a person's route
+       * day (`route_day`): their completed stops, and the miles of the drives
+       * from each stop's completion to the next stop's arrival, which is
+       * exactly the exclusion, because the way out and the way home are not
+       * between two stops. Odometer readings were never it: they are one a
+       * vehicle a day and include both legs.
+       *
+       * PER PERSON. Each person's day counts their own stops over their own
+       * miles, so a crew of three in one truck counts its stops three times
+       * and its miles three times, and the ratio is the crew's. A stop
+       * completed with no arrival time (closed from the office) is not one
+       * of the day's stops, and the drive across it is still measured, which
+       * reads lower, never higher.
+       *
+       * ONLY DAYS SEEN WHOLE COUNT, in both halves. A day whose positions
+       * have a gap on a drive between stops (the phone off, no signal, no
+       * position near one end of a drive) would read a straight line across
+       * the gap and a tighter route than was driven, so it is left out and
+       * counted beside the figure. A day with fewer than two stops is no
+       * route. A company that does not share locations has no route days and
+       * reads "not this window".
+       */
+      numerator: { label: "stops completed on route days seen whole", records: routeDays("counted", "stops") },
+      denominator: { label: "miles driven between those stops", records: routeDays("counted", "miles") },
+      besides: {
+        excluded: {
+          label: "Route days left out because the phone's positions have a gap on a drive between stops",
+          records: routeDays("gap", "one"),
+        },
+      },
+    },
   },
 
   /* ------------------------------ the six the guard test found for me ------ */
@@ -1893,15 +2000,59 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   redo_rate: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Whose fault a return visit was. The definition 'counts only our-fault "
-      + "returns, not bins that were not out', and a zero revenue return job does "
-      + "not say which it was. `reclean_rate` in the cleaning pack is published "
-      + "because its own exclusion is narrow; this one's exclusion is the "
-      + "commonest case in the trade, so publishing it would roughly double the "
-      + "number and point the owner at the crews instead of at reminder timing.",
+    measure: {
+      /**
+       * "Free re-cleans divided by completed stops. Counts only our-fault
+       * returns, not bins that were not out."
+       *
+       * This was listed as needing whose fault a return was, and the product
+       * already records it: a job's coverage (M10, "Who is paying, and why")
+       * says why it is free. `no_charge_callback` is "rework on our own work,
+       * we are back because of something we did", and `our_warranty` is "we
+       * stand behind our work, nobody is billed"; both are our fault, and both
+       * are counted, which is the reading that reads higher. A bin that was not
+       * out and was cleaned free on a second trip is `goodwill` (we chose to
+       * absorb it) and is not counted, which is the definition's exclusion. A
+       * job counts in the window it was completed.
+       *
+       * A FREE RETURN NOBODY GAVE A REASON FOR (a job back for a previous one,
+       * no revenue, no coverage recorded) is not counted, because nothing says
+       * it was our fault, and it is not hidden either: how many there are is
+       * said beside the figure and opens on the jobs, so the office can say
+       * which they were. The denominator is the window's completed visits, a
+       * return's own visit among them.
+       */
+      numerator: {
+        label: "free returns for our own work",
+        records: (from, to, zone) => sql`
+          select ${jobRow("1", zone)}
+          from public.job j
+          where j.deleted_at is null and j.completed_at is not null
+            and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+            and exists (
+              select 1 from public.entitlement en
+              where en.job_id = j.id and en.source in ('no_charge_callback', 'our_warranty')
+            )
+        `,
+      },
+      denominator: { label: "completed stops", records: completedVisits() },
+      besides: {
+        unknown: {
+          label: "Free return visits not counted because nobody said whose fault they were",
+          records: (from, to, zone) => sql`
+            select ${jobRow("1", zone)}
+            from public.job j
+            where j.deleted_at is null and j.completed_at is not null
+              and j.parent_job_id is not null
+              and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+              and ${sql.raw(REVENUE_ON_JOB)} = 0
+              and not exists (select 1 from public.entitlement en where en.job_id = j.id)
+          `,
+        },
+      },
+    },
   },
 
   referral_share: {

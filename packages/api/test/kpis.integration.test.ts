@@ -283,6 +283,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "drive_time_pct",
       "first_time_fix",
       "hauls_per_truck_day",
+      "inspection_pass",
       "install_gross_margin",
       "maint_attach",
       "not_out_rate",
@@ -294,6 +295,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "reclean_rate",
       "record_completeness",
       "recurring_retention",
+      "redo_rate",
       "referral_share",
       "renewal_rate",
       "replace_pipeline",
@@ -301,6 +303,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "revenue_per_crew_day",
       "revenue_per_stop",
       "revenue_per_tech",
+      "route_density",
       "stops_per_day",
       "supply_cost_pct",
     ]);
@@ -334,8 +337,17 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * and `record_completeness` thirty two when a report kept the list of
      * fields it was required to capture. `panel_pipeline` made thirty three
      * when the register held a panel's details to what the pack declares.
+     * Then, in the other order the two were built:
+     * `inspection_pass` made thirty four when the city's inspections of a
+     * permitted job were recorded against its permit, each fail saying whose
+     * work it was about. `route_density` made thirty five when the worker began
+     * keeping each person's finished day of stops and miles between them
+     * before the positions it reads are deleted. `redo_rate` made thirty six
+     * when it turned out a job's coverage already says why a return was free:
+     * rework on our own work and our own warranty are our fault, goodwill for
+     * a bin that was not out is not.
      */
-    expect(computed.length + elsewhere.length).toBe(33);
+    expect(computed.length + elsewhere.length).toBe(36);
     expect(KEYS.length).toBe(47);
   });
 });

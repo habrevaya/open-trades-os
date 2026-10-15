@@ -63772,6 +63772,116 @@
         ]
       }
     },
+    "/v1/jobs/{id}/permit-inspections": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listJobPermitInspections",
+        "summary": "A job's permits and the authority's inspections under each",
+        "description": "Every permit filed against the job (a compliance document of kind `permit`), each with its inspections in the order they happened. `verdict` is where the job stands in the first time inspection pass rate: `passed` when every inspection passed, `failed` when one failed for our work, `excluded` when one failed only for something outside our work, and null before the first inspection. A job out of the caller's scope is not found.\n\nRequires a session holding: job:read, document:read.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A job's permits and the authority's inspections under each",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListJobPermitInspectionsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read",
+          "document:read"
+        ]
+      }
+    },
     "/v1/jobs/{id}/rate-offers": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -87391,6 +87501,254 @@
         "x-authorization": "session",
         "x-permissions": [
           "expense:approve"
+        ]
+      }
+    },
+    "/v1/permit-inspections": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordPermitInspection",
+        "summary": "Record the authority's inspection of a permitted job",
+        "description": "The permit must be a compliance document of kind `permit` filed against a job the caller can see. A fail needs `failureScope` (whose work it was about) and `findings` (what the inspector wrote); a pass takes neither scope. Refused for a day still to come or before the permit was issued. Replayed with the same idempotency key, the first answer comes back.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordPermitInspectionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record the authority's inspection of a permitted job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordPermitInspectionOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
+        ]
+      }
+    },
+    "/v1/permit-inspections/{id}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removePermitInspection",
+        "summary": "Take off an inspection recorded by mistake",
+        "description": "The audit log keeps what it said. Removing one already gone succeeds and says so.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemovePermitInspectionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take off an inspection recorded by mistake",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovePermitInspectionOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
         ]
       }
     },
@@ -220677,6 +221035,161 @@
           "data"
         ]
       },
+      "ListJobPermitInspectionsOutput": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "permits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "expiresOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "superseded",
+                    "withdrawn"
+                  ]
+                },
+                "inspections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "permitId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "jobId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "inspectedOn": {
+                        "type": "string"
+                      },
+                      "stage": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "result": {
+                        "type": "string",
+                        "enum": [
+                          "passed",
+                          "failed"
+                        ]
+                      },
+                      "failureScope": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "our_work",
+                          "outside_our_work"
+                        ]
+                      },
+                      "findings": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "inspectorName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "recordedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "permitId",
+                      "jobId",
+                      "inspectedOn",
+                      "stage",
+                      "result",
+                      "failureScope",
+                      "findings",
+                      "inspectorName",
+                      "recordedAt"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "reference",
+                "issuerName",
+                "issuedOn",
+                "expiresOn",
+                "state",
+                "inspections"
+              ]
+            }
+          },
+          "verdict": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "passed",
+              "failed",
+              "excluded"
+            ]
+          }
+        },
+        "required": [
+          "jobId",
+          "permits",
+          "verdict"
+        ]
+      },
       "ListJobTypesOutput": {
         "type": "object",
         "properties": {
@@ -246912,6 +247425,132 @@
           "rate"
         ]
       },
+      "RecordPermitInspectionInput": {
+        "type": "object",
+        "properties": {
+          "permitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inspectedOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 80
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          },
+          "failureScope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "our_work",
+              "outside_our_work"
+            ]
+          },
+          "findings": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4000
+          },
+          "inspectorName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "permitId",
+          "inspectedOn",
+          "result"
+        ]
+      },
+      "RecordPermitInspectionOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "permitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "inspectedOn": {
+            "type": "string"
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          },
+          "failureScope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "our_work",
+              "outside_our_work"
+            ]
+          },
+          "findings": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inspectorName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "permitId",
+          "jobId",
+          "inspectedOn",
+          "stage",
+          "result",
+          "failureScope",
+          "findings",
+          "inspectorName",
+          "recordedAt"
+        ]
+      },
       "RecordProjectLienRecordInput": {
         "type": "object",
         "properties": {
@@ -251300,6 +251939,21 @@
         },
         "required": [
           "id",
+          "removed"
+        ]
+      },
+      "RemovePermitInspectionInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemovePermitInspectionOutput": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
           "removed"
         ]
       },

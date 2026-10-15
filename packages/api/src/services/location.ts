@@ -33,7 +33,9 @@ import { portalBase } from "../lib/portal-base";
  *      visit, and nothing at all once they have arrived.
  *
  * Positions are deleted after the company's retention by the worker
- * (`purgePositions`), three days unless it says otherwise.
+ * (`purgePositions`), three days unless it says otherwise. Before they go,
+ * each finished day's stops and the miles between them are kept for route
+ * density (`route-days.ts`), and nothing else of them.
  */
 
 /* --------------------------------------------------------------- settings */
@@ -74,12 +76,16 @@ export async function setSharing(ctx: ServiceContext, input: {
       updatedAt: new Date(),
     }).where(eq(schema.organization.id, ctx.actor.organizationId));
 
-    /** Off means off, including what was kept while it was on. */
+    /**
+     * Off means off, including what was kept while it was on: the positions,
+     * and each day's stops and miles worked out from them for route density.
+     */
     let removed = 0;
     if (before.enabled && !after.enabled) {
       const gone = await tx.delete(schema.technicianPosition)
         .where(eq(schema.technicianPosition.organizationId, ctx.actor.organizationId))
         .returning({ id: schema.technicianPosition.id });
+      await tx.delete(schema.routeDay).where(eq(schema.routeDay.organizationId, ctx.actor.organizationId));
       removed = gone.length;
     } else if (after.retentionDays < before.retentionDays) {
       /** A shorter retention applies to what is already kept, not only to what comes next. */
@@ -103,6 +109,11 @@ export async function setPersonSharing(tx: Database, ctx: ServiceContext, techni
     await tx.delete(schema.technicianPosition).where(and(
       eq(schema.technicianPosition.organizationId, ctx.actor.organizationId),
       eq(schema.technicianPosition.technicianId, technicianId),
+    ));
+    /** Their route days are made from where they drove, so they go too. */
+    await tx.delete(schema.routeDay).where(and(
+      eq(schema.routeDay.organizationId, ctx.actor.organizationId),
+      eq(schema.routeDay.technicianId, technicianId),
     ));
   }
 }

@@ -1611,6 +1611,27 @@ returns table (organization_id uuid, removed bigint)
 revoke all on function app.purge_technician_positions(int) from public;
 grant execute on function app.purge_technician_positions(int) to background;
 
+-- Companies holding positions, for the worker to sum each finished day into a
+-- person's route day (stops and miles between them) before the purge above
+-- takes the positions away. Ids and nothing else; the miles are worked out in
+-- the company's own transaction, in its own calendar. A suspended company is
+-- left out, as everywhere here.
+create or replace function app.route_day_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select p.organization_id from public.technician_position p
+    where not exists (
+      select 1 from public.organization o
+       where o.id = p.organization_id and o.suspended_at is not null
+    )
+    group by p.organization_id
+    limit p_limit
+  $$;
+
+revoke all on function app.route_day_organizations(int) from public;
+grant execute on function app.route_day_organizations(int) to background;
+
 create or replace function app.purge_travel_times(p_limit int default 5000)
 returns bigint
   language sql volatile security definer set search_path = public, pg_temp

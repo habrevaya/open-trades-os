@@ -207,6 +207,10 @@ export * as numberHours from "./number-hours";
 export * as afterHours from "./after-hours";
 /** Toolbox talk topics, talks on a schedule and who has not signed (M23). */
 export * as safetyTalks from "./safety-talks";
+/** The city's inspections of a permitted job, and whose work a fail was about (M23, M21). */
+export * as permitInspections from "./permit-inspections";
+/** Each person's route day, stops and miles between them, kept after the positions are gone (M21, M11). */
+export * as routeDays from "./route-days";
 /** Consumer financing, the costing rates, the company budget and manual journals (M13, M15, M14). */
 export * as financing from "./financing";
 export * as costing from "./costing";

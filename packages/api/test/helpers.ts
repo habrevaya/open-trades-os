@@ -103,7 +103,10 @@ const ORDER = [
   "job_line",
   /** Why a job waited points at the job and at the order its part is on. */
   "job_hold",
-  "visit", "entitlement", "job_party", "job",
+  "visit", "entitlement", "job_party",
+  /** The city's inspections of a permitted job point at the job and at the permit document. */
+  "permit_inspection",
+  "job",
   /** A card's labour rate points at the job type it is for and at its card, so it goes before both. */
   "rate_card_labour_rate",
   /**
@@ -160,7 +163,7 @@ const ORDER = [
    * notice, a person's switches and their text consent point at the person.
    */
   "staff_notice_delivery", "staff_notice", "staff_notice_setting", "staff_text_consent",
-  "technician_position", "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
+  "route_day", "technician_position", "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
   // Automation. A step run points at a run, a run at a version, a version at
   // a workflow. Events are last because a run references one.

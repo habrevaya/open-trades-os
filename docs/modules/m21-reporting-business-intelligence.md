@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty three of the forty seven are answered: twenty nine computed here, four
-by M22's fleet report. The other fourteen each name what they still lack.
+Thirty six of the forty seven are answered: thirty two computed here, four
+by M22's fleet report. The other eleven each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -85,15 +85,15 @@ by branch and job type, part days off, and review reminders. None of them
 supplies a datum one of the nineteen names, so none moved, and none is computed
 from something close to its datum instead. Where one of them comes near, the
 sentence now says how near: the company budget is money for a month and never
-hours for a job (a job now carries its own crew hour budget, below); a permit can be filed against a job as a compliance document,
-but not the city's visits to it; the pest pack's template already asks why no
+hours for a job (a job now carries its own crew hour budget, below); a permit could be filed against a job as a compliance
+document, but not the city's visits to it (they can now, below); the pest pack's template already asks why no
 product was applied, so record completeness lacked only the list of fields a
 report was required to capture when it was written (a report keeps it now, below); the electrical pack
 declares a panel's rating, open spaces and known concern, but the register
 held no value to that declaration (it does now, below); a job could be put on hold, but nothing said
 it was waiting on a part (it can now, below); and the phone's positions are kept three days by
-design, so a month's route miles are gone before a month's figure could read
-them.
+design, so a month's route miles were gone before a month's figure could read
+them (each finished day is now summed before they go, below).
 
 That is a product decision rather than an apology. **Most of these definitions
 name an exclusion**, and a KPI computed without its exclusions is worse than an
@@ -314,6 +314,95 @@ the register), with unit tests, written again in SQL over the typed values, and
 `kpi-panel-pipeline.integration.test.ts` checks a month worked out by hand, puts
 the same panels through both, and fails if the pack stops declaring the panel.
 
+### The first time inspection pass rate
+
+The electrical pack's **first time inspection pass rate** needed the city's
+visits to a permitted job, and whose work a fail was about. M33's inspections
+are the contractor's own, of a property, against a programme of checkpoints;
+the inspector signing off a panel change is neither. So the authority's visits
+are recorded against the permit itself (M23): a permit is a compliance document
+of kind `permit` filed against the job, and each visit under it has its day,
+its stage, passed or failed, and on a fail what the inspector wrote and whose
+work it was, ours or something outside our work. Both are required on a fail
+and the second is chosen from two words, never read out of the first.
+
+A permitted job is counted **once, in the window of its first inspection**, and
+judged on every inspection recorded on it since. It is signed off first time
+only when no inspection on it failed for our work, which is the strict reading:
+a rough in that passed and a final that failed for our work is not a first time
+pass. A job failed only for somebody else's work (another trade, a site not
+ready, the customer's own equipment) is out of both halves and counted beside
+the number, so the exclusion cannot quietly grow; one failed for both is
+counted as failed, because the crew's miss is in it. A failure recorded next
+month on a job first inspected this month counts against this month, where the
+job is, so a month's figure can go down after it ends; that is the conservative
+choice, made so a failure is never dropped for arriving late. The rule is
+core's `reporting.inspectionPass`, and `permit-inspections.integration.test.ts`
+puts the same rows through it and through the SQL and requires the same jobs in
+every half. The records open on the job.
+
+### Route density
+
+The pest and lawn packs' **route density** is completed stops over the miles
+driven between them, and EXCLUDES the drive from the yard to the first stop and
+home from the last. The miles can only come from the phone's positions, which
+are deleted after a few days on purpose (M11), so a month's figure could never
+read them, and a van's odometer is one reading a day that includes both yard
+legs. So the worker sums each finished day before the purge, for each person
+who shared their location, into a **route day** (`route_day`): their completed
+stops that day (visits they were sent on by name or with their crew, completed,
+with an arrival time), the drives from each stop's completion to the next stop's
+arrival, and how far those drives went, the straight line between one position
+and the next added up along the drive. The way out and the way home are not
+between two stops and are never read. Nothing else of the positions is kept.
+
+**A day seen whole, or not at all.** When two positions on a drive between stops
+are further apart than three of the company's intervals (never less than
+fifteen minutes), or there is no position that close to one end of a drive, or a
+stop was begun before the one before it was closed, the straight line across
+the gap would be shorter than the road and the day would read as a tighter route
+than was driven. Such a day is kept as not counted, with the reason in words,
+out of both halves, and counted beside the figure. A day of one stop is no
+route. A day is read again when positions for it arrive late (a phone that
+synced the next morning), and never from fewer positions than before, so the
+purge cannot shrink a day already summed.
+
+**Per person.** Each person's day counts their own stops over their own miles,
+so a crew of three in one truck counts its stops and its miles three times and
+the ratio is the crew's. A stop closed from the office with no arrival time is
+not one of the day's stops, and the drive across it is still measured, which
+reads lower, never higher. Straight lines between positions a minute apart are
+the road to within a few per cent and a little short of it on a winding road,
+which reads slightly high; positions are what the product has, and the doc says
+so. A company that does not share locations has no route days and reads "Not
+this window".
+
+The rule is core's `reporting.routeDay`, with unit tests, and
+`route-days.integration.test.ts` works a month by hand. Each record is a
+person's day ("Ana, Jun 10: 3 stops, 2.073 miles between them") and opens on
+that week's timesheets. Because it is made from where people drove, the records
+are listed only to people who dispatch (`visit:dispatch`), who already see the
+map; turning sharing off for the company or a person deletes their route days
+with their positions.
+
+### The re-clean rate, from why a return was free
+
+The trash bin trade's **re-clean rate** is "free re-cleans divided by completed
+stops. Counts only our-fault returns, not bins that were not out." It was listed
+as needing whose fault a return was, and the product already records that: a
+job's coverage ("Who is paying, and why" on the job, M10) says why it is free.
+"Rework on our own work" (`no_charge_callback`) and "Our own warranty"
+(`our_warranty`) are our fault and are counted; "Goodwill", the free second trip
+for a bin that was not out, is not, which is the definition's exclusion. Counting
+our own warranty as our fault is the reading that makes the number higher, and
+it is chosen for that reason. A job counts in the window it was completed, over
+the window's completed visits, a return's own visit among them.
+
+A free return nobody gave a reason for (a job back for an earlier one, no
+revenue, no coverage recorded) is not counted, because nothing says it was our
+fault, and it is not hidden: how many there are is said beside the figure and
+opens on the jobs, so the office can say which they were.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -413,12 +502,12 @@ they come to disagree.
 Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
-assembly due a retest, a crew's day. The scorecard's number is the sum of those rows, and
+assembly due a retest, a crew's day, a permitted job, a person's route day. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
-agreement, a visit, a customer, the week's timesheets (a crew's day opens on
-them too), or the unit.
+agreement, a visit, a customer, the week's timesheets (a crew's day and a
+route day open on them too), or the unit.
 
 It is refused, in words, rather than trimmed, in three cases. The figure is the
 whole company's, so somebody whose scope is narrower (a technician who sees their
@@ -791,11 +880,11 @@ prefix off.
 
 ## What is not built
 
-Fourteen of the forty seven declared KPIs cannot be computed, and each one
+Eleven of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the fourteen has its datum yet (above, "The
+since they were written and none of the eleven has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
 
 First time fix leaves out a part hold only when it names a purchase order in
@@ -829,7 +918,17 @@ The panel upgrade pipeline counts a recommendation recorded against the panel
 itself, whatever it recommends: a finding has no field saying it is an upgrade
 rather than a repair, and one on a breaker under the panel is not counted. A
 panel whose details were typed before the register checked them is counted
-beside, not in, until somebody corrects it on the unit's page. The records
+beside, not in, until somebody corrects it on the unit's page.
+
+The first time inspection pass
+rate is only as complete as what the office types in: an inspection nobody
+recorded is not counted, and a fail recorded as somebody else's work is left
+out on that word. Route density has no figure for a company that does not share
+locations, counts only the days whose drives between stops were seen whole, and
+measures them as straight lines between positions rather than along the road; a
+route day is not shown anywhere but behind the figure. The re-clean rate is only
+as good as the coverage the office records on a return: one left without a reason
+is counted beside the figure, not in it. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a
