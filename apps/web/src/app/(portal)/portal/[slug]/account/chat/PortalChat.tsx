@@ -93,17 +93,17 @@ export function PortalChat({ slug, company, initial }: { slug: string; company: 
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={2000}
                     className="mt-1 block w-full rounded border border-steel-300 bg-canvas p-2 text-sm" />
         </label>
-        <label className="block">
-          <span className="text-sm font-medium text-ink-700">Add photos (up to 3)</span>
-          <input ref={picker} type="file" name="pictures" multiple
-                 accept="image/jpeg,image/png,image/heic,image/webp"
+        <div>
+          <label htmlFor="chat-photos" className="text-sm font-medium text-ink-700">Add photos (up to 3)</label>
+          <input id="chat-photos" ref={picker} type="file" name="pictures" multiple
+                 accept="image/jpeg,image/png,image/heic,image/webp" aria-describedby="chat-photos-hint"
                  onChange={(e) => setChosen(e.target.files?.length ?? 0)}
                  className="mt-1 block text-sm" />
-          <span className="mt-1 block text-xs text-ink-500">
+          <span id="chat-photos-hint" className="mt-1 block text-xs text-ink-500">
             Photos only, 5 MB together. To send a PDF, use &quot;Send us a photo or a PDF&quot; on your account.
             {chosen > 3 ? " Choose 3 or fewer." : ""}
           </span>
-        </label>
+        </div>
         {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
         <button type="submit" disabled={pending}
                 className="inline-flex h-10 items-center rounded bg-ink-900 px-4 text-sm font-medium text-white disabled:opacity-60">

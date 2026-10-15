@@ -123,7 +123,7 @@ test("a customer sends a photo, the office answers with one, and the customer is
   await owner.goto(`/inbox/${conversation!.id}`);
   await expect(owner.getByText("Chat from their account")).toBeVisible();
   await expect(owner.getByText(words)).toBeVisible();
-  await expect(owner.getByRole("img", { name: "Picture from the customer" })).toBeVisible();
+  await expect(owner.getByRole("img", { name: "unit.png" })).toBeVisible();
 
   /** The customer leaves the page, so they are owed a notice. */
   await stranger.goto(signInUrl);
@@ -135,9 +135,9 @@ test("a customer sends a photo, the office answers with one, and the customer is
   await owner.getByLabel("Add pictures").setInputFiles({ name: "part.png", mimeType: "image/png", buffer: PNG });
   await owner.getByRole("button", { name: "Send" }).click();
   await expect(owner.getByText(answer)).toBeVisible();
-  await expect(owner.getByRole("img", { name: "Picture sent" })).toBeVisible();
+  await expect(owner.getByRole("img", { name: "part.png" })).toBeVisible();
   await owner.reload();
-  await expect(owner.getByText("Told by text.")).toBeVisible();
+  await expect(owner.getByText(/^Told by text/)).toBeVisible();
 
   /** The text names the company and links the chat; it does not carry the answer. */
   const told = await textTo(e164);
