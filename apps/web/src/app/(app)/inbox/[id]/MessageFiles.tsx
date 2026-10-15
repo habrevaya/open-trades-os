@@ -11,6 +11,8 @@
  * TEXT, the only form it is kept in. React writes it as text, so a tag in it
  * is shown as the characters it is and never becomes markup.
  */
+import { customerPortal } from "@opentradesos/core";
+
 export interface MessageFile {
   contentType: string;
   storageKey?: string | undefined;
@@ -39,7 +41,7 @@ export function MessageFiles({
   return (
     <>
       {media.map((item, i) => {
-        if (item.storageKey && item.contentType.startsWith("image/")) {
+        if (item.storageKey && customerPortal.CHAT_PICTURES.shownInPage.includes(item.contentType)) {
           return (
             <a key={i} href={href(item)} target="_blank" rel="noreferrer" className="mt-2 block">
               <img src={href(item)} alt={item.name ?? (outbound ? "Picture sent" : "Picture from the customer")}
@@ -53,7 +55,7 @@ export function MessageFiles({
               <a href={`${href(item)}?download=1`} className="underline underline-offset-4">
                 Download {item.name ?? "the file"}
               </a>
-              <span className="text-xs opacity-75">{item.contentType === "application/pdf" ? " (PDF" : " ("}{size(item.bytes)})</span>
+              <span className="text-xs opacity-75">{item.contentType === "application/pdf" ? " (PDF" : " (photo"}{size(item.bytes)})</span>
             </p>
           );
         }

@@ -18,7 +18,7 @@ const brand = { backgroundColor: "var(--brand, #111827)", color: "var(--brand-on
  * a double tap on a phone with one bar sends one code rather than two, the
  * second of which would kill the first while the customer is reading it.
  */
-export function SignInForm({ slug, organizationName }: { slug: string; organizationName: string }) {
+export function SignInForm({ slug, organizationName, next }: { slug: string; organizationName: string; next?: string | undefined }) {
   const [address, setAddress] = useState("");
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"address" | "code" | "choose">("address");
@@ -55,7 +55,7 @@ export function SignInForm({ slug, organizationName }: { slug: string; organizat
     setBusy(true);
     setError(null);
     // Signing in redirects; anything that comes back is a refusal or a choice.
-    handle(await checkCode(slug, address, code, customerId));
+    handle(await checkCode(slug, address, code, customerId, next));
     setBusy(false);
   };
 

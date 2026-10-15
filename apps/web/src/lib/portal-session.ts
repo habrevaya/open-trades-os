@@ -58,11 +58,26 @@ export async function currentPortalSession(slug: string) {
   return { ...session, token };
 }
 
-/** The signed in customer, or the sign in page. */
-export async function requirePortalSession(slug: string) {
+/**
+ * The signed in customer, or the sign in page.
+ *
+ * `comingBack` is where they were headed, for the one page a link in a message
+ * points at (the chat, from the notice that the office answered): the sign in
+ * page takes them there instead of to their account. A name from a short list,
+ * never an address, so nothing a link carries can send a customer elsewhere.
+ */
+export async function requirePortalSession(slug: string, comingBack?: PortalDestination) {
   const session = await currentPortalSession(slug);
-  if (!session) redirect(path(slug));
+  if (!session) redirect(comingBack ? `${path(slug)}?next=${comingBack}` : path(slug));
   return session;
+}
+
+/** Where a sign in may send a customer other than their account. */
+export type PortalDestination = "chat";
+
+/** The page a sign in lands on: the account, or the one place a link asked for. */
+export function destinationPath(slug: string, next: unknown): string {
+  return next === "chat" ? `${path(slug)}/account/chat` : `${path(slug)}/account`;
 }
 
 /** Where a request came from, for the counters and the record of who signed in from where. */

@@ -18,12 +18,27 @@ export async function readChat(slug: string): Promise<ChatView> {
   return portalChat.read(getDb(), { token: session.token });
 }
 
-export async function sendChat(slug: string, text: string, key: string): Promise<{ ok: true; chat: ChatView } | { ok: false; message: string }> {
+/**
+ * One message: the words, any pictures (the bytes only, the service decides
+ * what they are), and the key that makes a double tap one message. The pictures
+ * arrive as files of the form, so nothing is encoded in the browser.
+ */
+export async function sendChat(slug: string, form: FormData): Promise<{ ok: true; chat: ChatView } | { ok: false; message: string }> {
   const session = await requirePortalSession(slug);
+  const text = String(form.get("text") ?? "").slice(0, 2000);
+  const key = String(form.get("key") ?? "").slice(0, 100);
+  const pictures = await Promise.all(form.getAll("pictures")
+    .filter((value): value is File => value instanceof File && value.size > 0)
+    .slice(0, 4)
+    .map(async (file) => ({
+      fileName: file.name || "photo",
+      contentType: file.type || "application/octet-stream",
+      bytes: Buffer.from(await file.arrayBuffer()).toString("base64"),
+    })));
   try {
-    const chat = await portalChat.say(getDb(), { token: session.token, text: text.slice(0, 2000) }, {
-      ...(await requestMeta()), idempotencyKey: key.slice(0, 100),
-    });
+    const chat = await portalChat.say(getDb(), {
+      token: session.token, text, ...(pictures.length > 0 ? { pictures } : {}),
+    }, { ...(await requestMeta()), idempotencyKey: key });
     return { ok: true, chat };
   } catch (error) {
     if (error instanceof Error && error.name === "TooManyRequestsError") {

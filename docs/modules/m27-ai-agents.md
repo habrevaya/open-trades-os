@@ -440,7 +440,8 @@ day. The chat widget is reached through the website snippet or its own script ta
 and a visitor who leaves before a person replies sees the reply only when they come
 back to the site in the same browser. In the customer portal the assistant answers
 only where the company ticked it for accounts, and once a person has a customer's
-account chat it never answers in it again. The
+account chat it never answers in it again, and it never answers a message with a picture in it,
+which goes to a person because the assistant cannot see it. The
 estimate drafter does not look at the photographs themselves, only their captions, and
 offers at most three hundred price book items to the model. Reminder emails keep the
 invoice's own subject line. The agents' prompts are in English only.

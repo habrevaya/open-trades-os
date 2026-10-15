@@ -280,9 +280,17 @@ export interface PortalSettings {
    * company should choose to live with rather than discover.
    */
   bankAccounts: boolean;
+  /**
+   * Whether a customer is told, by email or text, that the office has answered
+   * their chat from their account. ON unless somebody turns it off: a reply
+   * nobody is told about sits unread until the customer happens to come back,
+   * which is the gap this closes. Anything stored that is not exactly `false`
+   * reads as on, the one setting here where a hand edited blob reads as on.
+   */
+  chatReplyNotice: boolean;
 }
 
-/** The portal's settings out of the company's settings blob, defaulting to everything off. */
+/** The portal's settings out of the company's settings blob, defaulting to everything off but the chat reply notice. */
 export function readPortalSettings(stored: unknown): PortalSettings {
   const blob = stored && typeof stored === "object" ? stored as Record<string, unknown> : {};
   const photos = blob["jobPhotos"];
@@ -290,11 +298,13 @@ export function readPortalSettings(stored: unknown): PortalSettings {
     tipping: readTipSettings(blob["tipping"]),
     jobPhotos: photos === "all" ? "all" : "chosen",
     bankAccounts: blob["bankAccounts"] === true,
+    chatReplyNotice: blob["chatReplyNotice"] !== false,
   };
 }
 
 /* ------------------------------------------------- blocks and capacity */
 
 export * from "./blocks.js";
+export * from "./chat.js";
 export * from "./capacity.js";
 export * from "./card-on-file.js";

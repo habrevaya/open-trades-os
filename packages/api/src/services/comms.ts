@@ -17,6 +17,7 @@ import { conversationScopeFilter, customerScopeFilter } from "./scope";
 import { sendability, sendTransactional, refusal } from "./comms-send";
 import * as email from "./email";
 import * as files from "./files";
+import { tellOfReply } from "./portal-chat-notice";
 
 /**
  * THE INBOX
@@ -173,8 +174,19 @@ export async function thread(ctx: ServiceContext, input: { id: string }) {
      */
     const decision = await replyDecision(tx, conversation);
 
+    /**
+     * What happened when the customer was told the office had answered, on a
+     * chat from their account (`portal-chat-notice.ts`). Null on every other
+     * thread, and on an account chat nobody has answered yet.
+     */
+    const [chat] = conversation.internalAddress === "portal"
+      ? await tx.select({ customerNotice: schema.aiChatSession.customerNotice }).from(schema.aiChatSession)
+        .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1)
+      : [];
+
     return {
       conversation,
+      customerNotice: chat?.customerNotice ?? null,
       customer: customer ? clean(ctx, "customer", customer) : null,
       messages: messages.map((m) => clean(ctx, "message", m)),
       canReply: decision.allowed,
@@ -332,20 +344,31 @@ export async function reply(ctx: ServiceContext, input: { id: string; body: stri
 }
 
 /**
- * A person answering a website chat, from the inbox.
+ * A person answering a chat, from the inbox: a website visitor's, or a
+ * customer's from their account.
  *
  * The visitor's open chat reads the conversation, so the reply is written as
  * sent: there is no carrier between the inbox and the widget, and no consent
  * question either, because the visitor opened the chat and is waiting in it.
  * Answering takes the chat over from the automated assistant.
+ *
+ * A CUSTOMER'S ACCOUNT CHAT differs in two ways. It takes pictures (checked by
+ * the bytes and held to what a picture message may be, and kept as stored
+ * files like a picture sent by text), where the website's takes words only
+ * because its widget has nowhere to show one. And the customer is told, once
+ * until they read it, that the office answered (`portal-chat-notice.ts`).
  */
 async function replyInChat(
   tx: Database, ctx: ServiceContext, conversation: typeof schema.conversation.$inferSelect,
   body: string, pictures: readonly Picture[],
 ) {
-  if (pictures.length > 0) throw new ConflictError("A website chat takes words only. Send the picture by text or email instead.");
+  const fromAccount = conversation.internalAddress === "portal";
+  if (pictures.length > 0 && !fromAccount) {
+    throw new ConflictError("A website chat takes words only. Send the picture by text or email instead.");
+  }
   const decision = await replyDecision(tx, conversation);
   if (!decision.allowed) throw new ConflictError(decision.explanation);
+  const media = await keepChatPictures(tx, ctx, pictures);
   await takeOverChat(tx, conversation.id);
   const [message] = await tx.insert(schema.message).values({
     organizationId: conversation.organizationId,
@@ -354,17 +377,55 @@ async function replyInChat(
     channel: "webchat",
     purpose: "transactional",
     /** A chat from a customer's account is answered from the account, the website's from the website. */
-    fromAddress: conversation.internalAddress === "portal" ? "portal" : "website",
+    fromAddress: fromAccount ? "portal" : "website",
     toAddress: conversation.externalAddress,
     body,
+    media,
     status: "sent",
     sentByUserId: ctx.actor.userId,
   }).returning();
+  for (const picture of media) {
+    await files.attach(tx, ctx.actor.organizationId, {
+      entityType: "message", entityId: message!.id, storageKey: picture.storageKey,
+      contentType: picture.contentType, sizeBytes: picture.bytes, uploadedByUserId: ctx.actor.userId,
+    });
+  }
   await tx.update(schema.conversation).set({
-    lastMessageAt: new Date(), lastMessagePreview: body.slice(0, 200), status: "open", updatedAt: new Date(),
+    lastMessageAt: new Date(), lastMessagePreview: (body || "Picture").slice(0, 200), status: "open", updatedAt: new Date(),
   }).where(eq(schema.conversation.id, conversation.id));
   await rememberSend(tx, ctx, message!.id);
+  if (fromAccount) await tellOfReply(tx, ctx, conversation);
   return clean(ctx, "message", message!);
+}
+
+/**
+ * The pictures of a reply in a customer's account chat, kept as stored files.
+ *
+ * Checked before anything is kept, by what the bytes are and never by what the
+ * file claimed: a picture the page can draw (JPEG, PNG or GIF), up to three,
+ * five megabytes together, the same limits a picture text has. There is no
+ * carrier to fetch them, so no address is made for one; the customer's page
+ * reads them from the chat itself.
+ */
+async function keepChatPictures(tx: Database, ctx: ServiceContext, pictures: readonly Picture[]) {
+  const sniffed = pictures.map((picture) => ({ picture, verdict: f.checkFile(picture.bytes) }));
+  for (const { verdict } of sniffed) if (!verdict.ok) throw new ConflictError(verdict.reason);
+  const checked = c.checkPictures(sniffed.map(({ picture, verdict }) => ({
+    contentType: verdict.ok ? verdict.contentType : "", sizeBytes: picture.bytes.length,
+  })));
+  if (!checked.ok) throw new ConflictError(checked.reason);
+  const kept: { url: string; contentType: string; bytes: number; storageKey: string; name?: string }[] = [];
+  for (const { picture, verdict } of sniffed) {
+    const { file } = await files.put(tx, ctx.actor.organizationId, {
+      bytes: picture.bytes, uploadedByUserId: ctx.actor.userId,
+    });
+    const name = picture.fileName?.trim().replace(/[\\/]/g, "");
+    kept.push({
+      url: "", contentType: file.contentType, bytes: file.sizeBytes, storageKey: file.storageKey,
+      ...(name ? { name: f.downloadName(name, verdict.ok ? verdict.extension : "jpg") } : {}),
+    });
+  }
+  return kept;
 }
 
 /**
@@ -656,6 +717,7 @@ export const handlers = {
           })),
         };
       }),
+      customerNotice: found.customerNotice,
       canReply: found.canReply,
       blockedReason: found.blockedReason ?? null,
       blockedExplanation: found.blockedExplanation ?? null,

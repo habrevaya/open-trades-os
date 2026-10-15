@@ -1,6 +1,6 @@
 import { work } from "@opentradesos/core";
 import { getDb } from "@/lib/db";
-import { portalAccount, referrals, savedCards } from "@opentradesos/api/services";
+import { portalAccount, portalChat, referrals, savedCards } from "@opentradesos/api/services";
 import { requirePortalSession } from "@/lib/portal-session";
 import { PortalBrand } from "../../../PortalBrand";
 import { PayInvoice } from "../../../PayInvoice";
@@ -62,10 +62,11 @@ export default async function SignedInAccountPage({
       }));
   }
 
-  const [account, cards, referral] = await Promise.all([
+  const [account, cards, referral, chat] = await Promise.all([
     portalAccount.viewAccount(db, { token }),
     savedCards.list(db, { token }),
     referrals.forPortal(db, { token }).catch(() => null),
+    portalChat.unreadReplies(db, { token }).catch(() => ({ unread: 0 })),
   ]);
   const returned = typeof query["redirect_status"] === "string" && !setupId ? query["redirect_status"] : null;
   const asked = query["asked"] === "1";
@@ -99,7 +100,13 @@ export default async function SignedInAccountPage({
             )}
             <a href={`${base}/account/chat`} className="mt-2 inline-block text-sm text-blue-600 underline underline-offset-4">
               Chat with us
+              {chat.unread > 0 ? ` (${chat.unread === 1 ? "1 new answer" : `${chat.unread} new answers`})` : ""}
             </a>
+            {chat.unread > 0 && (
+              <p role="status" className="mt-2 rounded-md border border-steel-200 bg-canvas p-3 text-sm text-ink-700">
+                {account.organizationName} answered your message. <a href={`${base}/account/chat`} className="underline underline-offset-4">Read it</a>
+              </p>
+            )}
             <form action={signOut.bind(null, slug)} className="mt-2">
               <button type="submit" className="text-sm text-ink-700 underline underline-offset-4">
                 Sign out

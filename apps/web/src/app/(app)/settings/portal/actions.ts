@@ -41,3 +41,12 @@ export async function saveBankPayments(_previous: FormState, form: FormData): Pr
     return { message: "Saved." };
   });
 }
+
+/** Telling a customer their chat was answered, on or off. On until somebody turns it off. */
+export async function saveChatReplyNotice(_previous: FormState, form: FormData): Promise<FormState> {
+  return attempt(form, async () => {
+    await portalSettings.set(await ctx(), { chatReplyNotice: form.get("chatReplyNotice") === "on" });
+    revalidatePath("/settings/portal");
+    return { message: "Saved." };
+  });
+}

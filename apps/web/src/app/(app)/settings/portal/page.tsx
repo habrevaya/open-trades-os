@@ -4,7 +4,7 @@ import { portalSettings } from "@opentradesos/api/services";
 import { can, assertCan } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
-import { saveBankPayments, saveJobPhotos, saveTipping } from "./actions";
+import { saveBankPayments, saveChatReplyNotice, saveJobPhotos, saveTipping } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +112,27 @@ export default async function PortalSettingsPage() {
           </ActionForm>
         ) : (
           <p className="mt-3 text-sm">{settings.bankAccounts ? "On." : "Off."}</p>
+        )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-base font-semibold">Chat answers</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          A signed in customer can chat with you from their account, and you answer in the inbox. When this is on, a
+          customer you answer is told by email or text, whichever they prefer, with a link to their chat. They are told
+          once, and not again until they have read it. The message never says what you wrote. A text is not sent in your
+          quiet hours, and never to a number that replied STOP; the email goes instead when there is one. Their account
+          page also shows when an answer is waiting. Turn this off if you would rather they came back on their own.
+        </p>
+        {writes ? (
+          <ActionForm action={saveChatReplyNotice} submit="Save chat answers" className="mt-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="chatReplyNotice" defaultChecked={settings.chatReplyNotice} />
+              Tell a customer when we answer their chat
+            </label>
+          </ActionForm>
+        ) : (
+          <p className="mt-3 text-sm">{settings.chatReplyNotice ? "On." : "Off."}</p>
         )}
       </section>
 

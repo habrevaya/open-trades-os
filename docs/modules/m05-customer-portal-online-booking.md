@@ -511,6 +511,52 @@ when the conversation goes from read to unread, so it is noticed once rather tha
 once a message. Twelve messages a minute and sixty an hour per customer.
 `GET /v1/portal/chat` and `POST /v1/portal/chat/messages`, from a sign in only.
 
+**Pictures.** A customer adds up to three photos to a message (**Add photos**
+on the chat page, or `pictures` on `POST /v1/portal/chat/messages`), with words
+or alone. They are held to the rules a file added to a job is held to: a photo
+(JPEG, PNG, HEIC or WebP) by its bytes, never a program by name, claimed type or
+bytes, five megabytes in all in a message, a day's total of 25 MB, and the
+same twenty an hour, counted before anything is looked at, that a file added to a
+job counts against. Any picture refused refuses the whole message and nothing is
+written. A message with a picture always goes to a person, with the task and the
+unread mark, because the assistant cannot see a picture and does not answer one.
+The office sees the picture in the thread (the inbox's own picture route), and
+answers with pictures of its own from the same reply box (JPEG, PNG or GIF,
+three at most and five megabytes together, the same as a picture text). A website
+chat still takes words only. The customer's page draws a picture a browser can
+draw (HEIC is kept and offered as **Open the photo**), served at
+`/portal/{slug}/account/chat/pictures/{message}/{position}` from the sign in
+cookie and `GET /v1/portal/chat/pictures/{messageId}/{index}`: asked for by message
+and position, never by the file's storage key, and only for a message in the
+customer's own conversation, so another customer's, a position with nothing kept
+and a made up id are the same not found.
+
+**Telling the customer the office answered.** When somebody in the office
+answers a chat from a customer's account, the customer is told by email or text
+(the way their main contact prefers, text first when that is "text", the other as
+the fallback) with a link to `/portal/{slug}/account/chat`. The message names
+the company and carries none of the answer. It goes through the gates every
+message goes through: a text through the consent decision and the STOP list and
+never inside the company's quiet hours (the email goes instead when there is one),
+an email through the company's email connection. A contact who signed in as
+themselves is told at their own address or number and never the customer's. It is
+sent once until the customer has read it: opening the chat page, or writing in
+it, marks it read (`ai_chat_session.customer_read_at`), and nobody is told again
+until that is later than the last notice. A customer who had the chat open in
+the last half minute is not told, because the page asks every five seconds and
+already shows them. What happened is written on the chat ("Told by text.", "Told
+by email (Not texted: they replied STOP...)", or why nobody could be told) and
+shown above the thread in the inbox and as `customerNotice` on
+`GET /v1/conversations/{id}`. It is never an error for the person replying: the
+reply is sent whatever happens to the notice. A customer who taps the link without being signed
+in goes to the sign in page (`/portal/{slug}?next=chat`) and, once in, to the chat
+itself; nothing but that one name is read from the address. The customer's account page marks
+what is waiting: **Chat with us (1 new answer)** and a line saying the company
+answered, from `GET /v1/portal/chat/unread` (asking does not mark anything read).
+The notice is on for every company until somebody turns it off at **Chat
+answers** on `/settings/portal` (`chatReplyNotice` on `PATCH /v1/portal-settings`,
+`settings:write`).
+
 ### Readings in a narrow band
 
 A reading is drawn from zero unless the trade says otherwise. A trade pack can
@@ -792,8 +838,10 @@ in from, and which codes failed, are the office's business.
 | `GET /v1/portal/files` | nothing: a sign in only |
 | `POST /v1/portal/files` | nothing: a sign in only, counted per customer |
 | `POST /v1/portal/files/{id}/remove` | nothing: a sign in only |
-| `GET /v1/portal/chat` | nothing: a sign in only |
+| `GET /v1/portal/chat` | nothing: a sign in only (asking marks the chat read) |
 | `POST /v1/portal/chat/messages` | nothing: a sign in only, counted per customer |
+| `GET /v1/portal/chat/unread` | nothing: a sign in only |
+| `GET /v1/portal/chat/pictures/{messageId}/{index}` | nothing: a sign in only, a message in the customer's own chat |
 | `POST /v1/attachments/{id}/seen` | `document:read` |
 | `GET /v1/portal-sign-ins` | `portal:read` |
 | `GET /v1/customers/{id}/portal-sessions` | `portal:read` |
@@ -877,10 +925,19 @@ of the day, so a route that starts later is counted as starting then; a
 crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,
 and nothing puts it on the board until somebody does. The chat from the account
-takes words only, not photos (those go through "Send us a photo or a PDF"); a
-reply from the office is seen only on the open chat page, with no text, email
-or mark on the account page to say one came; the customer cannot close or clear
-a chat; and the automated assistant, once a person has answered, does not take
-the conversation back. Agreeing to cancel a
+takes photos (not PDFs, which go through "Send us a photo or a PDF"), and the
+customer cannot close or clear a chat or take a picture back; the automated
+assistant, once a person has answered, does not take the conversation back, and
+never answers a message with a picture. The notice that the office answered is
+sent once and not retried on its own: when it cannot go (a number that replied
+STOP and no email address, the company's quiet hours and no email address, no
+email or mobile number on the record, or no email connection), the reason is on
+the chat in the inbox, nothing is sent later, and the next answer tries again;
+the mark on the account page is the only other sign. The notice does not carry
+the answer, only a link. The mark is a count, not the answers; a
+customer of a company that turned the notice off sees the mark and is told
+nothing. It is the customer's main contact's preference that decides text or
+email, not a choice the customer makes about chat alone.
+Agreeing to cancel a
 job's only visit cancels the visit and leaves the job as it was; whether the
 work is off altogether is the office's decision on the job.
