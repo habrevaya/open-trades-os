@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty two of the forty seven are answered: twenty eight computed here, four
-by M22's fleet report. The other fifteen each name what they still lack.
+Thirty three of the forty seven are answered: twenty nine computed here, four
+by M22's fleet report. The other fourteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -90,7 +90,7 @@ but not the city's visits to it; the pest pack's template already asks why no
 product was applied, so record completeness lacked only the list of fields a
 report was required to capture when it was written (a report keeps it now, below); the electrical pack
 declares a panel's rating, open spaces and known concern, but the register
-holds no value to that declaration; a job could be put on hold, but nothing said
+held no value to that declaration (it does now, below); a job could be put on hold, but nothing said
 it was waiting on a part (it can now, below); and the phone's positions are kept three days by
 design, so a month's route miles are gone before a month's figure could read
 them.
@@ -285,6 +285,34 @@ again in SQL, and `kpi-record-completeness.integration.test.ts` checks a month
 worked out by hand, puts the same visits through both, and checks that a
 report's list is frozen when the phone writes it and does not move when the
 template is edited.
+
+### Panel upgrade pipeline, and the typed details it waited on
+
+The electrical pack's **panel upgrade pipeline** is "total value of declined
+panel and service upgrade recommendations on panels recorded as full, flagged
+as a known concern, or rated below 100 amps, counting only properties still on
+the customer list". The pack declares those three on a service panel with their
+kinds, and the register stored whatever it was sent under the keys, so "100A"
+or "yes" could not be read. The register now holds a unit's details to the
+declaration (M04), and the figure reads only values held to it.
+
+- A recommendation is a finding recorded against the panel itself, declined in
+  the window, with a quoted value, on a live unit whose kind is the pack's
+  service panel (by code or name).
+- **Full** is no open spaces (a number, nought or below); **a known concern** is
+  yes; **below 100 amps** is a rating from the pack's own list under 100.
+- **Still on the customer list** is a customer, not merged away, whose link to
+  the address has not ended.
+- Like the replacement pipeline it is a total, over the recommendations
+  counted, which the second half lists.
+- A panel carrying one of the three as words from before the register checked
+  them, and nothing that qualifies it, is **counted beside** the figure as not
+  known and never in it.
+
+The rule is core's `reporting.panelQualifies` (and `field.typedAttributes` for
+the register), with unit tests, written again in SQL over the typed values, and
+`kpi-panel-pipeline.integration.test.ts` checks a month worked out by hand, puts
+the same panels through both, and fails if the pack stops declaring the panel.
 
 ### The four that waited on a coded cancellation reason
 
@@ -763,11 +791,11 @@ prefix off.
 
 ## What is not built
 
-Fifteen of the forty seven declared KPIs cannot be computed, and each one
+Fourteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the fifteen has its datum yet (above, "The
+since they were written and none of the fourteen has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
 
 First time fix leaves out a part hold only when it names a purchase order in
@@ -795,7 +823,13 @@ their required list as not known, so a company's first months after this change
 read "Not this window" or a figure over only the new reports; nothing guesses
 the old list from the template's version, because the template keeps only its
 current fields. Which fields a regulator asks for is the trade pack's, and the
-"no product applied" exclusion is read from the pest pack's own field key. The records
+"no product applied" exclusion is read from the pest pack's own field key.
+
+The panel upgrade pipeline counts a recommendation recorded against the panel
+itself, whatever it recommends: a finding has no field saying it is an upgrade
+rather than a repair, and one on a breaker under the panel is not counted. A
+panel whose details were typed before the register checked them is counted
+beside, not in, until somebody corrects it on the unit's page. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

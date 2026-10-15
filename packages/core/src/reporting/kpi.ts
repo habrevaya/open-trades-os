@@ -34,6 +34,10 @@ import { dateIn } from "../time/index.js";
  *   report was required to capture, captured, judged against the list frozen
  *   on the report when it was written.
  *
+ *   A PANEL WORTH UPGRADING. Recorded as full, flagged as a known problem, or
+ *   rated below 100 amps, read only from values held to the pack's
+ *   declaration.
+ *
  *   A JOB'S HOURS AGAINST ITS BUDGET. Crew hours less the hours of change
  *   orders the customer approved, against the hours budgeted, counted only
  *   over jobs whose hours are all in.
@@ -448,4 +452,34 @@ export function recordCompletenessOf(visit: { reports: readonly RecordReport[] }
   if (judged.length === 0) return "unknown";
   return judged.some((r) => r.required!.filter((f) => f.regulated).every((f) => r.captured.includes(f.key)))
     ? "complete" : "incomplete";
+}
+
+/* ----------------------------------------------------- panel upgrade pipeline */
+
+/**
+ * Whether a panel is one the electrical pack's panel upgrade pipeline counts:
+ * "recorded as full, flagged as a known concern, or rated below 100 amps".
+ *
+ * Read only from values held to the declaration (`field.typedAttributes`):
+ * open spaces a number, the concern a yes or no, the rating one of the pack's
+ * options. Full is no open spaces. A panel none of whose readable values
+ * qualifies, carrying one of the three as something else (words typed before
+ * the register checked them), is `unknown`: its recommendation is counted
+ * beside the figure and never in it, because "100A" read as no rating would
+ * leave it out and read as a rating would be a guess.
+ */
+export function panelQualifies(
+  attributes: Readonly<Record<string, unknown>>,
+  ratings: readonly string[],
+): "in" | "out" | "unknown" {
+  const amps = attributes["service_amps"];
+  const open = attributes["spaces_open"];
+  const concern = attributes["known_concern"];
+  if (concern === true) return "in";
+  if (typeof open === "number" && open <= 0) return "in";
+  if (typeof amps === "string" && ratings.includes(amps) && Number(amps) < 100) return "in";
+  const untyped = (amps !== undefined && amps !== null && !(typeof amps === "string" && ratings.includes(amps)))
+    || (open !== undefined && open !== null && typeof open !== "number")
+    || (concern !== undefined && concern !== null && typeof concern !== "boolean");
+  return untyped ? "unknown" : "out";
 }

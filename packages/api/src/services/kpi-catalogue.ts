@@ -1,12 +1,13 @@
 import { sql, type SQL } from "drizzle-orm";
 import { reporting, type Permission } from "@opentradesos/core";
+import { packById } from "@opentradesos/trade-packs";
 import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty eight of the forty seven are computed here, four are
- * M22's, and the fifteen that are not each name what they still lack.)
+ * (They are read now. Twenty nine of the forty seven are computed here, four are
+ * M22's, and the fourteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -831,6 +832,69 @@ const applicationRecords = (pick: "numerator" | "denominator" | "excluded" | "un
       unknown: `not ${NO_PRODUCT} and ${ANY_REPORT} and not ${ANY_JUDGED}`,
     }[pick])}
 `;
+
+/**
+ * THE PANEL THE ELECTRICAL PACK DECLARES, read from the pack rather than typed
+ * again here: the service panel's code and name (the register's category is
+ * either, in any case) and the ratings its `service_amps` may hold.
+ * `kpi-panel-pipeline.integration.test.ts` fails if the pack stops declaring
+ * them.
+ */
+const SERVICE_PANEL = packById("electrical")?.equipmentCategories.find((c) => c.code === "service-panel");
+export const PANEL_CATEGORIES = SERVICE_PANEL ? [SERVICE_PANEL.code.toLowerCase(), SERVICE_PANEL.name.toLowerCase()] : [];
+export const PANEL_RATINGS: string[] = [
+  ...(SERVICE_PANEL?.attributes.find((a) => a.key === "service_amps")?.options ?? []),
+];
+
+/**
+ * Declared recommendations on a live service panel at a property still on the
+ * customer list, declined in the window with a quoted value, which the panel
+ * either qualifies for (`in`) or cannot be read for (`unknown`). Core's
+ * `reporting.panelQualifies`, written again in SQL over the typed values only:
+ * a number is a jsonb number, a yes is a jsonb true, a rating one of the
+ * pack's options.
+ */
+const panelRecommendations = (value: string, pick: "in" | "unknown"): Records => (from, to) => {
+  const amps = sql`(jsonb_typeof(e.attributes->'service_amps') = 'string' and e.attributes->>'service_amps' = any(${sql.param(PANEL_RATINGS)}::text[]))`;
+  /**
+   * Never null: a detail that is missing is not a reason, and a null here
+   * would drop the row from both sides of a `not`. A cast happens only inside
+   * a `case` that has checked the value is a number, because Postgres does not
+   * promise to read an `and` left to right, and "100A" cast to a number fails
+   * the whole query rather than the one row.
+   */
+  const qualifies = sql`(
+    coalesce(e.attributes->'known_concern' = 'true'::jsonb, false)
+    or (case when jsonb_typeof(e.attributes->'spaces_open') = 'number'
+             then (e.attributes->>'spaces_open')::numeric <= 0 else false end)
+    or coalesce(jsonb_typeof(e.attributes->'service_amps') = 'string'
+                and e.attributes->>'service_amps' = any(${sql.param(PANEL_RATINGS.filter((r) => Number(r) < 100))}::text[]), false)
+  )`;
+  const untyped = sql`(
+    coalesce(jsonb_typeof(e.attributes->'service_amps') <> 'null' and not ${amps}, false)
+    or coalesce(jsonb_typeof(e.attributes->'spaces_open') not in ('number', 'null'), false)
+    or coalesce(jsonb_typeof(e.attributes->'known_concern') not in ('boolean', 'null'), false)
+  )`;
+  return sql`
+    select 'deficiency'::text as kind, d.id::text as id,
+           concat(coalesce(e.tag || ' ', ''), e.category, ': ', d.description) as label,
+           d.declined_on::text as on_day,
+           (${sql.raw(value)})::numeric as value,
+           '/equipment/' || e.id as href
+    from public.deficiency d
+    join public.equipment e on e.id = d.equipment_id
+    where d.deleted_at is null and d.declined_on is not null
+      and d.declined_on >= ${from}::date and d.declined_on <= ${to}::date
+      and d.quoted_amount is not null
+      and e.deleted_at is null and e.active = true
+      and lower(btrim(e.category)) = any(${sql.param(PANEL_CATEGORIES)}::text[])
+      and exists (
+        select 1 from public.customer_property cp join public.customer c on c.id = cp.customer_id
+        where cp.property_id = e.property_id and cp.ended_on is null and c.deleted_at is null
+      )
+      and ${pick === "in" ? qualifies : sql`not ${qualifies} and ${untyped}`}
+  `;
+};
 
 /* ------------------------------------------------------------- the entries */
 
@@ -1708,20 +1772,35 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   panel_pipeline: {
-    state: "needs",
+    state: "computed",
     format: "money",
-    needs:
-      "Typed panel attributes. The declined value is computable from "
-      + "`deficiency.quoted_amount` and `declined_on`, but the definition narrows "
-      + "it to panels 'recorded as full, flagged as a known concern, or rated "
-      + "below 100 amps', and all three live in untyped `equipment.attributes`. "
-      + "Published without the narrowing it would be the value of every declined "
-      + "recommendation, which is a different and much larger number. The "
-      + "electrical pack declares those three on a service panel "
-      + "(`service_amps`, `spaces_open`, `known_concern`, with their kinds), but "
-      + "the register stores whatever it is sent under those keys and holds no "
-      + "value to the declaration, so a '100A' or a 'yes' would be read as no "
-      + "rating and no concern.",
+    measure: {
+      /**
+       * "Total value of declined panel and service upgrade recommendations on
+       * panels recorded as full, flagged as a known concern, or rated below 100
+       * amps, counting only properties still on the customer list."
+       *
+       * WHAT IT NEEDED, and what changed: typed panel attributes. The pack
+       * declares a service panel's rating (one of its options), open spaces (a
+       * number) and known concern (yes or no), and the register now holds a
+       * unit's details to that declaration (`field.typedAttributes`): the
+       * office and the API are refused a value that is not its kind, and the
+       * phone's is stored typed when it can be. A recommendation is one
+       * recorded against the panel itself, declined, with a quoted value.
+       *
+       * Full is no open spaces. "Still on the customer list" is a customer,
+       * not merged away, whose link to the address has not ended. Like the
+       * replacement pipeline it is a total over the recommendations counted,
+       * declined in the window. A panel carrying one of the three as words
+       * from before the register checked them, and nothing that qualifies it,
+       * is counted beside the figure as not known and never in it.
+       */
+      numerator: { label: "value of declined recommendations on full, problem or under 100 amp panels", records: panelRecommendations("d.quoted_amount", "in") },
+      denominator: { label: "declined recommendations counted", records: panelRecommendations("1", "in") },
+      besides: {
+        unknown: { label: "declined recommendations on panels whose details were never checked, left out", records: panelRecommendations("1", "unknown") },
+      },
+    },
   },
 
   replace_pipeline: {

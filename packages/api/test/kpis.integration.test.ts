@@ -287,6 +287,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "maint_attach",
       "not_out_rate",
       "oneoff_to_recurring",
+      "panel_pipeline",
       "program_attach",
       "programme_renewal",
       "reapplication_rate",
@@ -331,9 +332,10 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * crew hours it was budgeted and a change order the hours it adds, and
      * `supply_cost_pct` thirty one when a supply could be marked billed back,
      * and `record_completeness` thirty two when a report kept the list of
-     * fields it was required to capture.
+     * fields it was required to capture. `panel_pipeline` made thirty three
+     * when the register held a panel's details to what the pack declares.
      */
-    expect(computed.length + elsewhere.length).toBe(32);
+    expect(computed.length + elsewhere.length).toBe(33);
     expect(KEYS.length).toBe(47);
   });
 });

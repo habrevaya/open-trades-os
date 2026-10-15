@@ -119,6 +119,15 @@ export default async function EquipmentPage({
     }
   }
   const unshownDetails = keptAsTheyAre(unit.attributes as Record<string, unknown>);
+  /**
+   * The details this trade reads for this kind of unit (a panel's rating, open
+   * spaces and known concern), and any it holds that are not their kind: words
+   * typed before the register checked them, which nothing reads until fixed.
+   */
+  const declared = await equipment.declaredFor(ctx, { category: unit.category, attributes: unit.attributes as Record<string, unknown> });
+  const kindWords = (a: { kind: string; options?: readonly string[] | undefined }) =>
+    a.kind === "select" ? `one of ${(a.options ?? []).join(", ")}` : a.kind === "numeric" ? "a number"
+      : a.kind === "boolean" ? "yes or no" : a.kind === "date" ? "a date" : "words";
 
   const name = [unit.tag, unit.manufacturer, unit.model].filter(Boolean).join(" ") || unit.category;
   const days = unit.warranty.daysUntilSoonest;
@@ -170,6 +179,11 @@ export default async function EquipmentPage({
           <Fact key={key} label={enumText(key)}>{String(value)}</Fact>
         ))}
       </Facts>
+      {declared.problems.length > 0 ? (
+        <p role="note" className="mt-3 rounded border border-amber-700 bg-amber-tint px-3 py-2 text-sm text-amber-700">
+          Not read until it is fixed: {declared.problems.map((p) => p.message).join(" ")}
+        </p>
+      ) : null}
 
 
       {canEdit ? (
@@ -199,6 +213,13 @@ export default async function EquipmentPage({
                 <TextArea label="Other details, one a line" name="attributes" rows={4} maxLength={6000}
                           defaultValue={attributeLines(unit.attributes as Record<string, unknown>)}
                           placeholder={"Refrigerant: R-410A\nFilter size: 16x25x1"} />
+                {declared.declared.length > 0 ? (
+                  <p className="mt-1 text-xs text-ink-700">
+                    For this kind of unit your trade reads:{" "}
+                    {declared.declared.map((a) => `${a.label} (${kindWords(a)})`).join("; ")}. Write the name or the label,
+                    and a value that is not the right kind is refused.
+                  </p>
+                ) : null}
                 <p className="mt-1 text-xs text-ink-500">
                   Write each as a name, a colon and a value. A line you take out is taken off.
                   {unshownDetails > 0

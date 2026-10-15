@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { field, time } from "@opentradesos/core";
+import { packById } from "@opentradesos/trade-packs";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, UnprocessableError, timezoneOf, type ServiceContext, type ExternalRef, scopeOf,
 } from "./context";
@@ -167,6 +168,57 @@ export function describeMatches(serial: string, matches: SerialMatch[]): string 
     + "really is a different unit with the same serial, confirm that and add it.";
 }
 
+/**
+ * WHAT THE COMPANY'S TRADE DECLARES A KIND OF UNIT CARRIES: the attributes of
+ * the pack's equipment category whose code or name the unit's category is, in
+ * any case. Nothing for a company with no trade, or a category the pack does
+ * not declare, whose details are kept as they are sent.
+ */
+export async function declaredAttributes(
+  tx: Database, organizationId: string, category: string,
+): Promise<field.DeclaredAttribute[]> {
+  const [org] = await tx.select({ primaryTrade: schema.organization.primaryTrade }).from(schema.organization)
+    .where(eq(schema.organization.id, organizationId)).limit(1);
+  const pack = org?.primaryTrade ? packById(org.primaryTrade) : undefined;
+  const wanted = category.trim().toLowerCase();
+  const declared = pack?.equipmentCategories
+    .find((c) => c.code.toLowerCase() === wanted || c.name.toLowerCase() === wanted);
+  return (declared?.attributes ?? []).map((a) => ({ key: a.key, label: a.label, kind: a.kind, options: a.options }));
+}
+
+/**
+ * What the company's trade declares for a kind of unit, for a screen to say,
+ * and which of a unit's details do not hold to it.
+ */
+export function declaredFor(ctx: ServiceContext, input: { category: string; attributes?: Record<string, unknown> | undefined }) {
+  return guardedRead(ctx, "equipment:read", async (tx) => {
+    const declared = await declaredAttributes(tx, ctx.actor.organizationId, input.category);
+    return {
+      declared,
+      problems: declared.length > 0 && input.attributes ? field.typedAttributes(declared, input.attributes).problems : [],
+    };
+  });
+}
+
+/**
+ * A unit's details held to what its trade declares (`field.typedAttributes`):
+ * a declared detail stored as its kind under its key. From the office or the
+ * API a value that cannot be read as its kind is REFUSED, naming each one,
+ * because the person typing it can fix it now; the phone keeps it as sent
+ * (see `services/field.ts`).
+ */
+export async function typedOrRefused(
+  tx: Database, organizationId: string, category: string, values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const declared = await declaredAttributes(tx, organizationId, category);
+  if (declared.length === 0) return values;
+  const typed = field.typedAttributes(declared, values);
+  if (typed.problems.length > 0) {
+    throw new ConflictError(typed.problems.map((p) => p.message).join(" "));
+  }
+  return typed.attributes;
+}
+
 export interface EquipmentInput {
   propertyId: string;
   category: string;
@@ -272,7 +324,7 @@ export async function register(
       warrantyPartsExpiresOn: input.warrantyPartsExpiresOn ?? null,
       warrantyLaborExpiresOn: input.warrantyLaborExpiresOn ?? null,
       location: input.location?.trim() || null,
-      attributes: input.attributes ?? {},
+      attributes: await typedOrRefused(tx, ctx.actor.organizationId, category, input.attributes ?? {}),
       customFields: input.customFields ?? {},
       ...provenance(input.externalRef),
     }).returning();
@@ -367,6 +419,17 @@ export async function update(
       if (twin) throw new ConflictError(`Serial ${serial} is already on file at this property.`);
     }
 
+    /**
+     * Details sent, or a new kind of unit, are held to what the trade declares
+     * for it. An edit that sends neither leaves the details alone, so a unit
+     * holding words typed before the register checked them can still have its
+     * serial corrected.
+     */
+    const category = input.category?.trim() || before.category;
+    const attributes = input.attributes !== undefined || category !== before.category
+      ? await typedOrRefused(tx, ctx.actor.organizationId, category, input.attributes ?? before.attributes)
+      : before.attributes;
+
     const [after] = await tx.update(schema.equipment).set({
       tag: input.tag !== undefined ? (input.tag?.trim() || null) : before.tag,
       category: input.category?.trim() || before.category,
@@ -383,7 +446,7 @@ export async function update(
       location: input.location !== undefined ? (input.location?.trim() || null) : before.location,
       parentEquipmentId: input.parentEquipmentId !== undefined
         ? input.parentEquipmentId : before.parentEquipmentId,
-      attributes: input.attributes ?? before.attributes,
+      attributes,
       updatedAt: new Date(),
     }).where(eq(schema.equipment.id, input.id)).returning();
 

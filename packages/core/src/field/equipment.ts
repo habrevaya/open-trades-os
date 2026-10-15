@@ -56,3 +56,103 @@ export function decideSerial(input: {
   if (input.matches.length > 0 && !input.confirmedDifferent) return { action: "ask", matches: [...input.matches] };
   return { action: "add" };
 }
+
+/* ---------------------------------------------------- declared attributes */
+
+/** What a trade pack declares a kind of unit carries: a key, a label, a kind and, for a choice, its options. */
+export interface DeclaredAttribute {
+  key: string;
+  label: string;
+  kind: "text" | "numeric" | "select" | "date" | "boolean";
+  options?: readonly string[] | undefined;
+}
+
+export interface AttributeProblem {
+  key: string;
+  label: string;
+  /** What is wrong, in words an office reads: "Open spaces is a number. "four" is not one." */
+  message: string;
+}
+
+/**
+ * A UNIT'S DETAILS, HELD TO WHAT ITS TRADE DECLARES.
+ *
+ * The electrical pack declares that a service panel carries its rating, its
+ * open spaces and whether it is a known problem panel, each with a kind; the
+ * register stored whatever it was sent under those keys, so "100A", "four" and
+ * "yes" sat there as words and a figure reading them could not tell a rating
+ * from a typo. Each detail that names a declared attribute, by its key or its
+ * label in any case, is stored under the key as its kind: a number as a
+ * number, yes or no as true or false, a choice as the option it matches, a
+ * date as a date. A detail the trade does not declare is kept as it was.
+ *
+ * A value that cannot be read as its kind is a PROBLEM, named, and left as it
+ * was sent: the office is refused with the problem in words, and the phone,
+ * whose record of what is in the box must not be thrown away in a basement,
+ * keeps the words, which nothing that reads the declared attribute will read.
+ */
+export function typedAttributes(
+  declared: readonly DeclaredAttribute[],
+  values: Readonly<Record<string, unknown>>,
+): { attributes: Record<string, unknown>; problems: AttributeProblem[] } {
+  const byName = new Map<string, DeclaredAttribute>();
+  for (const attribute of declared) {
+    byName.set(attribute.key.toLowerCase(), attribute);
+    byName.set(attribute.label.toLowerCase(), attribute);
+  }
+  const attributes: Record<string, unknown> = {};
+  const problems: AttributeProblem[] = [];
+  for (const [name, value] of Object.entries(values)) {
+    const attribute = byName.get(name.trim().toLowerCase());
+    if (!attribute) {
+      attributes[name] = value;
+      continue;
+    }
+    if (value === null || value === undefined || value === "") continue;
+    const typed = typedValue(attribute, value);
+    if (typed.ok) {
+      attributes[attribute.key] = typed.value;
+    } else {
+      attributes[attribute.key] = value;
+      problems.push({ key: attribute.key, label: attribute.label, message: typed.message });
+    }
+  }
+  return { attributes, problems };
+}
+
+const YES = ["yes", "y", "true"];
+const NO = ["no", "n", "false"];
+
+function typedValue(attribute: DeclaredAttribute, value: unknown):
+  { ok: true; value: unknown } | { ok: false; message: string } {
+  const said = typeof value === "string" ? value.trim() : value;
+  const words = typeof said === "string" ? `"${said}"` : String(said);
+  switch (attribute.kind) {
+    case "numeric": {
+      const n = typeof said === "number" ? said : typeof said === "string" && /^-?\d+(\.\d+)?$/.test(said) ? Number(said) : NaN;
+      return Number.isFinite(n) ? { ok: true, value: n }
+        : { ok: false, message: `${attribute.label} is a number. ${words} is not one.` };
+    }
+    case "boolean": {
+      if (typeof said === "boolean") return { ok: true, value: said };
+      const lower = typeof said === "string" ? said.toLowerCase() : "";
+      if (YES.includes(lower)) return { ok: true, value: true };
+      if (NO.includes(lower)) return { ok: true, value: false };
+      return { ok: false, message: `${attribute.label} is yes or no. ${words} is neither.` };
+    }
+    case "select": {
+      const options = attribute.options ?? [];
+      const match = options.find((o) => o.toLowerCase() === String(said).toLowerCase());
+      return match !== undefined ? { ok: true, value: match }
+        : { ok: false, message: `${attribute.label} is one of ${options.join(", ")}. ${words} is not one of them.` };
+    }
+    case "date":
+      return typeof said === "string" && /^\d{4}-\d{2}-\d{2}$/.test(said) && !Number.isNaN(Date.parse(`${said}T00:00:00Z`))
+        ? { ok: true, value: said }
+        : { ok: false, message: `${attribute.label} is a date, like 2026-06-15. ${words} is not one.` };
+    case "text":
+      return typeof said === "string" || typeof said === "number" || typeof said === "boolean"
+        ? { ok: true, value: String(said) }
+        : { ok: false, message: `${attribute.label} is words.` };
+  }
+}

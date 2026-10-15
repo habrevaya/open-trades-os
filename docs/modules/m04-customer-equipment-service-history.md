@@ -85,6 +85,21 @@ same serial" adds it anyway, for the makers whose short serials repeat.
 wants to ask before it adds; `POST /v1/equipment` refuses a match elsewhere
 until `serialElsewhereConfirmed` is sent.
 
+**A unit's details are held to what the company's trade declares** for its
+kind. A trade pack declares what a kind of unit carries (a condenser's tonnage
+and SEER2, a service panel's rating, open spaces and whether it is a known
+problem panel), each with a kind: a number, yes or no, one of a list, a date, or
+words. A unit whose category is one of the pack's kinds, by its code or its name
+in any case, has each detail that names a declared one (by its key or its
+label) stored under the key as its kind: "0" open spaces as the number 0, "Yes"
+as true, "100" as the rating 100. A value that cannot be read as its kind is
+refused from the office and the API (`POST /v1/equipment`,
+`PATCH /v1/equipment/{id}`) naming each one ("Open spaces is a number. "four"
+is not one."); a detail the trade does not declare is kept as it is sent. The
+unit's page says which details the trade reads for that kind, and a detail
+typed before the register checked them is shown as not read until fixed. The
+panel upgrade pipeline (M21) reads only details held to their kind.
+
 ### Record a unit from the field app
 
 The phone's visit screen has "Equipment here": what it is, make, model,
@@ -97,7 +112,11 @@ the field conflicts list with the units it matches named, and the phone says
 it was held, because only a person can say whether it is the same furnace
 moved here; anything else is added. A phone can send
 `serialElsewhereConfirmed` with the record when the technician knows it is a
-different unit with the same plate.
+different unit with the same plate. A unit the phone adds has its declared
+details stored as their kinds where they can be read as them; one that cannot is
+kept as the phone sent it rather than refused, because the technician's record
+of what is in the box must not be thrown away in a basement, and nothing that
+reads the declared detail reads it.
 
 ### Move a unit
 
@@ -270,6 +289,13 @@ conflicts list with the match named, not added, until somebody records a
 move or adds it. A serial with no letters or digits in it matches nothing,
 and two units with no serial at all are never matched, which is the cost of
 a register without serials.
+
+Details stored before the register held them to the trade's declaration are
+left as they were: nothing rewrites them, and the unit's page says which are
+not read until somebody corrects them. An edit that changes neither the
+details nor the kind of unit does not ask for them to be fixed. A unit the
+phone updates (the same serial at the same address) keeps its details; only one
+it adds has them held to the declaration.
 
 The warranty call is a recommended automation that is off until somebody turns
 it on, like every recommended automation but the estimate follow up, and it only
