@@ -1,6 +1,6 @@
 import {
-  type Money, add, subtract, multiply, divide, round, zero, allocate,
-  isNegative, isZero, compare, toString as moneyToString,
+  type Money, add, subtract, multiply, divide, round, zero, allocate, sum, max,
+  isNegative, isPositive, isZero, compare, format, toString as moneyToString,
 } from "../money/index.js";
 import {
   dateIn, dayBoundsIn, daysFrom, nextDay, startOfDayIn, instantOfLocal, wallTimeExists,
@@ -1094,6 +1094,99 @@ export interface CommissionPlan {
   /** Required for a flat basis. */
   flatAmount?: Money | undefined;
   note: string;
+  /**
+   * How an item's own commission rate and this plan combine on a line priced
+   * from that item. The company's choice, not the plan's, but it is part of
+   * the instruction a commission is computed under, so it travels with the
+   * plan into core and is frozen onto the earning beside the plan's rate.
+   * Absent is `plan_only`, which is what every commission was before.
+   */
+  itemRule?: ItemRateRule | undefined;
+}
+
+/* ------------------------------------------------ an item's own rate */
+
+/**
+ * WHICH COMMISSION APPLIES ON A LINE, WHEN THE ITEM HAS A RATE OF ITS OWN.
+ *
+ * A price book item can carry its own commission rate (M06): eight per cent
+ * on a water heater, say, because the company wants them sold. Whether that
+ * rate replaces the plan, tops it up or competes with it is a pay decision,
+ * and the product owner's answer was that the company makes it, once, for
+ * everybody. Four choices, each one a sentence an owner can say to a
+ * technician in a truck, and no more than that.
+ *
+ * `plan_only` is the default, so nothing changes for anybody until the
+ * company chooses: the item's rate is kept on the item and pays nothing.
+ */
+export const ITEM_RATE_RULES = ["plan_only", "item_wins", "higher", "item_adds"] as const;
+export type ItemRateRule = (typeof ITEM_RATE_RULES)[number];
+
+export const ITEM_RATE_RULE: Record<ItemRateRule, { label: string; meaning: string; lead: string }> = {
+  plan_only: {
+    label: "The plan only",
+    meaning: "Everybody is paid by the plan. An item's own rate is kept on the item and does not change anybody's pay.",
+    lead: "The company pays the plan only.",
+  },
+  item_wins: {
+    label: "The item's rate, where it has one",
+    meaning: "A line for an item with its own rate pays that rate instead of the plan. Every other line pays the plan.",
+    lead: "The company pays an item's own rate on its line instead of the plan.",
+  },
+  higher: {
+    label: "Whichever pays more",
+    meaning: "A line for an item with its own rate pays the item's rate or the plan, whichever comes to more. Every other line pays the plan.",
+    lead: "The company pays an item's own rate or the plan on its line, whichever comes to more.",
+  },
+  item_adds: {
+    label: "The item's rate on top of the plan",
+    meaning: "The plan is paid as usual, and a line for an item with its own rate pays that rate as well.",
+    lead: "The company pays an item's own rate on its line on top of the plan.",
+  },
+};
+
+/**
+ * The company's choice as stored in its settings, read so that anything
+ * that is not one of the four (a hand edited blob, a choice since removed)
+ * reads as the plan only, which pays exactly what was paid before there was
+ * a choice.
+ */
+export function readItemRateRule(value: unknown): ItemRateRule {
+  const rule = value && typeof value === "object" ? (value as Record<string, unknown>)["itemRule"] : undefined;
+  return typeof rule === "string" && (ITEM_RATE_RULES as readonly string[]).includes(rule)
+    ? rule as ItemRateRule
+    : "plan_only";
+}
+
+/** One line of the invoice a commission is earned on. */
+export interface CommissionLine {
+  lineId: string;
+  /** The line's name, which is what the explanation calls it. */
+  label: string;
+  /** What the line charged, net of its own discount and before tax. */
+  net: Money;
+  /**
+   * The rate on the price book VERSION the line was priced from, never
+   * today's version: a rate raised next spring must not reprice a water
+   * heater sold this winter. Null for a line not priced from an item, and for
+   * an item with no rate of its own.
+   */
+  itemRate: string | null;
+}
+
+/** What one line paid, and why. */
+export interface CommissionLineResult {
+  lineId: string;
+  label: string;
+  net: Money;
+  itemRate: string | null;
+  /** The plan's part of this line: the plan's rate on it, or its share of a whole-invoice plan by what it charged. */
+  planPart: Money;
+  /** The item's rate on the line, or null when the item has none. */
+  itemPart: Money | null;
+  paid: Money;
+  /** Which produced what the line paid. */
+  source: "plan" | "item" | "plan_and_item";
 }
 
 export interface CommissionShare {
@@ -1114,6 +1207,11 @@ export interface CommissionEvent {
   /** Cash received against the invoice, for a collected basis. */
   collected?: Money | undefined;
   shares: CommissionShare[];
+  /**
+   * The invoice's lines, with the rate each one's item carried. Read only
+   * when the plan's `itemRule` is something other than the plan only.
+   */
+  lines?: CommissionLine[] | undefined;
 }
 
 export interface CommissionPart {
@@ -1123,7 +1221,11 @@ export interface CommissionPart {
 }
 
 export type CommissionVerdict =
-  | { ok: true; total: Money; parts: CommissionPart[]; explanation: string }
+  | {
+    ok: true; total: Money; parts: CommissionPart[]; explanation: string;
+    /** The rule it was worked out under, and what each line paid when the rule read the lines. */
+    rule?: ItemRateRule | undefined; lines?: CommissionLineResult[] | undefined;
+  }
   | { ok: false; reason: string };
 
 function commissionBase(plan: CommissionPlan, event: CommissionEvent):
@@ -1187,8 +1289,11 @@ export function computeCommission(plan: CommissionPlan, event: CommissionEvent):
     return { ok: false, reason: `Job ${event.jobId} has a commission but nobody to pay it to.` };
   }
 
+  const rule = plan.itemRule ?? "plan_only";
   const spec = COMMISSION_BASIS[plan.basis];
   let total: Money;
+  /** The plan's figure before it was made payable, which is what a line's share of it is taken from. */
+  let exact: Money;
   let explanation: string;
 
   if (spec.needs === "flat") {
@@ -1199,6 +1304,7 @@ export function computeCommission(plan: CommissionPlan, event: CommissionEvent):
     // the parts are allocated out of a PAYABLE whole, and a total that is not
     // payable cannot equal the sum of parts that are.
     total = round(plan.flatAmount, 2);
+    exact = total;
     explanation = `${moneyToString(total)} flat for job ${event.jobId}.`;
   } else {
     if (!plan.rate) {
@@ -1213,18 +1319,29 @@ export function computeCommission(plan: CommissionPlan, event: CommissionEvent):
      * an explicit event below with its own audit trail.
      */
     if (isNegative(base.base)) {
+      const nothing = zero(event.revenue.currency);
+      /**
+       * The plan pays nothing on a job that lost money, and an item's own
+       * rate still pays on its line under every choice but the plan only:
+       * the item's rate is a share of what the line charged, which the
+       * job's loss does not change.
+       */
+      const priced = linesUnderRule(plan, event, nothing, nothing, true);
+      if (priced.kind === "lines") return settleLines(event, rule, priced);
+      const note = priced.note ? ` ${priced.note}` : "";
       return {
         ok: true,
-        total: zero(event.revenue.currency),
+        total: nothing,
         parts: event.shares.map((share) => ({
           personId: share.personId,
-          amount: zero(event.revenue.currency),
-          explanation: `Job ${event.jobId} had a negative ${spec.label.toLowerCase()}, so it earned no commission. It was not turned into a deduction from the rest of the period.`,
+          amount: nothing,
+          explanation: `Job ${event.jobId} had a negative ${spec.label.toLowerCase()}, so it earned no commission. It was not turned into a deduction from the rest of the period.${note}`,
         })),
-        explanation: `Job ${event.jobId} lost money, so there is no commission on it.`,
+        explanation: `Job ${event.jobId} lost money, so there is no commission on it.${note}`,
+        rule,
       };
     }
-    const exact = multiply(base.base, plan.rate);
+    exact = multiply(base.base, plan.rate);
     /**
      * Rounded to the cent HERE, before it is split, and deliberately not at
      * full scale the way an invoice line is held.
@@ -1244,6 +1361,10 @@ export function computeCommission(plan: CommissionPlan, event: CommissionEvent):
       : `${plan.rate} of ${base.describe} is ${moneyToString(exact)}, which is ${moneyToString(total)} to the cent.`;
   }
 
+  const priced = linesUnderRule(plan, event, exact, total, false);
+  if (priced.kind === "lines") return settleLines(event, rule, priced);
+  if (priced.note) explanation = `${explanation} ${priced.note}`;
+
   const parts = splitCommission(total, event.shares);
   return {
     ok: true,
@@ -1253,7 +1374,140 @@ export function computeCommission(plan: CommissionPlan, event: CommissionEvent):
       explanation: `${explanation} ${part.explanation}`,
     })),
     explanation,
+    rule,
   };
+}
+
+type LinesUnderRule =
+  | { kind: "unchanged"; note: string | null }
+  | { kind: "lines"; exact: Money; explanation: string; lines: CommissionLineResult[] };
+
+/**
+ * THE COMPANY'S CHOICE, APPLIED LINE BY LINE.
+ *
+ * The plan is worked out on the whole invoice first, exactly as it always
+ * was. Then each line priced from an item with its own rate is looked at:
+ * the item's part is that rate on what the line charged, and the plan's part
+ * of the line is the plan's rate on it (a percentage of revenue) or, for a
+ * plan that is not a rate on what each line charged (a margin, a flat amount,
+ * a share of what was collected), the line's share of the plan's figure by
+ * what it charged. The line then pays what the rule says, and the invoice's
+ * commission is the plan's figure with each such line's difference made.
+ *
+ * Worked from the plan's figure plus the differences, rather than by adding
+ * up every line, so that a line with no item rate pays the plan exactly and
+ * no rounding of a share can move a cent on it.
+ *
+ * Unchanged, with a sentence saying so, when the rule is the plan only, when
+ * no line has an item rate, or when the invoice charged nothing overall and
+ * so has nothing to share the plan over.
+ */
+function linesUnderRule(
+  plan: CommissionPlan, event: CommissionEvent, planExact: Money, planTotal: Money, lost: boolean,
+): LinesUnderRule {
+  const rule = plan.itemRule ?? "plan_only";
+  if (rule === "plan_only") return { kind: "unchanged", note: null };
+  const lines = event.lines ?? [];
+  if (!lines.some((line) => line.itemRate !== null)) {
+    return { kind: "unchanged", note: "No line on this invoice is for an item with its own rate, so the plan decides it." };
+  }
+  const currency = event.revenue.currency;
+  const charged = sum(lines.map((line) => line.net), currency);
+  if (!isPositive(charged)) {
+    return { kind: "unchanged", note: "This invoice charged nothing overall, so the items' own rates pay nothing on it and the plan decides it." };
+  }
+
+  /** A plain percentage of revenue is a rate on each line; anything else is shared by what each line charged. */
+  const perLine = plan.basis === "percent_of_revenue" && plan.rate !== undefined;
+  const planPartOf = (line: CommissionLine): Money => perLine
+    ? multiply(line.net, plan.rate!)
+    : divide(multiply(planExact, moneyToString(line.net)), moneyToString(charged));
+
+  let exact = planExact;
+  const said: string[] = [];
+  const results: CommissionLineResult[] = lines.map((line) => {
+    const planPart = planPartOf(line);
+    if (line.itemRate === null) {
+      return { ...line, planPart, itemPart: null, paid: planPart, source: "plan" as const };
+    }
+    const itemPart = multiply(line.net, line.itemRate);
+    const rate = `${percentWords(line.itemRate)} of ${dollars(line.net)} is ${dollars(itemPart)}`;
+    let paid: Money;
+    let source: CommissionLineResult["source"];
+    switch (rule) {
+      case "item_wins":
+        paid = itemPart; source = "item";
+        said.push(`${line.label}: ${rate}, paid instead of the plan's ${dollars(planPart)}.`);
+        break;
+      case "higher": {
+        const order = compare(itemPart, planPart);
+        paid = max(itemPart, planPart);
+        source = order > 0 ? "item" : "plan";
+        said.push(order > 0
+          ? `${line.label}: ${rate}, more than the plan's ${dollars(planPart)}, so the item's rate is paid.`
+          : order < 0
+            ? `${line.label}: ${rate}, less than the plan's ${dollars(planPart)}, so the plan is paid.`
+            : `${line.label}: ${rate}, the same as the plan's ${dollars(planPart)}.`);
+        break;
+      }
+      case "item_adds":
+        paid = add(planPart, itemPart); source = "plan_and_item";
+        said.push(`${line.label}: ${rate}, paid on top of the plan.`);
+        break;
+    }
+    exact = add(exact, subtract(paid, planPart));
+    return { ...line, planPart, itemPart, paid, source };
+  });
+
+  const planSays = lost
+    ? "The job lost money, so the plan pays nothing on it."
+    : perLine
+      ? `The plan pays ${percentWords(plan.rate!)} of what each line charged, ${dollars(planTotal)} on the whole invoice.`
+      : `The plan pays ${dollars(planTotal)} on the whole invoice, shared over its lines by what each one charged.`;
+  return {
+    kind: "lines",
+    exact,
+    lines: results,
+    explanation: [ITEM_RATE_RULE[rule].lead, planSays, ...said].join(" "),
+  };
+}
+
+/** A commission worked out line by line, made payable and split. */
+function settleLines(
+  event: CommissionEvent, rule: ItemRateRule,
+  priced: { exact: Money; explanation: string; lines: CommissionLineResult[] },
+): CommissionVerdict {
+  /**
+   * Below nothing is nothing, for the reason a job that lost money earns
+   * nothing: a negative here would be a deduction from the rest of the
+   * period's commission that nobody decided on.
+   */
+  const below = isNegative(priced.exact);
+  const total = below ? zero(event.revenue.currency) : round(priced.exact, 2);
+  const explanation = below
+    ? `${priced.explanation} The lines come to less than nothing, so the commission is zero. It is not taken off anything else.`
+    : `${priced.explanation} Commission: ${dollars(total)}.`;
+  return {
+    ok: true,
+    total,
+    parts: splitCommission(total, event.shares).map((part) => ({ ...part, explanation: `${explanation} ${part.explanation}` })),
+    explanation,
+    rule,
+    lines: priced.lines,
+  };
+}
+
+/** Dollars and cents, for a sentence somebody reads. Never fed back into arithmetic. */
+const dollars = (amount: Money): string => format(amount);
+
+/** "0.085000" as "8.5%", exactly, without a float. */
+export function percentWords(rate: string): string {
+  const negative = rate.trim().startsWith("-");
+  const [whole = "0", fraction = ""] = rate.trim().replace("-", "").split(".");
+  const padded = fraction.padEnd(2, "0");
+  const units = (BigInt(whole || "0") * 100n + BigInt(padded.slice(0, 2))).toString();
+  const rest = padded.slice(2).replace(/0+$/, "");
+  return `${negative ? "-" : ""}${units}${rest ? `.${rest}` : ""}%`;
 }
 
 /**
@@ -1427,6 +1681,22 @@ export function clawbackFor(
       : {}),
     ...(original.collected
       ? { collected: subtract(original.collected, credit.creditedRevenue) }
+      : {}),
+    /**
+     * A credit names an amount, not the lines it came off, so it is taken off
+     * every line in proportion to what each charged. Under the plan only the
+     * lines are not read and this changes nothing; under a choice that reads
+     * them, the item's rate comes back off its line at the same proportion
+     * as the plan's does off the rest.
+     */
+    ...(original.lines && isPositive(original.revenue)
+      ? { lines: original.lines.map((line) => ({
+          ...line,
+          net: divide(
+            multiply(line.net, moneyToString(subtract(original.revenue, credit.creditedRevenue))),
+            moneyToString(original.revenue),
+          ),
+        })) }
       : {}),
   };
 
