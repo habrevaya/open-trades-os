@@ -62,12 +62,12 @@ test("a visit dragged onto a crew whose person's time is kept for members is ref
     };
     /** Inside the morning window whether the day is on daylight time or not. */
     const morning = new Date(`${DAY}T15:00:00Z`);
-    for (let i = 1; i <= 3; i += 1) await visitFor(`Crew Early Stranger ${i} ${run}`, `+1512555031${i}`, morning, [ray.id]);
+    for (let i = 1; i <= 3; i += 1) await visitFor(`Crew Early Stranger ${i} ${run}`, `+1512555032${i}`, morning, [ray.id]);
     /** The crew's own afternoon job, so it has a lane on the board that day. */
-    const afternoon = await visitFor(`Crew Afternoon ${run}`, "+15125550314", new Date(`${DAY}T20:00:00Z`), []);
+    const afternoon = await visitFor(`Crew Afternoon ${run}`, "+15125550324", new Date(`${DAY}T20:00:00Z`), []);
     await api(owner, "post", `/v1/visits/${afternoon}/crew`, { crewId: crew.id });
     const name = `Crew Late Stranger ${run}`;
-    await visitFor(name, "+15125550315", morning, []);
+    await visitFor(name, "+15125550325", morning, []);
 
     await owner.setViewportSize({ width: 2400, height: 1000 });
     await owner.goto(`/schedule?date=${DAY}`);
