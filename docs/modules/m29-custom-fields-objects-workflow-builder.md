@@ -418,21 +418,30 @@ of the kind it points at; an invoice is carried in from the invoice's page.
 
 The search box at the top of the menu (`/search`, `GET /v1/search`) finds
 customers by name, email or phone; jobs by their number or by words in what the
-job is or in the customer's name; invoices by their number or the customer's
-name, and estimates by their number, their title or the customer's name;
-addresses by their street; units by the serial on their sticker or their make and
-model; and the company's own records by their name or any value. Every word typed
-has to be somewhere ("smith furnace" finds the Smiths' furnace job either way
-round), a number on its own is also a job's, an invoice's or an estimate's number,
-with or without its `#`, and a typed `%` or `_` is the character it is. The words
-are read once, in core (`search`), and each comparison is a trigram match a
-pg_trgm index answers.
+job is, its description, the customer's own words from when it was booked, any of
+its visits' notes (the technician's and what the office chose to show the
+customer) or the customer's name; invoices by their number, the customer's name,
+the memo, or what any line says (its name or its description); estimates by
+their number, their title, the customer's name, or what any option or any line
+says; addresses by their street; units by the serial on their sticker or their
+make and model; and the company's own records by their name or any value. Every
+word typed has to be somewhere, and each word may be in a different place
+("smith furnace" finds the Smiths' job when "furnace" is only in a technician's
+note on it, either way round). A number on its own is also a job's, an invoice's
+or an estimate's number, with or without its `#`, and a typed `%` or `_` is the
+character it is. The words are read once, in core (`search`), and each comparison
+is a trigram match a pg_trgm index answers, the notes, lines and options through
+an `exists` on the job, invoice or estimate being listed.
 
 Each part is read through its own list's service with the reader's own
 permission and scope, so it finds nothing the reader could not open from that
-list: a technician finds the work they were sent to, a branch manager their
+list, whatever words are typed and wherever they are written: a technician finds the work they were sent to, a branch manager their
 branch's, somebody without `invoice:read` sees no invoices, and a kind of record
-they may not read is not searched. Addresses and units have no narrowed list of
+they may not read is not searched. A note, a line or an option is only looked
+in for a job, invoice or estimate the list already shows the reader, and each of
+those is on that record's own page for anybody who may open it, so the box never
+shows somebody a word they could not already read; a word written only in another
+company's notes, or on a job the reader was not sent to, finds nothing. Addresses and units have no narrowed list of
 their own, so the box narrows them the way customers are narrowed, by the work at
 the address: at a restricted scope an address is found only when a job the reader
 can see is at it, and a unit only at such an address. An address or a unit in the
@@ -442,7 +451,9 @@ Five of each, and a group with more says "See all", which opens its own list
 filtered by the same words: `/customers?q=`, `/jobs?q=`, `/invoices?q=`,
 `/estimates?q=` and `/records/{type}?q=`, each with a search box of its own that
 reads words the same way (`q` on `GET /v1/customers`, `GET /v1/jobs`,
-`GET /v1/invoices` and `GET /v1/estimates`). Addresses and units have no list
+`GET /v1/invoices`, `GET /v1/estimates` and `GET /v1/custom-records`). A kind
+of record's list matches each word in the record's name or in one of its
+values, not in the keys the values are stored under. Addresses and units have no list
 screen, so theirs is the search page showing that group alone, at up to fifty
 (`/search?q=...&in=addresses`, `in` on the API).
 
@@ -707,9 +718,9 @@ another record's fields, its invoice, its person or the record it points at.
 
 The search box matches pieces of words, not meanings or misspellings: "furn"
 finds "Furnace" and "furnice" finds nothing, because there is no stemming and no
-fuzzy match. It does not look in a job's description or notes, an invoice's lines
-or memo, a visit, a person, a price book item or a message, and a kind of record's
-list still matches what was typed as one phrase rather than word by word.
+fuzzy match. It looks in a visit's notes only to find the visit's job, and does
+not list visits, people, price book items or messages. A customer's notes
+(M03) are not searched, nor is the text of an attached file.
 Addresses and units are narrowed by scope in the search box only: the address
 list (`GET /v1/properties`) and a unit's page read the whole company for anybody
 holding `property:read` or `equipment:read`, as they did before, and narrowing

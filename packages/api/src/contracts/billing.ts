@@ -233,7 +233,7 @@ export const listInvoices = defineRoute({
   module: "M13",
   permissions: ["invoice:read"],
   input: PageRequest.extend({
-    /** The invoice's number (`1042` or `#1042`), or words in the customer's name. */
+    /** The invoice's number (`1042` or `#1042`), or words in the customer's name, its memo or its lines' names and descriptions, every word somewhere. */
     q: z.string().max(200).optional(),
     status: z.array(InvoiceStatus).optional(),
     customerId: Uuid.optional(),

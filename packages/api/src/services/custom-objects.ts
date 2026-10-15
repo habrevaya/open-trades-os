@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, can, customObjects as rules, reporting, type Permission } from "@opentradesos/core";
 import {
@@ -10,6 +10,7 @@ import { definitionsWithin, enforceWithin, listFilter } from "./custom-fields";
 import { emit } from "./events";
 import { jobVisibility } from "./scope";
 import { remember, replayed } from "./once";
+import { textFilter } from "./text-search";
 
 /**
  * A COMPANY'S OWN KINDS OF RECORD
@@ -604,9 +605,9 @@ export interface ListRecordsInput {
 /**
  * One kind's records, newest first, searched and filtered.
  *
- * The search is the name and every value, ignoring case, because somebody
- * looking for "the permit for Elm Street" types the street, not the field it
- * is in.
+ * The search is the name and every value, word by word and ignoring case,
+ * because somebody looking for "the permit for Elm Street" types the street,
+ * not the field it is in.
  */
 export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) {
   gate(ctx, false);
@@ -614,8 +615,6 @@ export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) 
     const kind = await kindFor(tx, ctx, input.type, false);
     const byField = await listFilter(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key),
       input, sql`${schema.customObjectRecord.customFields}`);
-    const q = input.q?.trim();
-    const pattern = q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
     const cursor = decodeCursor(input.cursor);
 
@@ -624,10 +623,19 @@ export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) 
         eq(schema.customObjectRecord.objectTypeId, kind.id),
         isNull(schema.customObjectRecord.deletedAt),
         visibility(ctx),
-        pattern ? or(
-          ilike(schema.customObjectRecord.title, pattern),
-          sql`${schema.customObjectRecord.customFields}::text ilike ${pattern}`,
-        ) : undefined,
+        /**
+         * Word by word, as every other list reads `q` (`text-search.ts`):
+         * each word in the name or in one of the values. The values and not
+         * the stored document, which also holds every key, so "permit"
+         * used to find every record of a kind with a `permit_number` field.
+         */
+        textFilter(input.q, [
+          schema.customObjectRecord.title,
+          (pattern) => sql`exists (
+            select 1 from jsonb_each_text(${schema.customObjectRecord.customFields}) rv
+            where rv.value ilike ${pattern}
+          )`,
+        ]),
         byField,
         input.customerId ? eq(schema.customObjectRecord.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.customObjectRecord.propertyId, input.propertyId) : undefined,

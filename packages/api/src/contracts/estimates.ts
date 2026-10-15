@@ -215,7 +215,7 @@ export const listEstimates = defineRoute({
   module: "M07",
   permissions: ["estimate:read"],
   input: PageRequest.extend({
-    /** The estimate's number (`1042` or `#1042`), or words in the customer's name or its title. */
+    /** The estimate's number (`1042` or `#1042`), or words in the customer's name, its title, or its options' and lines' names and descriptions, every word somewhere. */
     q: z.string().max(200).optional(),
     status: z.array(EstimateStatus).optional(),
     customerId: Uuid.optional(),

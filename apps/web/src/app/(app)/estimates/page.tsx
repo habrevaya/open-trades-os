@@ -101,7 +101,7 @@ export default async function EstimatesPage({
         list: an estimate belongs to a branch through its job, and the unsold
         pipeline above is the company's follow up list.
       */}
-      <ListSearch action="/estimates" q={q} label="Search estimates" placeholder="An estimate number, its title, or the customer"
+      <ListSearch action="/estimates" q={q} label="Search estimates" placeholder="An estimate number, what it offers, or the customer"
                   keep={{ sort: params.sort, branch, ...fieldKeep }} />
       <BranchFilter options={options} action="/estimates" current={branch} keep={{ q, sort: params.sort, ...fieldKeep }} />
       <CustomFieldFilter action="/estimates" declared={declared} keep={{ q, sort: params.sort, branch }}

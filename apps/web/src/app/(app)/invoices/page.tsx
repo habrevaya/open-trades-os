@@ -67,7 +67,7 @@ export default async function InvoicesPage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
       <PageHeader title="Invoices" count={page.data.length} />
-      <ListSearch action="/invoices" q={q} label="Search invoices" placeholder="An invoice number or the customer"
+      <ListSearch action="/invoices" q={q} label="Search invoices" placeholder="An invoice number, what was charged, or the customer"
                   keep={{ branch, ...fieldKeep }} />
       <BranchFilter options={options} action="/invoices" current={branch} keep={{ q, ...fieldKeep }} />
       <CustomFieldFilter action="/invoices" declared={declared} keep={{ q, branch }} pairs={pairs}
