@@ -144681,6 +144681,35 @@
               "null"
             ]
           },
+          "requiredFields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "regulated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "kind",
+                "regulated"
+              ]
+            }
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -169932,6 +169961,9 @@
                 },
                 "required": {
                   "type": "boolean"
+                },
+                "regulated": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -170028,6 +170060,9 @@
                   "type": "number"
                 },
                 "required": {
+                  "type": "boolean"
+                },
+                "regulated": {
                   "type": "boolean"
                 }
               },
@@ -202372,6 +202407,35 @@
               "null"
             ]
           },
+          "requiredFields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "regulated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "kind",
+                "regulated"
+              ]
+            }
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -228996,6 +229060,9 @@
                       },
                       "required": {
                         "type": "boolean"
+                      },
+                      "regulated": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -242031,6 +242098,35 @@
               "number",
               "null"
             ]
+          },
+          "requiredFields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "regulated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "kind",
+                "regulated"
+              ]
+            }
           },
           "status": {
             "type": "string",
@@ -272648,6 +272744,35 @@
               "null"
             ]
           },
+          "requiredFields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "regulated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "kind",
+                "regulated"
+              ]
+            }
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -281638,6 +281763,9 @@
                 },
                 "required": {
                   "type": "boolean"
+                },
+                "regulated": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -281733,6 +281861,9 @@
                   "type": "number"
                 },
                 "required": {
+                  "type": "boolean"
+                },
+                "regulated": {
                   "type": "boolean"
                 }
               },

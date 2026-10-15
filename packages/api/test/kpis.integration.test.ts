@@ -291,6 +291,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "programme_renewal",
       "reapplication_rate",
       "reclean_rate",
+      "record_completeness",
       "recurring_retention",
       "referral_share",
       "renewal_rate",
@@ -328,9 +329,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * several visits and a hold could say it was waiting on a part order or an
      * inspection. `budget_hour_variance` made thirty when a job could carry the
      * crew hours it was budgeted and a change order the hours it adds, and
-     * `supply_cost_pct` thirty one when a supply could be marked billed back.
+     * `supply_cost_pct` thirty one when a supply could be marked billed back,
+     * and `record_completeness` thirty two when a report kept the list of
+     * fields it was required to capture.
      */
-    expect(computed.length + elsewhere.length).toBe(31);
+    expect(computed.length + elsewhere.length).toBe(32);
     expect(KEYS.length).toBe(47);
   });
 });

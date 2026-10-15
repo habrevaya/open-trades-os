@@ -78,6 +78,12 @@ export interface TemplateField {
   min?: number | undefined;
   max?: number | undefined;
   required?: boolean | undefined;
+  /**
+   * A regulator asks for it. Set by the trade pack, and kept through an edit:
+   * this list used to be rebuilt without it, so the first time the office
+   * changed a template every field stopped being regulated.
+   */
+  regulated?: boolean | undefined;
 }
 
 export interface TemplateView {
@@ -306,6 +312,7 @@ function checkFields(fields: TemplateField[]): TemplateField[] {
       ...(hasMin ? { min: field.min } : {}),
       ...(hasMax ? { max: field.max } : {}),
       ...(field.required ? { required: true } : {}),
+      ...(field.regulated ? { regulated: true } : {}),
     });
   }
 
@@ -366,6 +373,8 @@ export interface ReportView {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  /** What it was required to capture when it was written; null when written before that was kept. */
+  requiredFields: Array<{ key: string; label: string; kind: string; regulated: boolean }> | null;
   status: ReportStatus;
   summary: string | null;
   technicianNotes: string | null;
@@ -459,6 +468,7 @@ async function viewWithin(
       propertyId: row.propertyId,
       templateId: row.templateId,
       templateVersion: row.templateVersion,
+      requiredFields: row.requiredFields ?? null,
       status: statusOf(row),
       summary: row.summary,
       technicianNotes: customerFacing ? null : row.technicianNotes,

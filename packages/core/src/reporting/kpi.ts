@@ -30,6 +30,10 @@ import { dateIn } from "../time/index.js";
  *   billed, with the supplies billed back to the customer at cost taken out
  *   of both.
  *
+ *   AN APPLICATION RECORD'S COMPLETENESS. Every regulated field a visit's
+ *   report was required to capture, captured, judged against the list frozen
+ *   on the report when it was written.
+ *
  *   A JOB'S HOURS AGAINST ITS BUDGET. Crew hours less the hours of change
  *   orders the customer approved, against the hours budgeted, counted only
  *   over jobs whose hours are all in.
@@ -398,4 +402,50 @@ export function supplyCostOf(job: SupplyJob):
     supplyCost += line.quantity * line.unitCost;
   }
   return { counted: true, supplyCost, revenue: job.revenue - passedRevenue, passedThrough: passed };
+}
+
+/* ---------------------------------------- application record completeness */
+
+/**
+ * The field a pest control report says no product was applied in, and why.
+ * The pack's own key: a visit recorded with it "has its own required set" and
+ * the definition leaves it out.
+ */
+export const NO_PRODUCT_REASON = "no_product_reason";
+
+export interface RecordReport {
+  /** What it was required to capture, frozen when it was written; null when written before that was kept. */
+  required: ReadonlyArray<{ key: string; regulated: boolean }> | null;
+  /** The keys it captured a value for. */
+  captured: readonly string[];
+}
+
+/**
+ * What one completed visit counts as.
+ *
+ * "Completed visits where every regulated field required by the operator's
+ * configuration was captured, divided by completed visits. EXCLUDES visits
+ * recorded with a no product applied reason, which have their own required
+ * set."
+ *
+ *   `excluded`    a report on it gave a no product applied reason. Out of
+ *                 both halves and counted beside.
+ *   `incomplete`  no report at all (a completed visit with no application
+ *                 record is the most incomplete record there is), or a report
+ *                 missing a regulated field it was required to capture.
+ *   `complete`    a report on it captured every regulated field it was
+ *                 required to.
+ *   `unknown`     its reports were held to no regulated field: written before
+ *                 the list was kept, or the operator required none. Out of
+ *                 both halves and counted beside, rather than read as complete
+ *                 for having been asked nothing.
+ */
+export function recordCompletenessOf(visit: { reports: readonly RecordReport[] }):
+  "excluded" | "incomplete" | "complete" | "unknown" {
+  if (visit.reports.some((r) => r.captured.includes(NO_PRODUCT_REASON))) return "excluded";
+  if (visit.reports.length === 0) return "incomplete";
+  const judged = visit.reports.filter((r) => (r.required ?? []).some((f) => f.regulated));
+  if (judged.length === 0) return "unknown";
+  return judged.some((r) => r.required!.filter((f) => f.regulated).every((f) => r.captured.includes(f.key)))
+    ? "complete" : "incomplete";
 }

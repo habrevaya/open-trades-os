@@ -579,6 +579,12 @@ export interface AnnotateServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -5472,6 +5478,7 @@ export interface DefineServiceReportTemplateInput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
 }
 
@@ -5493,6 +5500,7 @@ export interface DefineServiceReportTemplateOutput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
 }
 
@@ -11702,6 +11710,12 @@ export interface GetServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -16745,6 +16759,7 @@ export interface ListServiceReportTemplatesOutput {
       min?: number;
       max?: number;
       required?: boolean;
+      regulated?: boolean;
     }>;
   }>;
 }
@@ -19324,6 +19339,12 @@ export interface PublishServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -25695,6 +25716,12 @@ export interface UnpublishServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -27347,6 +27374,7 @@ export interface UpdateServiceReportTemplateInput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
   active?: boolean;
 }
@@ -27369,6 +27397,7 @@ export interface UpdateServiceReportTemplateOutput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
 }
 

@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty one of the forty seven are answered: twenty seven computed here, four
-by M22's fleet report. The other sixteen each name what they still lack.
+Thirty two of the forty seven are answered: twenty eight computed here, four
+by M22's fleet report. The other fifteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -87,8 +87,8 @@ from something close to its datum instead. Where one of them comes near, the
 sentence now says how near: the company budget is money for a month and never
 hours for a job (a job now carries its own crew hour budget, below); a permit can be filed against a job as a compliance document,
 but not the city's visits to it; the pest pack's template already asks why no
-product was applied, so record completeness lacks only the list of fields a
-report was required to capture when it was written; the electrical pack
+product was applied, so record completeness lacked only the list of fields a
+report was required to capture when it was written (a report keeps it now, below); the electrical pack
 declares a panel's rating, open spaces and known concern, but the register
 holds no value to that declaration; a job could be put on hold, but nothing said
 it was waiting on a part (it can now, below); and the phone's positions are kept three days by
@@ -254,6 +254,37 @@ list with the permissions named. The rule is core's `reporting.supplyCostOf`,
 with unit tests, written again in SQL, and
 `kpi-supply-cost.integration.test.ts` checks a month worked out by hand and puts
 the same jobs through both.
+
+### Application record completeness, and the list it waited on
+
+Pest control's **application record completeness** is "completed visits where
+every regulated field required by the operator's configuration was captured,
+divided by completed visits", and it EXCLUDES "visits recorded with a no product
+applied reason, which have their own required set". The exclusion was always
+readable (the pack's template asks for `no_product_reason`); what a visit was
+required to capture was not, because a template keeps only its current fields.
+A report now keeps that list, frozen from its template when it is written (M11),
+and the operator sets what is required on Settings, Service reports.
+
+- A visit counts when it was done (completed, or completed on a phone that
+  missed its cancellation), on customer work.
+- **Complete**: a report on it captured every regulated field it was required
+  to. A field is captured when it holds a number, a yes or no, words that are not
+  only spaces, or one of a chemical application's regulated columns.
+- A completed visit with **no report at all** is not complete: it is the most
+  incomplete record there is.
+- A visit recorded with a no product applied reason is **left out** and counted
+  beside, as the definition says.
+- A visit whose reports were held to **no regulated field** (written before the
+  list was kept, or the operator required none) is left out of both halves and
+  counted beside as not known, rather than read as complete for having been
+  asked nothing.
+
+The rule is core's `reporting.recordCompletenessOf`, with unit tests, written
+again in SQL, and `kpi-record-completeness.integration.test.ts` checks a month
+worked out by hand, puts the same visits through both, and checks that a
+report's list is frozen when the phone writes it and does not move when the
+template is edited.
 
 ### The four that waited on a coded cancellation reason
 
@@ -732,11 +763,11 @@ prefix off.
 
 ## What is not built
 
-Sixteen of the forty seven declared KPIs cannot be computed, and each one
+Fifteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the sixteen has its datum yet (above, "The
+since they were written and none of the fifteen has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
 
 First time fix leaves out a part hold only when it names a purchase order in
@@ -757,7 +788,14 @@ The supply cost share counts what a supply cost on the job line, as job costing
 does; stock bought for a van and never put on a job is not a supply cost here,
 and neither is a receipt for supplies paid back to a cleaner (M17) unless it was
 put on the job as a line. A supply billed back is left out only once its
-invoice is issued, so a month's figure can move when the invoice goes out. The records
+invoice is issued, so a month's figure can move when the invoice goes out.
+
+Application record completeness judges a report written before reports kept
+their required list as not known, so a company's first months after this change
+read "Not this window" or a figure over only the new reports; nothing guesses
+the old list from the template's version, because the template keeps only its
+current fields. Which fields a regulator asks for is the trade pack's, and the
+"no product applied" exclusion is read from the pest pack's own field key. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

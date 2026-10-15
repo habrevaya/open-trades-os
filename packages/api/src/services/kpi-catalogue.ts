@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty seven of the forty seven are computed here, four are
- * M22's, and the sixteen that are not each name what they still lack.)
+ * (They are read now. Twenty eight of the forty seven are computed here, four are
+ * M22's, and the fifteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -776,6 +776,62 @@ const passedThrough: Records = (from, to, zone) => sql`
   where jl.kind = 'part' and ${sql.raw(PASSED_THROUGH)}
 `;
 
+/**
+ * APPLICATION RECORDS, per completed visit. A field is CAPTURED when its row
+ * on the report holds a value: a number, a yes or no, words that are not only
+ * spaces, or one of a chemical application's regulated columns. The rule is
+ * core's `reporting.recordCompletenessOf`, and
+ * `kpi-record-completeness.integration.test.ts` puts the same visits through
+ * both.
+ */
+const captured = (key: string) => `exists (
+  select 1 from public.service_report_field f
+  where f.report_id = r.id and f.key = ${key}
+    and (f.value_numeric is not null or f.value_boolean is not null
+      or nullif(btrim(f.value_text), '') is not null or nullif(btrim(f.product_name), '') is not null
+      or nullif(btrim(f.epa_registration_number), '') is not null or f.quantity_applied is not null
+      or nullif(btrim(f.applicator_license), '') is not null or nullif(btrim(f.target_pest), '') is not null)
+)`;
+
+/** The report was held to at least one regulated field. */
+const HELD_TO_REGULATED = `exists (
+  select 1 from jsonb_array_elements(coalesce(r.required_fields, '[]'::jsonb)) q where (q->>'regulated')::boolean
+)`;
+
+const NO_PRODUCT = `exists (
+  select 1 from public.service_report r where r.visit_id = v.id and ${captured(`'${reporting.NO_PRODUCT_REASON}'`)}
+)`;
+const ANY_REPORT = `exists (select 1 from public.service_report r where r.visit_id = v.id)`;
+const ANY_JUDGED = `exists (select 1 from public.service_report r where r.visit_id = v.id and ${HELD_TO_REGULATED})`;
+const RECORD_COMPLETE = `exists (
+  select 1 from public.service_report r
+  where r.visit_id = v.id and ${HELD_TO_REGULATED}
+    and not exists (
+      select 1 from jsonb_array_elements(r.required_fields) q
+      where (q->>'regulated')::boolean and not ${captured("q->>'key'")}
+    )
+)`;
+
+const applicationRecords = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, v.id::text as id,
+         concat('#', j.number, ' visit ', v.sequence, ', ', j.summary) as label,
+         to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit v
+  join public.job j on j.id = v.job_id
+  join public.job_type jt on jt.id = j.job_type_id
+  where v.deleted_at is null and j.deleted_at is null
+    and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+    and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and ${sql.raw({
+      numerator: `not ${NO_PRODUCT} and ${RECORD_COMPLETE}`,
+      denominator: `not ${NO_PRODUCT} and (not ${ANY_REPORT} or ${ANY_JUDGED})`,
+      excluded: NO_PRODUCT,
+      unknown: `not ${NO_PRODUCT} and ${ANY_REPORT} and not ${ANY_JUDGED}`,
+    }[pick])}
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1543,17 +1599,39 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   record_completeness: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Which regulated fields the operator required WHEN the visit was "
-      + "recorded. A service report template marks fields required and "
-      + "regulated, and editing its fields bumps its version, but a report keeps "
-      + "only that version number and the template keeps only its current fields "
-      + "on the same row, so last spring's visits would be judged against "
-      + "today's list. The exclusion is readable: the pest pack's template has a "
-      + "`no_product_reason` field, so a visit recorded with no product applied "
-      + "can be told apart. What it was required to capture cannot.",
+    measure: {
+      /**
+       * "Completed visits where every regulated field required by the
+       * operator's configuration was captured, divided by completed visits.
+       * EXCLUDES visits recorded with a no product applied reason, which have
+       * their own required set."
+       *
+       * WHAT IT NEEDED, and what changed: which regulated fields the operator
+       * required WHEN the visit was recorded. A report now keeps that list,
+       * frozen from its template when it is written
+       * (`service_report.required_fields`, each field with whether a regulator
+       * asks for it), so a template edited today does not judge last spring's
+       * visits. The operator sets what is required on Settings, Service
+       * reports, and an edit keeps which fields are regulated, which it used to
+       * drop.
+       *
+       * A completed visit with no report at all is not complete: it is the
+       * most incomplete record there is. A visit whose reports were held to no
+       * regulated field (written before the list was kept, or the operator
+       * required none) is left out of both halves and counted beside as not
+       * known, rather than read as complete for having been asked nothing. A
+       * visit recorded with a no product applied reason is left out and counted
+       * beside, as the definition says.
+       */
+      numerator: { label: "completed visits with every required regulated field captured", records: applicationRecords("numerator") },
+      denominator: { label: "completed visits, other than those left out", records: applicationRecords("denominator") },
+      besides: {
+        excluded: { label: "visits with no product applied, left out", records: applicationRecords("excluded") },
+        unknown: { label: "visits whose report was held to no regulated field, left out", records: applicationRecords("unknown") },
+      },
+    },
   },
 
   diag_conversion: {

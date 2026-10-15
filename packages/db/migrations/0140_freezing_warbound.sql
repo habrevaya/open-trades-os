@@ -1,0 +1,1 @@
+ALTER TABLE "service_report" ADD COLUMN "required_fields" jsonb;

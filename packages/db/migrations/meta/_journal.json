@@ -981,6 +981,13 @@
       "when": 1792046726577,
       "tag": "0139_volatile_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1792048575949,
+      "tag": "0140_freezing_warbound",
+      "breakpoints": true
     }
   ]
 }

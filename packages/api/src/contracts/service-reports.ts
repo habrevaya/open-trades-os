@@ -39,6 +39,12 @@ export const TemplateField = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
   required: z.boolean().optional(),
+  /**
+   * A regulator asks for it: the EPA number, the applicator's licence, the
+   * target pest. Set by the trade pack and kept through an edit; pest
+   * control's application record completeness reads the required ones.
+   */
+  regulated: z.boolean().optional(),
 });
 
 export const Template = z.object({
@@ -126,6 +132,13 @@ export const Report = z.object({
   propertyId: Uuid,
   templateId: Uuid.nullable(),
   templateVersion: z.number().nullable(),
+  /**
+   * What the report was required to capture, frozen from its template when it
+   * was written. Null for a report written before the list was kept.
+   */
+  requiredFields: z.array(z.object({
+    key: z.string(), label: z.string(), kind: z.string(), regulated: z.boolean(),
+  })).nullable().optional(),
   status: Status,
   summary: z.string().nullable(),
   technicianNotes: z.string().nullable(),

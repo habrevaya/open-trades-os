@@ -514,6 +514,14 @@ async function ensureReport(
     propertyId: visit.propertyId,
     templateId: template?.id ?? null,
     templateVersion: template?.version ?? null,
+    /**
+     * What it is required to capture, frozen now: the template's required
+     * fields as they stand when the report is written, so editing the template
+     * next month does not change what this visit was held to. No template is
+     * a report nothing was required of.
+     */
+    requiredFields: (template?.fields ?? []).filter((f) => f.required === true)
+      .map((f) => ({ key: f.key, label: f.label, kind: f.kind, regulated: f.regulated === true })),
   /**
    * For the race this function cannot see, and NOT for an ordinary replay:
    * the existence check at the top already returns before reaching here on

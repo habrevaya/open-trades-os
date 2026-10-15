@@ -83,6 +83,22 @@ export const serviceReport = pgTable("service_report", {
   propertyId: uuid("property_id").notNull().references(() => property.id),
   templateId: uuid("template_id").references(() => serviceReportTemplate.id),
   templateVersion: integer("template_version"),
+  /**
+   * WHAT THIS REPORT WAS REQUIRED TO CAPTURE, frozen from its template when
+   * it was written: each field the template marked required, with whether a
+   * regulator asks for it.
+   *
+   * The version number above says which set of questions was asked, but the
+   * template keeps only its current fields, so a report could not be judged
+   * against the list it was actually held to: last spring's visits would be
+   * judged against today's. Pest control's application record completeness
+   * ("every regulated field required by the operator's configuration was
+   * captured") reads this. An empty list is a report nothing was required
+   * of; null is one written before the list was kept, which is not known.
+   */
+  requiredFields: jsonb("required_fields").$type<Array<{
+    key: string; label: string; kind: string; regulated: boolean;
+  }>>(),
 
   /** What was done, in language a homeowner reads. AI-summarized from notes. */
   summary: text("summary"),
