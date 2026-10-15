@@ -855,7 +855,10 @@ export interface Person {
  */
 export async function listPeople(
   ctx: ServiceContext,
-  input: { email?: string | undefined; fieldKey?: string | undefined; fieldValue?: string | undefined; fields?: readonly string[] | undefined } = {},
+  input: {
+    email?: string | undefined; fieldKey?: string | undefined; fieldValue?: string | undefined;
+    fields?: readonly string[] | undefined; fieldMatch?: "all" | "any" | undefined;
+  } = {},
 ): Promise<Person[]> {
   return guardedRead(ctx, "user:read", async (tx) => {
     const directory = await tx.execute<{ membership_id: string; name: string | null; email: string }>(
@@ -987,7 +990,7 @@ async function loadCertification(tx: Database, organizationId: string, id: strin
  * generated from it.
  */
 export const handlers = {
-  listPeople: async (ctx: ServiceContext, input: { email?: string | undefined }): Promise<{ people: Person[] }> =>
+  listPeople: async (ctx: ServiceContext, input: Parameters<typeof listPeople>[1]): Promise<{ people: Person[] }> =>
     ({ people: await listPeople(ctx, input) }),
 
   listCertificationTypes: async (ctx: ServiceContext): Promise<{

@@ -591,6 +591,8 @@ export interface ListRecordsInput {
   fieldValue?: string | undefined;
   /** Several fields at once, each `key:value`. */
   fields?: readonly string[] | undefined;
+  /** Every field above has to hold (`all`, the default), or at least one (`any`). */
+  fieldMatch?: "all" | "any" | undefined;
   customerId?: string | undefined;
   propertyId?: string | undefined;
   jobId?: string | undefined;

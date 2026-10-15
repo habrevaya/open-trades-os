@@ -349,9 +349,12 @@ customer list also has a link, "Show customers that match any of these", that jo
 them by "or" instead (the Annual plan or pets), says so in the sentence above the list
 ("whose Plan is Annual, or whose Pets is yes"), carries it in the address as
 `fieldmatch=any`, and offers "Show only customers that match all of these" to go back.
-So do `/jobs`, `/invoices`,
-`/estimates`, `/people` (by a technician's fields) and each kind of record's own
-list, which join fields by "and" only.
+So do `/jobs`, `/invoices`, `/estimates`, `/people` (by a technician's fields) and
+each kind of record's own list (`/records/{type}`), each with its own words ("Show
+jobs that match any of these"), and each list's search box keeps the choice while it
+searches. "Any" only widens which of the fields has to hold: the rows are still
+the ones the reader's scope shows on that list, so a technician asking for any of
+two fields sees their own jobs that hold either, never somebody else's.
 A choice matches exactly, several choices match a customer holding that one among
 theirs, yes or no matches as stored, a number matches as a number, and free text
 matches anywhere in the value, ignoring case. `GET /v1/customers`,
@@ -359,9 +362,10 @@ matches anywhere in the value, ignoring case. `GET /v1/customers`,
 `GET /v1/people` and `GET /v1/custom-records` take `fields`, repeated, each the
 field's key, a colon and the value (`fields=plan:Annual&fields=has_pets:yes`), every
 one of which has to hold, up to ten; `fieldKey` and `fieldValue` still work and are
-one more beside them. `GET /v1/customers` also takes `fieldMatch`: `all` (the default) or
-`any`, which lists the customers for whom at least one of the fields holds (the Annual plan
-or pets); one field is the same either way, and the other lists take no `fieldMatch`. A key
+one more beside them. Each of them also takes `fieldMatch`: `all` (the default) or
+`any`, which lists the records for which at least one of the fields holds (the Annual plan
+or pets), joined in one place (`listFilter` in `services/custom-fields.ts`) for every
+list; one field is the same either way, and any other word is refused. A key
 the company has not declared on that record is refused in words rather than matching
 nobody, whichever is chosen, and so is a filter that is not a key, a colon and a value.
 
@@ -698,9 +702,9 @@ not when the person is invited, because the invitation carries no field. A recor
 product makes by itself starts with none, as above, and so does the first visit booked
 together with a new job. Visits and units have no company wide list to filter, so their
 fields are filtered in the report builder rather than on a list screen. "Any of these"
-across several fields is on the customer list and in the report builder; the job,
-invoice, estimate and people lists and each kind of record's own list join fields by
-"and" only.
+across several fields is on every list that filters by fields and in the report
+builder, but it is one choice for the whole list: there is no "this one, or both of
+those".
 The Tasks dataset has no fields to filter by, because a task can be about anything. A field's key
 cannot be changed once made (`/settings/custom-fields` says why), and neither can a
 kind of record's. A kind of record points at one record of one other kind, not

@@ -43,7 +43,9 @@ function daysOverdue(dueOn: string | null, today: string): number {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{
+    q?: string; branch?: string; field?: string | string[]; value?: string | string[]; fieldmatch?: string;
+  }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -51,8 +53,9 @@ export default async function InvoicesPage({
   const params = await searchParams;
   const branch = chosenBranch(options, params.branch);
   const declared = await customFields.formFields(ctx, "invoice");
-  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
-  /** The invoice's number, or words in the customer's name. */
+  /** From the second field on, "any of these" joins them by or (`fieldmatch=any`), as on the customer list. */
+  const { pairs, match: fieldJoin, keep: fieldKeep, byField } = fieldFrom(params);
+  /** The invoice's number, or words in the customer's name, its memo or its lines. */
   const q = searchWords(params.q);
 
   const { page, refusal } = await withFieldFilter((withField) => billing.list(ctx, {
@@ -71,7 +74,7 @@ export default async function InvoicesPage({
                   keep={{ branch, ...fieldKeep }} />
       <BranchFilter options={options} action="/invoices" current={branch} keep={{ q, ...fieldKeep }} />
       <CustomFieldFilter action="/invoices" declared={declared} keep={{ q, branch }} pairs={pairs}
-                         refusal={refusal} noun="invoices" />
+                         refusal={refusal} noun="invoices" match={fieldJoin} anyOf />
 
       {late > 0 && (
         <p className="mt-2 text-sm text-ink-700">

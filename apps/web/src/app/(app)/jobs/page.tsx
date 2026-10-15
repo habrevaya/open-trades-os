@@ -15,7 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{
+    q?: string; branch?: string; field?: string | string[]; value?: string | string[]; fieldmatch?: string;
+  }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -29,7 +31,8 @@ export default async function JobsPage({
   const branch = chosenBranch(options, params.branch, true);
   const named = options.branches.find((b) => b.id === branch)?.name;
   const declared = await customFields.formFields(ctx, "job");
-  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
+  /** From the second field on, "any of these" joins them by or (`fieldmatch=any`), as on the customer list. */
+  const { pairs, match: fieldJoin, keep: fieldKeep, byField } = fieldFrom(params);
   /** Words, from this box or from the search box's "See all": every word in the job, its notes or the customer's name, or the number. */
   const q = searchWords(params.q);
 
@@ -52,7 +55,7 @@ export default async function JobsPage({
                   keep={{ branch, ...fieldKeep }} />
       <BranchFilter options={options} action="/jobs" current={branch} none keep={{ q, ...fieldKeep }} />
       <CustomFieldFilter action="/jobs" declared={declared} keep={{ q, branch }} pairs={pairs}
-                         refusal={refusal} noun="jobs" />
+                         refusal={refusal} noun="jobs" match={fieldJoin} anyOf />
 
       {page.data.length === 0 ? (
         q ? (

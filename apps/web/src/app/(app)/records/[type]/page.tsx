@@ -15,16 +15,17 @@ export const dynamic = "force-dynamic";
  * ONE KIND OF RECORD, AS A LIST
  *
  * Drawn from its definition: a column for its name, for what it points at,
- * and for its first few fields. Searched across the name and every value,
- * because somebody looking for the permit on Elm Street types the street;
- * filtered by one field the way the customer list is; downloaded as a CSV
+ * and for its first few fields. Searched word by word across the name and
+ * every value, because somebody looking for the permit on Elm Street types
+ * the street; filtered by its fields the way the customer list is, all of
+ * them or any of them; downloaded as a CSV
  * that loads back in.
  */
 export default async function RecordListPage({
   params, searchParams,
 }: {
   params: Promise<{ type: string }>;
-  searchParams: Promise<{ q?: string; field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{ q?: string; field?: string | string[]; value?: string | string[]; fieldmatch?: string }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -36,7 +37,7 @@ export default async function RecordListPage({
     throw error;
   });
   const q = query.q?.trim() || undefined;
-  const { pairs, byField } = fieldFrom(query);
+  const { pairs, match: fieldJoin, byField } = fieldFrom(query);
   const { page, refusal } = await withFieldFilter((withField) => customObjects.listRecords(ctx, {
     type, limit: 200, ...(q ? { q } : {}), ...(withField ? byField : {}),
   }));
@@ -70,9 +71,10 @@ export default async function RecordListPage({
           <input key={`field-${index}`} type="hidden" name="field" value={pair.key} />,
           <input key={`value-${index}`} type="hidden" name="value" value={pair.value} />,
         ])}
+        {fieldJoin === "any" ? <input type="hidden" name="fieldmatch" value="any" /> : null}
       </form>
       <CustomFieldFilter action={`/records/${type}`} declared={kind.fields} keep={{ q }} pairs={pairs}
-                         refusal={refusal} noun={kind.pluralLabel.toLowerCase()} />
+                         refusal={refusal} noun={kind.pluralLabel.toLowerCase()} match={fieldJoin} anyOf />
 
       {page.data.length === 0 ? (
         <Empty title={q || pairs.length > 0 ? `No ${kind.pluralLabel.toLowerCase()} match` : `No ${kind.pluralLabel.toLowerCase()} yet`}>
