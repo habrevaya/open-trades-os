@@ -168,9 +168,20 @@ message goes to a person.
 visitor sees a reply while the model is still writing it, in a bubble marked
 "Automated assistant, writing": each sentence once it is finished, and a sentence
 naming a price the company has not published is never shown, nor anything after it.
-The reply so far is kept on the chat while it is written (`writing` on
-`POST /v1/public/chat/transcript`, which the widget reads once a second while a
-message waits for its answer) and cleared when the turn ends. The whole answer is
+The widget sends the message to `POST /v1/public/chat/messages` asking for
+Server-Sent Events (`Accept: text/event-stream`) and reads them with `fetch` as
+they arrive: each `writing` event is the reply so far, and the last, `answer`, is
+the same transcript the route answers without a stream. It is the same public
+route, so it is counted per address and per chat exactly as before, and a refusal
+before the reply starts (too many messages from one address, a chat that has
+ended, a token that opens nothing) is the usual status, shown as the usual line.
+The reply so far is also kept on the chat while it is written (`writing` on
+`POST /v1/public/chat/transcript`) and cleared when the turn ends, for a widget that
+could not open a stream: a browser without `fetch` streams, or a request refused
+before it reached the server. That widget sends the same message under the same
+idempotency key the old way and reads the chat once a second while it waits, so the
+visitor still sees the reply written, a second or so behind. A stream that breaks
+part way is not sent again; the widget reads the chat for the reply. The whole answer is
 then checked exactly as before, and only it is kept: the reply that becomes the
 message, or a person being asked to answer, takes the bubble's place. Only a reply is
 shown this way; what goes with a booking or a hand over is shown once it has been
@@ -380,7 +391,7 @@ applying the copilot's plan takes `visit:dispatch`. Asking intake to read a thre
 | `DELETE /v1/knowledge-notes/{id}` | `knowledge:write` |
 | `GET /v1/public/chat` | Public: whether the chat is on |
 | `POST /v1/public/chat/sessions` | Public: opens a chat, returns its token once |
-| `POST /v1/public/chat/messages` | Public, with the chat's token |
+| `POST /v1/public/chat/messages` | Public, with the chat's token; answers as Server-Sent Events when asked |
 | `POST /v1/public/chat/transcript` | Public, with the chat's token |
 
 Nothing under `/v1/ai/` is ever offered to a model as a tool, so an agent cannot drive
@@ -431,11 +442,16 @@ manufacturer's literature or another customer's history, and it needs a signal. 
 phone assistant, the website chat and the field assistant show an answer as
 it is written, on Anthropic and OpenAI connections only; on a Google connection they
 answer whole. A sentence is shown only once it is finished, so a reply of one long
-sentence appears all at once. The website chat's reply so far reaches the visitor by the
-widget reading the chat once a second, not by a stream of its own, so it grows a second or
-so behind the model, and a visitor may read the start of a reply that the whole answer's
-check then replaces with a hand over to a person (never a sentence with an unpublished
-price). The field assistant streams on `/my-day`, in the phone app and through the API for a
+sentence appears all at once. The website chat's reply reaches the visitor as a stream, but a visitor may read the
+start of a reply that the whole answer's check then replaces with a hand over to a
+person (never a sentence with an unpublished price). Where the stream cannot open, the
+widget reads the chat once a second instead, a second or so behind the model; where it
+breaks part way, the visitor sees the reply only when the widget next reads the chat,
+up to five seconds later. A proxy in front of the server that holds a response until it
+is complete turns the stream into one whole answer; the server asks proxies not to
+(`X-Accel-Buffering: no`, `Cache-Control: no-transform`), and that has been tried only
+against the bundled server, not behind a hosting company's proxy. The chat inside the
+customer portal shows a reply only once it is whole. The field assistant streams on `/my-day`, in the phone app and through the API for a
 caller that asks for events; the phone app's reading of it has been tested against a
 fake of the phone's request object, not on a device. A part of an answer shown there may likewise
 be replaced by "it was not shown" when the whole answer cites a record it was not

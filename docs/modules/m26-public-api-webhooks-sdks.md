@@ -173,7 +173,9 @@ cookie and hold no session for another page to borrow.
 ### Read an answer as it is written
 
 A route that answers with something a model writes can send it as it is
-written. `POST /v1/ai/field-assistant` does: sent with
+written. `POST /v1/ai/field-assistant` does, and so does the open route
+`POST /v1/public/chat/messages` that the website chat sends through, where the
+last event is the chat's transcript. Sent with
 `Accept: text/event-stream`, it answers as Server-Sent Events instead of one
 JSON body. Without that header it answers JSON exactly as before, so nothing
 written against it changes. The OpenAPI document marks such a route
@@ -188,7 +190,8 @@ shown; it can say the answer cannot be shown. `problem` carries
 line keeps a quiet stream open every fifteen seconds.
 
 It is the same route with the same session, the same permissions and the same
-limits, because the same service runs. A refusal before the first event (signed
+limits (for the chat, the same counts per address and per chat), because the same
+service runs. A refusal before the first event (signed
 out, not allowed, the assistant off, the day's runs used up) is the ordinary
 status and JSON body, since nothing has been sent yet. A retry with the same
 idempotency key answers from the record as one `answer` event. A caller that
@@ -335,9 +338,9 @@ to retry.
 
 ## What is not built
 
-Only the field assistant answers as it is written; every other route answers
-whole. The SDK has no method that reads events: its field assistant call answers
-JSON, and a caller that wants the sentences as they come reads the stream with
+Only the field assistant and the website chat's messages answer as they are
+written; every other route answers whole. The SDK has no method that reads events:
+its calls answer JSON, and a caller that wants the sentences as they come reads the stream with
 `fetch`. A sentence is sent only once it is finished, so a long first sentence
 arrives late, and on a model connection that does not stream (see M27) the stream
 holds only the `answer` event.

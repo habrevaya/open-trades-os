@@ -445,11 +445,12 @@ export const sayInChat = defineRoute({
   path: "/v1/public/chat/messages",
   summary: "Say something in a website chat, and get the answer",
   description:
-    "The visitor's words go into the company's inbox first. Then the assistant answers from the company's own facts, or a person is asked to: when the visitor asks for one, when the assistant is unsure, would have quoted a price the company has not published, or has reached its limit. A repeat of the same idempotency key is one message and one answer.",
+    "The visitor's words go into the company's inbox first. Then the assistant answers from the company's own facts, or a person is asked to: when the visitor asks for one, when the assistant is unsure, would have quoted a price the company has not published, or has reached its limit. A repeat of the same idempotency key is one message and one answer. Sent with `Accept: text/event-stream`, it answers as Server-Sent Events: `writing` events with the reply so far, whole sentences naming only published prices, then one `answer` event with exactly the transcript this route otherwise answers, which replaces what was shown and may be a hand over to a person. Counted per address and per chat the same way either way.",
   module: "M27",
   permissions: [],
   authorization: "public",
   idempotent: true,
+  streams: true,
   input: z.object({ companyKey: CompanyKey, token: ChatToken, text: z.string().min(1).max(2000) }),
   output: ChatTranscript,
 });
@@ -459,7 +460,7 @@ export const readChat = defineRoute({
   path: "/v1/public/chat/transcript",
   summary: "Read a website chat",
   description:
-    "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox. While the assistant is answering, `writing` holds its reply so far, which the widget reads about once a second until the answer arrives.",
+    "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox. While the assistant is answering, `writing` holds its reply so far; the widget reads it about once a second only when it could not read the answer as a stream from the messages route.",
   module: "M27",
   permissions: [],
   authorization: "public",

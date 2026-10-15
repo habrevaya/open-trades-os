@@ -1223,6 +1223,7 @@ type StreamingHandlerFor<N extends RouteName> =
  */
 export const streamingHandlers = {
   askFieldAssistant: (ctx, input, show) => agentField.ask(ctx, input, undefined, show),
+  ...agentChat.streamingHandlers,
 } as const satisfies { [N in RouteName]?: StreamingHandlerFor<N> };
 
 /**

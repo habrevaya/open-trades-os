@@ -10,6 +10,7 @@ import "../src/ai/index";
 import { serverSentEvents } from "../src/ai/provider";
 import { dispatch } from "../src/http/dispatch";
 import type { ServiceContext } from "../src/services/context";
+import * as chat from "../src/services/agent-chat";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -164,9 +165,14 @@ beforeAll(async () => {
     provider: "anthropic", credentialRef: "STREAM_TEST_AI_KEY",
     settings: { defaultModel: "fake-model", baseUrl: base, rates: { "fake-model": { inputMicrosPerToken: 1, outputMicrosPerToken: 5 } } },
   });
-  await agents.configure(owner(), {
-    agent: "field", settings: { ...coreAgents.defaultSettings("field"), enabled: true, runAsUserId: OWNER },
-  });
+  for (const agent of ["field", "chat"] as const) {
+    await agents.configure(owner(), {
+      agent, settings: { ...coreAgents.defaultSettings(agent), enabled: true, runAsUserId: OWNER },
+    });
+  }
+  const [jt] = await raw<{ id: string }[]>`insert into public.job_type (organization_id, name) values (${ORG}, 'Water heater repair') returning id`;
+  await raw`insert into public.bookable_service (organization_id, job_type_id, public_name, display_price, min_notice_hours, max_advance_days, max_per_window)
+            values (${ORG}, ${jt!.id}, 'Water heater repair', 149.0000, 0, 30, 5)`;
   await knowledge.create(owner(), {
     title: "Flushing a water heater", body: "Shut off the gas. Drain the tank for ten minutes. A flush is $95 on the price list.", tags: ["heater"],
   });
@@ -287,5 +293,86 @@ run("the field assistant over the API, as it writes", () => {
     expect(said.error).toMatch(/today's \d+ runs/);
     expect(said.error).toBe((await whole.json() as { error: string }).error);
     expect(asked).toBe(before);
+  });
+});
+
+/* ------------------------------------------------- the website chat, public */
+
+/** An address of this file's own: the public chat's limits are per address. */
+const VISITOR = "198.51.100.161";
+const say = (token: string, text: string, headers: Record<string, string> = {}) =>
+  new Request("http://localhost/api/v1/public/chat/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forwarded-for": VISITOR, ...headers },
+    body: JSON.stringify({ companyKey: SLUG, token, text }),
+  });
+
+run("the website chat over the public route, as it writes", () => {
+  it("sends the visitor each finished sentence while the model writes, then the whole transcript, readable from any origin", async () => {
+    const opened = await chat.start(db(), { companyKey: SLUG }, { ip: VISITOR });
+    const input = { text: "A water heater repair visit is $149. We can come tomorrow morning. Shall I book it?" };
+    const all = pieces(input);
+    script = { tool: "reply", input, holdAfter: pieceAfter(all, "We can come tomorrow morning.") };
+    release = null;
+    const response = await dispatch(say(opened.token, "how much for a water heater?", { ...STREAM, "idempotency-key": "api-streaming-chat-1" }), deps(null));
+    expect(response.status).toBe(201);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+
+    const events = eventsOf(response);
+    const seen: unknown[] = [];
+    for (let next = await events.next(); !next.done; next = await events.next()) {
+      seen.push(JSON.parse(next.value.data));
+      if ((seen.at(-1) as { text?: string }).text?.includes("tomorrow")) break;
+    }
+    expect(release).not.toBeNull();
+    expect(seen).toEqual([
+      { text: "A water heater repair visit is $149." },
+      { text: "A water heater repair visit is $149. We can come tomorrow morning." },
+    ]);
+    /** A widget that could not open the stream reads the same reply so far from the chat. */
+    let kept: string | null = null;
+    for (let i = 0; i < 100 && kept === null; i += 1) {
+      kept = (await chat.read(db(), { companyKey: SLUG, token: opened.token }, { ip: VISITOR })).writing;
+      if (kept === null || !kept.includes("tomorrow")) { kept = null; await new Promise((resolve) => setTimeout(resolve, 10)); }
+    }
+    expect(kept).toBe("A water heater repair visit is $149. We can come tomorrow morning.");
+    release!();
+
+    const after = await rest(events);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.event).toBe("answer");
+    const transcript = after[0]!.data as { writing: string | null; messages: Array<{ from: string; text: string }> };
+    expect(transcript.writing).toBeNull();
+    expect(transcript.messages.at(-1)).toMatchObject({
+      from: "assistant", text: "A water heater repair visit is $149. We can come tomorrow morning. Shall I book it?",
+    });
+  });
+
+  it("never sends a sentence with a price nobody published, and the whole answer hands the chat to a person", async () => {
+    const opened = await chat.start(db(), { companyKey: SLUG }, { ip: VISITOR });
+    script = { tool: "reply", input: { text: "Sure, we fit new heaters. A new one installed is about $1,800. It takes a day. " } };
+    const response = await dispatch(say(opened.token, "price for a new heater installed?", STREAM), deps(null));
+    const events = await rest(eventsOf(response));
+    expect(events.filter((e) => e.event === "writing").map((e) => e.data)).toEqual([{ text: "Sure, we fit new heaters." }]);
+    expect(JSON.stringify(events)).not.toContain("1,800");
+    expect(events.at(-1)!.event).toBe("answer");
+    expect(events.at(-1)!.data).toMatchObject({ status: "handed_off", writing: null });
+  });
+
+  it("is counted per address exactly as the whole answer is, and refused before any event", async () => {
+    const opened = await chat.start(db(), { companyKey: SLUG }, { ip: VISITOR });
+    const crowded = "198.51.100.162";
+    for (let i = 0; i < 30; i += 1) await raw`select app.count_public_hit(${`chat:say:${crowded}`}, 60)`;
+    const before = asked;
+    const response = await dispatch(say(opened.token, "anyone there?", { ...STREAM, "x-forwarded-for": crowded }), deps(null));
+    expect(response.status).toBe(429);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(asked).toBe(before);
+
+    const unknown = await dispatch(say("x".repeat(40), "anyone there?", STREAM), deps(null));
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers.get("content-type")).toContain("application/json");
   });
 });
