@@ -78,7 +78,7 @@ test("a kind of record is defined with its fields and used on a job", async ({ o
   const jobUrl = owner.url();
 
   // On the job: its own section, and "Add a permit" carries the job in.
-  const panel = owner.getByRole("region", { name: "Permits" });
+  const panel = owner.getByRole("region", { name: "Permits", exact: true });
   await expect(panel).toContainText("None yet.");
   await panel.getByRole("link", { name: "Add a permit" }).click();
   await expect(owner.getByRole("heading", { level: 1, name: "Add a permit" })).toBeVisible();
@@ -95,13 +95,13 @@ test("a kind of record is defined with its fields and used on a job", async ({ o
   await ready(owner);
   await owner.getByRole("button", { name: "Add the permit" }).click();
   await expect(owner).toHaveURL(jobUrl);
-  const onJob = owner.getByRole("region", { name: "Permits" });
+  const onJob = owner.getByRole("region", { name: "Permits", exact: true });
   await expect(onJob.getByRole("link", { name: `BP-${run}` })).toBeVisible();
   await expect(onJob).toContainText("Status: approved");
 
   // On the customer it came from too, because a job carries its customer onto the record.
   await owner.goto(`/customers/${customerId}`);
-  await expect(owner.getByRole("region", { name: "Permits" }).getByRole("link", { name: `BP-${run}` })).toBeVisible();
+  await expect(owner.getByRole("region", { name: "Permits", exact: true }).getByRole("link", { name: `BP-${run}` })).toBeVisible();
 
   // The kind's own list finds it by a value, and filters by its field.
   await owner.goto(`/records/${key}?q=2026-09-15`);
@@ -122,7 +122,7 @@ test("a kind of record is defined with its fields and used on a job", async ({ o
   await owner.getByRole("button", { name: "Save", exact: true }).click();
   await expect(owner.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
   await owner.goto(jobUrl);
-  await expect(owner.getByRole("region", { name: "Permits" })).toContainText("Status: failed");
+  await expect(owner.getByRole("region", { name: "Permits", exact: true })).toContainText("Status: failed");
 });
 
 test("a proposal layout is designed and applied to an estimate, and the proposal follows it", async ({ owner }) => {

@@ -163,6 +163,8 @@ test("a customer sends a photo, the office answers with one, and the customer is
   const link = /(https?:\/\/\S+\/portal\/[^/\s]+\/account\/chat)$/.exec(told)![1]!;
   const before = /\b(\d{6})\b/.exec(await textTo(e164))?.[1];
   await stranger.getByRole("button", { name: "Sign out" }).click();
+  /** Signed out for certain before the link is opened, or the chat page would still find the session. */
+  await expect(stranger.getByRole("heading", { name: "Sign in to your account" })).toBeVisible();
   await stranger.goto(new URL(link).pathname);
   await expect(stranger).toHaveURL(/\/portal\/[^/]+\?next=chat$/);
   await stranger.getByLabel("Email or mobile number").fill(phone);

@@ -155,8 +155,9 @@ test("Dispatch map: pins, a refused technician sent with a reason, a day put in 
     await expect(owner.getByRole("region", { name: "Dispatch map" })).toBeVisible();
     const unplaced = owner.getByRole("region", { name: "Not on the map yet" });
     await expect(unplaced).toContainText(`Map unplaced ${run}`);
-    await expect(unplaced.getByRole("link", { name: "Place a pin" }).first())
-      .toHaveAttribute("href", new RegExp(`/properties/${lostProperty}#pin`));
+    /** Its own address's link: other specs leave unplaced addresses on the same day. */
+    await expect(unplaced.locator(`a[href$="/properties/${lostProperty}#pin"]`))
+      .toHaveText("Place a pin");
     await expect(owner.getByText("© OpenStreetMap contributors")).toBeVisible();
 
     // Clicking the unassigned install opens its card, and Sam is refused for it.
