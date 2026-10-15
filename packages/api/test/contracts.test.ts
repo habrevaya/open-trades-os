@@ -183,6 +183,7 @@ describe("permissions", () => {
       "GET /v1/portal/chat",
       "GET /v1/portal/chat/pictures/{messageId}/{index}",
       "GET /v1/portal/chat/unread",
+      "POST /v1/portal/chat/close",
       "POST /v1/portal/chat/messages",
       /**
        * The same sign in with a code instead of a password. Asking for a code

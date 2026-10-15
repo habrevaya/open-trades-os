@@ -92262,6 +92262,95 @@
         "x-permissions": []
       }
     },
+    "/v1/portal/chat/close": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "closePortalChat",
+        "summary": "Close the signed in customer's chat",
+        "description": "From a sign in only. Ends the conversation the customer has open, whoever has it: the inbox shows it as closed and says the customer closed it, and the office can no longer reply into it. Nothing the office has not read is marked read, so what the customer wrote stays in front of the office. The next message the customer writes opens a new conversation. Closing a chat that is already closed, or before one was started, changes nothing. The answer is the chat as the customer now sees it: status `closed` and no messages until they write again.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M05"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClosePortalChatInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Close the signed in customer's chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosePortalChatOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
     "/v1/portal/chat/messages": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -152978,6 +153067,108 @@
           "periodEnd"
         ]
       },
+      "ClosePortalChatInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "ClosePortalChatOutput": {
+        "type": "object",
+        "properties": {
+          "assistant": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "open",
+              "handed_off",
+              "closed"
+            ]
+          },
+          "bookingTaken": {
+            "type": "boolean"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string",
+                  "enum": [
+                    "visitor",
+                    "assistant",
+                    "person"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "pictures": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "index": {
+                        "type": "integer"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "shown": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "index",
+                      "contentType",
+                      "name",
+                      "shown"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "from",
+                "text",
+                "at",
+                "pictures"
+              ]
+            }
+          }
+        },
+        "required": [
+          "assistant",
+          "status",
+          "bookingTaken",
+          "messages"
+        ]
+      },
       "CloseSafetyMeetingInput": {
         "type": "object",
         "properties": {}
@@ -180139,6 +180330,13 @@
               "null"
             ]
           },
+          "customerClosedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "canReply": {
             "type": "boolean"
           },
@@ -180160,6 +180358,7 @@
           "customer",
           "messages",
           "customerNotice",
+          "customerClosedAt",
           "canReply",
           "blockedReason",
           "blockedExplanation"
@@ -214331,6 +214530,9 @@
                 },
                 "unread": {
                   "type": "integer"
+                },
+                "closedByCustomer": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -214343,7 +214545,8 @@
                 "lastMessageAt",
                 "lastMessagePreview",
                 "awaitingReply",
-                "unread"
+                "unread",
+                "closedByCustomer"
               ]
             }
           },

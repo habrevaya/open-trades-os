@@ -49,3 +49,13 @@ export async function sendChat(slug: string, form: FormData): Promise<{ ok: true
     return { ok: false, message };
   }
 }
+
+/**
+ * The customer closes their chat. Nothing is lost to the office: the
+ * conversation is shown there as closed by the customer, and what they wrote is
+ * still waiting for a person to read.
+ */
+export async function closeChat(slug: string): Promise<ChatView> {
+  const session = await requirePortalSession(slug);
+  return portalChat.close(getDb(), { token: session.token });
+}

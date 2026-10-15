@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms as c, files as f } from "@opentradesos/core";
 /**
@@ -46,6 +46,8 @@ export interface ThreadSummary {
   /** Whether the last thing said came from them. The only sort that matters. */
   awaitingReply: boolean;
   unread: number;
+  /** The customer closed this chat from their account (M05). False on every other thread. */
+  closedByCustomer: boolean;
 }
 
 export async function threads(
@@ -123,6 +125,11 @@ export async function threads(
     `);
 
     const state = new Map(lastDirections.map((r) => [r.conversation_id, r]));
+    /** Chats the customer closed from their account, so the list can say who closed them. */
+    const closedByThem = new Set(ids.length === 0 ? [] : (await tx.select({ id: schema.aiChatSession.conversationId })
+      .from(schema.aiChatSession)
+      .where(and(inArray(schema.aiChatSession.conversationId, ids), isNotNull(schema.aiChatSession.customerClosedAt))))
+      .map((r) => r.id));
 
     return {
       ...page,
@@ -137,6 +144,7 @@ export async function threads(
         lastMessagePreview: conversation.lastMessagePreview,
         awaitingReply: state.get(conversation.id)?.direction === "inbound",
         unread: state.get(conversation.id)?.unread ?? 0,
+        closedByCustomer: closedByThem.has(conversation.id),
       })),
     };
   });
@@ -180,13 +188,16 @@ export async function thread(ctx: ServiceContext, input: { id: string }) {
      * thread, and on an account chat nobody has answered yet.
      */
     const [chat] = conversation.internalAddress === "portal"
-      ? await tx.select({ customerNotice: schema.aiChatSession.customerNotice }).from(schema.aiChatSession)
+      ? await tx.select({
+        customerNotice: schema.aiChatSession.customerNotice, customerClosedAt: schema.aiChatSession.customerClosedAt,
+      }).from(schema.aiChatSession)
         .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1)
       : [];
 
     return {
       conversation,
       customerNotice: chat?.customerNotice ?? null,
+      customerClosedAt: chat?.customerClosedAt ?? null,
       customer: customer ? clean(ctx, "customer", customer) : null,
       messages: messages.map((m) => clean(ctx, "message", m)),
       canReply: decision.allowed,
@@ -240,9 +251,14 @@ async function replyDecision(tx: Database, conversation: typeof schema.conversat
   if (conversation.channel === "webchat") {
     const [session] = await tx.select({ status: schema.aiChatSession.status }).from(schema.aiChatSession)
       .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1);
-    return session && session.status !== "closed"
-      ? { allowed: true }
-      : { allowed: false, reason: "chat_closed", explanation: "This website chat has ended, so a reply has nowhere to go." };
+    if (session && session.status !== "closed") return { allowed: true };
+    return {
+      allowed: false,
+      reason: "chat_closed",
+      explanation: conversation.internalAddress === "portal"
+        ? "The customer closed this chat, so a reply has nowhere to go. If they write again, it opens a new one."
+        : "This website chat has ended, so a reply has nowhere to go.",
+    };
   }
   if (conversation.channel === "email") {
     const decision = await email.emailability(tx, conversation.organizationId, conversation.externalAddress, "transactional");
@@ -718,6 +734,7 @@ export const handlers = {
         };
       }),
       customerNotice: found.customerNotice,
+      customerClosedAt: iso(found.customerClosedAt),
       canReply: found.canReply,
       blockedReason: found.blockedReason ?? null,
       blockedExplanation: found.blockedExplanation ?? null,

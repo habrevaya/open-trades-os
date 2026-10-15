@@ -575,6 +575,24 @@ The notice is on for every company until somebody turns it off at **Chat
 answers** on `/settings/portal` (`chatReplyNotice` on `PATCH /v1/portal-settings`,
 `settings:write`).
 
+**Closing the chat.** **Close this chat** on the chat page (`POST /v1/portal/chat/close`,
+from a sign in only) ends the conversation the customer has open, whoever has it, the
+assistant or a person. The customer's page shows "You closed your last chat. Write below
+to start a new one." and an empty thread; the next message they write opens a new
+conversation, with the assistant's greeting again when the assistant answers, and the
+closed one is left exactly as it was. In the inbox the conversation is closed, the
+thread says "The customer closed this chat on {day and time}. If they write again, it
+opens a new one." (`customerClosedAt` on `GET /v1/conversations/{id}`), the list marks it
+**Closed by the customer** (`closedByCustomer` on `GET /v1/conversations`, which also
+answers `status=closed`), and a reply into it is refused in words, because a reply would
+have nowhere to go. Closing hides nothing from the office: what the customer wrote stays
+unread, and its task stays open, until a person opens the conversation, so a customer who
+writes "the furnace is out" and closes the page is not lost. Closing marks the chat read,
+drops a notice that quiet hours were holding for it, and writes `portal.chat_closed` on the
+audit log naming the sign in (and the contact, when a contact signed in as the customer).
+Closing a chat that is closed, or before there was one, changes nothing. Twelve a minute
+per customer, like writing.
+
 ### Readings in a narrow band
 
 A reading is drawn from zero unless the trade says otherwise. A trade pack can
@@ -858,6 +876,7 @@ in from, and which codes failed, are the office's business.
 | `POST /v1/portal/files/{id}/remove` | nothing: a sign in only |
 | `GET /v1/portal/chat` | nothing: a sign in only (asking marks the chat read) |
 | `POST /v1/portal/chat/messages` | nothing: a sign in only, counted per customer |
+| `POST /v1/portal/chat/close` | nothing: a sign in only, counted per customer |
 | `GET /v1/portal/chat/unread` | nothing: a sign in only |
 | `GET /v1/portal/chat/pictures/{messageId}/{index}` | nothing: a sign in only, a message in the customer's own chat |
 | `POST /v1/attachments/{id}/seen` | `document:read` |
@@ -944,8 +963,10 @@ crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,
 and nothing puts it on the board until somebody does. The chat from the account
 takes photos (not PDFs, which go through "Send us a photo or a PDF"), and the
-customer cannot close or clear a chat or take a picture back; the automated
-assistant, once a person has answered, does not take the conversation back, and
+customer cannot clear a chat or take a picture back, and cannot read a chat they
+closed again (the office keeps it; their page starts empty). Only the customer closes
+a chat: the office has no button for it, and a chat nobody closes stays open for good.
+The automated assistant, once a person has answered, does not take the conversation back, and
 never answers a message with a picture. The notice that the office answered is
 sent once and, apart from the one quiet hours held (above), not retried on its
 own: when it cannot go (a number that replied STOP and no email address, no email

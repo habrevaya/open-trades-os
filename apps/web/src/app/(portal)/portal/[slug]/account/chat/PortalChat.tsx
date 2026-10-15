@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { readChat, sendChat, type ChatView } from "./actions";
+import { closeChat, readChat, sendChat, type ChatView } from "./actions";
 
 const WHO = { visitor: "You", assistant: "Automated assistant" } as const;
 
@@ -36,7 +36,12 @@ export function PortalChat({ slug, company, initial }: { slug: string; company: 
 
   return (
     <section aria-label="Your chat" className="rounded-md border border-steel-200 bg-canvas p-5">
-      <p className="text-sm text-ink-700">
+      {chat.status === "closed" && (
+        <p role="status" className="rounded-md border border-steel-200 bg-steel-100 p-3 text-sm text-ink-700">
+          You closed your last chat. Write below to start a new one.
+        </p>
+      )}
+      <p className="mt-3 text-sm text-ink-700">
         {chat.assistant && chat.status !== "handed_off"
           ? `${company}'s automated assistant answers first. Ask for a person at any time.`
           : `Someone at ${company} will answer here. You can leave this page and come back. We will tell you by email or text when we answer.`}
@@ -105,10 +110,19 @@ export function PortalChat({ slug, company, initial }: { slug: string; company: 
           </span>
         </div>
         {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
-        <button type="submit" disabled={pending}
-                className="inline-flex h-10 items-center rounded bg-ink-900 px-4 text-sm font-medium text-white disabled:opacity-60">
-          {pending ? "Sending" : "Send"}
-        </button>
+        <div className="flex flex-wrap items-center gap-4">
+          <button type="submit" disabled={pending}
+                  className="inline-flex h-10 items-center rounded bg-ink-900 px-4 text-sm font-medium text-white disabled:opacity-60">
+            {pending ? "Sending" : "Send"}
+          </button>
+          {chat.messages.length > 0 && chat.status !== "closed" && (
+            <button type="button" disabled={pending}
+                    onClick={() => start(async () => { setError(null); setChat(await closeChat(slug)); })}
+                    className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-60">
+              Close this chat
+            </button>
+          )}
+        </div>
       </form>
     </section>
   );

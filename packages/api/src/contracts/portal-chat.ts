@@ -21,7 +21,10 @@ const Token = z.string().min(20).max(200);
 const PortalChatView = z.object({
   /** Whether the company's automated assistant answers in customer accounts. */
   assistant: z.boolean(),
-  /** Null before the customer has written. `handed_off` once a person has the conversation. */
+  /**
+   * Null before the customer has written. `handed_off` once a person has the conversation. `closed` after the
+   * customer closed it: there are no messages until they write again, which opens a new conversation.
+   */
   status: z.enum(["open", "handed_off", "closed"]).nullable(),
   bookingTaken: z.boolean(),
   messages: z.array(z.object({
@@ -77,6 +80,20 @@ export const sayInPortalChat = defineRoute({
   output: PortalChatView,
 });
 
+export const closePortalChat = defineRoute({
+  method: "post",
+  path: "/v1/portal/chat/close",
+  summary: "Close the signed in customer's chat",
+  description:
+    "From a sign in only. Ends the conversation the customer has open, whoever has it: the inbox shows it as closed and says the customer closed it, and the office can no longer reply into it. Nothing the office has not read is marked read, so what the customer wrote stays in front of the office. The next message the customer writes opens a new conversation. Closing a chat that is already closed, or before one was started, changes nothing. The answer is the chat as the customer now sees it: status `closed` and no messages until they write again.",
+  module: "M05",
+  permissions: [],
+  authorization: "grant",
+  idempotent: true,
+  input: z.object({ token: Token }),
+  output: PortalChatView,
+});
+
 export const getPortalChatUnread = defineRoute({
   method: "get",
   path: "/v1/portal/chat/unread",
@@ -103,4 +120,4 @@ export const getPortalChatPicture = defineRoute({
   output: z.object({ contentType: z.string(), fileName: z.string().nullable(), bytes: z.string() }),
 });
 
-export const portalChatRoutes = { getPortalChat, sayInPortalChat, getPortalChatUnread, getPortalChatPicture } as const;
+export const portalChatRoutes = { getPortalChat, sayInPortalChat, closePortalChat, getPortalChatUnread, getPortalChatPicture } as const;

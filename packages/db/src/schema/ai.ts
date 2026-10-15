@@ -388,6 +388,13 @@ export const aiChatSession = pgTable("ai_chat_session", {
   customerNotifiedAt: timestamp("customer_notified_at", { withTimezone: true }),
   customerNotice: text("customer_notice"),
   customerNoticeHeldAt: timestamp("customer_notice_held_at", { withTimezone: true }),
+  /**
+   * When the customer closed this chat from their account (status `closed`
+   * with this set). A chat the office or the assistant ended never sets it, so
+   * the inbox can say who closed it. The next thing the customer writes opens a
+   * new conversation; this one stays as it was.
+   */
+  customerClosedAt: timestamp("customer_closed_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   tokenIdx: uniqueIndex("ai_chat_session_token_idx").on(t.tokenHash)

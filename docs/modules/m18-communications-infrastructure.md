@@ -487,7 +487,12 @@ made for them. A website chat still takes words only. Answering a chat from a
 customer's account also tells the customer, by email or text and once until they
 read it, that the office answered (`docs/modules/m05-customer-portal-online-booking.md`),
 and `GET /v1/conversations/{id}` gives `customerNotice`, what became of that
-notice.
+notice. A customer can close their chat from their account: the conversation then
+shows as closed, `GET /v1/conversations` says `closedByCustomer`, the thread gives
+`customerClosedAt` and the inbox says so ("The customer closed this chat on ..."),
+and a reply into it is refused (`chat_closed`, in words) because it would have
+nowhere to go. What the customer wrote stays unread for the office until a person
+opens it. Their next message opens a new conversation.
 
 ### Templates
 

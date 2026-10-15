@@ -2099,6 +2099,28 @@ export interface ClosePayPeriodOutput {
   periodEnd: string;
 }
 
+export interface ClosePortalChatInput {
+  token: string;
+}
+
+export interface ClosePortalChatOutput {
+  assistant: boolean;
+  status: "open" | "handed_off" | "closed" | null;
+  bookingTaken: boolean;
+  messages: Array<{
+    id: string;
+    from: "visitor" | "assistant" | "person";
+    text: string;
+    at: string;
+    pictures: Array<{
+      index: number;
+      contentType: string;
+      name: string | null;
+      shown: boolean;
+    }>;
+  }>;
+}
+
 export type CloseSafetyMeetingInput = Record<string, unknown>;
 
 export interface CloseSafetyMeetingOutput {
@@ -7365,6 +7387,7 @@ export interface GetConversationOutput {
     }>;
   }>;
   customerNotice: string | null;
+  customerClosedAt: string | null;
   canReply: boolean;
   blockedReason: string | null;
   blockedExplanation: string | null;
@@ -13836,6 +13859,7 @@ export interface ListConversationsOutput {
     lastMessagePreview: string | null;
     awaitingReply: boolean;
     unread: number;
+    closedByCustomer: boolean;
   }>;
   hasMore: boolean;
   nextCursor: string | null;
@@ -32562,6 +32586,7 @@ export interface OperationTypes {
   closeDisposalFacility: { input: CloseDisposalFacilityParams & CloseDisposalFacilityInput; output: CloseDisposalFacilityOutput };
   closeIncident: { input: CloseIncidentParams & CloseIncidentInput; output: CloseIncidentOutput };
   closePayPeriod: { input: ClosePayPeriodInput; output: ClosePayPeriodOutput };
+  closePortalChat: { input: ClosePortalChatInput; output: ClosePortalChatOutput };
   closeSafetyMeeting: { input: CloseSafetyMeetingParams & CloseSafetyMeetingInput; output: CloseSafetyMeetingOutput };
   closeTask: { input: CloseTaskParams & CloseTaskInput; output: CloseTaskOutput };
   completeCallTransfer: { input: CompleteCallTransferParams & CompleteCallTransferInput; output: CompleteCallTransferOutput };
@@ -33724,6 +33749,7 @@ export const OPERATIONS = {
   closeDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   closeIncident: { method: "POST", path: "/v1/safety/incidents/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   closePayPeriod: { method: "POST", path: "/v1/payroll/periods/close", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
+  closePortalChat: { method: "POST", path: "/v1/portal/chat/close", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   closeSafetyMeeting: { method: "POST", path: "/v1/safety/meetings/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   closeTask: { method: "POST", path: "/v1/tasks/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
   completeCallTransfer: { method: "POST", path: "/v1/call-transfers/{id}/complete", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
@@ -35632,6 +35658,15 @@ export abstract class GeneratedOperations {
    */
   closePayPeriod(input: ClosePayPeriodInput, options?: CallOptions): Promise<ClosePayPeriodOutput> {
     return this.call("closePayPeriod", input, options);
+  }
+
+  /**
+   * Close the signed in customer's chat.
+   *
+   * POST /v1/portal/chat/close.
+   */
+  closePortalChat(input: ClosePortalChatInput, options?: CallOptions): Promise<ClosePortalChatOutput> {
+    return this.call("closePortalChat", input, options);
   }
 
   /**

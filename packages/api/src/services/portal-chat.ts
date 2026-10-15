@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { customerPortal as cp } from "@opentradesos/core";
-import { ConflictError, NotFoundError, inTenant, type RequestMeta } from "./context";
+import { ConflictError, NotFoundError, audit, inTenant, type RequestMeta } from "./context";
 import * as base from "./agents";
 import { chatReader, chatTranscript, disclosure, handOff, inbound, answerChat } from "./agent-chat";
 import { companyOf } from "./agent-facts";
@@ -47,6 +47,15 @@ import type { AiDeps } from "./ai";
  * answer one. The office's go through the inbox's reply, kept as stored files.
  * Neither is ever served by its storage key: the page asks for message and
  * position, and the message has to be in the customer's own conversation.
+ *
+ * THE CUSTOMER CAN CLOSE THEIR CHAT. Closing ends that conversation: the inbox
+ * shows it as closed and says the customer closed it (`customer_closed_at`),
+ * the office can no longer reply into it (a reply would have nowhere to go),
+ * and the next thing the customer writes opens a new conversation. Closing
+ * hides nothing from the office: what they wrote stays unread, with its task,
+ * until a person opens it, because a customer who writes "the furnace is out"
+ * and closes the page must not drop out of the office's sight. The customer's
+ * page starts empty again, and the old conversation is theirs no more to read.
  *
  * WHAT THE CUSTOMER HAS SEEN. Opening the chat, or writing in it, marks it
  * read (`customer_read_at`). A reply from the office newer than that is an
@@ -143,6 +152,8 @@ export async function read(db: Database, input: { token: string; after?: string 
     const assistant = await assistantOn(tx, organizationId);
     const found = await find(tx, session);
     if (!found) return { assistant, status: null, bookingTaken: false, messages: [] };
+    /** A chat the customer closed shows as closed and empty until they write again. */
+    if (found.chat.status === "closed") return { assistant, status: "closed" as const, bookingTaken: false, messages: [] };
     await tx.update(schema.aiChatSession).set({ customerReadAt: sql`now()` })
       .where(eq(schema.aiChatSession.id, found.chat.id));
     return { assistant, ...(await viewOf(tx, found.chat, input.after)) };
@@ -218,6 +229,8 @@ export async function say(
   const outcome = await inTenant(chatReader(db, organizationId), async (tx) => {
     const assistant = await assistantOn(tx, organizationId);
     let found = await find(tx, session);
+    /** A chat that was closed stays closed: what they write now opens a new conversation. */
+    if (found?.chat.status === "closed") found = null;
     if (!found) {
       const company = await companyOf(tx, organizationId, new Date());
       const settings = await base.settingWithin(tx, organizationId, "chat");
@@ -343,6 +356,49 @@ export async function say(
   return read(db, { token: input.token });
 }
 
+/**
+ * The customer closes their chat.
+ *
+ * Ends the conversation they have open, whoever has it (the assistant or a
+ * person), and says so to the office: the conversation is closed in the inbox,
+ * `customer_closed_at` is when, and the audit line names the sign in (and the
+ * contact, when a contact signed in as the customer). Nothing the office has not
+ * read is marked read, and no task is closed. A notice that quiet hours were
+ * holding is dropped, because there is nothing left to tell them about.
+ *
+ * Closing a chat that is already closed, or before one was started, changes
+ * nothing, so a double tap and a retry are the same close.
+ */
+export async function close(
+  db: Database, input: { token: string },
+): Promise<PortalChatView> {
+  const session = await sessionFor(db, input.token);
+  const organizationId = session.grant.organizationId;
+  await throttle(db, `portal-chat-close:${organizationId}:${session.customerId}`, LIMITS.perMinute);
+  await inTenant(chatReader(db, organizationId), async (tx) => {
+    const found = await find(tx, session);
+    if (!found || found.chat.status === "closed") return;
+    const now = new Date();
+    const wasHeld = found.chat.customerNoticeHeldAt !== null;
+    await tx.update(schema.aiChatSession).set({
+      status: "closed",
+      customerClosedAt: now,
+      /** Closing is the last thing they did in it, so the office's answers up to now are not owed a notice. */
+      customerReadAt: now,
+      writing: null,
+      customerNoticeHeldAt: null,
+      ...(wasHeld ? { customerNotice: "Not told: the customer closed the chat." } : {}),
+      updatedAt: now,
+    }).where(eq(schema.aiChatSession.id, found.chat.id));
+    await tx.update(schema.conversation).set({ status: "closed", updatedAt: now })
+      .where(eq(schema.conversation.id, found.conversation.id));
+    await audit(tx, {
+      ...chatReader(db, organizationId), portalGrantId: session.grant.grantId, portalContactId: session.contact?.id ?? null,
+    }, "portal.chat_closed", "conversation", found.conversation.id, { status: found.chat.status }, { status: "closed" });
+  });
+  return read(db, input);
+}
+
 /** A picture as the customer sent it. The name and type are the browser's word; what it is comes from the bytes. */
 export interface PortalChatPictureInput {
   fileName: string;
@@ -357,6 +413,7 @@ export const handlers = {
     db: Database, input: { token: string; text: string; pictures?: readonly PortalChatPictureInput[] | undefined },
     meta?: RequestMeta,
   ) => say(db, input, meta),
+  closePortalChat: (db: Database, input: { token: string }) => close(db, input),
   getPortalChatUnread: (db: Database, input: { token: string }) => unreadReplies(db, input),
   getPortalChatPicture: async (db: Database, input: { token: string; messageId: string; index: number }) => {
     const found = await picture(db, input);
