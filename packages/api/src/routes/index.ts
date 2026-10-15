@@ -12,7 +12,7 @@ import {
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
   apps, comms, consent, contacts, customerNotes, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
-  dispatchMap, dispatchDays, geocoding, visits,
+  dispatchMap, dispatchDays, geocoding, visits, visitCancellations,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
   agreements, agreementNotices, visitChanges, vendorCatalogue, proposals,
@@ -931,6 +931,9 @@ export const handlers = {
 
   // One visit on its own (M10), the read its screen makes
   getVisit: (ctx: ServiceContext, input: { id: string }) => visits.get(ctx, input),
+  cancelVisit: visitCancellations.handlers.cancelVisit,
+  getCancellationNotice: visitCancellations.handlers.getCancellationNotice,
+  setCancellationNotice: visitCancellations.handlers.setCancellationNotice,
 
   // The dispatch map, the route optimiser and the geocoder (M09, M24, M25)
   getDispatchMap: dispatchMap.handlers.getDispatchMap,

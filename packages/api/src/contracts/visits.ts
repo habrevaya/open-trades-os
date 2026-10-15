@@ -11,6 +11,9 @@ import { Uuid } from "./common";
  */
 const At = z.string().nullable();
 
+/** Who called a visit off: the customer, or the company itself. */
+export const CancelledBy = z.enum(["customer", "company"]);
+
 export const getVisit = defineRoute({
   method: "get",
   path: "/v1/visits/{id}",
@@ -69,7 +72,72 @@ export const getVisit = defineRoute({
       createdAt: z.string(), decidedAt: At, response: z.string().nullable(),
     })),
     siblings: z.array(z.object({ id: Uuid, sequence: z.number().int(), status: z.string(), windowStart: At })),
+    /**
+     * Who called it off and when they asked, on a cancelled visit, with the
+     * notice window it was judged by and whether that made it late. Null on a
+     * visit not called off; `by` null on one cancelled with nobody saying who.
+     */
+    cancellation: z.object({
+      by: CancelledBy.nullable(),
+      at: At,
+      noticeHours: z.number().int().nullable(),
+      late: z.boolean().nullable(),
+    }).nullable(),
   }),
 });
 
-export const visitRoutes = { getVisit } as const;
+/* --------------------------------------------------- calling a visit off */
+
+const Cancelled = z.object({
+  id: Uuid,
+  status: z.string(),
+  cancelledBy: CancelledBy,
+  cancelledAt: z.string().datetime(),
+  /** The company's notice window when it was called off, frozen on the visit. */
+  cancelNoticeHours: z.number().int(),
+  /** The customer called it off with less notice than the window asks for. Null with no window. */
+  late: z.boolean().nullable(),
+});
+
+export const cancelVisit = defineRoute({
+  method: "post",
+  path: "/v1/visits/{id}/cancelled",
+  summary: "Call off one visit, saying who asked",
+  description:
+    "Cancels a visit nobody has started (or one on the way), takes it off the route, tells whoever was on it not to go, and closes any request of the customer's still waiting on it. `by` is required: the customer, or the company itself (weather, staffing), because cleaning's cancellation rate counts the customer's and leaves the company's out. `askedAt` is when they asked, if earlier than now: never later than now and never before the visit was booked. The company's notice window is frozen on the visit with it. A visit being worked, or done, is refused.",
+  module: "M09",
+  permissions: ["visit:reschedule"],
+  idempotent: true,
+  input: z.object({ id: Uuid, by: CancelledBy, askedAt: z.string().datetime().optional() }),
+  output: Cancelled,
+});
+
+const Notice = z.object({
+  /** Hours before a visit's window a customer must cancel by for it not to be late. */
+  hours: z.number().int(),
+});
+
+export const getCancellationNotice = defineRoute({
+  method: "get",
+  path: "/v1/cancellation-notice",
+  summary: "How much notice the company asks a customer to give before cancelling",
+  module: "M09",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: Notice,
+});
+
+export const setCancellationNotice = defineRoute({
+  method: "patch",
+  path: "/v1/cancellation-notice",
+  summary: "Set how much notice a customer must give before cancelling",
+  description:
+    "Whole hours, from none to a month (720). A customer cancellation with less notice than this before the visit's window counts as late on cleaning's cancellation rate. A visit already called off keeps the window it was called off under, so changing this does not move past figures.",
+  module: "M09",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({ hours: z.number().int().min(0).max(720) }),
+  output: Notice,
+});
+
+export const visitRoutes = { getVisit, cancelVisit, getCancellationNotice, setCancellationNotice } as const;

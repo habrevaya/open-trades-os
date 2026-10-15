@@ -278,6 +278,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "backflow_recert",
       "budget_hour_variance",
       "callback_rate",
+      "cancel_rate_route",
       "churn",
       "close_rate",
       "drive_time_pct",
@@ -345,9 +346,12 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * before the positions it reads are deleted. `redo_rate` made thirty six
      * when it turned out a job's coverage already says why a return was free:
      * rework on our own work and our own warranty are our fault, goodwill for
-     * a bin that was not out is not.
+     * a bin that was not out is not. `cancel_rate_route` made thirty seven
+     * when every path that cancels a visit began saying who asked (the
+     * customer or the company) and when, with the company's notice window
+     * frozen on the visit.
      */
-    expect(computed.length + elsewhere.length).toBe(36);
+    expect(computed.length + elsewhere.length).toBe(37);
     expect(KEYS.length).toBe(47);
   });
 });

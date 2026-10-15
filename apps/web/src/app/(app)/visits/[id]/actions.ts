@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { dispatchDays } from "@opentradesos/api/services";
+import { dispatchDays, visitCancellations } from "@opentradesos/api/services";
 import { setVisitMovable } from "@opentradesos/api/contracts";
-import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { attempt, field, parsed, refused, type FormState } from "@/lib/actions";
+import { instantFromLocal } from "@/lib/local-time";
 
 /**
  * The days the customer agreed this visit may happen on. Read by the multi
@@ -25,6 +26,35 @@ export async function movableAction(_previous: FormState, form: FormData): Promi
       message: clear || (!input.from && !input.until)
         ? "Cleared. The visit stays on its day unless the customer's days of the week allow another."
         : "Saved. Rebalancing several days may now move it to another day inside these, and the customer is told when it does.",
+    };
+  });
+  if (state?.done) revalidatePath(`/visits/${id}`);
+  return state;
+}
+
+/**
+ * Calling off this one visit, saying who asked. Who is required and has no
+ * default: whether a customer cancelled late or the company called off a
+ * rain day is the whole difference on the cancellation rate, and a default
+ * would decide it for whoever is in a hurry. When is read in the company's
+ * zone and is optional, for a call the office took earlier than now.
+ */
+export async function cancelVisitAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const by = field(form, "by");
+  if (by !== "customer" && by !== "company") return refused(form, "Say who asked to call it off: the customer, or us.");
+  const user = await requireSetupUser();
+  const askedAt = instantFromLocal(field(form, "askedAt"), user.organizationTimezone);
+  const state = await attempt(form, async () => {
+    const done = await visitCancellations.cancel({ actor: user.actor, db: getDb() }, {
+      id, by, ...(askedAt ? { askedAt } : {}),
+    });
+    return {
+      message: by === "company"
+        ? "Called off. It is left out of the customer cancellation rate, and whoever was on it has been told not to go."
+        : done.late
+          ? `Called off. It came inside the ${done.cancelNoticeHours} hour notice window, so it counts as a late cancellation.`
+          : "Called off, with enough notice. Whoever was on it has been told not to go.",
     };
   });
   if (state?.done) revalidatePath(`/visits/${id}`);

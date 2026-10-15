@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService, acquisition,
-  people as peopleService, setup as setupService, documents,
+  people as peopleService, setup as setupService, documents, visitCancellations,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
@@ -17,6 +17,8 @@ import { Timezone } from "./Timezone";
 import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
+import { ActionForm, TextField } from "@/components/ActionForm";
+import { setCancelNotice } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +77,7 @@ export default async function SettingsPage() {
 
   const customRoles = can(user.actor, "role:write") ? await roleService.list(ctx) : [];
   const recordingPolicies = writes ? await telephonyService.listPolicies(ctx) : [];
+  const cancelNotice = writes ? await visitCancellations.notice(ctx) : null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -103,6 +106,26 @@ export default async function SettingsPage() {
       )}
 
       {writes && data.organization && <Timezone current={data.organization.timezone} />}
+
+      {/*
+        The company's cancellation policy, which decides which cancellations
+        are late on the cleaning scorecard. Beside the time zone because it
+        is the same kind of rule: said once, applied to every visit after.
+      */}
+      {cancelNotice && (
+        <section aria-label="Late cancellations" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="font-medium text-ink-900">Late cancellations</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            How many hours before a visit a customer has to cancel. Cancelling with less notice, or turning the team
+            away at the door, counts as a late cancellation on the scorecard. Visits you call off yourself never do.
+            Changing this does not change visits already cancelled.
+          </p>
+          <ActionForm action={setCancelNotice} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Hours of notice" name="hours" type="number" min={0} max={720} step={1}
+                       defaultValue={String(cancelNotice.hours)} className="block w-40" />
+          </ActionForm>
+        </section>
+      )}
 
       {/*
         Below the time zone because both are declarations about the world

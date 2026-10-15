@@ -21756,6 +21756,228 @@
         ]
       }
     },
+    "/v1/cancellation-notice": {
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PATCH"
+      ],
+      "get": {
+        "operationId": "getCancellationNotice",
+        "summary": "How much notice the company asks a customer to give before cancelling",
+        "description": "Requires a session holding: settings:read.",
+        "tags": [
+          "M09"
+        ],
+        "responses": {
+          "200": {
+            "description": "How much notice the company asks a customer to give before cancelling",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCancellationNoticeOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "patch": {
+        "operationId": "setCancellationNotice",
+        "summary": "Set how much notice a customer must give before cancelling",
+        "description": "Whole hours, from none to a month (720). A customer cancellation with less notice than this before the visit's window counts as late on cleaning's cancellation rate. A visit already called off keeps the window it was called off under, so changing this does not move past figures.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCancellationNoticeInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set how much notice a customer must give before cancelling",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCancellationNoticeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/cash-tips": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -138127,6 +138349,144 @@
         ]
       }
     },
+    "/v1/visits/{id}/cancelled": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "cancelVisit",
+        "summary": "Call off one visit, saying who asked",
+        "description": "Cancels a visit nobody has started (or one on the way), takes it off the route, tells whoever was on it not to go, and closes any request of the customer's still waiting on it. `by` is required: the customer, or the company itself (weather, staffing), because cleaning's cancellation rate counts the customer's and leaves the company's out. `askedAt` is when they asked, if earlier than now: never later than now and never before the visit was booked. The company's notice window is frozen on the visit with it. A visit being worked, or done, is refused.\n\nRequires a session holding: visit:reschedule.",
+        "tags": [
+          "M09"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelVisitInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Call off one visit, saying who asked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelVisitOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:reschedule"
+        ]
+      }
+    },
     "/v1/visits/{id}/complete": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -152311,6 +152671,65 @@
           "state"
         ]
       },
+      "CancelVisitInput": {
+        "type": "object",
+        "properties": {
+          "by": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "company"
+            ]
+          },
+          "askedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "by"
+        ]
+      },
+      "CancelVisitOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "cancelledBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "company"
+            ]
+          },
+          "cancelledAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cancelNoticeHours": {
+            "type": "integer"
+          },
+          "late": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "cancelledBy",
+          "cancelledAt",
+          "cancelNoticeHours",
+          "late"
+        ]
+      },
       "CancelWebhookReplayInput": {
         "type": "object",
         "properties": {}
@@ -153228,6 +153647,23 @@
             ]
           },
           "customerNotesSharedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelledBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "company"
+            ]
+          },
+          "cancelledAt": {
             "type": [
               "string",
               "null"
@@ -161308,6 +161744,23 @@
                   ]
                 },
                 "customerNotesSharedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "cancelledBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "customer",
+                    "company"
+                  ]
+                },
+                "cancelledAt": {
                   "type": [
                     "string",
                     "null"
@@ -178176,6 +178629,17 @@
           "result"
         ]
       },
+      "GetCancellationNoticeOutput": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hours"
+        ]
+      },
       "GetChangeOrderOutput": {
         "type": "object",
         "properties": {
@@ -189355,6 +189819,23 @@
                   ]
                 },
                 "customerNotesSharedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "cancelledBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "customer",
+                    "company"
+                  ]
+                },
+                "cancelledAt": {
                   "type": [
                     "string",
                     "null"
@@ -205702,6 +206183,48 @@
                 "windowStart"
               ]
             }
+          },
+          "cancellation": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "by": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "customer",
+                  "company"
+                ]
+              },
+              "at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "noticeHours": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "late": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "by",
+              "at",
+              "noticeHours",
+              "late"
+            ]
           }
         },
         "required": [
@@ -205732,7 +206255,8 @@
           "reports",
           "inspections",
           "changes",
-          "siblings"
+          "siblings",
+          "cancellation"
         ]
       },
       "GetVisitUnitsOutput": {
@@ -259640,6 +260164,17 @@
               "cancelled"
             ]
           },
+          "cancelledBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "company"
+            ]
+          },
+          "cancelledAt": {
+            "type": "string",
+            "format": "date-time"
+          },
           "bookAnyway": {
             "type": "boolean"
           },
@@ -259790,6 +260325,23 @@
             ]
           },
           "customerNotesSharedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelledBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "company"
+            ]
+          },
+          "cancelledAt": {
             "type": [
               "string",
               "null"
@@ -262389,6 +262941,30 @@
         },
         "required": [
           "days"
+        ]
+      },
+      "SetCancellationNoticeInput": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 720
+          }
+        },
+        "required": [
+          "hours"
+        ]
+      },
+      "SetCancellationNoticeOutput": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hours"
         ]
       },
       "SetCertificationStatusInput": {
@@ -279599,6 +280175,17 @@
           },
           "cancelVisits": {
             "type": "boolean"
+          },
+          "cancelledBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "company"
+            ]
+          },
+          "cancelAskedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -279890,6 +280477,23 @@
                   ]
                 },
                 "customerNotesSharedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "cancelledBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "customer",
+                    "company"
+                  ]
+                },
+                "cancelledAt": {
                   "type": [
                     "string",
                     "null"

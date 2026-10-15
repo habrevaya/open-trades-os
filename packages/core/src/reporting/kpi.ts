@@ -49,6 +49,10 @@ import { distanceKm } from "../location/index.js";
  *
  *   A ROUTE DAY'S MILES. Driven between stops, never to the first or home from
  *   the last, and not counted at all when the phone's positions have a gap.
+ *
+ *   A LATE CANCELLATION. A stop the customer called off with less notice than
+ *   the company asks for, judged by when they asked and the notice window in
+ *   force then, with the company's own cancellations left out.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -685,4 +689,57 @@ export function routeDay(input: {
     status: "counted",
     note: null,
   };
+}
+
+/* ------------------------------------------------- cancellation rate by route */
+
+export interface CancelStop {
+  status: string;
+  /** When it was booked for. A visit with no time was never a scheduled stop. */
+  windowStart: Date | null;
+  /** Null on a cancelled visit when nobody recorded who. */
+  cancelledBy: "customer" | "company" | null;
+  /** When the customer asked, or the company decided. */
+  cancelledAt: Date | null;
+  /** The company's notice window when it was called off, in hours. */
+  noticeHours: number | null;
+}
+
+/** The visit statuses that mean somebody called it off (one done anyway is still one called off). */
+export const VISIT_CALLED_OFF = ["cancelled", "completed_after_cancellation"] as const;
+
+/**
+ * What one scheduled stop counts as.
+ *
+ * "Stops cancelled or skipped inside the notice window divided by stops
+ * scheduled, reported per route and per weekday. EXCLUDES visits the company
+ * cancelled for weather or staffing, which are a separate and more serious
+ * number."
+ *
+ *   `null`      no window, so it was never a scheduled stop.
+ *   `kept`      not called off: done, still to come, or missed.
+ *   `late`      the customer called it off with less notice than the window
+ *               asked for, or after it had started (skipped at the door).
+ *   `in_time`   the customer called it off with the notice asked for. In the
+ *               denominator: it was a scheduled stop, and an owner wants to
+ *               see how many customers cancel properly as well as how many
+ *               do not.
+ *   `company`   the company called it off. Out of both halves and counted
+ *               beside, as the definition says.
+ *   `unknown`   called off with nobody recording who (before this was kept, or
+ *               brought in from another system). Out of both halves and
+ *               counted beside, rather than read as either: a week of rain
+ *               read as customers would be the misreading the definition
+ *               warns about, and read as the company would hide real ones.
+ *
+ * Exactly the notice asked for is in time: a policy of a day's notice is met
+ * by a call a day before.
+ */
+export function cancellationOf(stop: CancelStop): "kept" | "late" | "in_time" | "company" | "unknown" | null {
+  if (stop.windowStart === null) return null;
+  if (!(VISIT_CALLED_OFF as readonly string[]).includes(stop.status)) return "kept";
+  if (stop.cancelledBy === null || stop.cancelledAt === null || stop.noticeHours === null) return "unknown";
+  if (stop.cancelledBy === "company") return "company";
+  const due = stop.windowStart.getTime() - stop.noticeHours * 3_600_000;
+  return stop.cancelledAt.getTime() > due ? "late" : "in_time";
 }

@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty six of the forty seven are answered: thirty two computed here, four
-by M22's fleet report. The other eleven each name what they still lack.
+Thirty seven of the forty seven are answered: thirty three computed here, four
+by M22's fleet report. The other ten each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -403,6 +403,41 @@ revenue, no coverage recorded) is not counted, because nothing says it was our
 fault, and it is not hidden: how many there are is said beside the figure and
 opens on the jobs, so the office can say which they were.
 
+### Cancellation rate by route, and who called a visit off
+
+Cleaning's **cancellation rate by route** is "stops cancelled or skipped inside
+the notice window divided by stops scheduled, reported per route and per
+weekday", and it EXCLUDES "visits the company cancelled for weather or
+staffing, which are a separate and more serious number". A cancelled visit
+said neither who nor when: a customer ringing at seven and the owner calling
+off a rained out day were the same row. Every path that cancels a visit now
+says both (M09): the office calling off one visit, a job cancelled with its
+visits (M10), a customer's request from their link (the customer, asked when
+they sent it), and a visit brought in from history. The company's notice
+window (Settings, "Late cancellations", a day unless it says otherwise) is
+frozen on each visit when it is called off.
+
+- A **stop** is a visit with a window in the window, on customer work (every
+  class but internal), whatever became of it.
+- **Late** is the customer calling it off with less notice than the window
+  frozen on it, measured from when they asked to the start of its window, or
+  after the window began (turned away at the door). Exactly the notice asked
+  for is in time. A visit called off late and done anyway, on a phone that
+  missed the cancellation, is still a late cancellation.
+- A stop the **company** called off is out of both halves and counted beside.
+- A stop called off with **nobody saying who** (before this was recorded, or by
+  an API caller that did not say) is out of both halves and counted beside as
+  not known, never read as either.
+- Each record names the stop's route (or its crew, with no route) and its
+  weekday. The figure is the company's; the split per route and per weekday is
+  read off the records, not drawn as a breakdown.
+
+The rule is core's `reporting.cancellationOf`, with unit tests, written again
+in SQL, and `kpi-cancel-rate.integration.test.ts` checks a month worked out by
+hand, puts the same stops through both, and checks every path that cancels a
+visit records who and when; `visit-cancellation-paths.test.ts` reads the
+service layer and fails when a new path cancels a visit without saying who.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -502,7 +537,8 @@ they come to disagree.
 Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
-assembly due a retest, a crew's day, a permitted job, a person's route day. The scorecard's number is the sum of those rows, and
+assembly due a retest, a crew's day, a permitted job, a person's route day, a
+scheduled stop. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -880,12 +916,21 @@ prefix off.
 
 ## What is not built
 
-Eleven of the forty seven declared KPIs cannot be computed, and each one
+Ten of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the eleven has its datum yet (above, "The
+since they were written and none of the ten has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
+
+The cancellation rate by route is one company figure: the route and weekday of
+each stop are on its records, and the scorecard draws no breakdown by either.
+It judges lateness by the company's one notice window, not one per job type or
+plan. A visit is not called off from the phone, so a team turned away at the
+door is recorded by the office; a cancellation recorded before who asked was
+kept, or by an API caller that did not say, is counted beside the figure as not
+known. A visit with the customer not there (`no_show`) counts as a kept stop,
+not a skipped one, because nobody called it off.
 
 First time fix leaves out a part hold only when it names a purchase order in
 this product that went to the supplier, so a part bought over the counter and

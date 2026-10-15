@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
-import { can } from "@opentradesos/core";
+import { can, reporting } from "@opentradesos/core";
 import { guardedRead, NotFoundError, scopeOf, type ServiceContext } from "./context";
 import { jobVisibility } from "./scope";
 import { shopNames } from "./visit-shop";
@@ -150,6 +150,18 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
       inspections,
       changes,
       siblings,
+      /** Who called it off and when they asked, judged by the window frozen on it (`visit-cancellations.ts`). */
+      cancellation: (reporting.VISIT_CALLED_OFF as readonly string[]).includes(visit.status)
+        ? {
+          by: visit.cancelledBy,
+          at: visit.cancelledAt,
+          noticeHours: visit.cancelNoticeHours,
+          late: ((verdict) => verdict === "late" ? true : verdict === "in_time" ? false : null)(reporting.cancellationOf({
+            status: visit.status, windowStart: visit.windowStart, cancelledBy: visit.cancelledBy,
+            cancelledAt: visit.cancelledAt, noticeHours: visit.cancelNoticeHours,
+          })),
+        }
+        : null,
     };
   });
 }

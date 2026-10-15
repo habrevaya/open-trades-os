@@ -153,8 +153,20 @@ export async function setJobStatus(_previous: FormState, form: FormData): Promis
   const status = field(form, "status");
   if (status !== "completed" && status !== "in_progress" && status !== "cancelled") return refused(form, "Nothing to do.");
   const cancelVisits = status === "cancelled" && field(form, "cancelVisits") === "1";
+  /**
+   * Who asked, when the visits go too: required here, because the
+   * cancellation rate counts a customer's and leaves the company's out, and
+   * the form is where somebody knows which.
+   */
+  const cancelledBy = field(form, "cancelledBy");
+  if (cancelVisits && cancelledBy !== "customer" && cancelledBy !== "company") {
+    return refused(form, "Say who asked to call the visits off: the customer, or us.");
+  }
   const result = await attempt(form, async () => {
-    await jobs.update(await ctx(), { id: jobId, status, ...(cancelVisits ? { cancelVisits } : {}) });
+    await jobs.update(await ctx(), {
+      id: jobId, status,
+      ...(cancelVisits ? { cancelVisits, cancelledBy: cancelledBy as "customer" | "company" } : {}),
+    });
   });
   revalidatePath(`/jobs/${jobId}`);
   return result;

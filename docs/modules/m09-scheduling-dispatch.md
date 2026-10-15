@@ -279,6 +279,25 @@ half the company's interval (at least five seconds), so a day is at most
 2,880 rows per person at the default minute. The privacy choices are set
 out in M11.
 
+**A visit called off says who asked, and when.** "Call off this visit" on
+`/visits/{id}` (`POST /v1/visits/{id}/cancelled`, `visit:reschedule`) cancels a
+visit nobody has started, or one somebody is on the way to, takes it off the
+route, tells whoever was on it not to go, and closes any request of the
+customer's still waiting on it. It asks who wanted it called off, the customer
+or the company itself (weather, staffing), with no default, and when they asked
+if that was earlier than now (never later, and never before the visit was
+booked). Every other path that cancels a visit says the same: a job cancelled
+with its visits (M10), a customer's request from their link approved by the
+office (the customer, asked when they sent it, M05), and a visit brought in
+from history (as the old system said, or not known). The company's notice
+window, how many hours before a visit a customer must cancel (a day unless it
+says otherwise, on Settings, "Late cancellations", or
+`PATCH /v1/cancellation-notice`, `settings:write`), is frozen on the visit when
+it is called off, so changing the policy does not change which past
+cancellations were late. The visit's page says who asked, when, and whether it
+came inside the window. Cleaning's cancellation rate reads these (M21), and a
+guard test fails when a new path cancels a visit without saying who.
+
 **Crew work is not unassigned.** A visit sent to a crew is on the crew, not on
 anybody's assignment list, and the board used to put it in the unassigned pile
 where a dispatcher would give it to somebody else. A visit carries a crew or
@@ -529,6 +548,12 @@ suggestions and the multi day rebalance (M17 says how).
 
 ## API
 
+| Call | Needs |
+|---|---|
+| `POST /v1/visits/{id}/cancelled` | `visit:reschedule` |
+| `GET /v1/cancellation-notice` | `settings:read` |
+| `PATCH /v1/cancellation-notice` | `settings:write` |
+
 The calendar can also be subscribed to: `POST /v1/calendar-feeds` issues a feed,
 `GET /v1/calendar-feeds` lists them, and `POST /v1/calendar-feeds/{id}/rotate`
 and `POST /v1/calendar-feeds/{id}/revoke` handle a leaked URL. All four are
@@ -583,7 +608,12 @@ manager.
 
 ## What is not built
 
-No live traffic: drive times by road are the roads as the provider knows them,
+A visit is not called off from the phone: a team turned away at the door rings
+the office, which records it with the time they were turned away, as the
+customer's. Why the company called a day off (rain, a sick crew) is not coded,
+only that it was the company. A visit cancelled before who asked was recorded,
+or by an API caller that did not say, stays not known; nothing guesses it from
+notes. No live traffic: drive times by road are the roads as the provider knows them,
 and a routing answer is kept for the provider's whole cache period. A route's
 fit for a date counts the route's stops as the template has them that date: it
 does not read the visits already made from it (a stop moved, added or removed

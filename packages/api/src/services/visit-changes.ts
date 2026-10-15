@@ -6,6 +6,7 @@ import {
   type RequestMeta, type ServiceContext,
 } from "./context";
 import { announce, sideOf } from "./visit-notices";
+import { callOff } from "./visit-cancellations";
 import { consume, inGrant, mintGrant, peek, type ResolvedGrant } from "./portal";
 import { memberTest, openSlots, windowStart, type OpenSlot } from "./booking";
 import { refusingDuplicate } from "./duplicates";
@@ -654,8 +655,12 @@ export async function approve(ctx: ServiceContext, input: { id: string }) {
       subject = "Your visit has been moved";
       body = `Your visit has been moved to ${when}, as you asked. Reply to this message if anything changes.`;
     } else {
-      await tx.update(schema.visit).set({ status: "cancelled", routeOrder: null, updatedAt: now })
-        .where(eq(schema.visit.id, visit.id));
+      /**
+       * The customer called it off, at the moment they sent the request,
+       * not when the office got round to it: a late cancellation is late by
+       * when the customer said so (`visit-cancellations.ts`).
+       */
+      await callOff(tx, ctx, visit.id, { by: "customer", askedAt: req.createdAt });
       const was = sentenceWindow(visit.windowStart!, visit.windowEnd, timezone);
       await tx.insert(schema.portalEvent).values({
         organizationId: ctx.actor.organizationId,

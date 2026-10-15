@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty two of the forty seven are computed here, four are
- * M22's, and the eleven that are not each name what they still lack.)
+ * (They are read now. Thirty three of the forty seven are computed here, four are
+ * M22's, and the ten that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -954,6 +954,43 @@ const routeDays = (status: "counted" | "gap", value: "stops" | "miles" | "one"):
     and rd.day >= ${from}::date and rd.day <= ${to}::date
 `;
 
+/**
+ * SCHEDULED STOPS AND WHO CALLED THEM OFF, core's `reporting.cancellationOf`
+ * written again in SQL. A stop is a visit with a window in the window, on
+ * customer work; a stop called off says who and when they asked, and the
+ * notice window frozen on it when it was (`visit-cancellations.ts`).
+ *
+ * Each row names the route (or the crew, with no route) and the weekday,
+ * because the definition is "reported per route and per weekday": the
+ * scorecard's figure is the company's, and the records behind it say which
+ * route and which day each stop was.
+ */
+const CALLED_OFF = `v.status::text = any(array['cancelled', 'completed_after_cancellation'])`;
+const WHO_KNOWN = `(v.cancelled_by is not null and v.cancelled_at is not null and v.cancel_notice_hours is not null)`;
+const LATE = `(v.cancelled_at > v.window_start - make_interval(hours => v.cancel_notice_hours))`;
+const stopsCalledOff = (pick: "late" | "scheduled" | "company" | "unknown"): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, v.id::text as id,
+         concat('#', j.number, ' ', c.name, ', ', coalesce(r.name, cr.name, 'no route'), ', ',
+                trim(to_char(v.window_start at time zone ${zone}, 'Day'))) as label,
+         to_char(v.window_start at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit v
+  join public.job j on j.id = v.job_id
+  join public.job_type jt on jt.id = j.job_type_id
+  join public.customer c on c.id = j.customer_id
+  left join public.route r on r.id = v.route_id
+  left join public.crew cr on cr.id = v.crew_id
+  where v.deleted_at is null and j.deleted_at is null
+    and v.window_start >= ${dayStart(from, zone)} and v.window_start < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and ${sql.raw({
+      late: `${CALLED_OFF} and ${WHO_KNOWN} and v.cancelled_by = 'customer' and ${LATE}`,
+      scheduled: `(not ${CALLED_OFF} or (${WHO_KNOWN} and v.cancelled_by = 'customer'))`,
+      company: `${CALLED_OFF} and ${WHO_KNOWN} and v.cancelled_by = 'company'`,
+      unknown: `${CALLED_OFF} and not ${WHO_KNOWN}`,
+    }[pick])}
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1672,21 +1709,36 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   cancel_rate_route: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Who cancelled a visit, and when. The definition is stops cancelled inside "
-      + "the notice window and EXCLUDES visits the company cancelled itself. A "
-      + "customer cancelling from their portal link is now recorded "
-      + "(`visit_change_request`, with when they asked), but a customer who rings "
-      + "and asks the office to cancel is recorded exactly like the company "
-      + "cancelling for rain: `visit.status` says cancelled and nothing says by "
-      + "whom, nor when: a visit keeps no time it was cancelled (only a job "
-      + "does). Counting only the portal's half would undercount, and counting "
-      + "every cancellation would read a week of rain as customers leaving. "
-      + "Recording it means every path that cancels a visit (the office, a job "
-      + "cancelled with its visits, a portal request, a plan's skipped visit) "
-      + "saying who asked and when, which none of them does yet.",
+    measure: {
+      /**
+       * "Stops cancelled or skipped inside the notice window divided by stops
+       * scheduled, reported per route and per weekday. EXCLUDES visits the
+       * company cancelled for weather or staffing, which are a separate and
+       * more serious number."
+       *
+       * WHAT IT NEEDED, and what changed: who cancelled a visit, and when.
+       * Every path that cancels a visit now says both (`visit.cancelled_by`,
+       * `cancelled_at`, the time the customer asked, and the company's notice
+       * window frozen on it, `visit-cancellations.ts`), and a guard test fails
+       * when a new path forgets.
+       *
+       * A STOP is a visit with a window in the window, on customer work. LATE
+       * is the customer calling it off with less notice than the window asked
+       * for, or after it began (skipped at the door). The company's own
+       * cancellations are out of both halves and counted beside; a visit
+       * called off with nobody saying who (before this was kept) is out of
+       * both and counted beside as not known, never guessed at. Each record
+       * names its route and weekday.
+       */
+      numerator: { label: "stops the customer called off inside the notice window", records: stopsCalledOff("late") },
+      denominator: { label: "stops scheduled, other than those the company called off", records: stopsCalledOff("scheduled") },
+      besides: {
+        excluded: { label: "stops the company called off itself, left out", records: stopsCalledOff("company") },
+        unknown: { label: "stops called off with nobody saying who, left out", records: stopsCalledOff("unknown") },
+      },
+    },
   },
 
   chemical_cost_per_stop: {

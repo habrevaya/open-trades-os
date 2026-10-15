@@ -164,6 +164,16 @@ marking them are left as they are. "Cancel this job" on `/jobs/{id}` offers
 it, ticked, says how many visits it would cancel, and names the ones under
 way it leaves.
 
+**Who asked goes with the visits.** The form asks who wanted the visits called
+off, the customer or the company itself (weather, staffing), and will not
+cancel them without an answer; on the API it is `cancelledBy`, with
+`cancelAskedAt` for a call taken earlier than now. Each visit keeps who and
+when, with the company's notice window as it was (M09), because cleaning's
+cancellation rate counts a customer's late cancellation and leaves the
+company's own out (M21). An API caller that does not say is recorded as not
+known, which that rate counts beside the number rather than in it. One visit
+on its own is called off from its page, `/visits/{id}` (M09).
+
 ### Put it on hold, and say why
 
 "Put on hold" on `/jobs/{id}` asks why the job is waiting, from a fixed list:
@@ -280,7 +290,7 @@ because a technician may finish work and may not re-describe it.
 | `GET /v1/jobs` | `job:read` |
 | `GET /v1/jobs/{id}` | `job:read` |
 | `POST /v1/jobs` | `job:write` |
-| `PATCH /v1/jobs/{id}` | `job:write`, and `visit:reschedule` with `cancelVisits` |
+| `PATCH /v1/jobs/{id}` | `job:write`, and `visit:reschedule` with `cancelVisits` (and `cancelledBy`) |
 | `GET /v1/jobs/{id}/lines` | `job:read` |
 | `POST /v1/job-lines/{id}/billed-back` | `job:write` |
 | `GET /v1/jobs/{id}/holds` | `job:read` |
@@ -327,8 +337,10 @@ paper comes back into the job. Booking with a technician who
 is refused has no override; book the visit unassigned and send them from the
 board. Cancelling a job does not cancel its visits unless the office ticks
 it; an API caller has to ask with `cancelVisits`, so an integration that
-cancels jobs today keeps its behaviour. A visit somebody is already on the
-way to is never cancelled with the job: the office rings them.
+cancels jobs today keeps its behaviour, and one that does not send
+`cancelledBy` leaves who asked not known. A visit somebody is already on the
+way to is never cancelled with the job: the office rings them, or calls off
+that visit from its own page.
 
 A hold is placed by the office, never from the phone: a technician who needs a
 part says so to whoever orders it, and that person names the order. A part

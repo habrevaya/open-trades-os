@@ -1916,6 +1916,20 @@ export interface CancelMailCampaignOutput {
   state: string;
 }
 
+export interface CancelVisitInput {
+  by: "customer" | "company";
+  askedAt?: string;
+}
+
+export interface CancelVisitOutput {
+  id: string;
+  status: string;
+  cancelledBy: "customer" | "company";
+  cancelledAt: string;
+  cancelNoticeHours: number;
+  late: boolean | null;
+}
+
 export type CancelWebhookReplayInput = Record<string, unknown>;
 
 export interface CancelWebhookReplayOutput {
@@ -2157,6 +2171,8 @@ export interface CompleteVisitOutput {
   technicianNotes: string | null;
   customerNotes: string | null;
   customerNotesSharedAt: string | null;
+  cancelledBy?: "customer" | "company" | null;
+  cancelledAt?: string | null;
   externalRef: {
     source: string;
     id: string;
@@ -3693,6 +3709,8 @@ export interface CreateJobOutput {
     technicianNotes: string | null;
     customerNotes: string | null;
     customerNotesSharedAt: string | null;
+    cancelledBy?: "customer" | "company" | null;
+    cancelledAt?: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -6996,6 +7014,10 @@ export interface GetCampaignOutput {
   };
 }
 
+export interface GetCancellationNoticeOutput {
+  hours: number;
+}
+
 export interface GetChangeOrderOutput {
   id: string;
   projectId: string;
@@ -9183,6 +9205,8 @@ export interface GetJobOutput {
     technicianNotes: string | null;
     customerNotes: string | null;
     customerNotesSharedAt: string | null;
+    cancelledBy?: "customer" | "company" | null;
+    cancelledAt?: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -12188,6 +12212,12 @@ export interface GetVisitOutput {
     status: string;
     windowStart: string | null;
   }>;
+  cancellation: {
+    by: "customer" | "company" | null;
+    at: string | null;
+    noticeHours: number | null;
+    late: boolean | null;
+  } | null;
 }
 
 export interface GetVisitUnitsOutput {
@@ -22799,6 +22829,8 @@ export interface ScheduleVisitInput {
   technicianIds?: string[];
   crewId?: string;
   status?: "cancelled";
+  cancelledBy?: "customer" | "company";
+  cancelledAt?: string;
   bookAnyway?: boolean;
   completedAt?: string;
   technicianNotes?: string;
@@ -22829,6 +22861,8 @@ export interface ScheduleVisitOutput {
   technicianNotes: string | null;
   customerNotes: string | null;
   customerNotesSharedAt: string | null;
+  cancelledBy?: "customer" | "company" | null;
+  cancelledAt?: string | null;
   externalRef: {
     source: string;
     id: string;
@@ -23368,6 +23402,14 @@ export interface SetBusinessHoursInput {
 
 export interface SetBusinessHoursOutput {
   days: number;
+}
+
+export interface SetCancellationNoticeInput {
+  hours: number;
+}
+
+export interface SetCancellationNoticeOutput {
+  hours: number;
 }
 
 export interface SetCertificationStatusInput {
@@ -26844,6 +26886,8 @@ export interface UpdateJobInput {
   status?: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
   completedAt?: string;
   cancelVisits?: boolean;
+  cancelledBy?: "customer" | "company";
+  cancelAskedAt?: string;
 }
 
 export interface UpdateJobOutput {
@@ -26894,6 +26938,8 @@ export interface UpdateJobOutput {
     technicianNotes: string | null;
     customerNotes: string | null;
     customerNotesSharedAt: string | null;
+    cancelledBy?: "customer" | "company" | null;
+    cancelledAt?: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -29050,6 +29096,10 @@ export interface CancelMailCampaignParams {
   id: string;
 }
 
+export interface CancelVisitParams {
+  id: string;
+}
+
 export interface CancelWebhookReplayParams {
   id: string;
   replayId: string;
@@ -29464,6 +29514,8 @@ export type GetCallTrackingConnectionInput = Record<string, never>;
 export interface GetCampaignInput {
   id: string;
 }
+
+export type GetCancellationNoticeInput = Record<string, never>;
 
 export interface GetChangeOrderInput {
   id: string;
@@ -32545,6 +32597,7 @@ export interface OperationTypes {
   cancelCallTransfer: { input: CancelCallTransferParams & CancelCallTransferInput; output: CancelCallTransferOutput };
   cancelCampaign: { input: CancelCampaignParams & CancelCampaignInput; output: CancelCampaignOutput };
   cancelMailCampaign: { input: CancelMailCampaignParams & CancelMailCampaignInput; output: CancelMailCampaignOutput };
+  cancelVisit: { input: CancelVisitParams & CancelVisitInput; output: CancelVisitOutput };
   cancelWebhookReplay: { input: CancelWebhookReplayParams & CancelWebhookReplayInput; output: CancelWebhookReplayOutput };
   chargeInvoiceCardOnFile: { input: ChargeInvoiceCardOnFileParams & ChargeInvoiceCardOnFileInput; output: ChargeInvoiceCardOnFileOutput };
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
@@ -32739,6 +32792,7 @@ export interface OperationTypes {
   getCallAssistant: { input: GetCallAssistantInput; output: GetCallAssistantOutput };
   getCallTrackingConnection: { input: GetCallTrackingConnectionInput; output: GetCallTrackingConnectionOutput };
   getCampaign: { input: GetCampaignInput; output: GetCampaignOutput };
+  getCancellationNotice: { input: GetCancellationNoticeInput; output: GetCancellationNoticeOutput };
   getChangeOrder: { input: GetChangeOrderInput; output: GetChangeOrderOutput };
   getChangeOrderScheduleDays: { input: GetChangeOrderScheduleDaysInput; output: GetChangeOrderScheduleDaysOutput };
   getChatWidget: { input: GetChatWidgetInput; output: GetChatWidgetOutput };
@@ -33414,6 +33468,7 @@ export interface OperationTypes {
   setBudgetForecastMethod: { input: SetBudgetForecastMethodParams & SetBudgetForecastMethodInput; output: SetBudgetForecastMethodOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
+  setCancellationNotice: { input: SetCancellationNoticeInput; output: SetCancellationNoticeOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
   setCommissionItemRule: { input: SetCommissionItemRuleInput; output: SetCommissionItemRuleOutput };
   setContactPortalAccess: { input: SetContactPortalAccessParams & SetContactPortalAccessInput; output: SetContactPortalAccessOutput };
@@ -33707,6 +33762,7 @@ export const OPERATIONS = {
   cancelCallTransfer: { method: "POST", path: "/v1/call-transfers/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   cancelCampaign: { method: "POST", path: "/v1/campaigns/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   cancelMailCampaign: { method: "POST", path: "/v1/marketing/mail/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
+  cancelVisit: { method: "POST", path: "/v1/visits/{id}/cancelled", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   cancelWebhookReplay: { method: "POST", path: "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel", pathParams: ["id","replayId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   chargeInvoiceCardOnFile: { method: "POST", path: "/v1/invoices/{id}/charge-card", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:charge_saved","payment:collect"] },
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -33901,6 +33957,7 @@ export const OPERATIONS = {
   getCallAssistant: { method: "GET", path: "/v1/calls/{id}/assistant", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getCampaign: { method: "GET", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
+  getCancellationNotice: { method: "GET", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getChangeOrder: { method: "GET", path: "/v1/project-change-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getChangeOrderScheduleDays: { method: "GET", path: "/v1/project-change-orders/{id}/schedule-days", pathParams: ["id"], queryParams: ["phaseId","from"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getChatWidget: { method: "GET", path: "/v1/public/chat", pathParams: [], queryParams: ["companyKey"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
@@ -34576,6 +34633,7 @@ export const OPERATIONS = {
   setBudgetForecastMethod: { method: "PUT", path: "/v1/budgets/{year}/forecast", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
+  setCancellationNotice: { method: "PATCH", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCommissionItemRule: { method: "POST", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setContactPortalAccess: { method: "POST", path: "/v1/contacts/{id}/portal-access", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write","portal:revoke"] },
@@ -35479,6 +35537,15 @@ export abstract class GeneratedOperations {
    */
   cancelMailCampaign(input: CancelMailCampaignParams & CancelMailCampaignInput, options?: CallOptions): Promise<CancelMailCampaignOutput> {
     return this.call("cancelMailCampaign", input, options);
+  }
+
+  /**
+   * Call off one visit, saying who asked.
+   *
+   * POST /v1/visits/{id}/cancelled. Needs visit:reschedule.
+   */
+  cancelVisit(input: CancelVisitParams & CancelVisitInput, options?: CallOptions): Promise<CancelVisitOutput> {
+    return this.call("cancelVisit", input, options);
   }
 
   /**
@@ -37225,6 +37292,15 @@ export abstract class GeneratedOperations {
    */
   getCampaign(input: GetCampaignInput, options?: CallOptions): Promise<GetCampaignOutput> {
     return this.call("getCampaign", input, options);
+  }
+
+  /**
+   * How much notice the company asks a customer to give before cancelling.
+   *
+   * GET /v1/cancellation-notice. Needs settings:read.
+   */
+  getCancellationNotice(input: GetCancellationNoticeInput = {} as GetCancellationNoticeInput, options?: CallOptions): Promise<GetCancellationNoticeOutput> {
+    return this.call("getCancellationNotice", input, options);
   }
 
   /**
@@ -43300,6 +43376,15 @@ export abstract class GeneratedOperations {
    */
   setBusinessHours(input: SetBusinessHoursInput, options?: CallOptions): Promise<SetBusinessHoursOutput> {
     return this.call("setBusinessHours", input, options);
+  }
+
+  /**
+   * Set how much notice a customer must give before cancelling.
+   *
+   * PATCH /v1/cancellation-notice. Needs settings:write.
+   */
+  setCancellationNotice(input: SetCancellationNoticeInput, options?: CallOptions): Promise<SetCancellationNoticeOutput> {
+    return this.call("setCancellationNotice", input, options);
   }
 
   /**

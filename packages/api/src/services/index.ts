@@ -235,3 +235,4 @@ export * as staffNotices from "./staff-notices";
 export * as invites from "./invites";
 export * as documents from "./documents";
 export * as visits from "./visits";
+export * as visitCancellations from "./visit-cancellations";

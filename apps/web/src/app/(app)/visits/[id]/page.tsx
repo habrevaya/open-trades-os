@@ -8,8 +8,8 @@ import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { formatIn, formatDay } from "@/lib/dates";
-import { ActionForm, TextField } from "@/components/ActionForm";
-import { movableAction } from "./actions";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
+import { cancelVisitAction, movableAction } from "./actions";
 import { VISIT_STATUS, VISIT_TONE, label, tone, enumText } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +76,13 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
         </Fact>
         <Fact label="Goes out from">{visit.shop}</Fact>
         <Fact label="Rental">{visit.rentalEvent ? enumText(visit.rentalEvent) : null}</Fact>
+        <Fact label="Called off">
+          {visit.cancellation
+            ? visit.cancellation.by === null
+              ? "Nobody recorded who asked"
+              : `${visit.cancellation.by === "customer" ? "The customer asked" : "We called it off"}${visit.cancellation.at ? `, ${formatIn(visit.cancellation.at, tz)}` : ""}${visit.cancellation.late === true ? `, inside the ${visit.cancellation.noticeHours} hour notice window` : ""}`
+            : null}
+        </Fact>
         <Fact label="May move">
           {visit.movableFrom || visit.movableUntil
             ? `Any day ${visit.movableFrom ? `from ${formatDay(visit.movableFrom, tz)}` : ""}${visit.movableFrom && visit.movableUntil ? " " : ""}${visit.movableUntil ? `to ${formatDay(visit.movableUntil, tz)}` : ""}, as the customer agreed`
@@ -99,6 +106,28 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
             <ActionForm action={movableAction} submit="Clear" tone="quiet" className="mt-2" hidden={{ id: visit.id, clear: "yes" }} />
           )}
         </section>
+      )}
+
+      {/*
+        Calling off this one visit. Who asked is chosen every time, because
+        a customer's late cancellation and a rain day are different numbers
+        on the cancellation rate, and when is for a call taken earlier.
+      */}
+      {can(user.actor, "visit:reschedule") && ["unassigned", "scheduled", "dispatched", "en_route"].includes(visit.status) && (
+        <details className="mt-6 rounded-md border border-steel-200 bg-canvas p-4">
+          <summary className="cursor-pointer text-sm font-semibold">Call off this visit</summary>
+          <ActionForm action={cancelVisitAction} submit="Call it off" tone="danger" className="mt-3 space-y-3" hidden={{ id: visit.id }}>
+            <p className="text-sm text-ink-700">
+              It stays on record as cancelled, and whoever is on it is told not to go.
+            </p>
+            <Select label="Who asked" name="by" required defaultValue="" className="block w-72" options={[
+              { value: "", label: "Choose" },
+              { value: "customer", label: "The customer asked" },
+              { value: "company", label: "We called it off (weather, staffing)" },
+            ]} />
+            <TextField label="When they asked, if not just now" name="askedAt" type="datetime-local" className="block w-72" />
+          </ActionForm>
+        </details>
       )}
 
       {/*

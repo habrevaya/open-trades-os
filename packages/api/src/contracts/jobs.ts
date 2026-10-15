@@ -76,6 +76,13 @@ export const Visit = z.object({
   /** What the customer reads about the visit on their account, as the office chose to share it. */
   customerNotes: z.string().nullable(),
   customerNotesSharedAt: z.string().datetime().nullable(),
+  /**
+   * On a cancelled visit: who called it off, the customer or the company, and
+   * when they asked. Null on a cancelled visit nobody said about (cancelled
+   * before this was kept, or brought in without it).
+   */
+  cancelledBy: z.enum(["customer", "company"]).nullable().optional(),
+  cancelledAt: z.string().datetime().nullable().optional(),
   externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
@@ -353,6 +360,16 @@ export const updateJob = defineRoute({
      * `visit:reschedule` as well.
      */
     cancelVisits: z.boolean().optional(),
+    /**
+     * With `cancelVisits`: who asked for the visits to be called off, the
+     * customer or the company itself (weather, staffing). Cleaning's
+     * cancellation rate counts the customer's and leaves the company's out.
+     * Left out, the visits are recorded as cancelled with nobody saying who,
+     * and that rate counts them beside the number as not known.
+     */
+    cancelledBy: z.enum(["customer", "company"]).optional(),
+    /** With `cancelledBy`: when they asked, if earlier than now. Never later than now, never before a visit was booked. */
+    cancelAskedAt: z.string().datetime().optional(),
   }),
   output: Job,
 });
@@ -383,6 +400,14 @@ export const scheduleVisit = defineRoute({
      * ones who were going to go.
      */
     status: z.literal("cancelled").optional(),
+    /**
+     * With `status: "cancelled"`: who called it off, the customer or the
+     * company, and when they asked (`cancelledAt`, required with it). Left
+     * out, it is kept as cancelled with nobody saying who, which cleaning's
+     * cancellation rate counts beside the number as not known.
+     */
+    cancelledBy: z.enum(["customer", "company"]).optional(),
+    cancelledAt: z.string().datetime().optional(),
     /** Book it into time held for members anyway. See `bookAnyway` on a new job's visit. */
     bookAnyway: z.boolean().optional(),
     /**
