@@ -3,7 +3,14 @@
 import { useKeptAction } from "@/lib/use-kept-action";
 import { sendReply } from "./actions";
 
-export function ReplyBox({ conversationId, byEmail = false }: { conversationId: string; byEmail?: boolean }) {
+/**
+ * `chat` is set on a chat: "website" takes words only (the visitor's widget has
+ * nowhere to show a picture), "account" is a customer's own chat, which shows
+ * pictures and tells the customer by email or text that we answered.
+ */
+export function ReplyBox({ conversationId, byEmail = false, chat }: {
+  conversationId: string; byEmail?: boolean; chat?: "website" | "account" | undefined;
+}) {
   const [state, actionForm, pending] = useKeptAction(sendReply, null);
   /*
     Cleared on success by React's own reset after the action. A refusal
@@ -28,23 +35,29 @@ export function ReplyBox({ conversationId, byEmail = false }: { conversationId: 
           className="w-full rounded border border-steel-300 px-3 py-2 text-sm"
         />
       </label>
-      <label className="mt-2 block text-sm">
-        <span className="text-ink-700">{byEmail ? "Attach pictures" : "Add pictures"}</span>
-        <input type="file" name="pictures" accept="image/jpeg,image/png,image/gif" multiple
-               className="mt-1 block text-sm" />
-        <span className="mt-1 block text-xs text-ink-500">
-          Up to three JPEG, PNG or GIF pictures, five megabytes together.
-        </span>
-      </label>
+      {chat === "website" ? null : (
+        <label className="mt-2 block text-sm">
+          <span className="text-ink-700">{byEmail ? "Attach pictures" : "Add pictures"}</span>
+          <input type="file" name="pictures" accept="image/jpeg,image/png,image/gif" multiple
+                 className="mt-1 block text-sm" />
+          <span className="mt-1 block text-xs text-ink-500">
+            Up to three JPEG, PNG or GIF pictures, five megabytes together.
+          </span>
+        </label>
+      )}
       <div className="mt-3 flex items-center gap-3">
         <button type="submit" disabled={pending}
                 className="inline-flex h-10 items-center rounded bg-ink-900 px-3.5 text-sm font-medium text-white transition-colors hover:bg-ink-700 disabled:opacity-60">
           {pending ? "Sending" : "Send"}
         </button>
         <span className="text-sm text-ink-500">
-          {byEmail
-            ? "Queued and handed to your email provider by the worker."
-            : "Queued and handed to the carrier by the worker."}
+          {chat === "account"
+            ? "Shown on their chat page. If they are not looking, they are told by email or text."
+            : chat === "website"
+              ? "Shown in the visitor's open chat."
+              : byEmail
+                ? "Queued and handed to your email provider by the worker."
+                : "Queued and handed to the carrier by the worker."}
         </span>
       </div>
     </form>

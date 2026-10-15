@@ -37,6 +37,8 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
   const consentRows = await consent.history(ctx, { address: thread.conversation.externalAddress });
   const byEmail = thread.conversation.channel === "email";
   const byChat = thread.conversation.channel === "webchat";
+  /** A customer's own chat from their account, as opposed to a visitor's on the website. */
+  const fromAccount = byChat && thread.conversation.internalAddress === "portal";
 
   /**
    * The intake agent's draft for this thread, beside the messages it was read
@@ -57,7 +59,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
           {thread.customer?.name ?? (byChat ? "Website visitor" : byEmail ? thread.conversation.externalAddress : "Unknown number")}
         </h1>
         <span className="text-sm text-ink-500">
-          {byChat ? "Website chat" : byEmail ? `Email, ${thread.conversation.externalAddress}` : <Phone value={thread.conversation.externalAddress} />}
+          {fromAccount ? "Chat from their account" : byChat ? "Website chat" : byEmail ? `Email, ${thread.conversation.externalAddress}` : <Phone value={thread.conversation.externalAddress} />}
         </span>
       </div>
       {thread.customer && (
@@ -65,6 +67,12 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
           <a href={`/inbox?customer=${String(thread.customer["id"])}`} className="text-ink-700 underline underline-offset-4">
             Every conversation with them
           </a>
+        </p>
+      )}
+
+      {fromAccount && (
+        <p className="mt-2 text-sm text-ink-700">
+          {thread.customerNotice ?? "They are told by email or text when you answer, once until they read it."}
         </p>
       )}
 
@@ -126,7 +134,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
 
       {can(user.actor, "message:send") ? (
         thread.canReply ? (
-          <ReplyBox conversationId={id} byEmail={byEmail} />
+          <ReplyBox conversationId={id} byEmail={byEmail} chat={fromAccount ? "account" : byChat ? "website" : undefined} />
         ) : (
           /*
             Said before somebody types rather than after they press send. A

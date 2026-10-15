@@ -87,6 +87,12 @@ export const getConversation = defineRoute({
         name: z.string().nullable(),
       })),
     })),
+    /**
+     * On a chat from a customer's account: what happened when the customer was
+     * told the office had answered ("Told by email.", or why nobody could be
+     * told). Null on every other thread, and before anyone has answered.
+     */
+    customerNotice: z.string().nullable(),
     canReply: z.boolean(),
     /** Why not, as a code and in words, when a reply would be refused. */
     blockedReason: z.string().nullable(),
@@ -110,7 +116,7 @@ export const replyToConversation = defineRoute({
   path: "/v1/conversations/{id}/messages",
   summary: "Reply in a conversation",
   description:
-    "Queued, never sent here: the worker hands it to the carrier or the mail provider. A text thread is answered by text and an email thread by email, each under its own consent rules, and refused with the reason in words when it may not go. Pictures go as a picture message on a text thread (JPEG, PNG or GIF, three at most and five megabytes together, which is what carriers deliver) and as attachments on an email thread.",
+    "Queued, never sent here: the worker hands it to the carrier or the mail provider. A text thread is answered by text and an email thread by email, each under its own consent rules, and refused with the reason in words when it may not go. Pictures go as a picture message on a text thread (JPEG, PNG or GIF, three at most and five megabytes together, which is what carriers deliver), as attachments on an email thread, and in a chat from a customer's account, where the customer sees them on their chat page. A website chat takes words only. A reply in a chat from a customer's account also tells the customer, by email or text and once until they read it, that the office answered.",
   module: "M18",
   permissions: ["message:send"],
   idempotent: true,

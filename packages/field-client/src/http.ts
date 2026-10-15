@@ -1,5 +1,6 @@
 import { OfflineError, type Transport, type SyncResponse } from "./queue";
 import { EventReader, type ServerEvent } from "./events";
+import type { OwnContactRecord } from "./own-contact";
 import type {
   ArrivalNoticeResult, AssistantAnswer, CodeRequestResult, FieldSnapshot, FinancingLinkResult, OwedUpload,
   PaymentLinkResult, RegisterResult, SignInResult, StoreUploadResult,
@@ -317,6 +318,27 @@ export class FieldApi {
         offline("Could not reach the server.");
       }
     });
+  }
+
+  /**
+   * The person's own phone number and home address as the office's record
+   * of them holds it (`GET /v1/me`, `profile:own`): theirs alone, there is
+   * no one to name. Online only.
+   */
+  async myContact(): Promise<OwnContactRecord> {
+    const record = await this.request<{ ownContact: OwnContactRecord }>("GET", "/v1/me");
+    return record.ownContact;
+  }
+
+  /**
+   * Keep the person's own phone number and home address (`POST
+   * /v1/me/contact`), the whole of it, an empty box meaning "take it off".
+   * Online only, so a refusal in the server's words reaches the person now.
+   * The key makes a retry the same save: sending what is already kept
+   * changes nothing and is not written down twice.
+   */
+  saveMyContact(body: Record<string, string | null>, idempotencyKey: string): Promise<OwnContactRecord> {
+    return this.request("POST", "/v1/me/contact", body, { idempotencyKey });
   }
 
   signOut(deviceId: string): Promise<{ ok: true }> {

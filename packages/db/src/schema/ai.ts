@@ -368,6 +368,20 @@ export const aiChatSession = pgTable("ai_chat_session", {
    * after the whole answer has been checked.
    */
   writing: text("writing"),
+  /**
+   * A CHAT FROM A CUSTOMER'S ACCOUNT, as the customer has seen it (M05).
+   *
+   * `customer_read_at` is the last time the customer had the chat open: the
+   * page asks every few seconds while it is, and writing is reading too. A
+   * reply from the office newer than it is one they have not seen.
+   * `customer_notified_at` is when they were last told by email or text that
+   * the office had answered, so they are told once until they read it, and
+   * `customer_notice` says in words what happened to that notice, including
+   * why nobody could be told. Null on every chat that is not an account chat.
+   */
+  customerReadAt: timestamp("customer_read_at", { withTimezone: true }),
+  customerNotifiedAt: timestamp("customer_notified_at", { withTimezone: true }),
+  customerNotice: text("customer_notice"),
   ...timestamps,
 }, (t) => ({
   tokenIdx: uniqueIndex("ai_chat_session_token_idx").on(t.tokenHash)

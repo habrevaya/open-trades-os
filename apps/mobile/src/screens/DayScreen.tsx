@@ -117,6 +117,7 @@ export function DayScreen({ nav }: { nav: Navigate }) {
       )}
 
       <View style={styles.footer}>
+        <Button label="Your phone and address" kind="secondary" onPress={() => nav.push({ name: "details" })} />
         <Button label="Sign out" kind="secondary" onPress={signOut} />
       </View>
     </ScrollView>

@@ -7346,6 +7346,7 @@ export interface GetConversationOutput {
       name: string | null;
     }>;
   }>;
+  customerNotice: string | null;
   canReply: boolean;
   blockedReason: string | null;
   blockedExplanation: string | null;
@@ -10609,7 +10610,23 @@ export interface GetPortalChatOutput {
     from: "visitor" | "assistant" | "person";
     text: string;
     at: string;
+    pictures: Array<{
+      index: number;
+      contentType: string;
+      name: string | null;
+      shown: boolean;
+    }>;
   }>;
+}
+
+export interface GetPortalChatPictureOutput {
+  contentType: string;
+  fileName: string | null;
+  bytes: string;
+}
+
+export interface GetPortalChatUnreadOutput {
+  unread: number;
 }
 
 export interface GetPortalJobLiveOutput {
@@ -10659,6 +10676,7 @@ export interface GetPortalSettingsOutput {
   };
   jobPhotos: "chosen" | "all";
   bankAccounts: boolean;
+  chatReplyNotice: boolean;
   signInUrl: string;
 }
 
@@ -22528,6 +22546,11 @@ export interface SayInChatOutput {
 export interface SayInPortalChatInput {
   token: string;
   text: string;
+  pictures?: Array<{
+    fileName: string;
+    contentType?: string;
+    bytes: string;
+  }>;
 }
 
 export interface SayInPortalChatOutput {
@@ -22539,6 +22562,12 @@ export interface SayInPortalChatOutput {
     from: "visitor" | "assistant" | "person";
     text: string;
     at: string;
+    pictures: Array<{
+      index: number;
+      contentType: string;
+      name: string | null;
+      shown: boolean;
+    }>;
   }>;
 }
 
@@ -24057,6 +24086,7 @@ export interface SetPortalSettingsInput {
   };
   jobPhotos?: "chosen" | "all";
   bankAccounts?: boolean;
+  chatReplyNotice?: boolean;
 }
 
 export interface SetPortalSettingsOutput {
@@ -24066,6 +24096,7 @@ export interface SetPortalSettingsOutput {
   };
   jobPhotos: "chosen" | "all";
   bankAccounts: boolean;
+  chatReplyNotice: boolean;
   signInUrl: string;
 }
 
@@ -29622,6 +29653,16 @@ export interface GetPortalChatInput {
   after?: string;
 }
 
+export interface GetPortalChatPictureInput {
+  messageId: string;
+  index: number | null;
+  token: string;
+}
+
+export interface GetPortalChatUnreadInput {
+  token: string;
+}
+
 export interface GetPortalJobLiveInput {
   token: string;
 }
@@ -32568,6 +32609,8 @@ export interface OperationTypes {
   getPortalBookingAvailability: { input: GetPortalBookingAvailabilityInput; output: GetPortalBookingAvailabilityOutput };
   getPortalBookingOptions: { input: GetPortalBookingOptionsInput; output: GetPortalBookingOptionsOutput };
   getPortalChat: { input: GetPortalChatInput; output: GetPortalChatOutput };
+  getPortalChatPicture: { input: GetPortalChatPictureInput; output: GetPortalChatPictureOutput };
+  getPortalChatUnread: { input: GetPortalChatUnreadInput; output: GetPortalChatUnreadOutput };
   getPortalJobLive: { input: GetPortalJobLiveInput; output: GetPortalJobLiveOutput };
   getPortalLayout: { input: GetPortalLayoutInput; output: GetPortalLayoutOutput };
   getPortalSettings: { input: GetPortalSettingsInput; output: GetPortalSettingsOutput };
@@ -33721,6 +33764,8 @@ export const OPERATIONS = {
   getPortalBookingAvailability: { method: "GET", path: "/v1/portal/booking/availability", pathParams: [], queryParams: ["token","bookableServiceId","from","days","technicianId","propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalBookingOptions: { method: "GET", path: "/v1/portal/booking", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalChat: { method: "GET", path: "/v1/portal/chat", pathParams: [], queryParams: ["token","after"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  getPortalChatPicture: { method: "GET", path: "/v1/portal/chat/pictures/{messageId}/{index}", pathParams: ["messageId","index"], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  getPortalChatUnread: { method: "GET", path: "/v1/portal/chat/unread", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalJobLive: { method: "GET", path: "/v1/portal/job/live", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   getPortalLayout: { method: "GET", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getPortalSettings: { method: "GET", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
@@ -37780,6 +37825,24 @@ export abstract class GeneratedOperations {
    */
   getPortalChat(input: GetPortalChatInput, options?: CallOptions): Promise<GetPortalChatOutput> {
     return this.call("getPortalChat", input, options);
+  }
+
+  /**
+   * One picture from the signed in customer's chat.
+   *
+   * GET /v1/portal/chat/pictures/{messageId}/{index}.
+   */
+  getPortalChatPicture(input: GetPortalChatPictureInput, options?: CallOptions): Promise<GetPortalChatPictureOutput> {
+    return this.call("getPortalChatPicture", input, options);
+  }
+
+  /**
+   * How many answers from the office the signed in customer has not seen.
+   *
+   * GET /v1/portal/chat/unread.
+   */
+  getPortalChatUnread(input: GetPortalChatUnreadInput, options?: CallOptions): Promise<GetPortalChatUnreadOutput> {
+    return this.call("getPortalChatUnread", input, options);
   }
 
   /**
@@ -43336,7 +43399,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Turn tipping and bank payments on or off, and choose which job photographs customers see.
+   * Turn tipping, bank payments and chat reply notices on or off, and choose which job photographs customers see.
    *
    * PATCH /v1/portal-settings. Needs settings:write.
    */

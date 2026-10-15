@@ -7,11 +7,12 @@ import { portalBase } from "../lib/portal-base";
 /**
  * WHAT A COMPANY LETS ITS CUSTOMERS DO FOR THEMSELVES
  *
- * Three decisions, all off until somebody makes them: whether a customer
+ * Four decisions. Three are off until somebody makes them: whether a customer
  * paying from the portal is offered a tip for the technicians, whether
  * every job photograph is shown on the customer's job page or only the ones
  * somebody chose, and whether a signed in customer may save a bank account
- * and pay from it. Kept in `organization.settings.portal` beside the other
+ * and pay from it. The fourth is on until somebody turns it off: whether a
+ * customer is told, by email or text, that the office answered their chat. Kept in `organization.settings.portal` beside the other
  * settings the company owns, and read through core so a hand edited blob can
  * only ever read as "off".
  *
@@ -45,6 +46,7 @@ export interface PortalSettingsInput {
   tipping?: { enabled: boolean; presets: number[] } | undefined;
   jobPhotos?: cp.PhotoSharing | undefined;
   bankAccounts?: boolean | undefined;
+  chatReplyNotice?: boolean | undefined;
 }
 
 /**
@@ -65,6 +67,7 @@ export async function set(ctx: ServiceContext, input: PortalSettingsInput): Prom
       tipping,
       jobPhotos: input.jobPhotos ?? before.jobPhotos,
       bankAccounts: input.bankAccounts ?? before.bankAccounts,
+      chatReplyNotice: input.chatReplyNotice ?? before.chatReplyNotice,
     };
     await tx.update(schema.organization).set({
       settings: sql`${schema.organization.settings} || ${JSON.stringify({ portal: after })}::jsonb`,

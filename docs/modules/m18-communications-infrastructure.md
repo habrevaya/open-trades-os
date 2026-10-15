@@ -481,6 +481,13 @@ inbox sends pictures too (`POST /v1/conversations/{id}/messages` with
 picture message the carrier fetches from an unguessable address under the
 messaging webhook that answers for a week. On an email thread they go as
 attachments. Every picture send goes through the same consent gate as a text.
+In a chat from a customer's account (M05) the pictures are kept as stored files
+and shown on the customer's chat page; there is no carrier, so no address is
+made for them. A website chat still takes words only. Answering a chat from a
+customer's account also tells the customer, by email or text and once until they
+read it, that the office answered (`docs/modules/m05-customer-portal-online-booking.md`),
+and `GET /v1/conversations/{id}` gives `customerNotice`, what became of that
+notice.
 
 ### Templates
 

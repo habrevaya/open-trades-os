@@ -83,8 +83,10 @@ function dayIn(when: Date, timezone: string): string {
 /**
  * Counted per customer, outside the transaction that keeps the file, so a
  * refusal that rolls the file back does not roll the count back with it.
+ * One count for every way a customer sends a file (a job's, and a picture in
+ * the chat), so twenty an hour is twenty in all.
  */
-async function countUpload(db: Database, organizationId: string, customerId: string): Promise<void> {
+export async function countUpload(db: Database, organizationId: string, customerId: string): Promise<void> {
   const [row] = await db.execute<{ hits: number }>(
     sql`select app.count_public_hit(${`portal-file:${organizationId}:${customerId}`}, 3600) as hits`,
   );

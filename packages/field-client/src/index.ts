@@ -22,3 +22,4 @@ export * from "./task";
 export * from "./customer-files";
 export * from "./customer-notes";
 export * from "./events";
+export * from "./own-contact";

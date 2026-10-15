@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { portalSignIn } from "@opentradesos/api/services";
 import { refusalOf } from "@/lib/actions";
-import { requestMeta, setPortalToken } from "@/lib/portal-session";
+import { destinationPath, requestMeta, setPortalToken } from "@/lib/portal-session";
 
 export type SignInStep =
   | { ok: true; sent: true; expiresInMinutes: number }
@@ -48,10 +48,11 @@ export async function sendCode(slug: string, address: string, requestKey: string
 
 /**
  * Check the code. Right, and the cookie is set and the customer lands on
- * their account; right but the address is on two records, and they choose.
+ * their account (or the chat, when a link to it brought them here); right but
+ * the address is on two records, and they choose.
  */
 export async function checkCode(
-  slug: string, address: string, code: string, customerId?: string,
+  slug: string, address: string, code: string, customerId?: string, next?: string,
 ): Promise<SignInStep> {
   let token: string;
   try {
@@ -64,5 +65,5 @@ export async function checkCode(
     return { ok: false, message: said(error) };
   }
   await setPortalToken(slug, token);
-  redirect(`/portal/${encodeURIComponent(slug)}/account`);
+  redirect(destinationPath(slug, next));
 }

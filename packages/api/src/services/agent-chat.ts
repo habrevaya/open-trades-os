@@ -215,23 +215,28 @@ export async function say(
   return inTenant(reader(db, organizationId), (tx) => transcript(tx, fresh!));
 }
 
-export async function inbound(tx: Database, organizationId: string, session: typeof schema.aiChatSession.$inferSelect, text: string) {
+export async function inbound(
+  tx: Database, organizationId: string, session: typeof schema.aiChatSession.$inferSelect, text: string,
+  /** Pictures kept with the message, from a customer's account chat only. The website's takes words. */
+  media: (typeof schema.message.$inferInsert)["media"] = [],
+): Promise<string> {
   const [conversation] = await tx.select().from(schema.conversation)
     .where(eq(schema.conversation.id, session.conversationId)).limit(1);
-  await tx.insert(schema.message).values({
+  const [message] = await tx.insert(schema.message).values({
     organizationId, conversationId: session.conversationId,
     direction: "inbound", channel: "webchat", purpose: "transactional",
     fromAddress: conversation!.externalAddress, toAddress: "website",
-    body: text.slice(0, 4000), status: "received",
-  });
+    body: text.slice(0, 4000), media, status: "received",
+  }).returning({ id: schema.message.id });
   await tx.update(schema.conversation).set({
-    lastMessageAt: new Date(), lastMessagePreview: text.slice(0, 200),
+    lastMessageAt: new Date(), lastMessagePreview: (text.slice(0, 200) || "Picture"),
     /** Unread for a person only once a person has it; the assistant answering is not the office's to read. */
     unreadCount: session.status === "handed_off" ? sql`${schema.conversation.unreadCount} + 1` : schema.conversation.unreadCount,
     status: "open", updatedAt: new Date(),
   }).where(eq(schema.conversation.id, session.conversationId));
   await tx.update(schema.aiChatSession).set({ lastActivityAt: new Date(), updatedAt: new Date() })
     .where(eq(schema.aiChatSession.id, session.id));
+  return message!.id;
 }
 
 /**

@@ -175,9 +175,14 @@ describe("permissions", () => {
        * A signed in customer's chat with the company, read and written. Sign
        * in only, never an account link: the conversation is made on the
        * customer the sign in names, so nobody types who they are, and the
-       * messages are counted per customer per minute and per hour.
+       * messages are counted per customer per minute and per hour. Its
+       * pictures are asked for by message and position and only for a
+       * message in the customer's own conversation, and the unread count
+       * behind the mark on the account page is the customer's own.
        */
       "GET /v1/portal/chat",
+      "GET /v1/portal/chat/pictures/{messageId}/{index}",
+      "GET /v1/portal/chat/unread",
       "POST /v1/portal/chat/messages",
       /**
        * The same sign in with a code instead of a password. Asking for a code

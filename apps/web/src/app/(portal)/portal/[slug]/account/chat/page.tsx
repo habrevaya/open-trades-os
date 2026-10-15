@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function ChatPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const session = await requirePortalSession(slug);
+  const session = await requirePortalSession(slug, "chat");
   const chat = await portalChat.read(getDb(), { token: session.token });
   const base = `/portal/${encodeURIComponent(slug)}`;
   const company = session.organizationName;

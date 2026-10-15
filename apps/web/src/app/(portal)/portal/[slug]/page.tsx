@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { portal, portalSignIn } from "@opentradesos/api/services";
-import { currentPortalSession } from "@/lib/portal-session";
+import { currentPortalSession, destinationPath } from "@/lib/portal-session";
 import { SignInForm } from "./SignInForm";
 
 export const dynamic = "force-dynamic";
@@ -14,17 +14,25 @@ export const dynamic = "force-dynamic";
  * customer who is already signed in goes straight to their account.
  *
  * Nothing here says whether an address is on file. The page is the same for
- * a customer and for a stranger, and that is the point.
+ * a customer and for a stranger, and that is the point. `?next=chat`, which the
+ * notice that the office answered links through, takes a customer to their chat
+ * once they are in; no other value is read.
  */
-export default async function PortalSignInPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function PortalSignInPage({
+  params, searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { slug } = await params;
+  const { next } = await searchParams;
   let company: { name: string; slug: string };
   try {
     company = await portalSignIn.companyNamed(getDb(), slug);
   } catch {
     notFound();
   }
-  if (await currentPortalSession(company.slug)) redirect(`/portal/${encodeURIComponent(company.slug)}/account`);
+  if (await currentPortalSession(company.slug)) redirect(destinationPath(company.slug, next));
 
   /**
    * The company's own look, served by its public key: there is no token on
@@ -57,7 +65,7 @@ export default async function PortalSignInPage({ params }: { params: Promise<{ s
           See your visits, pay a bill, find an old invoice. No password: we send you a code.
         </p>
       </header>
-      <SignInForm slug={company.slug} organizationName={company.name} />
+      <SignInForm slug={company.slug} organizationName={company.name} next={next === "chat" ? "chat" : undefined} />
     </div>
   );
 }

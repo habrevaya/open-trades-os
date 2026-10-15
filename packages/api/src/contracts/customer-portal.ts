@@ -423,6 +423,8 @@ const PortalSettings = z.object({
   }),
   jobPhotos: z.enum(["chosen", "all"]),
   bankAccounts: z.boolean(),
+  /** Whether a customer is told by email or text when the office answers their account chat. On unless turned off. */
+  chatReplyNotice: z.boolean(),
 });
 
 export const getPortalSettings = defineRoute({
@@ -438,9 +440,9 @@ export const getPortalSettings = defineRoute({
 export const setPortalSettings = defineRoute({
   method: "patch",
   path: "/v1/portal-settings",
-  summary: "Turn tipping and bank payments on or off, and choose which job photographs customers see",
+  summary: "Turn tipping, bank payments and chat reply notices on or off, and choose which job photographs customers see",
   description:
-    "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail.",
+    "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail. The chat reply notice is ON until turned off: a customer who chats from their account is told by email or text, once until they read it, that the office answered.",
   module: "M05",
   permissions: ["settings:write"],
   idempotent: true,
@@ -452,6 +454,8 @@ export const setPortalSettings = defineRoute({
     jobPhotos: z.enum(["chosen", "all"]).optional(),
     /** Let signed in customers save a bank account and pay from it. The company turns bank debits on with Stripe too. */
     bankAccounts: z.boolean().optional(),
+    /** Tell a customer by email or text when the office answers their account chat. */
+    chatReplyNotice: z.boolean().optional(),
   }),
   output: PortalSettings.extend({ signInUrl: z.string() }),
 });
