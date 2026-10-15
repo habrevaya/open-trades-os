@@ -258,7 +258,9 @@ in their colour beside the planned day's solid line: every position kept
 since the start of the company's day, a parked stretch drawn as one point,
 thinned evenly to at most four hundred points. Positions are kept three
 days unless the company says otherwise (one to thirty) and deleted by the
-worker; turning sharing off deletes every position already kept. The store
+worker, which first keeps each person's finished day as its stops and the
+miles between them for route density (M21) and nothing else; turning sharing
+off deletes every position already kept, and those days with them. The store
 is bounded: no two positions of one person are kept closer together than
 half the company's interval (at least five seconds), so a day is at most
 2,880 rows per person at the default minute. The privacy choices are set

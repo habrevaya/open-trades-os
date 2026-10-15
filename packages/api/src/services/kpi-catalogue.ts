@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty five of the forty seven are computed here, four are
- * M22's, and the eighteen that are not each name what they still lack.)
+ * (They are read now. Twenty six of the forty seven are computed here, four are
+ * M22's, and the seventeen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -61,9 +61,9 @@ export type Format = "percent" | "money" | "number" | "duration";
  *
  * Every records query returns the same six columns:
  *
- *   kind     job, estimate, agreement, visit, customer, technician_day, time,
- *            deficiency or equipment: what the row is, which decides who may
- *            see it listed
+ *   kind     job, estimate, agreement, visit, customer, technician_day,
+ *            crew_day, time, deficiency, equipment or route_day: what the row
+ *            is, which decides who may see it listed
  *   id       the record's id, as text
  *   label    what to call it on a list
  *   on_day   the date it falls on in the window, as YYYY-MM-DD
@@ -300,6 +300,18 @@ const haulVisits = (done: boolean): Records => (from, to, zone) => sql`
       where va.visit_id = v.id
         and ${onATruck(sql`va.technician_id`, sql`((${done ? sql`v.completed_at` : sql`v.arrived_at`}) at time zone ${zone})::date`)}
     )
+`;
+
+/** Visits completed in the window, one row each, which opens on the visit. */
+const completedVisits = (): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, v.id::text as id,
+         concat('#', j.number, ' visit ', v.sequence) as label,
+         to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit v
+  join public.job j on j.id = v.job_id
+  where v.deleted_at is null and v.status = 'completed'
+    and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
 `;
 
 /** An agreement as a row: the plan, for whom, from when. */
@@ -665,6 +677,26 @@ const permittedJobs = (verdicts: readonly string[]): Records => (from, to) => sq
     and x.verdict = any(${sql.param([...verdicts])}::text[])
 `;
 
+/**
+ * A PERSON'S ROUTE DAYS (`route_day`), summed by the worker from the phone's
+ * positions before they are deleted: core's `routeDay`, the drives from each
+ * stop's completion to the next stop's arrival, so the way out and the way
+ * home are never in it. `value` is what the row adds: its stops, its miles,
+ * or one. Each row is a person's day, and opens on that week's timesheets.
+ */
+const routeDays = (status: "counted" | "gap", value: "stops" | "miles" | "one"): Records => (from, to) => sql`
+  select 'route_day'::text as kind, rd.id::text as id,
+         concat(t.display_name, ', ', to_char(rd.day, 'Mon FMDD'), ': ', rd.stops, ' stops',
+                ${status === "counted" ? sql`', ', rd.miles, ' miles between them'` : sql`', not counted: ', rd.note`}) as label,
+         rd.day::text as on_day,
+         ${value === "stops" ? sql`rd.stops::numeric` : value === "miles" ? sql`rd.miles::numeric` : sql`1::numeric`} as value,
+         '/timesheets?week=' || rd.day::text as href
+  from public.route_day rd
+  join public.technician t on t.id = rd.technician_id
+  where rd.status = ${status}
+    and rd.day >= ${from}::date and rd.day <= ${to}::date
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1023,19 +1055,7 @@ export const CATALOGUE: Record<string, Entry> = {
             and ${sql.raw(REVENUE_ON_JOB)} = 0
         `,
       },
-      denominator: {
-        label: "completed visits",
-        records: (from, to, zone) => sql`
-          select 'visit'::text as kind, v.id::text as id,
-                 concat('#', j.number, ' visit ', v.sequence) as label,
-                 to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
-                 1::numeric as value, '/visits/' || v.id as href
-          from public.visit v
-          join public.job j on j.id = v.job_id
-          where v.deleted_at is null and v.status = 'completed'
-            and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
-        `,
-      },
+      denominator: { label: "completed visits", records: completedVisits() },
     },
   },
 
@@ -1515,19 +1535,48 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   route_density: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "Miles driven between stops. The definition divides completed stops by "
-      + "route miles and EXCLUDES the drive from the yard to the first stop and "
-      + "back. A van's odometer readings are recorded (M22), but as one "
-      + "reading per vehicle per day, which includes both yard legs, and road "
-      + "distances between two points are cached only for the pairs the planner "
-      + "asked a routing provider about, so most days would be missing legs. "
-      + "The timeclock's coordinates are a straight line between two points "
-      + "rather than a route, and the phone's positions on the clock are kept "
-      + "three days by design (thirty at most), so last month's miles are gone "
-      + "before a month's figure could read them.",
+    measure: {
+      /**
+       * Pest: "Completed stops divided by driving miles on the route ...
+       * EXCLUDES the first leg from the yard and the last leg home." Lawn:
+       * "Completed stops divided by route miles driven for the day. EXCLUDES
+       * the drive from the yard to the first stop and back from the last."
+       *
+       * WHAT IT NEEDED: a month of miles between stops, when the positions
+       * they come from are deleted after a few days by design. The worker now
+       * reads each finished day before the purge and keeps a person's route
+       * day (`route_day`): their completed stops, and the miles of the drives
+       * from each stop's completion to the next stop's arrival, which is
+       * exactly the exclusion, because the way out and the way home are not
+       * between two stops. Odometer readings were never it: they are one a
+       * vehicle a day and include both legs.
+       *
+       * PER PERSON. Each person's day counts their own stops over their own
+       * miles, so a crew of three in one truck counts its stops three times
+       * and its miles three times, and the ratio is the crew's. A stop
+       * completed with no arrival time (closed from the office) is not one
+       * of the day's stops, and the drive across it is still measured, which
+       * reads lower, never higher.
+       *
+       * ONLY DAYS SEEN WHOLE COUNT, in both halves. A day whose positions
+       * have a gap on a drive between stops (the phone off, no signal, no
+       * position near one end of a drive) would read a straight line across
+       * the gap and a tighter route than was driven, so it is left out and
+       * counted beside the figure. A day with fewer than two stops is no
+       * route. A company that does not share locations has no route days and
+       * reads "not this window".
+       */
+      numerator: { label: "stops completed on route days seen whole", records: routeDays("counted", "stops") },
+      denominator: { label: "miles driven between those stops", records: routeDays("counted", "miles") },
+      besides: {
+        excluded: {
+          label: "Route days left out because the phone's positions have a gap on a drive between stops",
+          records: routeDays("gap", "one"),
+        },
+      },
+    },
   },
 
   /* ------------------------------ the six the guard test found for me ------ */

@@ -298,6 +298,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "revenue_per_crew_day",
       "revenue_per_stop",
       "revenue_per_tech",
+      "route_density",
       "stops_per_day",
     ]);
 
@@ -324,9 +325,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * truck got a kind (M22): a driver is whoever has a vehicle with one checked out.
      * `inspection_pass` made twenty nine when the city's inspections of a
      * permitted job were recorded against its permit, each fail saying whose
-     * work it was about.
+     * work it was about. `route_density` made thirty when the worker began
+     * keeping each person's finished day of stops and miles between them
+     * before the positions it reads are deleted.
      */
-    expect(computed.length + elsewhere.length).toBe(29);
+    expect(computed.length + elsewhere.length).toBe(30);
     expect(KEYS.length).toBe(47);
   });
 });

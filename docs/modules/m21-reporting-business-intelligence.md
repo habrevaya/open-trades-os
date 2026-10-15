@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty nine of the forty seven are answered: twenty five computed here, four
-by M22's fleet report. The other eighteen each name what they still lack.
+Thirty of the forty seven are answered: twenty six computed here, four by
+M22's fleet report. The other seventeen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -92,8 +92,8 @@ report was required to capture when it was written; the electrical pack
 declares a panel's rating, open spaces and known concern, but the register
 holds no value to that declaration; a job can be put on hold, but nothing says
 it is waiting on a part; and the phone's positions are kept three days by
-design, so a month's route miles are gone before a month's figure could read
-them.
+design, so a month's route miles were gone before a month's figure could read
+them (each finished day is now summed before they go, below).
 
 That is a product decision rather than an apology. **Most of these definitions
 name an exclusion**, and a KPI computed without its exclusions is worse than an
@@ -190,6 +190,50 @@ choice, made so a failure is never dropped for arriving late. The rule is
 core's `reporting.inspectionPass`, and `permit-inspections.integration.test.ts`
 puts the same rows through it and through the SQL and requires the same jobs in
 every half. The records open on the job.
+
+### Route density
+
+The pest and lawn packs' **route density** is completed stops over the miles
+driven between them, and EXCLUDES the drive from the yard to the first stop and
+home from the last. The miles can only come from the phone's positions, which
+are deleted after a few days on purpose (M11), so a month's figure could never
+read them, and a van's odometer is one reading a day that includes both yard
+legs. So the worker sums each finished day before the purge, for each person
+who shared their location, into a **route day** (`route_day`): their completed
+stops that day (visits they were sent on by name or with their crew, completed,
+with an arrival time), the drives from each stop's completion to the next stop's
+arrival, and how far those drives went, the straight line between one position
+and the next added up along the drive. The way out and the way home are not
+between two stops and are never read. Nothing else of the positions is kept.
+
+**A day seen whole, or not at all.** When two positions on a drive between stops
+are further apart than three of the company's intervals (never less than
+fifteen minutes), or there is no position that close to one end of a drive, or a
+stop was begun before the one before it was closed, the straight line across
+the gap would be shorter than the road and the day would read as a tighter route
+than was driven. Such a day is kept as not counted, with the reason in words,
+out of both halves, and counted beside the figure. A day of one stop is no
+route. A day is read again when positions for it arrive late (a phone that
+synced the next morning), and never from fewer positions than before, so the
+purge cannot shrink a day already summed.
+
+**Per person.** Each person's day counts their own stops over their own miles,
+so a crew of three in one truck counts its stops and its miles three times and
+the ratio is the crew's. A stop closed from the office with no arrival time is
+not one of the day's stops, and the drive across it is still measured, which
+reads lower, never higher. Straight lines between positions a minute apart are
+the road to within a few per cent and a little short of it on a winding road,
+which reads slightly high; positions are what the product has, and the doc says
+so. A company that does not share locations has no route days and reads "Not
+this window".
+
+The rule is core's `reporting.routeDay`, with unit tests, and
+`route-days.integration.test.ts` works a month by hand. Each record is a
+person's day ("Ana, Jun 10: 3 stops, 2.073 miles between them") and opens on
+that week's timesheets. Because it is made from where people drove, the records
+are listed only to people who dispatch (`visit:dispatch`), who already see the
+map; turning sharing off for the company or a person deletes their route days
+with their positions.
 
 ### The four that waited on a coded cancellation reason
 
@@ -290,12 +334,12 @@ they come to disagree.
 Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
-assembly due a retest, a crew's day, a permitted job. The scorecard's number is the sum of those rows, and
+assembly due a retest, a crew's day, a permitted job, a person's route day. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
-agreement, a visit, a customer, the week's timesheets (a crew's day opens on
-them too), or the unit.
+agreement, a visit, a customer, the week's timesheets (a crew's day and a
+route day open on them too), or the unit.
 
 It is refused, in words, rather than trimmed, in three cases. The figure is the
 whole company's, so somebody whose scope is narrower (a technician who sees their
@@ -667,14 +711,17 @@ prefix off.
 
 ## What is not built
 
-Eighteen of the forty seven declared KPIs cannot be computed, and each one
+Seventeen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. None of them is computed from something near its
 datum instead (above, "The unavailable list"). The first time inspection pass
 rate is only as complete as what the office types in: an inspection nobody
 recorded is not counted, and a fail recorded as somebody else's work is left
-out on that word. The records
+out on that word. Route density has no figure for a company that does not share
+locations, counts only the days whose drives between stops were seen whole, and
+measures them as straight lines between positions rather than along the road; a
+route day is not shown anywhere but behind the figure. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

@@ -532,6 +532,14 @@ person being located:
   together than half the company's interval (never under five seconds), so a
   person's day is at most 2,880 positions at the default of one a minute,
   and the whole store at most that times the retention.
+- **Summed for route density, then gone.** Before the worker deletes a
+  finished day's positions it keeps, for each person, that day's count of
+  completed stops, the number of drives between them and their miles, and
+  nothing else: no position, no place. That is what route density reads
+  (M21). A day whose positions have a gap on a drive is kept as not counted,
+  with no miles. Turning sharing off for the company or a person deletes
+  these with the positions, because they are made from where that person
+  drove. They are listed, inside the figure, only to people who dispatch.
 - **Today's path, to the same few people.** The dispatch map draws the path
   each person took today behind their pin, from the positions already kept,
   for `visit:dispatch` only. Yesterday's is inside the retention for the

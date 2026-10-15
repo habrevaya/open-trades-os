@@ -350,11 +350,18 @@ const KIND_NEEDS: Record<string, Permission> = {
   time: "timesheet:read",
   deficiency: "equipment:read",
   equipment: "equipment:read",
+  /**
+   * A person's day of stops and miles is made from where they drove, so it
+   * is listed to the people who may see where people are: the ones who
+   * dispatch, who see the map.
+   */
+  route_day: "visit:dispatch",
 };
 
 const KIND_WORDS: Record<string, string> = {
   job: "jobs", estimate: "estimates", agreement: "agreements", visit: "visits", customer: "customers",
   technician_day: "timesheets", crew_day: "timesheets", time: "timesheets", deficiency: "the equipment register", equipment: "the equipment register",
+  route_day: "each person's route days, made from where they drove",
 };
 
 /**

@@ -26,6 +26,7 @@ import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import { noticePass } from "./staff-notices";
 import { purgePositions } from "./location";
+import { routeDayPass } from "./route-days";
 import { purgeUnusedClients } from "./oauth";
 import { collectionsPass } from "./rental-billing";
 import { autopayPass } from "./card-on-file";
@@ -609,6 +610,20 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
    * on its first pass.
    */
   if (options.positions !== false && Date.now() - positionsPurgedAt >= POSITION_PURGE_INTERVAL_MS) {
+    /**
+     * Each finished day's stops and miles between them, summed BEFORE the
+     * purge takes the positions away, so route density has a month of miles
+     * without anybody's positions being kept a day longer. Its own try, and
+     * the purge runs whether or not this worked: a retention promise is not
+     * held up by a figure.
+     */
+    try {
+      for (const result of await routeDayPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.error) console.error(`[worker] route days ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] route days:", (error as Error).message);
+    }
     try {
       await purgePositions(options.db);
       positionsPurgedAt = Date.now();
