@@ -28,16 +28,20 @@ const PRICE_SOURCE: Record<string, string> = {
  * Once it is agreed, the days it adds are a proposal here: what would move,
  * the visits booked on the phases that move with their times before and
  * after (and any left where they are, with why), and the finish before and
- * after. A person presses Apply, and what moves is exactly what they were
+ * after. The phase the days land on moves its own visits from a day the
+ * person chooses; until they choose, the days go on its end and its visits
+ * stay. A person presses Apply, and what moves is exactly what they were
  * shown. Nothing moves on its own.
  */
 export default async function ChangeOrderPage({ params, searchParams }: {
   params: Promise<{ id: string; changeOrderId: string }>;
-  searchParams: Promise<{ phase?: string }>;
+  searchParams: Promise<{ phase?: string; from?: string }>;
 }) {
   const user = await requireSetupUser();
   const { id, changeOrderId } = await params;
-  const { phase: chosenPhase } = await searchParams;
+  const { phase: chosenPhase, from: chosenFrom } = await searchParams;
+  /** Only a real date is passed on; anything else is the default, as if nothing were chosen. */
+  const from = chosenFrom && /^\d{4}-\d{2}-\d{2}$/.test(chosenFrom) ? chosenFrom : undefined;
   const ctx = { actor: user.actor, db: getDb() };
   const order = await projectChangeOrders.get(ctx, { id: changeOrderId }).catch((error: unknown) => {
     if (error instanceof NotFoundError) notFound();
@@ -52,7 +56,9 @@ export default async function ChangeOrderPage({ params, searchParams }: {
     : [];
   const hidden = { projectId: id, changeOrderId };
   const days = order.status === "approved" && order.scheduleDays
-    ? await projectSchedule.proposeChangeOrderDays(ctx, { id: order.id, ...(chosenPhase ? { phaseId: chosenPhase } : {}) })
+    ? await projectSchedule.proposeChangeOrderDays(ctx, {
+      id: order.id, ...(chosenPhase ? { phaseId: chosenPhase } : {}), ...(from ? { from } : {}),
+    })
     : null;
   const phases = days && !days.applied && !order.projectPhaseId
     ? (await projectSchedule.schedule(ctx, { projectId: id })).phases
@@ -104,6 +110,7 @@ export default async function ChangeOrderPage({ params, searchParams }: {
               <p className="mt-1 text-sm text-ink-700">
                 These {days.applied.days >= 0 ? days.applied.days : -days.applied.days} days were put on the schedule on {days.applied.at.toISOString().slice(0, 10)}.
                 They are not applied twice.
+                {days.applied.from && days.phaseName && ` They landed on ${days.phaseName} from ${days.applied.from}.`}
               </p>
               <DayChanges changes={days.applied.changes} />
               <VisitMoves
@@ -134,6 +141,11 @@ export default async function ChangeOrderPage({ params, searchParams }: {
                 <div className="mt-3 rounded-md border border-steel-200 bg-canvas p-4">
                   <p className="text-sm font-medium">{days.proposal.statement}</p>
                   <DayChanges changes={days.proposal.changes} />
+                  <LandsFrom
+                    phaseName={days.phaseName ?? "the phase"} days={order.scheduleDays!}
+                    from={days.proposal.from} chosen={days.proposal.fromChosen} phaseId={chosenPhase}
+                    timezone={user.organizationTimezone}
+                  />
                   <VisitMoves
                     timezone={user.organizationTimezone}
                     moves={days.proposal.visits.moves.map((v) => ({
@@ -149,14 +161,23 @@ export default async function ChangeOrderPage({ params, searchParams }: {
                     Each customer whose visit moves is told by text or email. The schedule marks anyone left booked twice.
                   </p>
                   {can(user.actor, "job:write") && (days.proposal.visits.moves.length === 0 || can(user.actor, "visit:reschedule")) && (
-                    <ChangeOrderForm submit="Apply to the schedule" hidden={{ ...hidden, op: "apply-days", phaseId: days.phaseId ?? "", proposalKey: days.proposal.key }} />
+                    <ChangeOrderForm submit="Apply to the schedule" hidden={{
+                      ...hidden, op: "apply-days", phaseId: days.phaseId ?? "", from: days.proposal.from, proposalKey: days.proposal.key,
+                    }} />
                   )}
                   {can(user.actor, "job:write") && days.proposal.visits.moves.length > 0 && !can(user.actor, "visit:reschedule") && (
                     <p className="mt-2 text-sm text-ink-700">This moves booked visits, so somebody who can move visits on the schedule has to apply it.</p>
                   )}
                 </div>
               ) : (
-                days.reason && !(phases.length > 0 && !chosenPhase) && <p className="mt-3 text-sm text-ink-700">{days.reason}</p>
+                <>
+                  {days.reason && !(phases.length > 0 && !chosenPhase) && <p className="mt-3 text-sm text-ink-700">{days.reason}</p>}
+                  {from && (
+                    <a href={`?${chosenPhase ? `phase=${encodeURIComponent(chosenPhase)}` : ""}`} className="mt-2 inline-block text-sm underline underline-offset-4">
+                      Go back to the end of the phase
+                    </a>
+                  )}
+                </>
               )}
             </>
           )}
@@ -317,6 +338,40 @@ function VisitMoves({ moves, left, timezone, done }: {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * WHERE ON ITS OWN PHASE THE DAYS LAND. The phase keeps its start, so its
+ * visits do not all move: the person says which day of it the extra work
+ * pushes out (or the first day taken off), and its visits from then go with
+ * the days. A form that asks again, because what moves is part of the
+ * proposal they apply.
+ */
+function LandsFrom({ phaseName, days, from, chosen, phaseId, timezone }: {
+  phaseName: string; days: number; from: string; chosen: boolean; phaseId: string | undefined; timezone: string;
+}) {
+  const word = `${Math.abs(days)} ${Math.abs(days) === 1 ? "day" : "days"}`;
+  const day = formatIn(new Date(`${from}T12:00:00Z`), timezone, { weekday: "short", month: "short", day: "numeric" });
+  const said = days > 0
+    ? chosen
+      ? `${phaseName}'s visits from ${day} go ${word} later. Its visits before then stay.`
+      : `The ${word} go on the end of ${phaseName}, so its own visits stay. If the extra work comes sooner, choose the day it starts and ${phaseName}'s visits from then move too.`
+    : chosen
+      ? `The ${word} come off ${phaseName} from ${day}. Its visits on those days stay for you to sort out, and its visits after them come ${word} sooner.`
+      : `The ${word} come off the end of ${phaseName}, so any visit on those days stays for you to sort out. Choose another day if the work saved comes sooner.`;
+  return (
+    <div className="mt-3">
+      <p className="text-sm text-ink-700">{said}</p>
+      <form method="get" className="mt-2 flex flex-wrap items-end gap-2">
+        {phaseId && <input type="hidden" name="phase" value={phaseId} />}
+        <label className="text-sm text-ink-700">
+          {days > 0 ? `The extra days start on` : `The first day taken off`}
+          <input type="date" name="from" defaultValue={from} className="ml-2 h-9 rounded border border-steel-300 bg-canvas px-2 text-sm" />
+        </label>
+        <button type="submit" className="h-9 rounded border border-steel-300 px-3 text-sm font-medium">Show what would move</button>
+      </form>
     </div>
   );
 }

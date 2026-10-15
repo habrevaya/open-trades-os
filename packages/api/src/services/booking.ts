@@ -1180,9 +1180,15 @@ export async function setMemberHold(ctx: ServiceContext, input: { reservePercent
   });
 }
 
-/** A window's clock time on a day, as an instant, in the company's zone. */
+/**
+ * A window's clock time on a day, as an instant, in the company's zone.
+ *
+ * Read as the wall clock, not as minutes after midnight: on the two days a
+ * year the clocks change those differ by an hour, and "8am" counted from
+ * midnight on the Sunday the clocks go back is seven on every clock in town.
+ */
 export function windowStart(date: string, clock: string, timezone: string): Date {
-  return new Date(time.startOfDayIn(date, timezone).getTime() + minutesInto(clock) * 60_000);
+  return time.instantOfLocal(date, minutesInto(clock), timezone);
 }
 
 /**

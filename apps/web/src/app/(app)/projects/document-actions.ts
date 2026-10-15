@@ -114,6 +114,7 @@ export async function actOnChangeOrder(_previous: FormState, form: FormData): Pr
         await projectSchedule.applyChangeOrderDays(c, parsed(applyChangeOrderScheduleDays.input, {
           id: changeOrderId,
           phaseId: field(form, "phaseId"),
+          from: field(form, "from"),
           proposalKey: field(form, "proposalKey"),
         }));
         revalidatePath(`/projects/${projectId}/schedule`);

@@ -1,5 +1,5 @@
 import * as m from "../money/index.js";
-import { dateIn, instantOfLocal, startOfDayIn, visitSpan } from "../time/index.js";
+import { dateIn, instantOfLocal, minutesInDay, visitSpan } from "../time/index.js";
 
 /**
  * M12. THE ARITHMETIC OF A PROJECT, WITH NO DATABASE IN IT.
@@ -1117,6 +1117,13 @@ export function waiverChecklist(
  * or the time it would move to, has already gone by. Leaving it is the
  * careful answer: who goes instead is a decision for the dispatch board, not
  * for a change order.
+ *
+ * THE PHASE THE DAYS LAND ON keeps its start and ends later (or sooner), so
+ * its visits do not all move: the ones from the day the change pushes out
+ * onward do (`target.from`), by the same days, and the ones before it stay.
+ * Days taken off are taken from that day: a visit on one of them stays where
+ * it is, named, because which of its work is no longer needed is the office's
+ * call, and the visits after them come in by the same days.
  */
 export interface BookedVisit {
   id: string;
@@ -1147,11 +1154,37 @@ const MOVABLE_VISIT = new Set(["unassigned", "scheduled", "dispatched"]);
 /** Under way: never moved by a plan, and said. */
 const STARTED_VISIT = new Set(["en_route", "working"]);
 
+/**
+ * THE DAY THE DAYS LAND FROM, on the phase they land on. Chosen by a person,
+ * or, when nobody has chosen, the careful default: days added go on the end
+ * of the phase, so none of its visits inside its dates move; days taken off
+ * come off its last days, so the visits on them stay where they are, named. A day
+ * outside the phase is refused in words.
+ */
+export function landingFrom(
+  phase: { name: string; startsOn: string; endsOn: string }, days: number, chosen: string | null | undefined,
+): { ok: true; from: string } | { ok: false; reason: string } {
+  const last = days > 0 ? shiftDate(phase.endsOn, 1) : shiftDate(phase.endsOn, days + 1);
+  if (!chosen) return { ok: true, from: last };
+  if (chosen < phase.startsOn || chosen > last) {
+    return {
+      ok: false,
+      reason: days > 0
+        ? `Choose a day from ${phase.startsOn} to ${last}, while ${phase.name} runs, for where the extra days start.`
+        : `Choose a day from ${phase.startsOn} to ${last} for the first day taken off ${phase.name}, so all ${-days} fit inside it.`,
+    };
+  }
+  return { ok: true, from: chosen };
+}
+
 /** An instant moved by whole days, at the same time of day in a zone. */
 export function shiftInstant(at: Date, days: number, timeZone: string): Date {
-  const date = dateIn(at, timeZone);
-  const minutes = Math.round((at.getTime() - startOfDayIn(date, timeZone).getTime()) / 60_000);
-  return instantOfLocal(shiftDate(date, days), minutes, timeZone);
+  /**
+   * The wall clock time, not the minutes since midnight: on the day the
+   * clocks change those differ by an hour, and a visit at eight on that
+   * Sunday read as minutes would land at seven on the day it moves to.
+   */
+  return instantOfLocal(shiftDate(dateIn(at, timeZone), days), minutesInDay(at, timeZone), timeZone);
 }
 
 export function planVisitMoves(input: {
@@ -1164,13 +1197,31 @@ export function planVisitMoves(input: {
   away: readonly { personId: string; start: Date; end: Date }[];
   /** Everybody's other visits that hold their time, by person. */
   busy: readonly { personId: string; visitId: string; start: Date; end: Date }[];
+  /**
+   * The phase the days land on, the first day of it they push out (or, for
+   * days taken off, the first day taken off), and the days. Its visits on or
+   * after that day go by the days; before it, they stay.
+   */
+  target?: { phaseId: string; from: string; days: number } | undefined;
 }): { moves: VisitMove[]; left: VisitLeft[] } {
   const moves: VisitMove[] = [];
   const left: VisitLeft[] = [];
-  const moving = new Set(input.visits.filter((v) => (input.shiftDays.get(v.phaseId) ?? 0) !== 0).map((v) => v.id));
+  const target = input.target && input.target.days !== 0 ? input.target : null;
+  /** How a visit goes: by its phase's days, or on the target by where it falls; `takenOff` when its day is one taken off. */
+  const shiftOf = (visit: BookedVisit): { days: number; takenOff: boolean } => {
+    if (!target || visit.phaseId !== target.phaseId) return { days: input.shiftDays.get(visit.phaseId) ?? 0, takenOff: false };
+    const date = dateIn(visit.start, input.timeZone);
+    if (date < target.from) return { days: 0, takenOff: false };
+    if (target.days < 0 && date < shiftDate(target.from, -target.days)) return { days: target.days, takenOff: true };
+    return { days: target.days, takenOff: false };
+  };
+  const moving = new Set(input.visits.filter((v) => {
+    const shift = shiftOf(v);
+    return shift.days !== 0 && !shift.takenOff;
+  }).map((v) => v.id));
   const ordered = [...input.visits].sort((a, b) => a.start.getTime() - b.start.getTime() || (a.id < b.id ? -1 : 1));
   for (const visit of ordered) {
-    const days = input.shiftDays.get(visit.phaseId) ?? 0;
+    const { days, takenOff } = shiftOf(visit);
     if (days === 0) continue;
     const base = { id: visit.id, phaseId: visit.phaseId, label: visit.label, wasStart: visit.start, wasEnd: visit.end };
     if (STARTED_VISIT.has(visit.status)) {
@@ -1178,6 +1229,10 @@ export function planVisitMoves(input: {
       continue;
     }
     if (!MOVABLE_VISIT.has(visit.status)) continue;
+    if (takenOff) {
+      left.push({ ...base, reason: "It is on a day the change order takes off, so it stays for the office to sort out." });
+      continue;
+    }
     if (visit.start.getTime() <= input.now.getTime()) {
       left.push({ ...base, reason: "Its time has gone by, so it stays for the office to sort out." });
       continue;

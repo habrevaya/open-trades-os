@@ -338,6 +338,12 @@ export const projectChangeOrder = pgTable("project_change_order", {
       moved: { id: string; label: string; wasStart: string; wasEnd: string | null; start: string; end: string | null; notified: string }[];
       left: { id: string; label: string; wasStart: string; reason: string }[];
     };
+    /**
+     * The first day of the phase the days landed on that they pushed out (or
+     * the first day taken off); its visits from that day went with them.
+     * Absent on a change order applied before the phase's own visits moved.
+     */
+    from?: string;
   }>(),
   /** The lines added up, rounded line by line. Negative for a credit. */
   amount: money("amount").notNull().default("0"),
