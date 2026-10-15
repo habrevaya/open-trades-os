@@ -92,11 +92,15 @@ export function Board({
   const [refused, setRefused] = useState<{ visitId: string; technicianId: string; message: string } | null>(null);
   /**
    * A refusal for time held for members (M08), with who could take it
-   * instead in its words. "Send anyway" carries the visit, the person, and
-   * any qualification reason already given, so it does not have to be typed
-   * twice.
+   * instead in its words. "Send anyway" carries the visit, the person or the
+   * crew it was dropped on, and any qualification reason already given, so it
+   * does not have to be typed twice.
    */
-  const [held, setHeld] = useState<{ visitId: string; technicianId: string; message: string; overrideReason?: string } | null>(null);
+  const [held, setHeld] = useState<
+    | { visitId: string; technicianId: string; crewId?: undefined; message: string; overrideReason?: string }
+    | { visitId: string; crewId: string; technicianId?: undefined; message: string; overrideReason?: undefined }
+    | null
+  >(null);
   const [reason, setReason] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [suggested, setSuggested] = useState<Suggested | null>(null);
@@ -185,9 +189,17 @@ export function Board({
     clearMessages();
     if (from === `crew:${crewId}`) return;
     start(async () => {
-      const result = await sendToCrew({ visitId: id, crewId });
-      if (!result.ok) setError(result.message);
+      await crewSend(id, crewId);
     });
+  }
+
+  /** A visit sent to a crew, and the refusal it met, held for "Send anyway" when it is time kept for members. */
+  async function crewSend(visitId: string, crewId: string, intoMemberHold?: boolean): Promise<boolean> {
+    const result = await sendToCrew({ visitId, crewId, ...(intoMemberHold ? { intoMemberHold } : {}) });
+    if (result.ok) return true;
+    if (result.memberHold) setHeld({ visitId, crewId, message: result.message });
+    else setError(result.message);
+    return false;
   }
 
   const lateCount = board.technicians.reduce(
@@ -341,9 +353,12 @@ export function Board({
             type="button"
             className="h-9 rounded border border-amber-700 px-3 font-medium text-amber-700"
             onClick={() => {
-              const { visitId, technicianId, overrideReason } = held;
+              const chosen = held;
               start(async () => {
-                if (await assign(visitId, technicianId, overrideReason, true)) setHeld(null);
+                const sent = chosen.crewId !== undefined
+                  ? await crewSend(chosen.visitId, chosen.crewId, true)
+                  : await assign(chosen.visitId, chosen.technicianId, chosen.overrideReason, true);
+                if (sent) setHeld(null);
               });
             }}
           >

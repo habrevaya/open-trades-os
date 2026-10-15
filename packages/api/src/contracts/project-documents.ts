@@ -342,6 +342,8 @@ const ScheduleDaysProposal = z.object({
     at: z.string().datetime(),
     phaseId: Uuid,
     days: z.number().int(),
+    /** The day on the phase the days landed from. Null on a change order applied before it was asked. */
+    from: IsoDate.nullable(),
     changes: z.array(DayChange),
     /** The visits it moved, with who was told, and the ones it left where they were. */
     visits: z.object({
@@ -361,7 +363,15 @@ const ScheduleDaysProposal = z.object({
     finishBefore: IsoDate.nullable(),
     finishAfter: IsoDate.nullable(),
     statement: z.string(),
-    /** Visits booked on the phases that move: going with their phase, or left where they are and why. */
+    /**
+     * The first day of the phase the days land on that they push out, or for
+     * days taken off the first day taken off. Its visits from that day go by
+     * the days. `fromChosen` is false for the default: the day after the phase
+     * for days added, its last days for days taken off.
+     */
+    from: IsoDate,
+    fromChosen: z.boolean(),
+    /** Visits booked on the phases that move, and on the phase the days land on from `from`: going, or left where they are and why. */
     visits: z.object({ moves: z.array(VisitMove), left: z.array(VisitLeft) }),
     /** Hand this back to apply exactly what was shown. */
     key: z.string(),
@@ -443,10 +453,10 @@ export const getChangeOrderScheduleDays = defineRoute({
   path: "/v1/project-change-orders/{id}/schedule-days",
   summary: "What the days on a change order would do to the schedule",
   description:
-    "A proposal, and nothing moves. For an agreed change order with days, the phase the work lands on (or the one named in `phaseId`) ends later by those days and every phase waiting for it moves by the same days and keeps its length, with the finish date before and after. Each visit booked on a phase that moves, still to come, goes by the same days at the same time of day, listed with its old and new time; one whose person is off or booked on another visit at the new time, that has started, or whose time has gone by, is listed as left where it is, with why. The phase the days land on keeps its start, so its own visits stay. Says why when it cannot be applied: not agreed yet, no days, no phase named, a complete phase, a complete follower, or already applied.",
+    "A proposal, and nothing moves. For an agreed change order with days, the phase the work lands on (or the one named in `phaseId`) ends later by those days and every phase waiting for it moves by the same days and keeps its length, with the finish date before and after. Each visit booked on a phase that moves, still to come, goes by the same days at the same time of day, listed with its old and new time; one whose person is off or booked on another visit at the new time, that has started, or whose time has gone by, is listed as left where it is, with why. The phase the days land on keeps its start: its visits from `from` (the first day of it the days push out, or the first day taken off) go by the days with the same refusals, the ones before it stay, and one on a day taken off stays, named. Without `from` the days go on the end of the phase (or come off its last days), so none of its visits inside its dates move. Says why when it cannot be applied: not agreed yet, no days, no phase named, a complete phase, a complete follower, a `from` outside the phase, or already applied.",
   module: "M12",
   permissions: ["job:read"],
-  input: z.object({ id: Uuid, phaseId: Uuid.optional() }),
+  input: z.object({ id: Uuid, phaseId: Uuid.optional(), from: IsoDate.optional() }),
   output: ScheduleDaysProposal,
 });
 
@@ -455,11 +465,11 @@ export const applyChangeOrderScheduleDays = defineRoute({
   path: "/v1/project-change-orders/{id}/schedule-days",
   summary: "Apply a change order's days to the schedule, as proposed",
   description:
-    "A person applies exactly the proposal they were shown: send back its `key`. The proposal is worked out again against the schedule as it stands, and if somebody has moved a phase since, nothing is applied and the call says so. Applied once: a retry, or a second person, gets back what was done and moves nothing further. The visits the proposal showed moving are moved, the people on them told through the visit's notices and the customer through the visit change notice, saying the change order moved it; moving them needs `visit:reschedule` as well. The visits it showed staying stay, named on the change order. The schedule still flags anyone left booked twice.",
+    "A person applies exactly the proposal they were shown: send back its `key`, and the `from` it was made with. The proposal is worked out again against the schedule as it stands, and if somebody has moved a phase since, nothing is applied and the call says so. Applied once: a retry, or a second person, gets back what was done and moves nothing further. The visits the proposal showed moving are moved, the people on them told through the visit's notices and the customer through the visit change notice, saying the change order moved it; moving them needs `visit:reschedule` as well. The visits it showed staying stay, named on the change order. The schedule still flags anyone left booked twice.",
   module: "M12",
   permissions: ["job:write"],
   idempotent: true,
-  input: z.object({ id: Uuid, phaseId: Uuid.optional(), proposalKey: z.string().min(1) }),
+  input: z.object({ id: Uuid, phaseId: Uuid.optional(), from: IsoDate.optional(), proposalKey: z.string().min(1) }),
   output: ScheduleDaysProposal.extend({ alreadyApplied: z.boolean() }),
 });
 

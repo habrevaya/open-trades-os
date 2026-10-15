@@ -20,7 +20,7 @@ import { templateFor } from "./field";
 import { portalBase } from "../lib/portal-base";
 import { gate as qualificationGate, requiredSkillsOf } from "./qualification";
 import { priorityWithin } from "./agreements";
-import { heldOnTechnician } from "./booking";
+import { heldOnTechnician, MemberHoldRefusedError } from "./booking";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
@@ -322,18 +322,17 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
  * gesture is "these people, on this job" and an add-only endpoint makes
  * removing somebody a second call that is easy to forget.
  */
-export class MemberHoldRefusedError extends ConflictError {
-  /** How a screen tells this refusal apart to offer "Send anyway"; see `QualificationRefusedError`. */
-  readonly memberHoldRefused = true as const;
-}
+export { MemberHoldRefusedError };
 
 export async function assign(
   ctx: ServiceContext,
   input: z.infer<typeof assignVisit.input> & {
     /**
-     * Set by the rebalances, which place work on a plan of their own: the
-     * several day one keeps the window's share as it moves a visit, and a
-     * refusal half way through applying a plan would leave it half applied.
+     * Set by the rebalances, which keep the share of each person's window
+     * held for members in the plan itself and check the whole plan against
+     * the day as it was proposed before moving anything
+     * (`dispatch-map.assertHoldKept`), so a visit is not refused half way
+     * through a plan by the plan's own earlier moves.
      */
     skipMemberHold?: boolean | undefined;
   },

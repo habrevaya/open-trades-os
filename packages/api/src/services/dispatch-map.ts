@@ -19,6 +19,7 @@ import { rentalDispatchOf } from "./rental-billing";
 import { truckOf } from "./trucks";
 import { facilitiesForPlan, addressText } from "./disposal-facilities";
 import { priorityWithin } from "./agreements";
+import { heldOnPeople } from "./booking";
 
 /**
  * THE DAY ON A MAP, AND WHAT ORDER TO DRIVE IT IN
@@ -1412,6 +1413,134 @@ export async function setCrewOrder(tx: Database, zone: string, order: { date: st
   }
 }
 
+/* ------------------------------------------- the share held for members */
+
+/** Somebody a plan might put a visit on: one person, or a crew and its people. */
+export interface HoldHolder {
+  /** The planner's key: the person's id, or `crewKey` of the crew. */
+  key: string;
+  name: string;
+  crew: boolean;
+  people: readonly { id: string; name: string }[];
+}
+
+/** Each crew's people by name, for the hold's words and for who is on a crew's visit already. */
+export async function crewPeopleOf(tx: Database, crewIds: readonly string[]): Promise<Map<string, { id: string; name: string }[]>> {
+  const ids = [...new Set(crewIds)];
+  const rows = ids.length === 0 ? [] : await tx.select({
+    crewId: schema.crewMember.crewId, id: schema.technician.id, name: schema.technician.displayName,
+  }).from(schema.crewMember)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+    .where(inArray(schema.crewMember.crewId, ids))
+    .orderBy(asc(schema.technician.displayName));
+  const out = new Map<string, { id: string; name: string }[]>();
+  for (const r of rows) out.set(r.crewId, [...(out.get(r.crewId) ?? []), { id: r.id, name: r.name }]);
+  return out;
+}
+
+/** Everybody whose time a visit takes as it stands: the people on it and its crew's people. */
+export const peopleOnVisit = (v: DayVisit, crewPeople: ReadonlyMap<string, readonly { id: string }[]>): Set<string> =>
+  new Set([...v.technicianIds, ...(v.crewId === null ? [] : (crewPeople.get(v.crewId) ?? []).map((p) => p.id))]);
+
+/**
+ * THE SHARE OF EACH PERSON'S WINDOW HELD FOR MEMBERS, AS A PLAN SEES IT.
+ *
+ * For each visit, and each person or crew a plan might put it on, the rooms
+ * outside the share of a person's window kept for members that putting it
+ * there would use (`routing.HeldRoom`): the rule a drop onto a person or a
+ * crew is held to (`dispatch.assign`, `crews.assign`), read once against the
+ * day as it stands so the planner can count every visit it puts on the same
+ * person. Only for a visit whose customer is not a member there that day,
+ * inside a window that still keeps something back, and only for people whose
+ * own share is not yet used up by members; a person simply full is not the
+ * hold. Not for anybody in `exclude` (the people already on the visit, on its
+ * own day), nor for a visit on a job made from a booking request, which was
+ * held to the share when the request was made.
+ */
+export async function heldRooms(tx: Database, organizationId: string, zone: string, asks: readonly {
+  ref: string;
+  visit: DayVisit;
+  /** When it would be: its own window, or the same time of day on the day it would move to. */
+  windowStart: Date;
+  holders: readonly HoldHolder[];
+  exclude: ReadonlySet<string>;
+}[]): Promise<Map<string, Map<string, routing.HeldRoom[]>>> {
+  const out = new Map<string, Map<string, routing.HeldRoom[]>>();
+  if (asks.length === 0) return out;
+  const jobIds = [...new Set(asks.map((a) => a.visit.jobId))];
+  const requested = new Set((await tx.select({ jobId: schema.bookingRequest.jobId }).from(schema.bookingRequest)
+    .where(and(eq(schema.bookingRequest.organizationId, organizationId), inArray(schema.bookingRequest.jobId, jobIds))))
+    .map((r) => r.jobId));
+  const open = asks.filter((a) => !requested.has(a.visit.jobId));
+  const rooms = await heldOnPeople(tx, {
+    organizationId, timezone: zone,
+    asks: open.map((a) => ({
+      ref: a.ref, customerId: a.visit.customerId, propertyId: a.visit.propertyId, jobTypeId: a.visit.jobTypeId,
+      durationMinutes: a.visit.estimatedDurationMinutes, windowStart: a.windowStart,
+      technicianIds: [...new Set(a.holders.flatMap((h) => h.people.map((p) => p.id)))].filter((id) => !a.exclude.has(id)),
+    })),
+  });
+  for (const ask of open) {
+    const found = rooms.get(ask.ref);
+    if (!found) continue;
+    const byHolder = new Map<string, routing.HeldRoom[]>();
+    for (const holder of ask.holders) {
+      const held = holder.people.flatMap((p) => {
+        const room = found.people.get(p.id);
+        if (ask.exclude.has(p.id) || !room || room.them >= room.member) return [];
+        const time = `${p.name}'s time in the ${found.windowName} window on ${found.date}`;
+        return [{
+          key: `${p.id}|${found.date}|${found.windowId}`,
+          room: Math.max(room.them, 0),
+          reason: holder.crew
+            ? `${holder.name} would take ${time}, which is kept for members, and ${ask.visit.customerName} is not a member there that day.`
+            : `${time} is kept for members, and ${ask.visit.customerName} is not a member there that day.`,
+        }];
+      });
+      if (held.length > 0) byHolder.set(holder.key, held);
+    }
+    if (byHolder.size > 0) out.set(ask.ref, byHolder);
+  }
+  return out;
+}
+
+/**
+ * A PLAN BEING APPLIED KEEPS THE HOLD. Every visit it puts on somebody new,
+ * counted together against the rooms the day had outside the share held for
+ * members before anything moved (`heldRooms`), which is what the planner
+ * counted. Asked before the first move, so a plan is never refused half way
+ * through by its own earlier moves, and refused whole, in words, when the
+ * payload or something since (a plan sold, a booking taken) would put a
+ * stranger's visit into a member's place.
+ */
+export async function assertHoldKept(tx: Database, organizationId: string, zone: string, arrivals: readonly {
+  visit: DayVisit; windowStart: Date; holder: HoldHolder; exclude: ReadonlySet<string>;
+}[]): Promise<void> {
+  const asks = arrivals.map((a, i) => ({ ref: String(i), ...a, holders: [a.holder] }));
+  const rooms = await heldRooms(tx, organizationId, zone, asks);
+  if (rooms.size === 0) return;
+  const routes = new Map<string, string[]>();
+  for (const ask of asks) routes.set(ask.holder.key, [...(routes.get(ask.holder.key) ?? []), ask.ref]);
+  const breach = routing.holdBreach(routes, (ref, holder) => rooms.get(ref)?.get(holder));
+  if (breach) throw new ConflictError(`${breach.reason} Propose it again.`);
+}
+
+/** The people and crews a plan's moves name, as holders of the hold. */
+export async function holdersFor(
+  tx: Database, people: ReadonlyMap<string, string>, crewIds: readonly string[],
+): Promise<{ person: (id: string) => HoldHolder; crew: (id: string) => HoldHolder; crewPeople: Map<string, { id: string; name: string }[]> }> {
+  const crewPeople = await crewPeopleOf(tx, crewIds);
+  const names = crewIds.length === 0 ? [] : await tx.select({ id: schema.crew.id, name: schema.crew.name })
+    .from(schema.crew).where(inArray(schema.crew.id, [...new Set(crewIds)]));
+  return {
+    person: (id) => ({ key: id, name: people.get(id) ?? "This person", crew: false, people: [{ id, name: people.get(id) ?? "This person" }] }),
+    crew: (id) => ({
+      key: crewKey(id), name: names.find((n) => n.id === id)?.name ?? "The crew", crew: true, people: crewPeople.get(id) ?? [],
+    }),
+    crewPeople,
+  };
+}
+
 /** Who a planned visit goes to, as an apply call takes it: a person or a crew. */
 export const holderFor = (key: string): { technicianId: string } | { crewId: string } => {
   const h = holderOf(key);
@@ -1472,6 +1601,30 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
     : crewSet.has(v.crewId) && crewPlannable(v));
   for (const v of candidates) points.set(v.id, { place: v.place, routeId: v.routeId });
 
+  /**
+   * THE SHARE OF EACH PERSON'S WINDOW HELD FOR MEMBERS, kept as a drop onto
+   * them keeps it: a stranger's visit goes on somebody new only while their
+   * window has room outside it, counting every visit the plan puts there. A
+   * team's visit never changes hands here, so it is not asked.
+   */
+  const held = await guardedRead(ctx, "visit:read", async (tx) => {
+    const crewPeople = await crewPeopleOf(tx, [
+      ...plannedCrews.map((c) => c.id), ...candidates.flatMap((v) => (v.crewId === null ? [] : [v.crewId])),
+    ]);
+    const people: HoldHolder[] = planned.map((t) => ({
+      key: t.id, name: t.displayName, crew: false, people: [{ id: t.id, name: t.displayName }],
+    }));
+    const crewHolders: HoldHolder[] = plannedCrews.map((c) => ({
+      key: crewKey(c.id), name: c.name, crew: true, people: crewPeople.get(c.id) ?? [],
+    }));
+    return heldRooms(tx, ctx.actor.organizationId, day.zone, candidates
+      .filter((v) => v.windowStart !== null && !(v.crewId === null && v.technicianIds.length > 1))
+      .map((v) => ({
+        ref: v.id, visit: v, windowStart: v.windowStart!,
+        holders: v.crewId === null ? people : crewHolders, exclude: peopleOnVisit(v, crewPeople),
+      })));
+  });
+
   /** People for one person's work, crews for a crew's: never one for the other. */
   const visits: routing.RebalanceVisit[] = candidates.map((v) => ({
     stop: stopOf(day, v),
@@ -1481,6 +1634,7 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
       : Object.fromEntries(planned.map((t) => [t.id, refusalFor(day, t, v, verdictOf)])),
     priority: members.has(v.id),
     ...(v.technicianIds.length > 1 ? { team: v.technicianIds } : {}),
+    ...(held.has(v.id) ? { held: Object.fromEntries(held.get(v.id)!) } : {}),
   }));
 
   const { travel, matrix } = await travelOver(ctx, day, points);
@@ -1603,7 +1757,8 @@ export async function rebalance(ctx: ServiceContext, input: { date: string }) {
  * Through the same assignment and reorder a drag uses, inside one
  * transaction, so the qualification check refuses here exactly as it would
  * on the board and a refusal leaves the day as it was rather than half
- * moved. A move to a crew goes through the crew's own assignment, the
+ * moved. The share of each person's window held for members is asked of
+ * the whole plan first, as the proposal counted it (`assertHoldKept`). A move to a crew goes through the crew's own assignment, the
  * check a drag onto a crew makes, which refuses in words a crew without
  * the kit or the people. Refused when the board has changed since the
  * proposal was made.
@@ -1631,7 +1786,22 @@ export async function applyRebalance(ctx: ServiceContext, input: {
       const visit = day.visits.find((v) => v.id === move.visitId);
       if (!visit) throw new NotFoundError("Visit");
       if (visit.locked) throw new ConflictError(`${visit.customerName}'s visit is locked, so it is not moved.`);
-      if (move.crewId) await assignCrew(inner, { id: move.visitId, crewId: move.crewId });
+    }
+    /** The share held for members, asked of the whole plan before anything moves. */
+    const holders = await holdersFor(tx, new Map(day.technicians.map((t) => [t.id, t.displayName])), [
+      ...input.moves.flatMap((m) => (m.crewId ? [m.crewId] : [])),
+      ...day.visits.flatMap((v) => (v.crewId === null ? [] : [v.crewId])),
+    ]);
+    await assertHoldKept(tx, ctx.actor.organizationId, day.zone, input.moves.flatMap((move) => {
+      const visit = day.visits.find((v) => v.id === move.visitId)!;
+      if (!visit.windowStart) return [];
+      return [{
+        visit, windowStart: visit.windowStart, exclude: peopleOnVisit(visit, holders.crewPeople),
+        holder: move.crewId ? holders.crew(move.crewId) : holders.person(move.technicianId!),
+      }];
+    }));
+    for (const move of input.moves) {
+      if (move.crewId) await assignCrew(inner, { id: move.visitId, crewId: move.crewId, skipMemberHold: true });
       else await dispatch.assign(inner, { id: move.visitId, technicianIds: [move.technicianId!], skipMemberHold: true });
     }
     for (const order of input.orders) {

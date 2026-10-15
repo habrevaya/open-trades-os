@@ -268,6 +268,41 @@ export async function rebalanceDays(ctx: ServiceContext, input: { from: string; 
     }
   }
 
+  /**
+   * AND THE SHARE OF EACH PERSON'S WINDOW, as a drop onto them keeps it: a
+   * stranger's visit goes onto somebody's day only while their own window
+   * has room outside the share kept for members, counting every visit the
+   * plan puts there. On its own day the people already on it are not asked;
+   * on another day its time is new to everybody, whoever had it included.
+   */
+  const personRooms = await guardedRead(ctx, "visit:read", async (tx) => {
+    const crewPeople = await dm.crewPeopleOf(tx, [
+      ...planned.map((c) => c.id), ...[...byId.values()].flatMap(({ visit }) => (visit.crewId === null ? [] : [visit.crewId])),
+    ]);
+    const crewHolders: dm.HoldHolder[] = planned.map((c) => ({
+      key: dm.crewKey(c.id), name: c.name, crew: true, people: crewPeople.get(c.id) ?? [],
+    }));
+    return dm.heldRooms(tx, ctx.actor.organizationId, zone, visits.flatMap((v) => {
+      const { visit, date } = byId.get(v.id)!;
+      if (!visit.windowStart) return [];
+      return v.options.map((option) => ({
+        ref: `${v.id}|${option.date}`,
+        visit,
+        windowStart: option.date === date ? visit.windowStart! : windowOn(visit, planOf.get(date)!.day, option.date, zone).start,
+        holders: visit.crewId !== null ? crewHolders : planOf.get(option.date)!.people.map((t) => ({
+          key: t.id, name: t.displayName, crew: false, people: [{ id: t.id, name: t.displayName }],
+        })),
+        exclude: option.date === date ? dm.peopleOnVisit(visit, crewPeople) : new Set<string>(),
+      }));
+    }));
+  });
+  for (const v of visits) {
+    for (const option of v.options) {
+      const held = personRooms.get(`${v.id}|${option.date}`);
+      if (held) option.heldOn = Object.fromEntries(held);
+    }
+  }
+
   /** One map of drive times for the whole range: a house is as far from the yard on Thursday as on Tuesday. */
   const first = days[0]!;
   const routeMinutes = new Map(days.flatMap((d) => [...d.routeMinutes]));
@@ -459,7 +494,9 @@ const plannedIdsOf = (day: dm.Day) => {
  * order, a person's and a crew's. One transaction, so a refusal anywhere
  * leaves every day as it was. A move the visit's customer did not agree to
  * is refused even when the payload asks for it, and so is one that would
- * fill a window past what online booking sells in it, read again now.
+ * fill a window past what online booking sells in it, read again now, or
+ * would put a stranger's visit into the share of somebody's window held for
+ * members, asked of the whole plan before anything moves.
  */
 export async function applyRebalanceDays(ctx: ServiceContext, input: {
   from: string;
@@ -491,7 +528,7 @@ export async function applyRebalanceDays(ctx: ServiceContext, input: {
       }
     };
     const assignTo = async (visitId: string, m: { technicianId?: string | undefined; technicianIds?: string[] | undefined; crewId?: string | undefined }) => {
-      if (m.crewId) await crews.assign(inner, { id: visitId, crewId: m.crewId });
+      if (m.crewId) await crews.assign(inner, { id: visitId, crewId: m.crewId, skipMemberHold: true });
       else if (m.technicianIds) await dispatch.assign(inner, { id: visitId, technicianIds: m.technicianIds, leadTechnicianId: m.technicianIds[0]!, skipMemberHold: true });
       else await dispatch.assign(inner, { id: visitId, technicianIds: [m.technicianId!], skipMemberHold: true });
     };
@@ -501,6 +538,37 @@ export async function applyRebalanceDays(ctx: ServiceContext, input: {
       organizationId: ctx.actor.organizationId, timezone: zone, from: dates[0]!, until: dates[dates.length - 1]!,
     });
     const filling = new Map<string, number>();
+
+    /**
+     * THE SHARE OF EACH PERSON'S WINDOW HELD FOR MEMBERS, asked of the whole
+     * plan before anything moves, against the days as they were proposed:
+     * a visit moved to another day takes new time from everybody it goes to
+     * there, and one moved between people on its day from whoever gets it.
+     */
+    const everyVisit = days.flatMap((d) => d.visits);
+    const names = new Map(days.flatMap((d) => d.technicians.map((t) => [t.id, t.displayName] as const)));
+    const holders = await dm.holdersFor(tx, names, [
+      ...[...input.dayMoves, ...input.moves].flatMap((m) => (m.crewId ? [m.crewId] : [])),
+      ...everyVisit.flatMap((v) => (v.crewId === null ? [] : [v.crewId])),
+    ]);
+    const going = (m: { technicianId?: string | undefined; technicianIds?: string[] | undefined; crewId?: string | undefined }) =>
+      m.crewId ? [holders.crew(m.crewId)] : (m.technicianIds ?? (m.technicianId ? [m.technicianId] : [])).map((id) => holders.person(id));
+    await dm.assertHoldKept(tx, ctx.actor.organizationId, zone, [
+      ...input.dayMoves.flatMap((move) => {
+        const day = days.find((d) => d.visits.some((v) => v.id === move.visitId));
+        const visit = day?.visits.find((v) => v.id === move.visitId);
+        if (!day || !visit?.windowStart || !dates.includes(move.toDate)) return [];
+        const windowStart = windowOn(visit, day, move.toDate, zone).start;
+        return going(move).map((holder) => ({ visit, windowStart, holder, exclude: new Set<string>() }));
+      }),
+      ...input.moves.flatMap((move) => {
+        const visit = everyVisit.find((v) => v.id === move.visitId);
+        if (!visit?.windowStart) return [];
+        return going(move).map((holder) => ({
+          visit, windowStart: visit.windowStart!, holder, exclude: dm.peopleOnVisit(visit, holders.crewPeople),
+        }));
+      }),
+    ]);
 
     const told: Applied["told"] = [];
     for (const move of input.dayMoves) {

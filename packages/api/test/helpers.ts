@@ -145,7 +145,7 @@ const ORDER = [
   "price_book_item_version", "price_book_item", "price_book_category",
   "rate_card_line", "rate_card", "contract_site",
   /** A contract's billed periods point at the schedule, the contract and an invoice. */
-  "contract_billing_period", "contract_billing_schedule", "contract_escalation_notice", "contract_escalation_rise", "service_contract",
+  "contract_billing_period", "contract_billing_fee", "contract_billing_schedule", "contract_escalation_notice", "contract_escalation_rise", "service_contract",
   "timeclock_entry", "overtime_policy", "wage_scale",
   /**
    * The discount limit. Nothing points at it: it is matched by organization,
@@ -480,9 +480,16 @@ export const TEARDOWN_ORDER: readonly string[] = ORDER;
  * the hours after midnight UTC it is already tomorrow where the company is
  * (America/Chicago, the column's default), so a visit made "now" falls
  * outside a day asked for by it and a date "today" is refused as the future.
+ *
+ * The offset is counted in calendar days from that date, not in 24 hour
+ * steps from now: in the hour after midnight, twenty days of 24 hours across
+ * the night the clocks go back end at 11pm on the nineteenth day.
  */
 export function companyToday(offset = 0, timeZone = "America/Chicago"): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(Date.now() + offset * 86_400_000));
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+  const day = new Date(`${today}T12:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + offset);
+  return day.toISOString().slice(0, 10);
 }
 
 export function fixtureId(name: string): string {

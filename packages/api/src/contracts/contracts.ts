@@ -283,7 +283,7 @@ export const previewContractEscalation = defineRoute({
   path: "/v1/contracts/{contractId}/escalation",
   summary: "What the contract's next annual escalation would do to its cards",
   description:
-    "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. Nothing is written.",
+    "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. `fee` is the contract's fixed fee before and after, when its billing schedule rises with the escalation (off unless the schedule says so): the fee in force the day before the anniversary, risen by the year's rise for every card and every trade or the contract's yearly rate, never by a rise naming one card or trade. A contract whose fee rises needs no card in force. `feeDraft` is the fee as the worker's draft prepared it. Nothing is written.",
   module: "M31",
   permissions: ["pricebook:read"],
   input: z.object({ contractId: Uuid }),
@@ -306,6 +306,13 @@ export const previewContractEscalation = defineRoute({
       tripCharge: EscalatedPrice.nullable(),
     })),
     drafts: z.array(z.object({ rateCardId: Uuid, name: z.string(), preparedAt: z.string().datetime() })).optional(),
+    /** The fixed fee as the worker's draft prepared it for the anniversary, when it has. */
+    feeDraft: z.object({ amount: MoneyString, preparedAt: z.string().datetime() }).nullable().optional(),
+    /**
+     * The contract's fixed fee before and after, when its schedule rises with
+     * the escalation and still bills from the anniversary; null otherwise.
+     */
+    fee: EscalatedPrice.extend({ per: z.string() }).nullable(),
     rises: z.array(ContractRise),
     key: z.string().nullable(),
   }),
@@ -316,7 +323,7 @@ export const applyContractEscalation = defineRoute({
   path: "/v1/contracts/{contractId}/escalation",
   summary: "Apply the annual escalation the preview showed",
   description:
-    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards it made.",
+    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. When the preview shows the fixed fee rising, the fee as risen becomes the fee for every period starting on or after the anniversary; a period already billed keeps its invoice. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate and whose fee does not rise, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards and the fee it made.",
   module: "M31",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -336,6 +343,8 @@ export const applyContractEscalation = defineRoute({
     cards: z.array(z.object({
       fromRateCardId: Uuid, rateCardId: Uuid, name: z.string(), effectiveFrom: z.string().date(),
     })),
+    /** The fixed fee from the anniversary, when it rose with the cards. */
+    fee: z.object({ from: z.string().date(), amount: MoneyString, previousAmount: MoneyString, rate: RateString }).nullable(),
   }),
 });
 
@@ -406,11 +415,17 @@ export const ContractBilling = z.object({
     taxable: z.boolean(),
     /** The words on the invoice line. */
     description: z.string(),
+    /** Whether the fee rises with the contract's annual escalation, applied by a person with the rest of the rise. */
+    risesWithEscalation: z.boolean(),
     state: z.enum(["active", "paused", "ended"]),
     pausedOn: z.string().date().nullable(),
     endedOn: z.string().date().nullable(),
     /** The last day it bills for: the contract's end or the schedule's own, whichever is first. */
     lastDay: z.string().date().nullable(),
+    /** The fee for a period starting today, after any rise that has taken effect. */
+    feeNow: MoneyString,
+    /** Each rise of the fee, oldest first: the fee for every period starting on or after `from`. */
+    fees: z.array(z.object({ from: z.string().date(), amount: MoneyString, previousAmount: MoneyString, rate: RateString })),
   }).nullable(),
   /** The next period still to come. */
   next: BillingPeriod.nullable(),
@@ -446,12 +461,14 @@ export const setContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing",
   summary: "Bill a contract a fixed fee every month, quarter or year",
   description:
-    "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer in the company's calendar, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue on the day it is raised like any invoice. With `timing` `advance` (the default) each period is billed on its billing day, for the period that starts that day; with `arrears` it is billed the day after it ends, for the period just gone. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of; in arrears a period cut short by a pause or an end is always charged by the day for the days that ran, and the invoice line says how many. The billing day is 1 to 28. Changing how often, on which day or in advance or arrears, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.",
+    "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer in the company's calendar, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue on the day it is raised like any invoice. With `timing` `advance` (the default) each period is billed on its billing day, for the period that starts that day; with `arrears` it is billed the day after it ends, for the period just gone. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of; in arrears a period cut short by a pause or an end is always charged by the day for the days that ran, and the invoice line says how many. The billing day is 1 to 28. Changing how often, on which day or in advance or arrears, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again. With `risesWithEscalation` (off unless set) the fee rises with the contract's annual escalation: the preview shows it beside the cards, the worker's draft prepares it, and applying the rise writes it as the fee for every period starting on or after the anniversary. A fee typed here that differs from the schedule's replaces any such rise for every period not yet billed.",
   module: "M31",
   permissions: ["contract:write"],
   idempotent: true,
   input: z.object({
     contractId: Uuid,
+    /** Whether the fee rises with the contract's annual escalation. Left off, a change keeps what the schedule had. */
+    risesWithEscalation: z.boolean().optional(),
     amount: MoneyString,
     frequency: BillingFrequency,
     billingDay: z.number().int().min(1).max(28),

@@ -97,6 +97,30 @@ export interface Schedule {
   timing?: Timing | undefined;
   /** In arrears, the days paused, which are never billed. Ignored in advance, where a paused period is skipped whole. */
   stops?: readonly Stop[] | undefined;
+  /**
+   * The fee from a day on, as the contract's escalation rose it. Each prices
+   * every period that starts on or after its day, until the next; before the
+   * first, `amount` does.
+   */
+  fees?: readonly { from: string; amount: Money }[] | undefined;
+}
+
+/**
+ * The fee for a period that starts on a day: the last of `fees` from on or
+ * before it, or the schedule's own amount. A period that straddles the day a
+ * fee rose is priced by the fee on its first day, so the rise is never
+ * charged for days before it.
+ */
+export function feeOn(schedule: Schedule, start: string): Money {
+  let fee = schedule.amount;
+  let from = "";
+  for (const f of schedule.fees ?? []) {
+    if (f.from <= start && f.from >= from) {
+      fee = f.amount;
+      from = f.from;
+    }
+  }
+  return fee;
 }
 
 export interface Period {
@@ -231,7 +255,7 @@ export function periodFrom(schedule: Schedule, start: string): Period | null {
     start,
     end,
     billOn: arrears ? addDays(end, 1) : start,
-    amount: prorated ? prorate(schedule.amount, days, fullDays) : round(schedule.amount, 2),
+    amount: prorated ? prorate(feeOn(schedule, start), days, fullDays) : round(feeOn(schedule, start), 2),
     prorated,
     days,
     fullDays,

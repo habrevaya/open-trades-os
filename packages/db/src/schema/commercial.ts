@@ -319,6 +319,13 @@ export const contractBillingSchedule = pgTable("contract_billing_schedule", {
   taxable: boolean("taxable").notNull().default(false),
   /** What the invoice line says: "Planned maintenance, both sites". */
   description: text("description").notNull(),
+  /**
+   * Whether the fee rises with the contract's annual escalation: prepared as
+   * a draft with next year's cards and applied by a person with the rest of
+   * the rise, as a fee from the anniversary (`contract_billing_fee`). Off by
+   * default, because a fixed fee that says nothing about rising does not.
+   */
+  risesWithEscalation: boolean("rises_with_escalation").notNull().default(false),
   state: contractBillingState("state").notNull().default("active"),
   /** The day it was paused, while it is. A period whose billing day falls while paused is skipped. */
   pausedOn: date("paused_on"),
@@ -327,6 +334,35 @@ export const contractBillingSchedule = pgTable("contract_billing_schedule", {
   ...timestamps,
 }, (t) => ({
   contractIdx: uniqueIndex("contract_billing_schedule_contract_idx").on(t.contractId),
+}));
+
+/**
+ * A FIXED FEE FROM A DAY ON, as the contract's escalation rose it.
+ *
+ * The schedule's own amount is the fee until the first of these; each row is
+ * the fee for every period that starts on or after its day, until the next.
+ * Written only when a person applies an anniversary's rise, under the
+ * contract's lock and after the anniversary is checked against the last one
+ * applied, so the unique index is a guard rather than something a person can
+ * collide with. A period already billed keeps its invoice. Typing a new fee
+ * on the schedule replaces these, because the fee typed is the fee meant.
+ */
+export const contractBillingFee = pgTable("contract_billing_fee", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").notNull().references(() => serviceContract.id, { onDelete: "cascade" }),
+  scheduleId: uuid("schedule_id").notNull().references(() => contractBillingSchedule.id, { onDelete: "cascade" }),
+  /** The first day of a period this fee prices: the anniversary it rose on. */
+  effectiveFrom: date("effective_from").notNull(),
+  /** The fee for one whole period, before tax, from that day. */
+  amount: money("amount").notNull(),
+  /** What it was the day before, as the rise was shown. */
+  previousAmount: money("previous_amount").notNull(),
+  /** The rise it took, a fraction. */
+  rate: rate("rate").notNull(),
+  ...timestamps,
+}, (t) => ({
+  scheduleIdx: uniqueIndex("contract_billing_fee_schedule_idx").on(t.scheduleId, t.effectiveFrom),
 }));
 
 export const contractBillingPeriodStatus = pgEnum("contract_billing_period_status", ["invoiced", "skipped"]);
@@ -459,6 +495,12 @@ export const contractEscalationNotice = pgTable("contract_escalation_notice", {
    * since prepares them again. Null on a notice from before rises differed.
    */
   preparedFrom: text("prepared_from"),
+  /**
+   * The contract's fixed fee as the draft prepares it for the anniversary,
+   * when its schedule rises with the escalation. For looking at: applying
+   * works it out again from the fee in force, as it does the cards.
+   */
+  feeDraft: money("fee_draft"),
   /** The office task raised about it. A loose reference, as every task's subject is. */
   taskId: uuid("task_id"),
   preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),

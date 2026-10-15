@@ -330,7 +330,8 @@ office stays free to overbook it as before; a job made from a booking request
 was held to the share when the request was made and is not asked again.
 "Rebalance several days" keeps it as well: a visit for somebody no plan lets
 into the hold is moved into a window on another day only while that window
-has room outside the hold, counting every visit the plan moves in.
+has room outside the hold, counting every visit the plan moves in (and each
+person's share, below).
 
 So does the board. A drag on `/schedule` never changes when a visit happens,
 so the window's share across everybody is what it was when the visit was
@@ -353,6 +354,34 @@ asked of somebody already on the visit, a visit with no time, or one on a
 job made from a booking request, as booking by hand leaves it. The AI
 dispatcher's suggestions, applied, are asked the same, and one refused is
 left as it was and said in its result.
+
+A drop onto a crew's lane is asked the same of each of the crew's people,
+because a crew's visit takes every one of them: "North crew would take Ray
+Ortiz's time in the 8am to 12pm window on 2026-12-02, which is kept for
+members, and this customer is not a member there that day. South crew could
+take it instead. Or send anyway to give them a member's place." The crews
+named instead are those whose people all have room outside the hold. **Send
+anyway** puts it on the crew (`intoMemberHold` on `POST /v1/visits/{id}/crew`,
+`visit:dispatch`), and the audit log has a `visit.assigned_into_member_hold`
+for each person whose share it took, naming the crew.
+
+The two rebalances keep each person's share as they plan, rather than being
+asked afterwards. For each visit for somebody no plan lets into the hold, and
+each person or crew a plan might put it on, they read how many such visits
+that person's window still takes outside the share kept for members, against
+the day as it stands, and count every visit the plan puts there against it;
+a crew counts against each of its people, so a person's own work and their
+crew's share one count. A visit nobody can take without the hold stays where
+it is, and one waiting in the pile is listed under what the plan could not
+place with the hold in words. "Rebalance several days" asks it on the day a
+visit would move to as well, where its time is new to everybody, as well as
+keeping the window's share as before. Applying either asks the whole plan
+again before anything moves, against the day as it was proposed, and refuses
+it whole, in the same words ending "Propose it again.", when the payload or
+something since would put a stranger in a member's place, so a plan is never
+refused half way through by its own earlier moves. A plan has no "send
+anyway": a dispatcher who wants a stranger in a member's place drags them
+there.
 
 The phone assistant, the chat on the website and by text, and the intake
 agent (M27) know a member by how they reached the company: the number a call
@@ -476,12 +505,14 @@ screen says so, and freezing them is a decision nobody has made. The board is
 held to the share of one person's window: a drag cannot move a visit to
 another time, so there is nothing else for it to be held to, and a person's
 window that holds three jobs or fewer keeps none back at a quarter, because
-the share is rounded to whole jobs with a half rounded down. The single day
-rebalance and the several day one put work on people from a plan of their
-own and are not asked about each person's share: the several day one keeps
-the window's share as it moves a visit, and a refusal half way through
-applying a plan would leave it half applied. A drop onto a crew's lane is
-not asked either. The assistants know a member only by the number they ring or
+the share is rounded to whole jobs with a half rounded down. The rebalances
+read each person's room from the day before the plan and do not count back
+in the room a visit the plan takes off somebody frees, so a plan can leave a
+stranger's visit where it is that the same plan, run again once applied,
+would move; that errs on the side of the members, and nobody has decided it
+should be otherwise. They read the window as a whole with the visit itself
+in it, where a drop reads it without, which can differ by one job at the
+edge of the hold. A plan never offers to send anyway. The assistants know a member only by the number they ring or
 text from or a number or email written in the chat, never by a name they say,
 and that match proves nothing about who is asking: it changes which windows
 are offered and nothing else. A breakage release is reached by the worker's

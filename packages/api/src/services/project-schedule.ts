@@ -283,6 +283,8 @@ export interface ChangeOrderDaysProposal {
   /** Already applied: never applied twice. */
   applied: {
     at: Date; phaseId: string; days: number; changes: plan.DayChange[];
+    /** The day on the phase the days landed from. Null on a change order applied before it was asked. */
+    from: string | null;
     /** The visits it moved, and the ones it left where they were with why. Empty before visits moved with the days. */
     visits: AppliedVisits;
   } | null;
@@ -295,7 +297,14 @@ export interface ChangeOrderDaysProposal {
     finishBefore: string | null;
     finishAfter: string | null;
     statement: string;
-    /** Visits booked on the phases that move: each going with its phase, or left where it is and why. */
+    /**
+     * The first day of the phase the days land on that they push out (or, for
+     * days taken off, the first day taken off). Its visits from that day go
+     * by the days; `fromChosen` is false for the default, the phase's end.
+     */
+    from: string;
+    fromChosen: boolean;
+    /** Visits booked on the phases that move, and on the phase the days land on from `from`: each going, or left where it is and why. */
     visits: { moves: plan.VisitMove[]; left: plan.VisitLeft[] };
     /** What the person was shown. Applying hands it back, and a schedule or a booking that changed since is refused. */
     key: string;
@@ -311,9 +320,10 @@ export interface AppliedVisits {
  * A short fingerprint of exactly which dates a proposal would write, and which
  * visits it would move or leave, so a booking changed since is looked at again.
  */
-const keyOf = (changes: readonly plan.DayChange[], visits: { moves: plan.VisitMove[]; left: plan.VisitLeft[] }) =>
+const keyOf = (changes: readonly plan.DayChange[], visits: { moves: plan.VisitMove[]; left: plan.VisitLeft[] }, from: string) =>
   createHash("sha256")
     .update([
+      `from:${from}`,
       ...changes.map((c) => `${c.id}:${c.wasStartsOn}:${c.wasEndsOn}:${c.startsOn}:${c.endsOn}`),
       ...visits.moves.map((v) => `v:${v.id}:${v.wasStart.toISOString()}:${v.start.toISOString()}`),
       ...visits.left.map((v) => `l:${v.id}:${v.wasStart.toISOString()}:${v.reason}`),
@@ -327,8 +337,12 @@ const keyOf = (changes: readonly plan.DayChange[], visits: { moves: plan.VisitMo
  */
 async function visitsToMove(
   tx: Database, projectId: string, shiftDays: ReadonlyMap<string, number>, zone: string, now: Date,
+  target?: { phaseId: string; from: string; days: number },
 ): Promise<{ moves: plan.VisitMove[]; left: plan.VisitLeft[] }> {
-  const phaseIds = [...shiftDays.entries()].filter(([, d]) => d !== 0).map(([id]) => id);
+  const phaseIds = [
+    ...[...shiftDays.entries()].filter(([, d]) => d !== 0).map(([id]) => id),
+    ...(target && target.days !== 0 ? [target.phaseId] : []),
+  ];
   if (phaseIds.length === 0) return { moves: [], left: [] };
   const rows = await tx.select({
     id: schema.visit.id, status: schema.visit.status, start: schema.visit.windowStart, end: schema.visit.windowEnd,
@@ -386,7 +400,7 @@ async function visitsToMove(
     const span = time.visitSpan(b.start, b.end, b.minutes);
     return span ? [{ personId: b.personId, visitId: b.visitId, start: span.start, end: span.end }] : [];
   });
-  return plan.planVisitMoves({ visits, shiftDays, timeZone: zone, now, away, busy });
+  return plan.planVisitMoves({ visits, shiftDays, timeZone: zone, now, away, busy, target });
 }
 
 async function loadChangeOrder(tx: Database, organizationId: string, id: string) {
@@ -404,7 +418,7 @@ async function loadChangeOrder(tx: Database, organizationId: string, id: string)
  */
 async function proposeIn(
   tx: Database, organizationId: string,
-  order: Awaited<ReturnType<typeof loadChangeOrder>>, phaseId: string | undefined,
+  order: Awaited<ReturnType<typeof loadChangeOrder>>, phaseId: string | undefined, from?: string | undefined,
 ): Promise<ChangeOrderDaysProposal> {
   const rows = await phasesOf(tx, order.projectId);
   const target = phaseId ?? order.projectPhaseId ?? null;
@@ -426,6 +440,7 @@ async function proposeIn(
           startsOn: mv.startsOn, endsOn: mv.endsOn, wasStartsOn: mv.wasStartsOn, wasEndsOn: mv.wasEndsOn,
         })),
         visits: done.visits ?? { moved: [], left: [] },
+        from: done.from ?? null,
       },
       canApply: false, reason: "These days are already on the schedule.", proposal: null,
     };
@@ -442,16 +457,29 @@ async function proposeIn(
   if (!target) return refused("Choose the phase these days land on. The change order does not name one.");
   const decision = plan.proposeChangeOrderDays(planned(rows), target, order.scheduleDays);
   if (!decision.ok) return refused(decision.reason);
-  /** Each phase whose start moves takes its booked visits with it, by the same days. */
+  /**
+   * The day on the phase itself that the days push out from, or are taken
+   * off from: chosen by the person, or the careful default, which moves none
+   * of the phase's own visits inside its dates (`core/project.landingFrom`).
+   */
+  const own = decision.changes[0]!;
+  const landing = plan.landingFrom(
+    { name: own.name, startsOn: own.wasStartsOn, endsOn: own.wasEndsOn }, order.scheduleDays, from,
+  );
+  if (!landing.ok) return refused(landing.reason);
+  /** Each phase whose start moves takes its booked visits with it, by the same days, and so does the target from that day. */
   const shiftDays = new Map(decision.changes
     .filter((c) => c.startsOn !== c.wasStartsOn)
     .map((c) => [c.id, plan.daysBetween(c.wasStartsOn, c.startsOn)]));
-  const visits = await visitsToMove(tx, order.projectId, shiftDays, await timezoneOf(tx, organizationId), new Date());
+  const visits = await visitsToMove(tx, order.projectId, shiftDays, await timezoneOf(tx, organizationId), new Date(), {
+    phaseId: own.id, from: landing.from, days: order.scheduleDays,
+  });
   return {
     ...base, applied: null, canApply: true, reason: null,
     proposal: {
       changes: decision.changes, finishBefore: decision.finishBefore, finishAfter: decision.finishAfter,
-      statement: decision.statement, visits, key: keyOf(decision.changes, visits),
+      statement: decision.statement, from: landing.from, fromChosen: Boolean(from), visits,
+      key: keyOf(decision.changes, visits, landing.from),
     },
   };
 }
@@ -464,11 +492,11 @@ async function proposeIn(
  * one than the work was priced against.
  */
 export async function proposeChangeOrderDays(
-  ctx: ServiceContext, input: { id: string; phaseId?: string | undefined },
+  ctx: ServiceContext, input: { id: string; phaseId?: string | undefined; from?: string | undefined },
 ): Promise<ChangeOrderDaysProposal> {
   return guardedRead(ctx, "job:read", async (tx) => {
     const order = await loadChangeOrder(tx, ctx.actor.organizationId, input.id);
-    return proposeIn(tx, ctx.actor.organizationId, order, input.phaseId);
+    return proposeIn(tx, ctx.actor.organizationId, order, input.phaseId, input.from);
   });
 }
 
@@ -497,7 +525,7 @@ export async function proposeChangeOrderDays(
  * flags it and leaves it to a person.
  */
 export async function applyChangeOrderDays(
-  ctx: ServiceContext, input: { id: string; phaseId?: string | undefined; proposalKey: string },
+  ctx: ServiceContext, input: { id: string; phaseId?: string | undefined; from?: string | undefined; proposalKey: string },
 ): Promise<ChangeOrderDaysProposal & { alreadyApplied: boolean }> {
   return guardedWrite(ctx, "job:write", async (tx) => {
     const [locked] = await tx.select({ id: schema.projectChangeOrder.id }).from(schema.projectChangeOrder)
@@ -508,7 +536,7 @@ export async function applyChangeOrderDays(
     if (!locked) throw new NotFoundError("Change order");
     const order = await loadChangeOrder(tx, ctx.actor.organizationId, input.id);
 
-    const seen = await proposeIn(tx, ctx.actor.organizationId, order, input.phaseId);
+    const seen = await proposeIn(tx, ctx.actor.organizationId, order, input.phaseId, input.from);
     if (seen.applied) return { ...seen, alreadyApplied: true };
     if (!seen.canApply || !seen.proposal) throw new ConflictError(seen.reason ?? "Nothing to apply.");
     if (seen.proposal.key !== input.proposalKey) {
@@ -552,12 +580,13 @@ export async function applyChangeOrderDays(
           id: c.id, startsOn: c.startsOn, endsOn: c.endsOn, wasStartsOn: c.wasStartsOn, wasEndsOn: c.wasEndsOn,
         })),
         visits,
+        from: seen.proposal.from,
       },
       updatedAt: at,
     }).where(eq(schema.projectChangeOrder.id, order.id));
     await audit(tx, ctx, "project_change_order.schedule_applied", "project_change_order", order.id,
       { scheduleAppliedAt: null },
-      { phaseId: seen.phaseId, days: order.scheduleDays, changes: seen.proposal.changes, visits });
+      { phaseId: seen.phaseId, days: order.scheduleDays, from: seen.proposal.from, changes: seen.proposal.changes, visits });
     const after = await loadChangeOrder(tx, ctx.actor.organizationId, order.id);
     return { ...(await proposeIn(tx, ctx.actor.organizationId, after, undefined)), alreadyApplied: false };
   });
@@ -568,8 +597,10 @@ export const handlers = {
   moveProjectPhase: (ctx: ServiceContext, input: { id: string; startsOn: string }) => move(ctx, input),
   setProjectPhaseDates: (ctx: ServiceContext, input: { id: string; startsOn: string | null; endsOn: string | null }) =>
     setDates(ctx, input),
-  getChangeOrderScheduleDays: (ctx: ServiceContext, input: { id: string; phaseId?: string | undefined }) =>
+  getChangeOrderScheduleDays: (ctx: ServiceContext, input: { id: string; phaseId?: string | undefined; from?: string | undefined }) =>
     proposeChangeOrderDays(ctx, input),
-  applyChangeOrderScheduleDays: (ctx: ServiceContext, input: { id: string; phaseId?: string | undefined; proposalKey: string }) =>
+  applyChangeOrderScheduleDays: (ctx: ServiceContext, input: {
+    id: string; phaseId?: string | undefined; from?: string | undefined; proposalKey: string;
+  }) =>
     applyChangeOrderDays(ctx, input),
 } as const;

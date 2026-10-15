@@ -198,6 +198,7 @@ export async function setContractBilling(_previous: FormState, form: FormData): 
     startsOn: field(form, "startsOn"),
     prorate: form.get("prorate") === "1",
     taxable: form.get("taxable") === "1",
+    risesWithEscalation: form.get("risesWithEscalation") === "1",
     description: field(form, "description") ?? "",
   }));
   revalidatePath(`/contracts/${contractId}`);

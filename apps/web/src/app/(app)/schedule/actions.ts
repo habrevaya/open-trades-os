@@ -71,14 +71,25 @@ export async function assignVisit(input: {
  * A card dropped on a crew's lane: the visit goes to the crew through the
  * crews screen's own check (the crew's kit, its people and their leave at the
  * visit's hours), and comes off whoever had it. A crew that cannot take it is
- * refused in the check's own words, shown where the card was dropped.
+ * refused in the check's own words, shown where the card was dropped. Time
+ * held for members on one of the crew's people is refused the same way a
+ * drop onto a person is, and "Send anyway" sends `intoMemberHold`.
  */
-export async function sendToCrew(input: { visitId: string; crewId: string }): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function sendToCrew(input: { visitId: string; crewId: string; intoMemberHold?: boolean }): Promise<
+  { ok: true } | { ok: false; message: string; memberHold?: true }
+> {
   const user = await requireSetupUser();
   try {
-    await crews.assign({ actor: user.actor, db: getDb() }, { id: input.visitId, crewId: input.crewId });
+    await crews.assign({ actor: user.actor, db: getDb() }, {
+      id: input.visitId, crewId: input.crewId, ...(input.intoMemberHold ? { intoMemberHold: true } : {}),
+    });
   } catch (error) {
-    return { ok: false, message: refusalOf(error) ?? "That did not take. Reload the board and try again." };
+    const memberHold = (error as { memberHoldRefused?: boolean }).memberHoldRefused === true;
+    return {
+      ok: false,
+      message: refusalOf(error) ?? "That did not take. Reload the board and try again.",
+      ...(memberHold ? { memberHold: true as const } : {}),
+    };
   }
   revalidatePath("/schedule");
   return { ok: true };

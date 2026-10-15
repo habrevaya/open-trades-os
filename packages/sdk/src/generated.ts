@@ -650,6 +650,7 @@ export interface AnswerPortalVisitChangeProposalOutput {
 
 export interface ApplyChangeOrderScheduleDaysInput {
   phaseId?: string;
+  from?: string;
   proposalKey: string;
 }
 
@@ -664,6 +665,7 @@ export interface ApplyChangeOrderScheduleDaysOutput {
     at: string;
     phaseId: string;
     days: number;
+    from: string | null;
     changes: Array<{
       id: string;
       name: string;
@@ -704,6 +706,8 @@ export interface ApplyChangeOrderScheduleDaysOutput {
     finishBefore: string | null;
     finishAfter: string | null;
     statement: string;
+    from: string;
+    fromChosen: boolean;
     visits: {
       moves: Array<{
         id: string;
@@ -745,6 +749,12 @@ export interface ApplyContractEscalationOutput {
     name: string;
     effectiveFrom: string;
   }>;
+  fee: {
+    from: string;
+    amount: string;
+    previousAmount: string;
+    rate: string;
+  } | null;
 }
 
 export interface ApplyCreditNoteInput {
@@ -1469,6 +1479,7 @@ export interface AskToSignStaffDocumentOutput {
 
 export interface AssignCrewToVisitInput {
   crewId: string;
+  intoMemberHold?: boolean;
 }
 
 export interface AssignCrewToVisitOutput {
@@ -6131,10 +6142,18 @@ export interface EndContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -7008,6 +7027,7 @@ export interface GetChangeOrderScheduleDaysOutput {
     at: string;
     phaseId: string;
     days: number;
+    from: string | null;
     changes: Array<{
       id: string;
       name: string;
@@ -7048,6 +7068,8 @@ export interface GetChangeOrderScheduleDaysOutput {
     finishBefore: string | null;
     finishAfter: string | null;
     statement: string;
+    from: string;
+    fromChosen: boolean;
     visits: {
       moves: Array<{
         id: string;
@@ -7218,10 +7240,18 @@ export interface GetContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -18313,10 +18343,18 @@ export interface PauseContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -18779,6 +18817,17 @@ export interface PreviewContractEscalationOutput {
     name: string;
     preparedAt: string;
   }>;
+  feeDraft?: {
+    amount: string;
+    preparedAt: string;
+  } | null;
+  fee: {
+    before: string;
+    after: string;
+    rate: string;
+    because: string;
+    per: string;
+  } | null;
   rises: Array<{
     id: string;
     contractYear: number | null;
@@ -21560,10 +21609,18 @@ export interface ResumeContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -23089,6 +23146,7 @@ export interface SetContactPortalAccessOutput {
 }
 
 export interface SetContractBillingInput {
+  risesWithEscalation?: boolean;
   amount: string;
   frequency: "monthly" | "quarterly" | "yearly";
   billingDay: number;
@@ -23111,10 +23169,18 @@ export interface SetContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -29115,6 +29181,7 @@ export interface GetChangeOrderInput {
 export interface GetChangeOrderScheduleDaysInput {
   id: string;
   phaseId?: string;
+  from?: string;
 }
 
 export interface GetChatWidgetInput {
@@ -33497,7 +33564,7 @@ export const OPERATIONS = {
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getCampaign: { method: "GET", path: "/v1/campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   getChangeOrder: { method: "GET", path: "/v1/project-change-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
-  getChangeOrderScheduleDays: { method: "GET", path: "/v1/project-change-orders/{id}/schedule-days", pathParams: ["id"], queryParams: ["phaseId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getChangeOrderScheduleDays: { method: "GET", path: "/v1/project-change-orders/{id}/schedule-days", pathParams: ["id"], queryParams: ["phaseId","from"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getChatWidget: { method: "GET", path: "/v1/public/chat", pathParams: [], queryParams: ["companyKey"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getClaim: { method: "GET", path: "/v1/claims/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getCommissionSplit: { method: "GET", path: "/v1/commissions/split-proposal", pathParams: [], queryParams: ["invoiceId","planId","shares"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
