@@ -7103,6 +7103,15 @@ export interface GetClaimOutput {
   decisionNote: string | null;
 }
 
+export interface GetCommissionItemRuleOutput {
+  rule: "plan_only" | "item_wins" | "higher" | "item_adds";
+  rules: Array<{
+    rule: "plan_only" | "item_wins" | "higher" | "item_adds";
+    label: string;
+    meaning: string;
+  }>;
+}
+
 export interface GetCommissionSplitOutput {
   invoice: {
     id: string;
@@ -7136,11 +7145,37 @@ export interface GetCommissionSplitOutput {
   }>;
   changed: boolean;
   refusal: string | null;
+  itemRule: "plan_only" | "item_wins" | "higher" | "item_adds";
+  itemRuleLabel: string;
+  lines: Array<{
+    invoiceLineId: string;
+    label: string;
+    net: string;
+    priceBookItemVersionId: string | null;
+    itemRate: string | null;
+    planPart: string;
+    itemPart: string | null;
+    paid: string;
+    source: "plan" | "item" | "plan_and_item";
+  }>;
   settled: {
     eventId: string;
     total: string;
     occurredAt: string;
     splitNote: string | null;
+    explanation: string;
+    itemRule: "plan_only" | "item_wins" | "higher" | "item_adds";
+    lines: Array<{
+      invoiceLineId: string;
+      label: string;
+      net: string;
+      priceBookItemVersionId: string | null;
+      itemRate: string | null;
+      planPart: string;
+      itemPart: string | null;
+      paid: string;
+      source: "plan" | "item" | "plan_and_item";
+    }>;
     parts: Array<{
       technicianId: string;
       name: string;
@@ -13538,6 +13573,7 @@ export interface ListCommissionEarningsOutput {
     kind: "earned" | "reversed";
     amount: string;
     explanation: string;
+    itemRule: "plan_only" | "item_wins" | "higher" | "item_adds";
     occurredAt: string;
     paidAt: string | null;
   }>;
@@ -23078,6 +23114,19 @@ export interface SetCertificationStatusOutput {
   statusReason: string | null;
 }
 
+export interface SetCommissionItemRuleInput {
+  rule: "plan_only" | "item_wins" | "higher" | "item_adds";
+}
+
+export interface SetCommissionItemRuleOutput {
+  rule: "plan_only" | "item_wins" | "higher" | "item_adds";
+  rules: Array<{
+    rule: "plan_only" | "item_wins" | "higher" | "item_adds";
+    label: string;
+    meaning: string;
+  }>;
+}
+
 export interface SetContactPortalAccessInput {
   allowed: boolean;
 }
@@ -24674,6 +24723,18 @@ export interface SettleCommissionOutput {
   cost: string | null;
   total: string;
   explanation: string;
+  itemRule: "plan_only" | "item_wins" | "higher" | "item_adds";
+  lines: Array<{
+    invoiceLineId: string;
+    label: string;
+    net: string;
+    priceBookItemVersionId: string | null;
+    itemRate: string | null;
+    planPart: string;
+    itemPart: string | null;
+    paid: string;
+    source: "plan" | "item" | "plan_and_item";
+  }>;
   occurredAt: string;
   ledgerTransactionId: string | null;
   parts: Array<{
@@ -29125,6 +29186,8 @@ export interface GetClaimInput {
   id: string;
 }
 
+export type GetCommissionItemRuleInput = Record<string, never>;
+
 export interface GetCommissionSplitInput {
   invoiceId: string;
   planId?: string;
@@ -32349,6 +32412,7 @@ export interface OperationTypes {
   getChangeOrderScheduleDays: { input: GetChangeOrderScheduleDaysInput; output: GetChangeOrderScheduleDaysOutput };
   getChatWidget: { input: GetChatWidgetInput; output: GetChatWidgetOutput };
   getClaim: { input: GetClaimInput; output: GetClaimOutput };
+  getCommissionItemRule: { input: GetCommissionItemRuleInput; output: GetCommissionItemRuleOutput };
   getCommissionSplit: { input: GetCommissionSplitInput; output: GetCommissionSplitOutput };
   getCompanyDetails: { input: GetCompanyDetailsInput; output: GetCompanyDetailsOutput };
   getComplianceSummary: { input: GetComplianceSummaryInput; output: GetComplianceSummaryOutput };
@@ -33011,6 +33075,7 @@ export interface OperationTypes {
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
+  setCommissionItemRule: { input: SetCommissionItemRuleInput; output: SetCommissionItemRuleOutput };
   setContactPortalAccess: { input: SetContactPortalAccessParams & SetContactPortalAccessInput; output: SetContactPortalAccessOutput };
   setContractBilling: { input: SetContractBillingParams & SetContractBillingInput; output: SetContractBillingOutput };
   setContractRises: { input: SetContractRisesParams & SetContractRisesInput; output: SetContractRisesOutput };
@@ -33500,6 +33565,7 @@ export const OPERATIONS = {
   getChangeOrderScheduleDays: { method: "GET", path: "/v1/project-change-orders/{id}/schedule-days", pathParams: ["id"], queryParams: ["phaseId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getChatWidget: { method: "GET", path: "/v1/public/chat", pathParams: [], queryParams: ["companyKey"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getClaim: { method: "GET", path: "/v1/claims/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  getCommissionItemRule: { method: "GET", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   getCommissionSplit: { method: "GET", path: "/v1/commissions/split-proposal", pathParams: [], queryParams: ["invoiceId","planId","shares"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   getCompanyDetails: { method: "GET", path: "/v1/company", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getComplianceSummary: { method: "GET", path: "/v1/compliance/documents/summary", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
@@ -34162,6 +34228,7 @@ export const OPERATIONS = {
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  setCommissionItemRule: { method: "POST", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setContactPortalAccess: { method: "POST", path: "/v1/contacts/{id}/portal-access", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write","portal:revoke"] },
   setContractBilling: { method: "PUT", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   setContractRises: { method: "PUT", path: "/v1/contracts/{contractId}/escalation/rises", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -36845,6 +36912,15 @@ export abstract class GeneratedOperations {
    */
   getClaim(input: GetClaimInput, options?: CallOptions): Promise<GetClaimOutput> {
     return this.call("getClaim", input, options);
+  }
+
+  /**
+   * How an item's own commission rate and the plan combine on a line.
+   *
+   * GET /v1/commissions/item-rule. Needs commission:read.
+   */
+  getCommissionItemRule(input: GetCommissionItemRuleInput = {} as GetCommissionItemRuleInput, options?: CallOptions): Promise<GetCommissionItemRuleOutput> {
+    return this.call("getCommissionItemRule", input, options);
   }
 
   /**
@@ -42803,6 +42879,15 @@ export abstract class GeneratedOperations {
    */
   setCertificationStatus(input: SetCertificationStatusParams & SetCertificationStatusInput, options?: CallOptions): Promise<SetCertificationStatusOutput> {
     return this.call("setCertificationStatus", input, options);
+  }
+
+  /**
+   * Choose how an item's own commission rate and the plan combine.
+   *
+   * POST /v1/commissions/item-rule. Needs commission:configure.
+   */
+  setCommissionItemRule(input: SetCommissionItemRuleInput, options?: CallOptions): Promise<SetCommissionItemRuleOutput> {
+    return this.call("setCommissionItemRule", input, options);
   }
 
   /**

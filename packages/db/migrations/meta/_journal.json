@@ -960,6 +960,13 @@
       "when": 1792017811446,
       "tag": "0136_clever_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1792042712209,
+      "tag": "0137_elite_mathemanic",
+      "breakpoints": true
     }
   ]
 }
