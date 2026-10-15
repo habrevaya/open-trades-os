@@ -194,6 +194,113 @@ export async function bases(ctx: ServiceContext) {
     }));
 }
 
+/* ------------------------------------------- an item's own rate, the choice */
+
+/**
+ * HOW AN ITEM'S OWN COMMISSION RATE AND THE PLAN COMBINE ON A LINE.
+ *
+ * A price book item can carry its own rate (M06), and which of that and the
+ * plan applies on a line priced from the item is the company's decision,
+ * made once for everybody: the plan only (the default, which is what was
+ * paid before the choice existed), the item's rate instead, whichever pays
+ * more, or the item's rate on top. The arithmetic and the four sentences are
+ * core's (`labor.ITEM_RATE_RULE`).
+ *
+ * Kept in `organization.settings.commission` and read through core, so a
+ * hand edited blob reads as the plan only. Deciding it is a statement about
+ * what people are paid, so `commission:configure`, the permission that
+ * declares a plan; audited with the choice before and after.
+ *
+ * A CHANGE APPLIES FROM THEN ON. A commission is worked out when it is
+ * settled, under the choice in force at that moment, and the choice is
+ * frozen onto the earning (`commission_event.item_rule`), so changing it
+ * never reprices an earning already made, and a reversal of one recomputes
+ * under the choice it was made under.
+ */
+export async function itemRuleWithin(tx: Database, organizationId: string): Promise<labor.ItemRateRule> {
+  const [row] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  return labor.readItemRateRule(((row?.settings ?? {}) as Record<string, unknown>)["commission"]);
+}
+
+export interface ItemRuleView {
+  rule: labor.ItemRateRule;
+  /** Each choice in the words the screen shows beside it, the plan only first. */
+  rules: { rule: labor.ItemRateRule; label: string; meaning: string }[];
+}
+
+const ruleView = (rule: labor.ItemRateRule): ItemRuleView => ({
+  rule,
+  rules: labor.ITEM_RATE_RULES.map((key) => ({
+    rule: key, label: labor.ITEM_RATE_RULE[key].label, meaning: labor.ITEM_RATE_RULE[key].meaning,
+  })),
+});
+
+export async function itemRule(ctx: ServiceContext): Promise<ItemRuleView> {
+  return guardedRead(ctx, "commission:read", async (tx) => ruleView(await itemRuleWithin(tx, ctx.actor.organizationId)));
+}
+
+export async function setItemRule(ctx: ServiceContext, input: { rule: labor.ItemRateRule }): Promise<ItemRuleView> {
+  return guardedWrite(ctx, "commission:configure", async (tx) => {
+    if (!(labor.ITEM_RATE_RULES as readonly string[]).includes(input.rule)) {
+      throw new ConflictError(`"${String(input.rule)}" is not one of the choices. One of: ${labor.ITEM_RATE_RULES.join(", ")}.`);
+    }
+    const before = await itemRuleWithin(tx, ctx.actor.organizationId);
+    /** The same choice again, from a retry or a second click, changes nothing and is not audited twice. */
+    if (before === input.rule) return ruleView(before);
+    await tx.update(schema.organization).set({
+      settings: sql`${schema.organization.settings} || ${JSON.stringify({ commission: { itemRule: input.rule } })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    await audit(tx, ctx, "commission_item_rule.set", "organization", ctx.actor.organizationId,
+      { itemRule: before }, { itemRule: input.rule });
+    return ruleView(input.rule);
+  });
+}
+
+/**
+ * An invoice's lines as a commission reads them: what each charged, net of
+ * its own discount and before tax, and the rate on the price book VERSION it
+ * was priced from. The version, never the item's version today, because a
+ * rate raised in the spring must not reprice what was sold in the winter;
+ * that is the whole reason a line points at a version.
+ */
+async function linesOf(tx: Database, invoiceId: string) {
+  const rows = await tx.select({
+    id: schema.invoiceLine.id,
+    name: schema.invoiceLine.name,
+    net: schema.invoiceLine.lineTotal,
+    versionId: schema.invoiceLine.priceBookItemVersionId,
+    itemRate: schema.priceBookItemVersion.commissionRate,
+  }).from(schema.invoiceLine)
+    .leftJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.id, schema.invoiceLine.priceBookItemVersionId))
+    .where(eq(schema.invoiceLine.invoiceId, invoiceId))
+    .orderBy(asc(schema.invoiceLine.sortOrder), asc(schema.invoiceLine.id));
+  return {
+    lines: rows.map((row): labor.CommissionLine => ({
+      lineId: row.id, label: row.name, net: usd(row.net), itemRate: row.itemRate,
+    })),
+    versions: new Map(rows.map((row) => [row.id, row.versionId])),
+  };
+}
+
+/** What a line paid, as the earning keeps it. */
+function lineRecords(
+  lines: readonly labor.CommissionLineResult[] | undefined, versions: ReadonlyMap<string, string | null>,
+): schema.CommissionLineRecord[] {
+  return (lines ?? []).map((line) => ({
+    invoiceLineId: line.lineId,
+    label: line.label,
+    net: m.toString(line.net),
+    priceBookItemVersionId: versions.get(line.lineId) ?? null,
+    itemRate: line.itemRate,
+    planPart: m.toString(line.planPart),
+    itemPart: line.itemPart ? m.toString(line.itemPart) : null,
+    paid: m.toString(line.paid),
+    source: line.source,
+  }));
+}
+
 /* --------------------------------------------------------------- settling */
 
 export interface ShareInput {
@@ -323,6 +430,9 @@ async function prepare(tx: Database, ctx: ServiceContext, input: SettleInput) {
 
   const cost = invoice.jobId ? await costOf(tx, invoice.jobId) : null;
   const occurredAt = input.occurredAt ?? new Date();
+  const rule = await itemRuleWithin(tx, ctx.actor.organizationId);
+  /** The plan only does not read the lines, so they are not loaded for it. */
+  const { lines, versions } = rule === "plan_only" ? { lines: [], versions: new Map<string, string | null>() } : await linesOf(tx, invoice.id);
 
   /**
    * BACKDATING INTO A CLOSED PERIOD IS REFUSED.
@@ -356,15 +466,16 @@ async function prepare(tx: Database, ctx: ServiceContext, input: SettleInput) {
      */
     ...(plan.basis === "percent_of_collected" ? { collected: revenue } : {}),
     shares: shares.map((share) => ({ personId: share.technicianId, weight: share.weight })),
+    ...(rule === "plan_only" ? {} : { lines }),
   };
 
-  const verdict = labor.computeCommission(toCorePlan(plan), event);
+  const verdict = labor.computeCommission({ ...toCorePlan(plan), itemRule: rule }, event);
   if (!verdict.ok) throw new ConflictError(verdict.reason);
-  return { invoice, plan, shares, revenue, cost, occurredAt, verdict };
+  return { invoice, plan, shares, revenue, cost, occurredAt, verdict, rule, lines: lineRecords(verdict.lines, versions) };
 }
 
 async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
-  const { invoice, plan, shares, revenue, cost, occurredAt, verdict } = await prepare(tx, ctx, input);
+  const { invoice, plan, shares, revenue, cost, occurredAt, verdict, rule, lines } = await prepare(tx, ctx, input);
   const note = input.splitNote?.trim() || null;
 
   const [row] = await tx.insert(schema.commissionEvent).values({
@@ -382,6 +493,8 @@ async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
     occurredAt,
     explanation: verdict.explanation,
     splitNote: note,
+    itemRule: rule,
+    lines,
     ledgerTransactionId: null,
   }).returning();
 
@@ -421,7 +534,7 @@ async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
   }
 
   await audit(tx, ctx, "commission.earned", "commission_event", row!.id, null, {
-    invoiceId: invoice.id, planId: plan.id, total: m.toString(verdict.total),
+    invoiceId: invoice.id, planId: plan.id, total: m.toString(verdict.total), itemRule: rule,
     parts: verdict.parts.map((p, i) => ({ technicianId: p.personId, weight: shares[i]!.weight, amount: m.toString(p.amount) })),
     ...(input.proposed ? {
       proposed: input.proposed.map((p) => ({ technicianId: p.personId, weight: p.weight })),
@@ -439,6 +552,8 @@ async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
     cost: cost ? m.toString(cost) : null,
     total: m.toString(verdict.total),
     explanation: verdict.explanation,
+    itemRule: rule,
+    lines,
     occurredAt,
     ledgerTransactionId: transactionId,
     parts: verdict.parts.map((part, index) => ({
@@ -569,6 +684,12 @@ export async function reverse(ctx: ServiceContext, input: ReverseInput) {
       ...(event.collected ? { collected: usd(event.collected) } : {}),
       /** In share order. See `commission_entry.share_index` for why that matters. */
       shares: earnedEntries.map((row) => ({ personId: row.technicianId, weight: row.weight ?? "1" })),
+      /** The lines as they were read when it was earned, so it recomputes to exactly what was paid. */
+      ...(event.itemRule === "plan_only" ? {} : {
+        lines: event.lines.map((line) => ({
+          lineId: line.invoiceLineId, label: line.label, net: usd(line.net), itemRate: line.itemRate,
+        })),
+      }),
     };
 
     const verdict = labor.clawbackFor(plan, original, {
@@ -702,6 +823,7 @@ export async function earnings(
       technicianName: schema.technician.displayName,
       invoiceId: schema.commissionEvent.invoiceId,
       invoiceNumber: schema.invoice.number,
+      itemRule: schema.commissionEvent.itemRule,
     }).from(schema.commissionEntry)
       .innerJoin(schema.technician, eq(schema.technician.id, schema.commissionEntry.technicianId))
       .innerJoin(schema.commissionEvent, eq(schema.commissionEvent.id, schema.commissionEntry.eventId))
@@ -723,6 +845,8 @@ export async function earnings(
       kind: row.entry.kind,
       amount: row.entry.amount,
       explanation: row.entry.explanation,
+      /** Which of the company's choices the earning behind it was made under. */
+      itemRule: labor.readItemRateRule({ itemRule: row.itemRule }),
       occurredAt: row.entry.occurredAt,
       paidAt: row.entry.paidAt,
     }));
@@ -777,11 +901,26 @@ export interface SplitProposal {
   changed: boolean;
   /** Why it cannot be settled as shown, in a sentence, or null. */
   refusal: string | null;
+  /**
+   * How an item's own rate and the plan combine, and what each line paid
+   * under it: the company's choice now, or the one the earning was made
+   * under once it is settled. `lines` is empty under the plan only, which
+   * does not read them.
+   */
+  itemRule: labor.ItemRateRule;
+  itemRuleLabel: string;
+  lines: schema.CommissionLineRecord[];
   /** Already settled: what was paid to whom, and the reason given for the split. */
-  settled: {
-    eventId: string; total: string; occurredAt: Date; splitNote: string | null;
-    parts: { technicianId: string; name: string; weight: string | null; amount: string }[];
-  } | null;
+  settled: SettledSplit | null;
+}
+
+export interface SettledSplit {
+  eventId: string; total: string; occurredAt: Date; splitNote: string | null;
+  /** How it was worked out, in the words the people paid read. */
+  explanation: string;
+  itemRule: labor.ItemRateRule;
+  lines: schema.CommissionLineRecord[];
+  parts: { technicianId: string; name: string; weight: string | null; amount: string }[];
 }
 
 /** The people on a job's visits, by name. Who a shared commission is proposed between. */
@@ -857,6 +996,7 @@ export async function proposal(
       .where(and(eq(schema.commissionEvent.organizationId, ctx.actor.organizationId), eq(schema.commissionEvent.invoiceId, invoice.id)))
       .limit(1);
     const settled = event ? await settledSplit(tx, event) : null;
+    const rule = settled?.itemRule ?? await itemRuleWithin(tx, ctx.actor.organizationId);
 
     let worked: Awaited<ReturnType<typeof prepare>> | null = null;
     let refusal: string | null = null;
@@ -904,13 +1044,16 @@ export async function proposal(
       people,
       changed: !labor.sameSplit(proposed, given.map((s) => ({ personId: s.technicianId, weight: s.weight }))),
       refusal: settled ? `Invoice ${work.documentNumber(invoice.numberPrefix, invoice.number)} has already earned its commission.` : refusal,
+      itemRule: rule,
+      itemRuleLabel: labor.ITEM_RATE_RULE[rule].label,
+      lines: settled?.lines ?? worked?.lines ?? [],
       settled,
     };
   });
 }
 
 /** An earning as it was settled: each person's part, their weight and the reason given for the split. */
-async function settledSplit(tx: Database, event: typeof schema.commissionEvent.$inferSelect) {
+async function settledSplit(tx: Database, event: typeof schema.commissionEvent.$inferSelect): Promise<SettledSplit> {
   const parts = await tx.select({
     technicianId: schema.commissionEntry.technicianId, name: schema.technician.displayName,
     weight: schema.commissionEntry.weight, amount: schema.commissionEntry.amount,
@@ -920,6 +1063,9 @@ async function settledSplit(tx: Database, event: typeof schema.commissionEvent.$
     .orderBy(asc(schema.commissionEntry.shareIndex));
   return {
     eventId: event.id, total: event.total, occurredAt: event.occurredAt, splitNote: event.splitNote,
+    explanation: event.explanation,
+    itemRule: labor.readItemRateRule({ itemRule: event.itemRule }),
+    lines: event.lines,
     parts: parts.map((p) => ({ technicianId: p.technicianId, name: p.name, weight: p.weight, amount: p.amount })),
   };
 }
@@ -1283,6 +1429,8 @@ async function planBehind(
     ...(event.appliedRate ? { rate: event.appliedRate } : {}),
     ...(event.appliedFlatAmount ? { flatAmount: usd(event.appliedFlatAmount) } : {}),
     note: row?.note ?? event.explanation,
+    /** The company's choice as it was then, not as it is now: see `itemRule`. */
+    itemRule: labor.readItemRateRule({ itemRule: event.itemRule }),
   };
 }
 
@@ -1378,6 +1526,12 @@ export const handlers = {
   }),
 
   listSharedCommissions: (ctx: ServiceContext) => shared(ctx),
+
+  getCommissionItemRule: (ctx: ServiceContext) => itemRule(ctx),
+
+  /** `rule` is a plain string from outside, checked against core's list on the way in. See `declareCommissionPlan`. */
+  setCommissionItemRule: (ctx: ServiceContext, input: { rule: string }) =>
+    setItemRule(ctx, { rule: input.rule as labor.ItemRateRule }),
 
   settleCommissionSplit: (ctx: ServiceContext, input: {
     invoiceId: string; planId?: string | undefined;

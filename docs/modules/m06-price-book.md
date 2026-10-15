@@ -102,9 +102,13 @@ somebody who may read commission (`commission:read`), and setting or clearing on
 `commission:configure` as well as `pricebook:write`: an editor of the price book without
 it can still raise a price, change the picture and revise everything else, and the form
 does not show them the box. Both are in the audit line of the revision, before and after.
-Neither is used by anything else yet: no screen draws an item's picture, and
-commission is still worked out from the person's own plan, so a rate set here is
-recorded and not paid (the form says so).
+No screen draws an item's picture yet. The commission rate is paid by the company's
+choice on `/payroll/commissions` (M17, `POST /v1/commissions/item-rule`): the plan only,
+which is the default and pays nothing from the item's rate; the item's rate instead of
+the plan on its line; whichever of the two comes to more; or the item's rate on top of
+the plan. Commission reads the rate on the version an invoice line was priced from,
+never the item's version today, so a rate changed here reaches only lines priced after
+the change (the form says so and links to the choice).
 
 **What is in the kit**, on the same screen, lists a kit's parts by code with how
 many of each, and saves a changed list as a new version, now or from a day ahead,
@@ -262,10 +266,11 @@ different permission from editing the book.
 
 An item with a revision already scheduled is left out of a bulk change, dated
 ahead or not, rather than given a version beside it. A bulk change reaches at most
-two thousand items at a time. Nothing yet draws an item's picture, and nothing yet pays commission from an item's rate: the first is stored and offered on the API and the item screen, the second is a
-recorded rate that commission (M17) does not read, because which of the item's rate
-and the person's plan wins, on a line with both, is an accounting and pay decision the
-product owner has not made. A kit's price is
+two thousand items at a time. Nothing yet draws an item's picture: it is stored and offered on the API and the item screen. An item's commission rate is
+paid only on an invoice line priced from the item: a line typed by hand, or a kit's
+parts inside a kit line, pays the plan, and a kit pays its own rate, not its parts'.
+The choice of how it works with the plan is one for the whole company (M17): there is
+no choice per item, per plan or per person. A kit's price is
 its own and is not worked out from its parts. Whether an item is taxed is a yes or
 a no: an item taxed at a reduced rate has that rate chosen on the line by the office. A revision dated ahead is staged from the start of that day
 in the company's calendar; a time of day is an API call.

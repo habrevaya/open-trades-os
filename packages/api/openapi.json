@@ -24306,6 +24306,228 @@
         ]
       }
     },
+    "/v1/commissions/item-rule": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "getCommissionItemRule",
+        "summary": "How an item's own commission rate and the plan combine on a line",
+        "description": "The company's choice, one for everybody. `plan_only` (the default): an item's own rate is kept on the item and pays nothing. `item_wins`: a line priced from an item with its own rate pays that rate instead of the plan. `higher`: such a line pays the item's rate or the plan, whichever comes to more. `item_adds`: such a line pays the item's rate on top of the plan. The plan's part of a line is its rate on what the line charged for a percentage of revenue, and the line's share of the plan's figure by what it charged for any other plan.\n\nRequires a session holding: commission:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "How an item's own commission rate and the plan combine on a line",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCommissionItemRuleOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:read"
+        ]
+      },
+      "post": {
+        "operationId": "setCommissionItemRule",
+        "summary": "Choose how an item's own commission rate and the plan combine",
+        "description": "A statement about what people are paid, so `commission:configure`, and audited with the choice before and after. It applies to commissions settled from then on: each earning keeps the choice it was made under, so a change never reprices one already made, and a reversal recomputes under the choice the earning was made under. The rate read is the one on the price book version each line was priced from, never today's. Sent again with the same choice, it changes nothing.\n\nRequires a session holding: commission:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCommissionItemRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Choose how an item's own commission rate and the plan combine",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCommissionItemRuleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:configure"
+        ]
+      }
+    },
     "/v1/commissions/plans": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -177581,6 +177803,52 @@
           "decisionNote"
         ]
       },
+      "GetCommissionItemRuleOutput": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "enum": [
+              "plan_only",
+              "item_wins",
+              "higher",
+              "item_adds"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "plan_only",
+                    "item_wins",
+                    "higher",
+                    "item_adds"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "meaning": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label",
+                "meaning"
+              ]
+            }
+          }
+        },
+        "required": [
+          "rule",
+          "rules"
+        ]
+      },
       "GetCommissionSplitOutput": {
         "type": "object",
         "properties": {
@@ -177751,6 +178019,85 @@
               "null"
             ]
           },
+          "itemRule": {
+            "type": "string",
+            "enum": [
+              "plan_only",
+              "item_wins",
+              "higher",
+              "item_adds"
+            ]
+          },
+          "itemRuleLabel": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceLineId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "net": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "priceBookItemVersionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "itemRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "planPart": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "itemPart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paid": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "item",
+                    "plan_and_item"
+                  ]
+                }
+              },
+              "required": [
+                "invoiceLineId",
+                "label",
+                "net",
+                "priceBookItemVersionId",
+                "itemRate",
+                "planPart",
+                "itemPart",
+                "paid",
+                "source"
+              ]
+            }
+          },
           "settled": {
             "type": [
               "object",
@@ -177774,6 +178121,85 @@
                   "string",
                   "null"
                 ]
+              },
+              "explanation": {
+                "type": "string"
+              },
+              "itemRule": {
+                "type": "string",
+                "enum": [
+                  "plan_only",
+                  "item_wins",
+                  "higher",
+                  "item_adds"
+                ]
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "invoiceLineId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "net": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "priceBookItemVersionId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "uuid"
+                    },
+                    "itemRate": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "planPart": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "itemPart": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "paid": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "plan",
+                        "item",
+                        "plan_and_item"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "invoiceLineId",
+                    "label",
+                    "net",
+                    "priceBookItemVersionId",
+                    "itemRate",
+                    "planPart",
+                    "itemPart",
+                    "paid",
+                    "source"
+                  ]
+                }
               },
               "parts": {
                 "type": "array",
@@ -177813,6 +178239,9 @@
               "total",
               "occurredAt",
               "splitNote",
+              "explanation",
+              "itemRule",
+              "lines",
               "parts"
             ]
           }
@@ -177829,6 +178258,9 @@
           "people",
           "changed",
           "refusal",
+          "itemRule",
+          "itemRuleLabel",
+          "lines",
           "settled"
         ]
       },
@@ -211562,6 +211994,15 @@
                 "explanation": {
                   "type": "string"
                 },
+                "itemRule": {
+                  "type": "string",
+                  "enum": [
+                    "plan_only",
+                    "item_wins",
+                    "higher",
+                    "item_adds"
+                  ]
+                },
                 "occurredAt": {
                   "type": "string",
                   "format": "date-time"
@@ -211583,6 +212024,7 @@
                 "kind",
                 "amount",
                 "explanation",
+                "itemRule",
                 "occurredAt",
                 "paidAt"
               ]
@@ -259776,6 +260218,69 @@
           "statusReason"
         ]
       },
+      "SetCommissionItemRuleInput": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "enum": [
+              "plan_only",
+              "item_wins",
+              "higher",
+              "item_adds"
+            ]
+          }
+        },
+        "required": [
+          "rule"
+        ]
+      },
+      "SetCommissionItemRuleOutput": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "enum": [
+              "plan_only",
+              "item_wins",
+              "higher",
+              "item_adds"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "plan_only",
+                    "item_wins",
+                    "higher",
+                    "item_adds"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "meaning": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label",
+                "meaning"
+              ]
+            }
+          }
+        },
+        "required": [
+          "rule",
+          "rules"
+        ]
+      },
       "SetContactPortalAccessInput": {
         "type": "object",
         "properties": {
@@ -267386,6 +267891,82 @@
           "explanation": {
             "type": "string"
           },
+          "itemRule": {
+            "type": "string",
+            "enum": [
+              "plan_only",
+              "item_wins",
+              "higher",
+              "item_adds"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceLineId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "net": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "priceBookItemVersionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "itemRate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "planPart": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "itemPart": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "paid": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "item",
+                    "plan_and_item"
+                  ]
+                }
+              },
+              "required": [
+                "invoiceLineId",
+                "label",
+                "net",
+                "priceBookItemVersionId",
+                "itemRate",
+                "planPart",
+                "itemPart",
+                "paid",
+                "source"
+              ]
+            }
+          },
           "occurredAt": {
             "type": "string",
             "format": "date-time"
@@ -267436,6 +268017,8 @@
           "cost",
           "total",
           "explanation",
+          "itemRule",
+          "lines",
           "occurredAt",
           "ledgerTransactionId",
           "parts"

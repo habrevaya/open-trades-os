@@ -108,6 +108,55 @@ export const deactivateCommissionPlan = defineRoute({
   output: CommissionPlan,
 });
 
+/* ------------------------------------------- an item's own rate, the choice */
+
+export const ItemRateRule = z.enum(["plan_only", "item_wins", "higher", "item_adds"]);
+
+const ItemRuleView = z.object({
+  rule: ItemRateRule,
+  /** Each choice with the sentence the screen shows beside it, the plan only first. */
+  rules: z.array(z.object({ rule: ItemRateRule, label: z.string(), meaning: z.string() })),
+});
+
+/** One invoice line as a commission read it, and what it paid. Empty under the plan only. */
+export const CommissionLine = z.object({
+  invoiceLineId: Uuid,
+  label: z.string(),
+  net: MoneyString,
+  /** The price book version the line was priced from, and the rate that version carried. */
+  priceBookItemVersionId: Uuid.nullable(),
+  itemRate: RateString.nullable(),
+  planPart: MoneyString,
+  itemPart: MoneyString.nullable(),
+  paid: MoneyString,
+  source: z.enum(["plan", "item", "plan_and_item"]),
+});
+
+export const getCommissionItemRule = defineRoute({
+  method: "get",
+  path: "/v1/commissions/item-rule",
+  summary: "How an item's own commission rate and the plan combine on a line",
+  description:
+    "The company's choice, one for everybody. `plan_only` (the default): an item's own rate is kept on the item and pays nothing. `item_wins`: a line priced from an item with its own rate pays that rate instead of the plan. `higher`: such a line pays the item's rate or the plan, whichever comes to more. `item_adds`: such a line pays the item's rate on top of the plan. The plan's part of a line is its rate on what the line charged for a percentage of revenue, and the line's share of the plan's figure by what it charged for any other plan.",
+  module: "M17",
+  permissions: ["commission:read"],
+  input: z.object({}),
+  output: ItemRuleView,
+});
+
+export const setCommissionItemRule = defineRoute({
+  method: "post",
+  path: "/v1/commissions/item-rule",
+  summary: "Choose how an item's own commission rate and the plan combine",
+  description:
+    "A statement about what people are paid, so `commission:configure`, and audited with the choice before and after. It applies to commissions settled from then on: each earning keeps the choice it was made under, so a change never reprices one already made, and a reversal recomputes under the choice the earning was made under. The rate read is the one on the price book version each line was priced from, never today's. Sent again with the same choice, it changes nothing.",
+  module: "M17",
+  permissions: ["commission:configure"],
+  idempotent: true,
+  input: z.object({ rule: ItemRateRule }),
+  output: ItemRuleView,
+});
+
 export const CommissionPart = z.object({
   technicianId: Uuid,
   weight: RateString,
@@ -153,6 +202,10 @@ export const settleCommission = defineRoute({
     cost: MoneyString.nullable(),
     total: MoneyString,
     explanation: z.string(),
+    /** The company's choice it was worked out under, frozen on the earning. */
+    itemRule: ItemRateRule,
+    /** What each line paid and why, when the choice read the lines. */
+    lines: z.array(CommissionLine),
     occurredAt: z.string().datetime(),
     /** Null only when the commission came to zero, which posts nothing. */
     ledgerTransactionId: Uuid.nullable(),
@@ -168,6 +221,10 @@ const SettledSplit = z.object({
   occurredAt: z.string().datetime(),
   /** The reason the office gave for a split other than the even one, or null. */
   splitNote: z.string().nullable(),
+  /** How it was worked out, in the words the people paid read. */
+  explanation: z.string(),
+  itemRule: ItemRateRule,
+  lines: z.array(CommissionLine),
   parts: z.array(z.object({ technicianId: Uuid, name: z.string(), weight: RateString.nullable(), amount: MoneyString })),
 });
 
@@ -227,6 +284,10 @@ export const getCommissionSplit = defineRoute({
     })),
     changed: z.boolean(),
     refusal: z.string().nullable(),
+    /** The company's choice now, or the one the earning was made under once settled, and what each line paid under it. */
+    itemRule: ItemRateRule,
+    itemRuleLabel: z.string(),
+    lines: z.array(CommissionLine),
     settled: SettledSplit.nullable(),
   }),
 });
@@ -313,6 +374,8 @@ export const listCommissionEarnings = defineRoute({
       kind: z.enum(["earned", "reversed"]),
       amount: MoneyString,
       explanation: z.string(),
+      /** Which of the company's choices the earning behind it was made under. */
+      itemRule: ItemRateRule,
       occurredAt: z.string().datetime(),
       paidAt: z.string().datetime().nullable(),
     })),
@@ -622,6 +685,7 @@ export const payrollRoutes = {
   listCommissionBases, listCommissionPlans, declareCommissionPlan, deactivateCommissionPlan,
   settleCommission, reverseCommission, listCommissionEarnings,
   listSharedCommissions, getCommissionSplit, settleCommissionSplit,
+  getCommissionItemRule, setCommissionItemRule,
   declarePayPeriod, listPayPeriods, closePayPeriod, reopenPayPeriod,
   getPayrollRegister, exportPayPeriod, listPayrollExports, payCommissions, payTips,
   getMyTimeclock,

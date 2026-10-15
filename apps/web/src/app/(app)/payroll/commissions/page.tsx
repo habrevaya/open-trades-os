@@ -44,10 +44,12 @@ export default async function CommissionsPage() {
     );
   }
 
-  const [plans, bases] = await Promise.all([
+  const [plans, bases, itemRule] = await Promise.all([
     commissions.plans(ctx),
     commissions.bases(ctx),
+    commissions.itemRule(ctx),
   ]);
+  const chosen = itemRule.rules.find((r) => r.rule === itemRule.rule)!;
   const configures = can(user.actor, "commission:configure");
 
   return (
@@ -70,6 +72,43 @@ export default async function CommissionsPage() {
             : null
         ) : undefined}
       />
+
+      {/*
+        THE COMPANY'S CHOICE OF HOW AN ITEM'S OWN RATE AND THE PLAN COMBINE.
+        Shown to everybody who reads commission, because it decides what a line
+        pays; changed only with the permission that declares a plan. Each choice
+        is one sentence an owner can say to a technician, beside the button.
+      */}
+      <section aria-label="When an item has its own rate" className="mt-10">
+        <h2 className="text-base font-semibold">When an item has its own rate</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          An item in the price book can have its own commission rate. This says how it works with the plan on
+          an invoice line for that item. The rate used is the one the item had when the line was priced.
+        </p>
+        <p className="mt-2 text-sm" data-testid="item-rule">
+          <span className="font-medium">Now: {chosen.label}.</span> <span className="text-ink-700">{chosen.meaning}</span>
+        </p>
+        {configures ? (
+          <ActionForm op="itemRule" label="Save the choice" className="mt-3 space-y-2">
+            <fieldset className="space-y-2">
+              <legend className="sr-only">How an item&apos;s own rate works with the plan</legend>
+              {itemRule.rules.map((r) => (
+                <label key={r.rule} className="flex items-start gap-2 text-sm">
+                  <input type="radio" name="rule" value={r.rule} defaultChecked={r.rule === itemRule.rule} className="mt-1" />
+                  <span>
+                    <span className="font-medium">{r.label}</span>
+                    <span className="block text-ink-700">{r.meaning}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <p className="text-xs text-ink-500">
+              A change counts from the next commission settled. Commission already settled keeps the choice it was
+              worked out under.
+            </p>
+          </ActionForm>
+        ) : null}
+      </section>
 
       {configures && (
         <section className="mt-10">

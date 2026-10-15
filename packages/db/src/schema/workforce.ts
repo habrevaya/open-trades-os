@@ -302,6 +302,24 @@ export const commissionPlan = pgTable("commission_plan", {
  * was paid this year. That is the same rule as `applied_base_rate` on a punch
  * and it is right for the same reason.
  */
+/** `core/labor.ITEM_RATE_RULES`, spelled out here because this package does not depend on core. */
+export type ItemRateRule = "plan_only" | "item_wins" | "higher" | "item_adds";
+
+/** One invoice line as a commission read it. Money as the decimal strings the columns hold. */
+export interface CommissionLineRecord {
+  invoiceLineId: string;
+  label: string;
+  /** What the line charged, net of its own discount, before tax. */
+  net: string;
+  /** The version the line was priced from, and the rate it carried then. */
+  priceBookItemVersionId: string | null;
+  itemRate: string | null;
+  planPart: string;
+  itemPart: string | null;
+  paid: string;
+  source: "plan" | "item" | "plan_and_item";
+}
+
 export const commissionEvent = pgTable("commission_event", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -341,6 +359,26 @@ export const commissionEvent = pgTable("commission_event", {
    * reads on their statement.
    */
   splitNote: text("split_note"),
+  /**
+   * WHICH RULE PRODUCED IT: the company's choice of how an item's own
+   * commission rate and the plan combine (`core/labor.ITEM_RATE_RULES`), as
+   * it was when this was settled. Frozen here for the reason the plan's rate
+   * is: a company that changes its choice next month does not reprice what
+   * was earned this month, and a reversal recomputes under the rule the
+   * earning was made under. `plan_only` for every earning made before there
+   * was a choice, which is what they were.
+   */
+  itemRule: text("item_rule").$type<ItemRateRule>().notNull().default("plan_only"),
+  /**
+   * WHICH RATE PRODUCED IT, LINE BY LINE, when the rule read the lines: each
+   * invoice line, the price book version it was priced from, the rate that
+   * version carried, the plan's part of the line, the item's part, what it
+   * paid and which of the two that was. Empty under the plan only, which
+   * does not read the lines. Written once with the earning and never
+   * changed, so a pay statement and the register can say why, and a
+   * reversal can recompute from exactly what was paid.
+   */
+  lines: jsonb("lines").$type<CommissionLineRecord[]>().notNull().default([]),
   /**
    * Null only when the commission computed to zero, which posts nothing,
    * because a posting with no entries is not a posting.

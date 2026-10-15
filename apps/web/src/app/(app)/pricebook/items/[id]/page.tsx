@@ -102,8 +102,9 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                              defaultValue={percentOf("commissionRate" in item ? item.commissionRate : null)} placeholder="8" />
                   <input type="hidden" name="commissionPercentWas" value={percentOf("commissionRate" in item ? item.commissionRate : null)} />
                   <p className="mt-1 text-xs text-ink-500">
-                    Kept with this version. Pay is not worked out from it yet: commission still follows each person&apos;s
-                    own plan. Empty means no rate on this item.
+                    Kept with this version, so a line priced now keeps this rate. How it works with the plan is the
+                    company&apos;s choice on <a href="/payroll/commissions" className="underline underline-offset-2">Commission plans</a>.
+                    Empty means no rate on this item.
                   </p>
                 </div>
               ) : null}
