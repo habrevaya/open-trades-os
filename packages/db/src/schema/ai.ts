@@ -378,15 +378,24 @@ export const aiChatSession = pgTable("ai_chat_session", {
    * the office had answered, so they are told once until they read it, and
    * `customer_notice` says in words what happened to that notice, including
    * why nobody could be told. Null on every chat that is not an account chat.
+   *
+   * `customer_notice_held_at` is set when the only way to tell them was a text
+   * and the company's quiet hours stopped it: the notice waits, and the worker
+   * sends it when the hours end unless they read the chat meanwhile. Null when
+   * nothing waits, which is nearly always.
    */
   customerReadAt: timestamp("customer_read_at", { withTimezone: true }),
   customerNotifiedAt: timestamp("customer_notified_at", { withTimezone: true }),
   customerNotice: text("customer_notice"),
+  customerNoticeHeldAt: timestamp("customer_notice_held_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   tokenIdx: uniqueIndex("ai_chat_session_token_idx").on(t.tokenHash)
     .where(sql`${t.tokenHash} is not null`),
   conversationIdx: uniqueIndex("ai_chat_session_conversation_idx").on(t.conversationId),
+  /** The worker's cross company look for notices that wait for quiet hours to end. */
+  heldNoticeIdx: index("ai_chat_session_held_notice_idx").on(t.organizationId)
+    .where(sql`${t.customerNoticeHeldAt} is not null`),
 }));
 
 /** Where a call the phone assistant answered stands. */

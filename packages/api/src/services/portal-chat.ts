@@ -10,6 +10,7 @@ import { throttle } from "./website-tracking";
 import { attach, bytesOf, decode, put } from "./files";
 import { files } from "@opentradesos/core";
 import { countUpload } from "./portal-files";
+import { unreadAnswers } from "./portal-chat-notice";
 import type { AiDeps } from "./ai";
 
 /**
@@ -157,14 +158,7 @@ export async function unreadReplies(db: Database, input: { token: string }): Pro
   return inTenant(chatReader(db, session.grant.organizationId), async (tx) => {
     const found = await find(tx, session);
     if (!found) return { unread: 0 };
-    const [row] = await tx.select({ unread: sql<number>`count(*)::int` }).from(schema.message)
-      .where(and(
-        eq(schema.message.conversationId, found.conversation.id),
-        eq(schema.message.direction, "outbound"),
-        sql`${schema.message.sentByUserId} is not null`,
-        found.chat.customerReadAt ? gt(schema.message.createdAt, found.chat.customerReadAt) : undefined,
-      ));
-    return { unread: row?.unread ?? 0 };
+    return { unread: await unreadAnswers(tx, found.conversation.id, found.chat.customerReadAt) };
   });
 }
 

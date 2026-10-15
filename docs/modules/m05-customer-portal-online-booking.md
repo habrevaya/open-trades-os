@@ -548,7 +548,25 @@ already shows them. What happened is written on the chat ("Told by text.", "Told
 by email (Not texted: they replied STOP...)", or why nobody could be told) and
 shown above the thread in the inbox and as `customerNotice` on
 `GET /v1/conversations/{id}`. It is never an error for the person replying: the
-reply is sent whatever happens to the notice. A customer who taps the link without being signed
+reply is sent whatever happens to the notice.
+
+**A notice held by quiet hours goes when they end.** When the only way to tell
+the customer was a text (they have no email address, or the email could not go
+either) and the company's quiet hours stopped it, the notice is kept
+(`ai_chat_session.customer_notice_held_at`), and the chat says "Waiting for your
+quiet hours to end" with the rest of the reason. The worker looks every minute
+and, once the hours have ended, asks everything again as it stands that morning:
+the number and consent, the STOP list, the setting, whether the customer read the
+chat. It is then sent exactly like any notice, once, and "Told by text." replaces
+the waiting line. It is not sent when the customer opened the chat meanwhile
+(**Not told: they read the chat before your quiet hours ended.**), when the
+company turned the notice off, when a STOP or a missing number now stops it, or
+when it has waited more than two days because the worker was down or the window
+was long (an answer that old is not news). Any of those is written on the chat
+and the notice is not tried again by itself. Several answers in one night are one
+notice, and it is still once until they read it. Only a text stopped by the hours
+is kept: a number that replied STOP, or no number or address at all, is the same
+tomorrow, and is written on the chat as before. A customer who taps the link without being signed
 in goes to the sign in page (`/portal/{slug}?next=chat`) and, once in, to the chat
 itself; nothing but that one name is read from the address. The customer's account page marks
 what is waiting: **Chat with us (1 new answer)** and a line saying the company
@@ -929,11 +947,12 @@ takes photos (not PDFs, which go through "Send us a photo or a PDF"), and the
 customer cannot close or clear a chat or take a picture back; the automated
 assistant, once a person has answered, does not take the conversation back, and
 never answers a message with a picture. The notice that the office answered is
-sent once and not retried on its own: when it cannot go (a number that replied
-STOP and no email address, the company's quiet hours and no email address, no
-email or mobile number on the record, or no email connection), the reason is on
-the chat in the inbox, nothing is sent later, and the next answer tries again;
-the mark on the account page is the only other sign. The notice does not carry
+sent once and, apart from the one quiet hours held (above), not retried on its
+own: when it cannot go (a number that replied STOP and no email address, no email
+or mobile number on the record, or no email connection), the reason is on the
+chat in the inbox, nothing is sent later, and the next answer tries again; the
+mark on the account page is the only other sign. A held notice is sent only by a
+running worker: with none running, it waits. The notice does not carry
 the answer, only a link. The mark is a count, not the answers; a
 customer of a company that turned the notice off sees the mark and is told
 nothing. It is the customer's main contact's preference that decides text or

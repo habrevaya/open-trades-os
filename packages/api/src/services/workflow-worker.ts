@@ -17,6 +17,7 @@ import { agentPass } from "./agent-worker";
 import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { askPass as reviewAskPass } from "./review-asks";
+import { releasePass as chatNoticePass } from "./portal-chat-notice";
 import { taskPass } from "./task-rules";
 import { expiryPass } from "./estimate-expiry";
 import { nightlyPass as truckFillPass } from "./truck-fills";
@@ -235,6 +236,13 @@ export interface PassOptions {
    */
   reviewAsks?: false | { now?: Date };
   /**
+   * The notices to customers that their account chat was answered which the
+   * company's quiet hours held back, sent once the hours end (M05). On by
+   * default; `false` turns it off, and `{ now }` is the moment it judges them
+   * at, which is how a test stands in the morning whatever the hour.
+   */
+  chatNotices?: false | { now?: Date; force?: boolean };
+  /**
    * The AI agents' own pass, inside the clock. On by default; a deployment
    * that wants no agent to run in the background turns it off here, and an
    * agent nobody turned on costs a single read either way.
@@ -440,6 +448,25 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] review asks:", (error as Error).message);
+    }
+    /**
+     * Notices to customers that their account chat was answered, which the
+     * company's quiet hours held back, sent now that the hours have ended
+     * (unless they read the chat meanwhile). Its own try, and before the drain,
+     * so the text and the email it queues leave on this pass.
+     */
+    try {
+      const notices = options.chatNotices;
+      for (const result of notices === false ? [] : await chatNoticePass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(notices?.now ? { now: notices.now } : {}),
+        ...(notices?.force ? { force: true } : {}),
+      })) {
+        if (result.told > 0) delivered.add(result.organizationId);
+        if (result.error) console.error(`[worker] chat notices ${result.organizationId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("[worker] chat notices:", (error as Error).message);
     }
     /**
      * Estimates past their date, marked expired in each company's own

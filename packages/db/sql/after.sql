@@ -1925,6 +1925,30 @@ returns table (organization_id uuid)
 revoke all on function app.review_ask_organizations(int, timestamptz) from public;
 grant execute on function app.review_ask_organizations(int, timestamptz) to background;
 
+-- ---- Companies with a chat answer notice held by quiet hours ----------------
+-- A customer's account chat answered inside the company's quiet hours, with a
+-- text the only way to tell them, keeps the notice (`customer_notice_held_at`)
+-- for the worker to send when the hours end. The worker has no tenant until it
+-- picks one, so it asks here which companies have one waiting and nothing else:
+-- a list of ids, as the passes above. A suspended company is left alone.
+create or replace function app.held_chat_notice_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct s.organization_id from public.ai_chat_session s
+       where s.customer_notice_held_at is not null
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.held_chat_notice_organizations(int) from public;
+grant execute on function app.held_chat_notice_organizations(int) to background;
+
 -- ---- Companies with automatic payments, or card charges to follow up ------
 -- A customer who agreed can have each bill charged to their saved card as it
 -- is issued, and a charge the worker made may need following up: a declined
