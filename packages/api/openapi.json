@@ -30669,7 +30669,7 @@
       "put": {
         "operationId": "setContractBilling",
         "summary": "Bill a contract a fixed fee every month, quarter or year",
-        "description": "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer in the company's calendar, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue on the day it is raised like any invoice. With `timing` `advance` (the default) each period is billed on its billing day, for the period that starts that day; with `arrears` it is billed the day after it ends, for the period just gone. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of; in arrears a period cut short by a pause or an end is always charged by the day for the days that ran, and the invoice line says how many. The billing day is 1 to 28. Changing how often, on which day or in advance or arrears, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again.\n\nRequires a session holding: contract:write.",
+        "description": "Sets the schedule, or changes it. The worker raises each period as an invoice to the contract's customer in the company's calendar, whether or not anybody visited: on the customer's own payment terms, with the contract's purchase order number, posted to revenue on the day it is raised like any invoice. With `timing` `advance` (the default) each period is billed on its billing day, for the period that starts that day; with `arrears` it is billed the day after it ends, for the period just gone. A part period at either end (a contract starting or ending between two billing days) is billed whole unless `prorate` is true, when it is the fee's share by day of the period it is part of; in arrears a period cut short by a pause or an end is always charged by the day for the days that ran, and the invoice line says how many. The billing day is 1 to 28. Changing how often, on which day or in advance or arrears, once anything has been billed, starts the new pattern the day after the last period billed, and the first day cannot move to before then. Saving an ended schedule starts it again. With `risesWithEscalation` (off unless set) the fee rises with the contract's annual escalation: the preview shows it beside the cards, the worker's draft prepares it, and applying the rise writes it as the fee for every period starting on or after the anniversary. A fee typed here that differs from the schedule's replaces any such rise for every period not yet billed.\n\nRequires a session holding: contract:write.",
         "tags": [
           "M31"
         ],
@@ -31360,7 +31360,7 @@
       "post": {
         "operationId": "applyContractEscalation",
         "summary": "Apply the annual escalation the preview showed",
-        "description": "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards it made.\n\nRequires a session holding: pricebook:write.",
+        "description": "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. When the preview shows the fixed fee rising, the fee as risen becomes the fee for every period starting on or after the anniversary; a period already billed keeps its invoice. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate and whose fee does not rise, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards and the fee it made.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M31"
         ],
@@ -31492,7 +31492,7 @@
       "get": {
         "operationId": "previewContractEscalation",
         "summary": "What the contract's next annual escalation would do to its cards",
-        "description": "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. Nothing is written.\n\nRequires a session holding: pricebook:read.",
+        "description": "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. `fee` is the contract's fixed fee before and after, when its billing schedule rises with the escalation (off unless the schedule says so): the fee in force the day before the anniversary, risen by the year's rise for every card and every trade or the contract's yearly rate, never by a rise naming one card or trade. A contract whose fee rises needs no card in force. `feeDraft` is the fee as the worker's draft prepared it. Nothing is written.\n\nRequires a session holding: pricebook:read.",
         "tags": [
           "M31"
         ],
@@ -145067,13 +145067,44 @@
                 "effectiveFrom"
               ]
             }
+          },
+          "fee": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "previousAmount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "rate": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "from",
+              "amount",
+              "previousAmount",
+              "rate"
+            ]
           }
         },
         "required": [
           "contractId",
           "anniversary",
           "rate",
-          "cards"
+          "cards",
+          "fee"
         ]
       },
       "ApplyCreditNoteInput": {
@@ -172516,6 +172547,9 @@
               "description": {
                 "type": "string"
               },
+              "risesWithEscalation": {
+                "type": "boolean"
+              },
               "state": {
                 "type": "string",
                 "enum": [
@@ -172544,6 +172578,40 @@
                   "null"
                 ],
                 "format": "date"
+              },
+              "feeNow": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "previousAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "amount",
+                    "previousAmount",
+                    "rate"
+                  ]
+                }
               }
             },
             "required": [
@@ -172556,10 +172624,13 @@
               "prorate",
               "taxable",
               "description",
+              "risesWithEscalation",
               "state",
               "pausedOn",
               "endedOn",
-              "lastDay"
+              "lastDay",
+              "feeNow",
+              "fees"
             ]
           },
           "next": {
@@ -178065,6 +178136,9 @@
               "description": {
                 "type": "string"
               },
+              "risesWithEscalation": {
+                "type": "boolean"
+              },
               "state": {
                 "type": "string",
                 "enum": [
@@ -178093,6 +178167,40 @@
                   "null"
                 ],
                 "format": "date"
+              },
+              "feeNow": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "previousAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "amount",
+                    "previousAmount",
+                    "rate"
+                  ]
+                }
               }
             },
             "required": [
@@ -178105,10 +178213,13 @@
               "prorate",
               "taxable",
               "description",
+              "risesWithEscalation",
               "state",
               "pausedOn",
               "endedOn",
-              "lastDay"
+              "lastDay",
+              "feeNow",
+              "fees"
             ]
           },
           "next": {
@@ -236340,6 +236451,9 @@
               "description": {
                 "type": "string"
               },
+              "risesWithEscalation": {
+                "type": "boolean"
+              },
               "state": {
                 "type": "string",
                 "enum": [
@@ -236368,6 +236482,40 @@
                   "null"
                 ],
                 "format": "date"
+              },
+              "feeNow": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "previousAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "amount",
+                    "previousAmount",
+                    "rate"
+                  ]
+                }
               }
             },
             "required": [
@@ -236380,10 +236528,13 @@
               "prorate",
               "taxable",
               "description",
+              "risesWithEscalation",
               "state",
               "pausedOn",
               "endedOn",
-              "lastDay"
+              "lastDay",
+              "feeNow",
+              "fees"
             ]
           },
           "next": {
@@ -238731,6 +238882,59 @@
               ]
             }
           },
+          "feeDraft": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "preparedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "amount",
+              "preparedAt"
+            ]
+          },
+          "fee": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "before": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "after": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "rate": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "because": {
+                "type": "string"
+              },
+              "per": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "before",
+              "after",
+              "rate",
+              "because",
+              "per"
+            ]
+          },
           "rises": {
             "type": "array",
             "items": {
@@ -238805,6 +239009,7 @@
           "problem",
           "escalatedThrough",
           "cards",
+          "fee",
           "rises",
           "key"
         ]
@@ -252234,6 +252439,9 @@
               "description": {
                 "type": "string"
               },
+              "risesWithEscalation": {
+                "type": "boolean"
+              },
               "state": {
                 "type": "string",
                 "enum": [
@@ -252262,6 +252470,40 @@
                   "null"
                 ],
                 "format": "date"
+              },
+              "feeNow": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "previousAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "amount",
+                    "previousAmount",
+                    "rate"
+                  ]
+                }
               }
             },
             "required": [
@@ -252274,10 +252516,13 @@
               "prorate",
               "taxable",
               "description",
+              "risesWithEscalation",
               "state",
               "pausedOn",
               "endedOn",
-              "lastDay"
+              "lastDay",
+              "feeNow",
+              "fees"
             ]
           },
           "next": {
@@ -259565,6 +259810,9 @@
       "SetContractBillingInput": {
         "type": "object",
         "properties": {
+          "risesWithEscalation": {
+            "type": "boolean"
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -259664,6 +259912,9 @@
               "description": {
                 "type": "string"
               },
+              "risesWithEscalation": {
+                "type": "boolean"
+              },
               "state": {
                 "type": "string",
                 "enum": [
@@ -259692,6 +259943,40 @@
                   "null"
                 ],
                 "format": "date"
+              },
+              "feeNow": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "previousAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "amount",
+                    "previousAmount",
+                    "rate"
+                  ]
+                }
               }
             },
             "required": [
@@ -259704,10 +259989,13 @@
               "prorate",
               "taxable",
               "description",
+              "risesWithEscalation",
               "state",
               "pausedOn",
               "endedOn",
-              "lastDay"
+              "lastDay",
+              "feeNow",
+              "fees"
             ]
           },
           "next": {

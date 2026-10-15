@@ -76,6 +76,8 @@ export interface ScheduleInput {
   prorate?: boolean | undefined;
   taxable?: boolean | undefined;
   description: string;
+  /** Whether the fee rises with the contract's annual escalation. Left off, a change keeps what the schedule had; a new one does not. */
+  risesWithEscalation?: boolean | undefined;
 }
 
 export interface PeriodView {
@@ -105,11 +107,17 @@ export interface ScheduleView {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    /** Whether the fee rises with the contract's annual escalation, applied by a person with the rest of the rise. */
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     /** The last day it bills for: the contract's end or its own, whichever is first. */
     lastDay: string | null;
+    /** The fee for a period starting today, after any rise that has taken effect. */
+    feeNow: string;
+    /** Each rise of the fee, oldest first: the fee from that day on, what it was, and the rise. */
+    fees: Array<{ from: string; amount: string; previousAmount: string; rate: string }>;
   } | null;
   /** The next period, when there is one still to come: what it covers, when it is billed and what for. */
   next: { start: string; end: string; billOn: string; amount: string; prorated: boolean; days: number; fullDays: number } | null;
@@ -135,6 +143,14 @@ async function scheduleOf(tx: Database, contractId: string): Promise<ScheduleRow
 }
 
 type PeriodRow = typeof schema.contractBillingPeriod.$inferSelect;
+type FeeRow = typeof schema.contractBillingFee.$inferSelect;
+
+/** The fee's rises on a schedule, oldest first. */
+export async function feesOf(tx: Database, scheduleId: string): Promise<FeeRow[]> {
+  return tx.select().from(schema.contractBillingFee)
+    .where(eq(schema.contractBillingFee.scheduleId, scheduleId))
+    .orderBy(asc(schema.contractBillingFee.effectiveFrom));
+}
 
 /**
  * The schedule as core reads it, cut at whichever end comes first.
@@ -144,7 +160,9 @@ type PeriodRow = typeof schema.contractBillingPeriod.$inferSelect;
  * there is one. A skipped row written in advance is a whole period, and is
  * equally a span nobody is billed for, so the two never disagree.
  */
-function termsOf(schedule: ScheduleRow, contract: ContractRow, written: readonly PeriodRow[] = []): cb.Schedule {
+export function termsOf(
+  schedule: ScheduleRow, contract: ContractRow, written: readonly PeriodRow[] = [], fees: readonly FeeRow[] = [],
+): cb.Schedule {
   const ends = [contract.endsOn, schedule.state === "ended" ? schedule.endedOn : null]
     .filter((d): d is string => d !== null).sort();
   const stops: cb.Stop[] = written.filter((p) => p.status === "skipped").map((p) => ({ from: p.periodStart, to: p.periodEnd }));
@@ -158,6 +176,7 @@ function termsOf(schedule: ScheduleRow, contract: ContractRow, written: readonly
     prorate: schedule.prorate,
     timing: schedule.timing,
     stops,
+    fees: fees.map((f) => ({ from: f.effectiveFrom, amount: usd(f.amount) })),
   };
 }
 
@@ -190,7 +209,7 @@ async function owed(tx: Database, schedule: ScheduleRow, contract: ContractRow, 
   if (schedule.state === "paused" && !arrears) return [];
   const rows = await writtenRows(tx, contract.id);
   const written = new Set(rows.map((r) => r.periodStart));
-  return cb.periodsThrough(termsOf(schedule, contract, rows), today, EVERY_PERIOD)
+  return cb.periodsThrough(termsOf(schedule, contract, rows, await feesOf(tx, schedule.id)), today, EVERY_PERIOD)
     .filter((p) => !written.has(p.start))
     .filter((p) => arrears || !(schedule.pausedOn && p.billOn >= schedule.pausedOn));
 }
@@ -227,7 +246,8 @@ async function viewWithin(tx: Database, organizationId: string, contractId: stri
   if (!schedule) {
     return { contractId, schedule: null, next: null, due: 0, periods: [], standing: null };
   }
-  const terms = termsOf(schedule, contract, await writtenRows(tx, contractId));
+  const fees = await feesOf(tx, schedule.id);
+  const terms = termsOf(schedule, contract, await writtenRows(tx, contractId), fees);
   const due = await owed(tx, schedule, contract, today);
   /** Walked from the first day, so a schedule years old still finds its next period. */
   const coming = schedule.state === "paused" || !contract.active ? null : cb.nextPeriod(terms, today);
@@ -253,10 +273,13 @@ async function viewWithin(tx: Database, organizationId: string, contractId: stri
       prorate: schedule.prorate,
       taxable: schedule.taxable,
       description: schedule.description,
+      risesWithEscalation: schedule.risesWithEscalation,
       state: schedule.state,
       pausedOn: schedule.pausedOn,
       endedOn: schedule.endedOn,
       lastDay: terms.endsOn,
+      feeNow: m.toString(cb.feeOn(terms, today)),
+      fees: fees.map((f) => ({ from: f.effectiveFrom, amount: f.amount, previousAmount: f.previousAmount, rate: f.rate })),
     },
     next: coming ? {
       start: coming.start, end: coming.end, billOn: coming.billOn, amount: m.toString(coming.amount),
@@ -293,7 +316,9 @@ export function view(ctx: ServiceContext, input: { contractId: string }): Promis
  *
  * `contract:write`, because how a contract bills is one of its terms, like
  * its limit and its clocks. The fee, the words, prorating and tax can change
- * at any time and reach the periods not yet billed. How often and on which
+ * at any time and reach the periods not yet billed. A fee typed here that is
+ * not the one the schedule had replaces any rise the escalation made, for
+ * every period not yet billed, because the fee typed is the fee meant. How often and on which
  * day are the pattern every period is counted from, so changing either once
  * something has been billed starts the new pattern the day after the last
  * period billed: a new pattern counted from the old first day would put
@@ -361,8 +386,17 @@ export function set(ctx: ServiceContext, input: ScheduleInput): Promise<Schedule
       prorate: input.prorate ?? before?.prorate ?? false,
       taxable: input.taxable ?? before?.taxable ?? false,
       description,
+      risesWithEscalation: input.risesWithEscalation ?? before?.risesWithEscalation ?? false,
       updatedAt: new Date(),
     };
+    if (before && !m.equals(usd(before.amount), usd(values.amount))) {
+      const replaced = await tx.delete(schema.contractBillingFee)
+        .where(eq(schema.contractBillingFee.scheduleId, before.id)).returning();
+      if (replaced.length > 0) {
+        await audit(tx, ctx, "contract.billing_fee_replaced", "service_contract", contract.id,
+          { fees: replaced.map((f) => ({ from: f.effectiveFrom, amount: f.amount })) }, { amount: values.amount });
+      }
+    }
     if (before) {
       const restart = before.state === "ended" ? { state: "active" as const, endedOn: null, pausedOn: null } : {};
       const [after] = await tx.update(schema.contractBillingSchedule).set({ ...values, ...restart })
@@ -519,7 +553,9 @@ export interface Raised {
 async function raisePeriod(
   tx: Database, ctx: ServiceContext, schedule: ScheduleRow, contract: ContractRow, period: cb.Period, today: string,
 ): Promise<Raised | null> {
-  const working = cb.periodNote(period, usd(schedule.amount), schedule.timing);
+  /** The fee in force on the period's first day, risen or not, which is what the period was priced by. */
+  const fee = cb.feeOn(termsOf(schedule, contract, [], await feesOf(tx, schedule.id)), period.start);
+  const working = cb.periodNote(period, fee, schedule.timing);
   const [claimed] = await tx.insert(schema.contractBillingPeriod).values({
     organizationId: ctx.actor.organizationId,
     contractId: contract.id,

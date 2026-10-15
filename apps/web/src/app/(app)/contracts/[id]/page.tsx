@@ -131,7 +131,15 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                 : " Billed at the start of each period, for the period ahead."}
               {fee.schedule.prorate ? " A part period is charged by the day." : " A part period at the start is charged as a whole one."}
               {fee.schedule.taxable ? " Sales tax is added." : " No sales tax."}
+              {fee.schedule.risesWithEscalation
+                ? " The fee rises with the contract's yearly rise, when a person applies it."
+                : " The fee does not rise with the contract's yearly rise."}
             </p>
+            {fee.schedule.fees.map((risen) => (
+              <p key={risen.from} className="text-ink-700">
+                From {risen.from} the fee is <Money value={risen.amount} />, up from <Money value={risen.previousAmount} /> by {percentOf(risen.rate)}%.
+              </p>
+            ))}
             {fee.standing ? <p className="text-ink-700">{fee.standing}</p> : null}
             {fee.next ? (
               <p className="text-ink-700">
@@ -196,6 +204,16 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                 <input type="checkbox" name="taxable" value="1" className="h-4 w-4" defaultChecked={fee.schedule?.taxable ?? false} />
                 Add sales tax
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="risesWithEscalation" value="1" className="h-4 w-4"
+                       defaultChecked={fee.schedule?.risesWithEscalation ?? false} />
+                The fee rises with the contract&rsquo;s yearly rise. It is shown with next year&rsquo;s prices and changes only when somebody applies them.
+              </label>
+              {fee.schedule && fee.schedule.fees.length > 0 && (
+                <p className="text-xs text-ink-500">
+                  Saving a different fee here replaces the risen fee for every period not yet billed.
+                </p>
+              )}
             </ActionForm>
           </details>
         )}
@@ -244,6 +262,23 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                 {" "}Apply year {rise.contractYear} prices below, which writes the cards from today&rsquo;s prices and closes the task in the office queue.
               </p>
             </div>
+          )}
+          {rise.feeDraft && (
+            <p className="mt-2 text-sm text-ink-700" role="note" aria-label="Draft fee">
+              The draft also has the fixed fee at <Money value={rise.feeDraft.amount} /> from {rise.anniversary}. It is billed at
+              that only once somebody applies year {rise.contractYear} prices.
+            </p>
+          )}
+          {rise.fee && (
+            <Table label={`Fixed fee from ${rise.anniversary}`}
+                   head={<><Th>Fixed fee</Th><Th className="text-right">Now</Th><Th className="text-right">From {rise.anniversary}</Th><Th>Rise</Th></>}>
+              <tr>
+                <Td>Billed {rise.fee.per}. A period already billed keeps its invoice; a period that starts before {rise.anniversary} is billed at the fee now.</Td>
+                <Td className="text-right"><Money value={rise.fee.before} /></Td>
+                <Td className="text-right"><Money value={rise.fee.after} /></Td>
+                <Td>{percentOf(rise.fee.rate)}%, {rise.fee.because}</Td>
+              </tr>
+            </Table>
           )}
           {rise.cards.map((card) => (
             <Table key={card.rateCardId} label={`${card.name} from ${rise.anniversary}`}

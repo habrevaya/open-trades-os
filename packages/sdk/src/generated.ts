@@ -749,6 +749,12 @@ export interface ApplyContractEscalationOutput {
     name: string;
     effectiveFrom: string;
   }>;
+  fee: {
+    from: string;
+    amount: string;
+    previousAmount: string;
+    rate: string;
+  } | null;
 }
 
 export interface ApplyCreditNoteInput {
@@ -6136,10 +6142,18 @@ export interface EndContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -7226,10 +7240,18 @@ export interface GetContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -18321,10 +18343,18 @@ export interface PauseContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -18787,6 +18817,17 @@ export interface PreviewContractEscalationOutput {
     name: string;
     preparedAt: string;
   }>;
+  feeDraft?: {
+    amount: string;
+    preparedAt: string;
+  } | null;
+  fee: {
+    before: string;
+    after: string;
+    rate: string;
+    because: string;
+    per: string;
+  } | null;
   rises: Array<{
     id: string;
     contractYear: number | null;
@@ -21568,10 +21609,18 @@ export interface ResumeContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
@@ -23097,6 +23146,7 @@ export interface SetContactPortalAccessOutput {
 }
 
 export interface SetContractBillingInput {
+  risesWithEscalation?: boolean;
   amount: string;
   frequency: "monthly" | "quarterly" | "yearly";
   billingDay: number;
@@ -23119,10 +23169,18 @@ export interface SetContractBillingOutput {
     prorate: boolean;
     taxable: boolean;
     description: string;
+    risesWithEscalation: boolean;
     state: "active" | "paused" | "ended";
     pausedOn: string | null;
     endedOn: string | null;
     lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+    }>;
   } | null;
   next: {
     start: string;
