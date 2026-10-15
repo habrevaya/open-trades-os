@@ -8,7 +8,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
 import {
   formatAmount, inspectionPayload, type AssistantAnswer, type BuiltInspection, type FieldCustomerFile,
-  type FieldInspectionProgram, type KeptReceipt, type Problem, type SyncEngine, type SyncReport,
+  type FieldInspectionProgram, type KeptReceipt, type OwnContactRecord, type Problem, type SyncEngine, type SyncReport,
 } from "@opentradesos/field-client";
 import type { KeptSignature } from "../lib/sell";
 import type { Session } from "../lib/session";
@@ -100,9 +100,27 @@ interface FieldState {
   takeReceipt(): Promise<KeptReceipt | { problem: string } | null>;
   /** A question for the field assistant. Needs a signal. */
   ask(question: string, visitId: string | null): Promise<AssistantAnswer | { problem: string }>;
+  /**
+   * The person's own phone number and home address, as the office's record of
+   * them holds it. Needs a signal: it is asked for now or not at all.
+   */
+  loadContact(): Promise<OwnContactRecord | { problem: string }>;
+  /**
+   * Keep the person's own phone and address, the whole of it (an empty box
+   * takes that part off). Needs a signal, so a refusal comes back in the
+   * server's own words while they are still holding the phone.
+   */
+  saveContact(body: Record<string, string | null>): Promise<OwnContactRecord | { problem: string }>;
 }
 
 const Context = createContext<FieldState | null>(null);
+
+/** What went wrong with the person's own details, in words: no signal, or the server's own sentence. */
+function contactProblem(error: unknown, fallback: string): string {
+  const offline = typeof error === "object" && error !== null && (error as { offline?: unknown }).offline === true;
+  if (offline) return "No signal, so this cannot be sent. Try again when you have a signal.";
+  return error instanceof Error && error.message !== "" ? error.message : fallback;
+}
 
 export function useField(): FieldState {
   const value = useContext(Context);
@@ -537,13 +555,34 @@ export function FieldProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loadContact = useCallback<FieldState["loadContact"]>(async () => {
+    const c = clientRef.current;
+    if (!c) return { problem: "Not signed in." };
+    try {
+      return await c.api.myContact();
+    } catch (error) {
+      return { problem: contactProblem(error, "Your details could not be loaded.") };
+    }
+  }, []);
+
+  const saveContact = useCallback<FieldState["saveContact"]>(async (body) => {
+    const c = clientRef.current;
+    if (!c) return { problem: "Not signed in." };
+    try {
+      return await c.api.saveMyContact(body, Crypto.randomUUID());
+    } catch (error) {
+      return { problem: contactProblem(error, "Your details could not be saved.") };
+    }
+  }, []);
+
   const value = useMemo<FieldState>(() => ({
     status, session, view, syncing, report, signInEnded, push, locationPermission: permission,
     signIn, requestCode, signInWithCode, signOut, sync: () => sync(true), record, takePhoto, saveSignature,
     checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink, perform, keepDrawnSignature, financingLink, ask, takeReceipt, fileRequest, openPdf,
+    loadContact, saveContact,
   }), [status, session, view, syncing, report, signInEnded, push, permission, signIn, requestCode, signInWithCode, signOut,
     sync, record, takePhoto, saveSignature, checkpointPhoto, fileInspection, resolve, onMyWay, paymentLink,
-    perform, keepDrawnSignature, financingLink, ask, takeReceipt, fileRequest, openPdf]);
+    perform, keepDrawnSignature, financingLink, ask, takeReceipt, fileRequest, openPdf, loadContact, saveContact]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

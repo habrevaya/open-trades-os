@@ -21,3 +21,4 @@ export * from "./expense";
 export * from "./task";
 export * from "./customer-files";
 export * from "./customer-notes";
+export * from "./own-contact";

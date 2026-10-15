@@ -294,6 +294,13 @@ is home contact detail, so it sits behind the same `user:read` as the emergency 
 employment record. **The office cannot write it**, on purpose: it is theirs and the list of changes
 is what they said; somebody who cannot use `/me` is asked for it.
 
+The phone app has the same two boxes, "Your phone and address" at the foot of a
+technician's day (M11): it reads `GET /v1/me` and saves through `POST /v1/me/contact` with the
+phone's own sign in, as the same person and the same permission (`profile:own`), so a change
+made there is the same version, the same audit line and the same list for the office as one
+made on `/me`. It needs a signal and is not queued, so a number that does not dial is told to
+the person at once in the server's own sentence.
+
 None of these takes a person: each is the signed in person's own membership,
 from the session, so a line, a contact or a document of anybody else's is not
 found. Reading anybody else's record is still `user:read`. All of it is
@@ -436,7 +443,7 @@ an HR system. Certificates and scans attach through the ordinary attachment
 path; the documents people sign are text written here, not uploaded files, and
 a printed copy is a record made from them on the day, not a stored file. A person keeps their own
 emergency contacts, phone number and home address and nothing else of their record: the
-office cannot enter or correct a phone or address for them (it reads them), the address is
+office cannot enter or correct a phone or address for them (it reads them), and on the phone app they are saved only with a signal, never queued, the address is
 United States only and has no second address or mailing address apart from the home one, a
 changed phone is not texted or checked, and there is no notice to the office when one changes (it
 is on the person's page and in the audit log, not pushed). The phone kept here is not the number

@@ -365,6 +365,17 @@ amount out at the rate in force on the day driven and sends it back in the day's
 a figure of its own, because it may not know the rate. The rate on the phone is as of
 its last fetch, and the server's rate on the day wins.
 
+**Your phone and address.** The person's own phone number and home address, the same
+record `/me` keeps (M24), from "Your phone and address" at the foot of the day. It reads
+`GET /v1/me` and saves with `POST /v1/me/contact` (`profile:own`) over the phone's own
+sign in, the whole of it each time, a box left empty taking that part off. It is the one
+thing here that is not queued: a number that does not dial or a ZIP that is not a ZIP is
+told to the person now, in the server's own words ("The ZIP code is five digits, like
+78701, or nine with a dash."), so it needs a signal and says so, and nothing on the
+phone repeats the server's rules. Save waits until a box has changed; sending the same
+again changes nothing and is not written down twice. The office reads what was saved
+and every change on the person's page and cannot write it.
+
 **The office's tasks.** The snapshot carries the person's own tasks and the
 ones nobody has taken, and the phone takes one (`task.claim`) and finishes
 its own (`task.close`) through the queue's own services, so the second of two
@@ -713,6 +724,10 @@ the phone has no screen for opens in the browser, where the person must be signe
 the web as well; the phone's sign in does not carry over to it. Opening a notice
 offline marks it read once a signal returns, so the bell in a browser can show it unread
 until then.
+
+The phone's "Your phone and address" needs a signal and is not kept for later, so a
+change made in a basement is made again above ground; it also cannot show the list of
+earlier changes, which is on `/me` and on the person's page in the office.
 
 Notices go to the technicians on a visit's assignment list and to the
 members of the crew it is sent to. Somebody with no phone registered for
