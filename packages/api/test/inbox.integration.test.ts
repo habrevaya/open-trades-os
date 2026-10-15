@@ -47,6 +47,7 @@ const inbound = (body: string, from = THEIRS) => ({
   from, to: OURS, body, media: [], providerMessageId: `IN${Math.random()}`,
 });
 
+/** The first services this file loads are loaded here, which on a cold start takes more than ten seconds. */
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
@@ -88,7 +89,7 @@ beforeAll(async () => {
     returning id`;
   await raw`insert into public.visit_assignment (organization_id, visit_id, technician_id)
             values (${ORG}, ${visit!.id}, ${technicianId})`;
-});
+}, 120_000);
 
 afterAll(async () => { if (raw) await raw.end(); });
 
@@ -293,8 +294,16 @@ run("starting a conversation, and the inbox over the API", () => {
    * it was in the API, so an integration or an agent could not read a reply
    * at all. Both now go through the same consent decision as every send.
    */
+  /**
+   * The dispatcher loads every route the API has, which on a cold start takes
+   * longer than one test is given, so it is loaded once before them.
+   */
+  let dispatch: typeof import("../src/http/dispatch").dispatch;
+  beforeAll(async () => {
+    ({ dispatch } = await import("../src/http/dispatch"));
+  }, 120_000);
+
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
-    const { dispatch } = await import("../src/http/dispatch");
     const response = await dispatch(new Request(`http://localhost${path}`, {
       method,
       headers: { "content-type": "application/json", ...headers },
