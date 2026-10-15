@@ -1469,6 +1469,7 @@ export interface AskToSignStaffDocumentOutput {
 
 export interface AssignCrewToVisitInput {
   crewId: string;
+  intoMemberHold?: boolean;
 }
 
 export interface AssignCrewToVisitOutput {

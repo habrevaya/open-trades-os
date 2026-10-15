@@ -28,6 +28,14 @@
  *   5. Overtime inside the allowance, which is allowed and still a cost.
  *   6. Drive time, which is what is minimised once all of the above hold.
  *
+ * THE SHARE OF A PERSON'S WINDOW HELD FOR MEMBERS IS KEPT. A visit for
+ * somebody who is not a member may carry, per person it could go to, the
+ * rooms putting it there would use (`held`): how many such visits that
+ * person's window still takes outside the share kept for members. The plan
+ * counts every visit it puts on somebody new against those rooms, and never
+ * fills one past what it takes; a visit nobody can take without the hold is
+ * left where it is and named with the reason.
+ *
  * LOCKED WORK STAYS PUT. A visit the dispatcher locked keeps its technician
  * and its order among that technician's other locked visits; other work can
  * be placed before or after it. Work under way or finished is not passed in
@@ -229,6 +237,52 @@ export interface RebalanceVisit {
    * to anybody else. Absent, or one person, for ordinary work.
    */
   team?: readonly string[] | undefined;
+  /**
+   * Per technician (or crew) this visit could newly go to, the rooms outside
+   * the share held for members that putting it there would use: one for a
+   * person, one for each of a crew's people the hold reaches. Absent for
+   * whoever already has it, and for a visit nothing is held from.
+   */
+  held?: Readonly<Record<string, readonly HeldRoom[]>> | undefined;
+}
+
+/**
+ * ROOM OUTSIDE THE SHARE OF ONE PERSON'S WINDOW HELD FOR MEMBERS.
+ *
+ * `key` names the person, the day and the window, so every visit a plan puts
+ * there is counted together; `room` is how many visits for somebody who is
+ * not a member that window still takes outside the hold, read against the
+ * day as it stands before the plan. A visit the plan takes off that person
+ * is not counted back in, so the plan errs on the side of the members.
+ * `reason` is what the office is told when it is full.
+ */
+export interface HeldRoom {
+  key: string;
+  room: number;
+  reason: string;
+}
+
+/**
+ * The first room a set of routes fills past what it takes, or null when
+ * every one is kept. Each visit on a route is counted against the rooms it
+ * uses on that route's holder (`heldOf`), so one person's window filled by
+ * two people's moves, or a person's own and their crew's, is one count.
+ */
+export function holdBreach(
+  routes: ReadonlyMap<string, readonly string[]>,
+  heldOf: (visitId: string, holder: string) => readonly HeldRoom[] | undefined,
+): HeldRoom | null {
+  const use = new Map<string, number>();
+  const using: HeldRoom[] = [];
+  for (const [holder, order] of routes) {
+    for (const id of order) {
+      for (const room of heldOf(id, holder) ?? []) {
+        use.set(room.key, (use.get(room.key) ?? 0) + 1);
+        using.push(room);
+      }
+    }
+  }
+  return using.find((room) => use.get(room.key)! > room.room) ?? null;
 }
 
 export interface Unplaced {
@@ -293,6 +347,15 @@ export function rebalance(input: {
     return v.refusals[technicianId] === null;
   };
 
+  /** The rooms outside the hold a visit uses on a holder, and whether some routes would fill one past what it takes. */
+  const heldOf = (visitId: string, holder: string) => visitById.get(visitId)?.held?.[holder];
+  const takesHeld = (ids: readonly string[], holder: string) => ids.some((id) => (heldOf(id, holder)?.length ?? 0) > 0);
+  const breachWith = (changes: readonly (readonly [string, string[]])[]) => {
+    const hypothetical = new Map<string, readonly string[]>(routes);
+    for (const [holder, order] of changes) hypothetical.set(holder, order);
+    return holdBreach(hypothetical, heldOf);
+  };
+
   const plans = new Map(techs.map((t) => [t.technicianId, {
     start: t.start, end: t.end, departAt: t.departAt, stops, travel: input.travel,
   } satisfies DayPlan]));
@@ -343,9 +406,21 @@ export function rebalance(input: {
       unplaced.push({ visitId: v.stop.id, why: "locked", refusals, nearest: null });
       continue;
     }
-    const allowed = techs.filter((t) => may(v.stop.id, t.technicianId));
+    /**
+     * Who may take it, less anybody whose room outside the share held for
+     * members it would overfill: their reason goes first, because they are
+     * the people who otherwise could have taken it.
+     */
+    const held: string[] = [];
+    const allowed = techs.filter((t) => {
+      if (!may(v.stop.id, t.technicianId)) return false;
+      if (!takesHeld([v.stop.id], t.technicianId)) return true;
+      const breach = breachWith([[t.technicianId, [...routes.get(t.technicianId)!, v.stop.id]]]);
+      if (breach && !held.includes(breach.reason)) held.push(breach.reason);
+      return breach === null;
+    });
     if (allowed.length === 0) {
-      unplaced.push({ visitId: v.stop.id, why: "nobody_may", refusals, nearest: null });
+      unplaced.push({ visitId: v.stop.id, why: "nobody_may", refusals: [...held, ...refusals], nearest: null });
       continue;
     }
     let best: { technicianId: string; order: string[]; cost: Cost; feasible: boolean;
@@ -405,6 +480,8 @@ export function rebalance(input: {
           for (const b of techs) {
             if (b.technicianId === a.technicianId || !segment.every((id) => may(id, b.technicianId))) continue;
             const toOrder = routes.get(b.technicianId)!;
+            if (takesHeld(segment, b.technicianId)
+              && breachWith([[a.technicianId, without], [b.technicianId, [...toOrder, ...segment]]])) continue;
             const was = add(costs.get(a.technicianId)!, costs.get(b.technicianId)!);
             for (let position = 0; position <= toOrder.length; position++) {
               const order = [...toOrder.slice(0, position), ...segment, ...toOrder.slice(position)];

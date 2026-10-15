@@ -14,6 +14,7 @@ import { shopOfCrew } from "./visit-shop";
 import { liveBranch } from "./branches";
 import { loadWeek } from "./business-hours";
 import { loadHolidays } from "./holidays";
+import { heldOnPeople, MemberHoldRefusedError } from "./booking";
 
 /**
  * CREWS: THE SECOND CAPACITY MODEL
@@ -980,7 +981,16 @@ function describe(register: Register, code: string): string {
  * it and then assigned anyway would be an opinion rather than a guard.
  */
 export async function assign(
-  ctx: ServiceContext, input: { id: string; crewId: string },
+  ctx: ServiceContext, input: {
+    id: string; crewId: string;
+    /** Send the crew although the time it would take is the share of one of its people's window held for members. */
+    intoMemberHold?: boolean | undefined;
+    /**
+     * Set by the rebalances, which keep that share in the plan and check the
+     * whole plan before moving anything (`dispatch.assign` says why).
+     */
+    skipMemberHold?: boolean | undefined;
+  },
 ) {
   return guardedWrite(ctx, "visit:dispatch", async (tx) => {
     /** A visit on this person's board, and nobody else's: the rule `dispatch.assign` follows. */
@@ -1020,6 +1030,9 @@ export async function assign(
     if (!answer.canTake) {
       throw new ConflictError(answer.blockers.map((b) => b.explanation).join(" "));
     }
+    const intoHold = input.skipMemberHold
+      ? []
+      : await memberHoldOnCrew(tx, ctx, visit, crew, zone, input.intoMemberHold === true);
 
     /**
      * The same status rule assignment uses for individuals: an unassigned or
@@ -1057,9 +1070,91 @@ export async function assign(
       { crewId: visit.crewId, status: visit.status, technicianIds: handedOver.map((h) => h.technicianId) },
       { crewId: crew.id, status });
     await announce(tx, ctx, visit.id, before);
+    /** The same record a drop onto one person leaves, naming the crew it went with. */
+    for (const held of intoHold) {
+      await audit(tx, ctx, "visit.assigned_into_member_hold", "visit", visit.id, null, { ...held, crewId: crew.id });
+    }
 
     return { id: visit.id, crewId: crew.id, status, on };
   });
+}
+
+/**
+ * THE SHARE HELD FOR MEMBERS, ON A CREW'S PEOPLE. A crew's visit takes the
+ * time of every one of its people, so a visit dropped on a crew's lane is
+ * asked what a drop onto each of them would be asked (`dispatch.assign`):
+ * whether, for somebody no plan lets into the hold, it would only fit in the
+ * share of that person's window kept for members, while the window as a
+ * whole still keeps something back. Refused in words naming the people and
+ * the other crews whose people all have room outside the hold, until the
+ * person dispatching sends it anyway; then each person whose share it took
+ * is on the audit log. Not asked of somebody already on the visit, a visit
+ * with no time, or one on a job made from a booking request, as a drop onto
+ * a person leaves them.
+ */
+async function memberHoldOnCrew(
+  tx: Database, ctx: ServiceContext, visit: typeof schema.visit.$inferSelect,
+  crew: typeof schema.crew.$inferSelect, zone: string, anyway: boolean,
+): Promise<Array<{ technicianId: string; date: string; window: string }>> {
+  if (!visit.windowStart) return [];
+  const [job] = await tx.select({ customerId: schema.job.customerId, propertyId: schema.job.propertyId, jobTypeId: schema.job.jobTypeId })
+    .from(schema.job).where(eq(schema.job.id, visit.jobId)).limit(1);
+  if (!job) return [];
+  const [request] = await tx.select({ id: schema.bookingRequest.id }).from(schema.bookingRequest)
+    .where(eq(schema.bookingRequest.jobId, visit.jobId)).limit(1);
+  if (request) return [];
+
+  /** Who is on it already: its own crew's people and anybody assigned. */
+  const onIt = new Set([
+    ...(await tx.select({ id: schema.visitAssignment.technicianId }).from(schema.visitAssignment)
+      .where(eq(schema.visitAssignment.visitId, visit.id))).map((r) => r.id),
+    ...(visit.crewId === null ? [] : (await tx.select({ id: schema.crewMember.technicianId }).from(schema.crewMember)
+      .where(eq(schema.crewMember.crewId, visit.crewId))).map((r) => r.id)),
+  ]);
+  /** This person's other crews, for "which crew could take it instead". */
+  const others = await tx.select({ id: schema.crew.id, name: schema.crew.name }).from(schema.crew)
+    .where(and(eq(schema.crew.organizationId, ctx.actor.organizationId), eq(schema.crew.active, true),
+      ne(schema.crew.id, crew.id), crewsInView(ctx)))
+    .orderBy(asc(schema.crew.name));
+  const people = await tx.select({
+    crewId: schema.crewMember.crewId, technicianId: schema.crewMember.technicianId, name: schema.technician.displayName,
+  }).from(schema.crewMember)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+    .where(inArray(schema.crewMember.crewId, [crew.id, ...others.map((o) => o.id)]));
+  const adding = people.filter((p) => p.crewId === crew.id && !onIt.has(p.technicianId));
+  if (adding.length === 0) return [];
+
+  const answer = (await heldOnPeople(tx, {
+    organizationId: ctx.actor.organizationId, timezone: zone,
+    asks: [{
+      ref: visit.id, customerId: job.customerId, propertyId: job.propertyId, jobTypeId: job.jobTypeId,
+      durationMinutes: visit.estimatedDurationMinutes, windowStart: visit.windowStart,
+      technicianIds: [...new Set(people.filter((p) => !onIt.has(p.technicianId)).map((p) => p.technicianId))],
+    }],
+  })).get(visit.id);
+  if (!answer) return [];
+  const roomOf = (technicianId: string) => answer.people.get(technicianId) ?? { them: 1, member: 1 };
+  const held = adding.filter((p) => {
+    const room = roomOf(p.technicianId);
+    return room.them <= 0 && room.member > 0;
+  });
+  if (held.length === 0) return [];
+  if (!anyway) {
+    const instead = others.filter((o) => {
+      const theirs = people.filter((p) => p.crewId === o.id);
+      return theirs.length > 0 && theirs.every((p) => onIt.has(p.technicianId) || roomOf(p.technicianId).them > 0);
+    }).map((o) => o.name);
+    const names = held.map((p) => p.name);
+    const who = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names.at(-1)!}`;
+    const elsewhere = instead.length === 0
+      ? "No other crew has room in that window outside the time kept for members."
+      : `${instead.length > 3 ? `${instead.slice(0, 3).join(", ")} and others` : instead.join(instead.length === 2 ? " or " : ", ")} could take it instead.`;
+    throw new MemberHoldRefusedError(
+      `${crew.name} would take ${who}'s time in the ${answer.windowName} window on ${answer.date}, which is kept for members, `
+      + `and this customer is not a member there that day. ${elsewhere} Or send anyway to give them a member's place.`,
+    );
+  }
+  return held.map((p) => ({ technicianId: p.technicianId, date: answer.date, window: answer.windowName }));
 }
 
 /* ----------------------------------------------------------------- loading */
@@ -1166,7 +1261,7 @@ export const handlers = {
     jobId: string; on?: string | undefined;
   }): Promise<{ jobId: string; on: string; crews: CrewVerdict[] }> => crewsFor(ctx, input),
 
-  assignCrewToVisit: (ctx: ServiceContext, input: { id: string; crewId: string }): Promise<{
+  assignCrewToVisit: (ctx: ServiceContext, input: { id: string; crewId: string; intoMemberHold?: boolean | undefined }): Promise<{
     id: string; crewId: string; status: string; on: string;
   }> => assign(ctx, input),
 } as const;

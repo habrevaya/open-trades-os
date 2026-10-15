@@ -1055,6 +1055,96 @@ export async function heldOnTechnician(db: Database, input: {
   return { date, windowName: w.name, instead };
 }
 
+/**
+ * THE SAME QUESTION, ASKED OF MANY PLACES AT ONCE: for each of several
+ * visits, the room in each of several people's own window that day for
+ * somebody who is not a member (`them`) and for a member (`member`), as
+ * `heldOnTechnician` reads them for one drop. The rebalances ask it of every
+ * person and crew they might put a visit on, and the crew drop of each of a
+ * crew's people.
+ *
+ * Answered only where the hold can matter, as for a drop: a hold in force,
+ * the visit inside one of the day's arrival windows, its customer not a
+ * member there that day (a member of any plan is never asked), and the
+ * window as a whole still keeping something back from them. Anything else
+ * is left out of the answer and goes where it is put.
+ *
+ * Each person is asked about a visit that is not on their day yet, so the
+ * visit itself is not counted against them; the window as a whole is read
+ * with it in, as the several day rebalance's window check reads it. Readers
+ * are made once per kind of work and person and asked for every day, so a
+ * plan of forty visits is a few dozen reads rather than a few thousand.
+ */
+export async function heldOnPeople(db: Database, input: {
+  organizationId: string;
+  timezone: string;
+  asks: readonly {
+    ref: string; customerId: string; propertyId: string | null; jobTypeId: string | null;
+    durationMinutes: number; windowStart: Date; technicianIds: readonly string[];
+  }[];
+}): Promise<Map<string, {
+  date: string; windowId: string; windowName: string;
+  people: Map<string, { them: number; member: number }>;
+}>> {
+  const out = new Map<string, {
+    date: string; windowId: string; windowName: string; people: Map<string, { them: number; member: number }>;
+  }>();
+  const asks = input.asks.filter((a) => a.technicianIds.length > 0);
+  if (asks.length === 0 || !(await holdFor(db, input.organizationId))) return out;
+  const windows = await db.select().from(schema.arrivalWindow)
+    .where(and(eq(schema.arrivalWindow.organizationId, input.organizationId), eq(schema.arrivalWindow.isActive, true)));
+  const members = await membersAmong(db, input.organizationId, asks.map((a) => a.customerId));
+  const dates = asks.map((a) => time.dateIn(a.windowStart, input.timezone)).sort();
+  type Reader = Awaited<ReturnType<typeof capacityReader>>;
+  const readers = new Map<string, { stranger: Reader; member: Reader }>();
+  const readerOf = async (kind: { jobTypeId: string | null; durationMinutes: number }, technicianId?: string) => {
+    const key = `${kind.jobTypeId ?? ""}|${kind.durationMinutes}|${technicianId ?? ""}`;
+    if (!readers.has(key)) {
+      const asked = {
+        organizationId: input.organizationId, timezone: input.timezone,
+        service: { jobTypeId: kind.jobTypeId }, durationMinutes: kind.durationMinutes,
+        from: dates[0]!, until: dates.at(-1)!, technicianId,
+      };
+      readers.set(key, {
+        stranger: await capacityReader(db, asked),
+        member: await capacityReader(db, { ...asked, member: () => 1 }),
+      });
+    }
+    return readers.get(key)!;
+  };
+  for (const ask of asks) {
+    const date = time.dateIn(ask.windowStart, input.timezone);
+    if (members(ask.customerId, ask.propertyId, date) !== null) continue;
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const w = windows.find((x) => x.daysOfWeek.includes(dow)
+      && windowStart(date, x.startsAt, input.timezone) <= ask.windowStart
+      && ask.windowStart < windowStart(date, x.endsAt, input.timezone));
+    if (!w) continue;
+    const whole = await readerOf(ask);
+    if (!whole.stranger || !whole.member || whole.member(date, w) <= whole.stranger(date, w)) continue;
+    const people = new Map<string, { them: number; member: number }>();
+    for (const technicianId of new Set(ask.technicianIds)) {
+      const on = await readerOf(ask, technicianId);
+      people.set(technicianId, {
+        them: on.stranger ? on.stranger(date, w) : 0,
+        member: on.member ? on.member(date, w) : 0,
+      });
+    }
+    out.set(ask.ref, { date, windowId: w.id, windowName: w.name, people });
+  }
+  return out;
+}
+
+/**
+ * Refused because the time a visit would take is the share of somebody's
+ * window held for members. How a screen tells this refusal apart to offer
+ * "Send anyway", on a drop onto a person or onto a crew; see
+ * `QualificationRefusedError`.
+ */
+export class MemberHoldRefusedError extends ConflictError {
+  readonly memberHoldRefused = true as const;
+}
+
 export async function memberHoldInForce(ctx: ServiceContext): Promise<boolean> {
   return guardedRead(ctx, "job:read", async (tx) => (await holdFor(tx, ctx.actor.organizationId)) !== null);
 }

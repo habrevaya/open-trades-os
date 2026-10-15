@@ -165,7 +165,18 @@ moved between people only when that keeps a promise or a limit, cuts
 overtime, or saves at least five minutes of driving: two phones buzzing for
 three minutes saved is not a trade. A run of up to three visits moves
 together, so two calls on the far side of town are not each left where they
-are because the other keeps the van there.
+are because the other keeps the van there. The share of each person's window
+held for members (M08) is kept as a drop keeps it: a visit for somebody no plan
+lets into the hold goes onto a person, or a crew, only while that person's (or
+each of the crew's people's) window has room outside the share kept for
+members, counting every visit the plan puts there; one nobody can take without
+it stays where it is, and one waiting in the pile is listed with the hold in
+words ("Ray Ortiz's time in the 8am to 12pm window on 2026-12-02 is kept for
+members, and Sid Stranger is not a member there that day."). Applying asks
+the whole plan the same question before anything moves, against the day as
+it was proposed, and refuses it whole in the same words, ending "Propose it
+again.", when the payload or something since (a plan sold, a booking taken)
+would put a stranger in a member's place.
 
 **Several days can be rebalanced, and a visit moves to another day only
 where its customer agreed.** "Rebalance several days" proposes the next two
@@ -187,7 +198,9 @@ minutes of driving, a higher bar than moving it between two people because
 the customer's plans change. The share of each arrival window held for
 members (M08) is kept on the new day: a visit for somebody no plan lets into
 it moves into a window only while that window has room outside the hold, as
-online booking would have offered it, counting every visit the plan moves in. It is shown as each day before and after, and
+online booking would have offered it, counting every visit the plan moves in,
+and so is the share of each person's window, as in one day's rebalance: on the
+new day a visit's time is new to everybody, whoever had it included. It is shown as each day before and after, and
 a person applies it: each moved visit goes to its new day through the
 assignment a drag uses, its technicians hear through the visit's notices,
 and its customer is told by text or email through the same path an answer
@@ -275,7 +288,12 @@ person's card, or one from the unassigned pile, dropped on a crew's lane goes
 to the crew through the same check the crews screen makes (the crew's kit,
 its people and their leave at the visit's hours), comes off whoever had it,
 and a crew that cannot take it is refused in that check's own words where
-the card was dropped. Each crew with work today
+the card was dropped. A visit for somebody who is not a member that would take
+the share of one of the crew's people's window kept for members is refused the
+way a drop onto that person is, naming the people and the crews whose people
+all have room outside the hold, until the dispatcher presses "Send anyway"
+(`intoMemberHold` on `POST /v1/visits/{id}/crew`), which the audit log records
+for each person whose share it took (M08). Each crew with work today
 has a lane of its own beside the people, with its lead, and its day is a line
 on the map in its own colour from where it is based. The routes running today
 are listed above the board with how many stops are done and who runs each,
@@ -297,7 +315,8 @@ a customer's visit on the board onto a person whose own room in that window
 is only the share of their window kept for members is refused the same way,
 naming who could take it instead, until the dispatcher presses "Send anyway"
 (`intoMemberHold` on `POST /v1/visits/{id}/assign`), which the audit log
-records (M08).
+records (M08). So is a drop onto a crew's lane, and both rebalances keep the
+same share as they plan (above).
 
 **A route's density uses drive times by road when it can.** The route's own
 declared drive time between stops still comes first. Without one, and with
@@ -530,13 +549,15 @@ Because its customer agreed to no other day: set the days it may happen on
 on the visit, or the days of the week that suit the customer on their page.
 Or the other day is today, or the company is closed then, or the move saves
 less than fifteen minutes of driving and keeps no promise or limit, or the
-window on that day has no room left outside the share held for members, or
-it has several people on it and one of them cannot take that day.
+window on that day has no room left outside the share held for members (the
+window's, or the person's who would take it), or it has several people on it
+and one of them cannot take that day.
 
 **Why did the rebalance not move a visit to the nearer technician?** Because
 it saves less than five minutes of driving, or it is locked, or that person may
-not do it, or it would make a visit late, run past the overtime allowed, or
-push lunch past its window. The proposal says which for anything it could not
+not do it, or the time it would take is the share of their window kept for
+members and the customer is not one, or it would make a visit late, run past
+the overtime allowed, or push lunch past its window. The proposal says which for anything it could not
 place.
 
 **Is there a map?** Yes, beside or instead of the board. It needs addresses on

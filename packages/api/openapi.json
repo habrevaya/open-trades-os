@@ -136968,7 +136968,7 @@
       "post": {
         "operationId": "assignCrewToVisit",
         "summary": "Put a crew on a visit",
-        "description": "Refused when the crew cannot take the job on the day the visit is, which is the point: creating a visit with a crewId already works and checks nothing, so a tree job can be put on a crew with no chipper today. Separate from assigning technicians, which writes a different table and is untouched.\n\nRequires a session holding: visit:dispatch.",
+        "description": "Refused when the crew cannot take the job on the day the visit is, which is the point: creating a visit with a crewId already works and checks nothing, so a tree job can be put on a crew with no chipper today. Separate from assigning technicians, which writes a different table and is untouched. Also refused, in words naming the people, the window and which other crews have room outside it, when the visit's customer is not a member there that day and the visit would take the share of one of the crew's people's window held for members (M08), while the window still holds something back; `intoMemberHold` sends the crew anyway and the audit log records each person whose share it took.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -148714,6 +148714,9 @@
           "crewId": {
             "type": "string",
             "format": "uuid"
+          },
+          "intoMemberHold": {
+            "type": "boolean"
           }
         },
         "required": [

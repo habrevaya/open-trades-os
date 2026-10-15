@@ -27,6 +27,11 @@
  * the same limit a customer moving their own visit meets, so a rebalance
  * cannot fill a Thursday morning past what the company said it takes.
  *
+ * SO DOES THE SHARE OF EACH PERSON'S WINDOW. A visit for somebody who is
+ * not a member goes onto a person's day, here or on another day, only while
+ * that person's window has room outside the share of it held for members,
+ * counting every visit the plan puts on them (`DayOption.heldOn`).
+ *
  * A VISIT WITH SEVERAL PEOPLE ON IT moves with all of them. It is on every
  * member's day, counted there, and goes to another day only where every one
  * of them is working, may take it at the hours it would have there (skills,
@@ -45,8 +50,8 @@
 
 import type { PlanStop, Travel } from "./index.js";
 import {
-  evaluateShift, rebalance,
-  type RebalanceDay, type RebalanceResult, type RebalanceTechnician, type Unplaced,
+  evaluateShift, holdBreach, rebalance,
+  type HeldRoom, type RebalanceDay, type RebalanceResult, type RebalanceTechnician, type Unplaced,
 } from "./rebalance.js";
 
 export interface DayToPlan {
@@ -78,6 +83,14 @@ export interface DayOption {
    * Absent when nothing is held from this visit there.
    */
   held?: { key: string; room: number } | undefined;
+  /**
+   * Per person (or crew) working that day whose own window this visit could
+   * newly take, the rooms outside the share of that window held for members
+   * it would use (`rebalance`'s `held`). On the day it is on, absent for
+   * whoever already has it; on another day, its time there is new to
+   * everybody, so whoever had it is asked too.
+   */
+  heldOn?: Readonly<Record<string, readonly HeldRoom[]>> | undefined;
 }
 
 export interface DaysVisit {
@@ -205,7 +218,10 @@ export function rebalanceDays(input: {
       })),
       visits: members.map((v) => {
         const option = optionOf(v.id, date)!;
-        return { stop: option.stop, locked: v.locked, refusals: option.refusals, priority: v.priority, team: v.team };
+        return {
+          stop: option.stop, locked: v.locked, refusals: option.refusals, priority: v.priority, team: v.team,
+          held: option.heldOn,
+        };
       }),
       travel: day.travel,
       ...(input.minMoveSavingMinutes !== undefined ? { minMoveSavingMinutes: input.minMoveSavingMinutes } : {}),
@@ -264,6 +280,17 @@ export function rebalanceDays(input: {
   const heldBy = new Map<string, string>();
   const fitsHold = (option: DayOption) => !option.held || (heldUse.get(option.held.key) ?? 0) < option.held.room;
 
+  /**
+   * Whether a day's routes, with some holders' orders changed, keep every
+   * room outside the share held for members on that day: each visit counted
+   * by the option for that day, so a visit moved there uses that day's rooms.
+   */
+  const keepsHold = (date: string, changes: ReadonlyMap<string, string[]>) => {
+    const hypothetical = new Map<string, readonly string[]>(routes.get(date)!);
+    for (const [holder, order] of changes) hypothetical.set(holder, order);
+    return holdBreach(hypothetical, (id, holder) => optionOf(id, date)?.heldOn?.[holder]) === null;
+  };
+
   const gain = (c: Cost, w: Cost) => {
     const d = zero();
     for (const f of FIELDS) d[f] = c[f] - w[f];
@@ -307,6 +334,8 @@ export function rebalanceDays(input: {
       const there = routes.get(option.date)!;
       if (!team.every((p) => there.has(p) && p in option.refusals && option.refusals[p] === null)) continue;
       const orders = new Map<string, string[]>();
+      if (team.some((p) => (option.heldOn?.[p]?.length ?? 0) > 0)
+        && !keepsHold(option.date, new Map(team.map((p) => [p, [...there.get(p)!, v.id]])))) continue;
       let toWas = zero();
       let toNow = zero();
       for (const p of team) {
@@ -362,6 +391,8 @@ export function rebalanceDays(input: {
         for (const technicianId of people) {
           if (option.refusals[technicianId] !== null || !(technicianId in option.refusals)) continue;
           const current = there.get(technicianId)!;
+          if ((option.heldOn?.[technicianId]?.length ?? 0) > 0
+            && !keepsHold(option.date, new Map([[technicianId, [...current, v.id]]]))) continue;
           const toWas = costOf(option.date, technicianId, current);
           for (let position = 0; position <= current.length; position++) {
             const order = [...current.slice(0, position), v.id, ...current.slice(position)];

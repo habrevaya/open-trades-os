@@ -260,11 +260,15 @@ export const assignCrewToVisit = defineRoute({
   path: "/v1/visits/{id}/crew",
   summary: "Put a crew on a visit",
   description:
-    "Refused when the crew cannot take the job on the day the visit is, which is the point: creating a visit with a crewId already works and checks nothing, so a tree job can be put on a crew with no chipper today. Separate from assigning technicians, which writes a different table and is untouched.",
+    "Refused when the crew cannot take the job on the day the visit is, which is the point: creating a visit with a crewId already works and checks nothing, so a tree job can be put on a crew with no chipper today. Separate from assigning technicians, which writes a different table and is untouched. Also refused, in words naming the people, the window and which other crews have room outside it, when the visit's customer is not a member there that day and the visit would take the share of one of the crew's people's window held for members (M08), while the window still holds something back; `intoMemberHold` sends the crew anyway and the audit log records each person whose share it took.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
-  input: z.object({ id: Uuid, crewId: Uuid }),
+  input: z.object({
+    id: Uuid, crewId: Uuid,
+    /** Send the crew although the time it takes is the share of one of its people's window held for members (M08). */
+    intoMemberHold: z.boolean().optional(),
+  }),
   output: z.object({
     id: Uuid, crewId: Uuid, status: z.string(), on: z.string().date(),
   }),
