@@ -192,6 +192,25 @@ holidays" and "Raise on holidays too", `skipHolidays` on
 `PATCH /v1/task-templates/{id}`), and applies from the next occurrence: a day
 already skipped stays skipped.
 
+Every row on the list has a "Change" link to `/tasks/recurring/{id}`, which shows
+the same boxes as adding one with the template's own values in them: what needs
+doing, more detail, how often and on which day, the due time, the starting day,
+the priority, skipping holidays, who it is for and the checklist. Saving sends the
+whole form to `PATCH /v1/task-templates/{id}` (`task:write`), so a box emptied is a
+thing taken off (no detail, nobody in particular, no checklist), and the screen
+reads the same function that adding one does, so a schedule is refused in the same
+sentence either way ("A weekly task needs the day of the week it comes round on.").
+The page says, above the button and again in the answer after it, that the change
+applies from the next time the task comes round: the tasks it has already raised
+are people's work in progress and are not rewritten, and a day missed meanwhile is
+not made up. Changing the starting day of an every other week or every few weeks task
+moves which week is the on week, and the note under the boxes says how the weeks are counted. A task
+given to somebody who has since left is shown with "(no longer works here)" and
+saving it is refused until somebody else is chosen, rather than handing it to the
+queue unnoticed. Someone who can read tasks and not change them sees the list and
+the page without the form. The change is audited as `task_template.updated`, with
+what it replaced.
+
 Never twice: the task carries the template and the day, a unique index on the
 pair decides, and the worker inserts with `on conflict do nothing`, so a worker
 killed mid pass, restarted, or running twice raises the day's task once. A
@@ -459,9 +478,9 @@ on a closed holiday rather than moving it to the next working day,
 deliberately, and an every other week task's off week stays the off week
 whatever the holidays. A change to a template applies to the tasks it raises
 from then on, and a missed occurrence is not backfilled, deliberately. The
-recurring screen adds templates, pauses and resumes them and switches skipping
-holidays; changing an existing one's title, schedule or checklist is through
-`PATCH /v1/task-templates/{id}`, not the screen.
+recurring screen adds templates, pauses and resumes them, switches skipping
+holidays and changes an existing one's title, schedule, person and checklist on its own
+page, with the change applying from the next occurrence.
 
 Reporting lines are set only on the escalation screen, and are read by escalation
 and shown on the person's own page; nothing else in the product reads them, and

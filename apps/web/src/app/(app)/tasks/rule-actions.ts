@@ -115,37 +115,74 @@ export async function finishTask(_previous: FormState, form: FormData): Promise<
 /** The schedules that come round on a named day of the week; the others ignore the day box. */
 const WEEKDAY_FREQUENCIES = ["weekly", "every_other_week", "last_weekday_of_month", "nth_weekday_of_month", "every_n_weeks"];
 
+/**
+ * What the template form posted, as the route's own fields. Adding and
+ * changing read the one function, so a template is held to the same rules and
+ * refused in the same words whichever screen it came through.
+ */
+function templateFields(form: FormData) {
+  const frequency = field(form, "frequency");
+  const weekday = field(form, "weekday");
+  const monthDay = field(form, "monthDay");
+  const monthWeek = field(form, "monthWeek");
+  const intervalWeeks = field(form, "intervalWeeks");
+  const days = form.getAll("daysOfWeek").map((d) => Number(d));
+  const due = minutesOf(field(form, "dueTime"));
+  return {
+    title: field(form, "title"),
+    priority: field(form, "priority"),
+    frequency,
+    ...(frequency && WEEKDAY_FREQUENCIES.includes(frequency) && weekday !== undefined ? { weekday: Number(weekday) } : {}),
+    ...(frequency === "monthly" && monthDay !== undefined ? { monthDay: Number(monthDay) } : {}),
+    ...(frequency === "nth_weekday_of_month" && monthWeek !== undefined ? { monthWeek: Number(monthWeek) } : {}),
+    ...(frequency === "every_n_weeks" && intervalWeeks !== undefined ? { intervalWeeks: Number(intervalWeeks) } : {}),
+    ...(frequency === "chosen_weekdays" ? { daysOfWeek: days } : {}),
+    ...(due !== undefined ? { dueMinutes: due } : {}),
+    startsOn: field(form, "startsOn"),
+    skipHolidays: form.get("skipHolidays") === "yes",
+  };
+}
+
 export async function addTemplate(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
     const { ctx } = await session();
-    const frequency = field(form, "frequency");
-    const weekday = field(form, "weekday");
-    const monthDay = field(form, "monthDay");
-    const monthWeek = field(form, "monthWeek");
-    const intervalWeeks = field(form, "intervalWeeks");
-    const days = form.getAll("daysOfWeek").map((d) => Number(d));
     const assignee = field(form, "assigneeUserId");
-    const due = minutesOf(field(form, "dueTime"));
     const checklist = lines(field(form, "checklist"));
+    const body = field(form, "body");
     const input = parsed(createTaskTemplate.input, {
-      title: field(form, "title"),
-      body: field(form, "body"),
-      priority: field(form, "priority"),
-      frequency,
-      ...(frequency && WEEKDAY_FREQUENCIES.includes(frequency) && weekday !== undefined ? { weekday: Number(weekday) } : {}),
-      ...(frequency === "monthly" && monthDay !== undefined ? { monthDay: Number(monthDay) } : {}),
-      ...(frequency === "nth_weekday_of_month" && monthWeek !== undefined ? { monthWeek: Number(monthWeek) } : {}),
-      ...(frequency === "every_n_weeks" && intervalWeeks !== undefined ? { intervalWeeks: Number(intervalWeeks) } : {}),
-      ...(frequency === "chosen_weekdays" ? { daysOfWeek: days } : {}),
+      ...templateFields(form),
+      ...(body !== undefined ? { body } : {}),
       ...(assignee ? { assigneeUserId: assignee } : {}),
-      ...(due !== undefined ? { dueMinutes: due } : {}),
       ...(checklist.length > 0 ? { checklist } : {}),
-      startsOn: field(form, "startsOn"),
-      skipHolidays: form.get("skipHolidays") === "yes",
     });
     await taskRules.handlers.createTaskTemplate(ctx, input);
   });
   refresh("/tasks/recurring");
+  return state;
+}
+
+/**
+ * Change an existing template's words, schedule, person and checklist.
+ *
+ * Every box is sent, so a box emptied is a thing taken off: no detail, nobody
+ * in particular, no checklist. It applies from the next occurrence; tasks the
+ * template already raised are the queue's own and are not rewritten.
+ */
+export async function changeTemplate(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const state = await attempt(form, async () => {
+    const { ctx } = await session();
+    const input = parsed(updateTaskTemplate.input, {
+      id,
+      ...templateFields(form),
+      body: field(form, "body") ?? "",
+      assigneeUserId: field(form, "assigneeUserId") ?? null,
+      checklist: lines(field(form, "checklist")),
+    });
+    await taskRules.handlers.updateTaskTemplate(ctx, input);
+    return { message: "Saved. It applies from the next time it comes round. Tasks already in the queue are left as they are." };
+  });
+  refresh("/tasks/recurring", `/tasks/recurring/${id}`);
   return state;
 }
 
