@@ -42,6 +42,7 @@ export async function bookJob(_previous: FormState, form: FormData): Promise<For
       customerComplaint: field(form, "customerComplaint"),
       ...sourceFrom(form),
       callId: field(form, "callId"),
+      ...(field(form, "multiVisitPlanned") === "1" ? { multiVisitPlanned: true } : {}),
       ...(window.kind === "window"
         ? {
             visit: {

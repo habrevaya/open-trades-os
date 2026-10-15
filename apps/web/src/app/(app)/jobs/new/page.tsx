@@ -114,6 +114,15 @@ export default async function BookJobPage({
               : "Leave it if they rang a tracking number: the call already says."}
           />
           <TextArea label="Description" name="description" maxLength={5000} />
+          {/*
+            Asked now, while nobody has gone out: a plan said after the first
+            visit is refused, because it would be a return visit described
+            kindly in the first time fix rate.
+          */}
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" name="multiVisitPlanned" value="1" className="mt-0.5 h-4 w-4" />
+            <span>Planned to take more than one visit, like a two day install</span>
+          </label>
           <CustomFieldInputs definitions={jobFields} legend="Your fields" />
           <VisitFields technicians={technicians} defaultDate={todayIn(user.organizationTimezone)}
                        optional legend="First visit" memberHold={memberHold} />

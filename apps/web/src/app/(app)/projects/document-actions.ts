@@ -32,6 +32,17 @@ function fraction(percent: string | undefined): string | undefined {
   return String(Math.round(value * 10_000) / 1_000_000);
 }
 
+/**
+ * Crew hours a change adds and the job they are worked on, when the form has
+ * the two boxes. Both empty sends neither, so a form without them changes
+ * nothing; the service refuses one without the other.
+ */
+function crewHoursFrom(form: FormData): { crewHours?: string; jobId?: string } {
+  const crewHours = field(form, "crewHours");
+  const jobId = field(form, "crewJobId");
+  return { ...(crewHours ? { crewHours } : {}), ...(jobId ? { jobId } : {}) };
+}
+
 export async function actOnChangeOrder(_previous: FormState, form: FormData): Promise<FormState> {
   const op = field(form, "op");
   const projectId = field(form, "projectId") ?? "";
@@ -53,6 +64,7 @@ export async function actOnChangeOrder(_previous: FormState, form: FormData): Pr
           reason: field(form, "reason") ?? null,
           phaseId: field(form, "phaseId") ?? null,
           scheduleDays: days === undefined ? null : Number(days),
+          ...crewHoursFrom(form),
         }));
         created = made.id;
         return;
@@ -67,6 +79,15 @@ export async function actOnChangeOrder(_previous: FormState, form: FormData): Pr
           reason: field(form, "reason") ?? null,
           phaseId: field(form, "phaseId") ?? null,
           scheduleDays: days === undefined ? null : Number(days),
+          ...crewHoursFrom(form),
+        }));
+        return;
+      }
+      case "crew-hours": {
+        await projectChangeOrders.update(c, parsed(updateChangeOrder.input, {
+          id: changeOrderId,
+          crewHours: field(form, "crewHours") ?? null,
+          jobId: field(form, "crewJobId") ?? null,
         }));
         return;
       }

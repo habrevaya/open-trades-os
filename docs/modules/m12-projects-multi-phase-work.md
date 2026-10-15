@@ -244,6 +244,16 @@ emails it when asked), and the customer approves and signs at `/co/{token}`, or
 `POST /v1/project-change-orders/{id}/withdraw` withdraws one nobody has agreed to.
 Each change order prints at `/projects/{id}/change-orders/{changeOrderId}/document`.
 
+A change order can also say how many **crew hours** it adds and to which of the
+project's jobs (`crewHours` and `jobId` on the log form, on
+`POST /v1/projects/{projectId}/change-orders` and on
+`PATCH /v1/project-change-orders/{id}`, both or neither, the job one of the
+project's own). They are set while it can still be edited, and are the office's
+figure for the work: they are not printed on the page the customer signs, so
+the signature covers what it always covered. Once the customer approves it, the
+hours come off that job's actual crew hours in the budgeted hour variance (M21),
+so agreed extra work does not read as an overrun.
+
 ### Plan it
 
 `/projects/{id}/schedule` is the timeline. `GET /v1/projects/{projectId}/schedule`
@@ -386,3 +396,8 @@ note and the next application. No association's form or name is reproduced. No
 lien rules of any state are encoded: notices and waivers are records with dates
 and amounts, and BUILD.md is explicit that this project records the dates and
 does not author the rules.
+
+A change order's crew hours name one job; work spread over two jobs is two change
+orders, or the hours on the job that carries most of it. They are not on the
+signed page, so a customer is never asked to agree to them, and nothing compares
+them with the hours that job's crew then punch beyond the budgeted hour variance.

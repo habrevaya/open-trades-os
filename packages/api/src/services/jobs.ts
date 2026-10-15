@@ -1,7 +1,7 @@
 import { and, eq, desc, lt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import type { z } from "zod";
-import { assertCan, time } from "@opentradesos/core";
+import { assertCan, reporting, time } from "@opentradesos/core";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean,
   decodeCursor, paginate, NotFoundError, ConflictError, UnprocessableError, scopeOf,
@@ -26,9 +26,29 @@ import { gate as qualificationGate, workDay, workSkills } from "./qualification"
 import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
+import { closeOpenHold } from "./job-holds";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
+
+/**
+ * Crew hours budgeted, as stored: a positive number of hours. Zero is no
+ * budget rather than a budget of nothing, which every hour would overrun.
+ */
+function budgetOf(hours: string): string | null {
+  const value = Number(hours);
+  if (!(value > 0)) {
+    throw new UnprocessableError("A budget is a number of hours", [{
+      path: "budgetedHours", message: "Give the crew hours budgeted, more than nought, or leave it empty.",
+    }]);
+  }
+  if (value > 100_000) {
+    throw new UnprocessableError("A budget is a number of hours", [{
+      path: "budgetedHours", message: "That is more crew hours than one job is budgeted. Check the number.",
+    }]);
+  }
+  return value.toFixed(4);
+}
 
 /**
  * The next human-facing number for an organization.
@@ -543,6 +563,9 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       parentJobId: input.parentJobId ?? null,
       isWarranty: input.isWarranty ?? false,
       priceSource: input.priceSource ?? "price_book",
+      /** Planned as several visits when it was booked, which is before any of them started. */
+      ...(input.multiVisitPlanned ? { multiVisitPlannedAt: new Date(), multiVisitPlannedByUserId: ctx.actor.userId } : {}),
+      ...(input.budgetedHours !== undefined ? { budgetedHours: budgetOf(input.budgetedHours) } : {}),
       ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...provenance(input.externalRef),
     }).returning();
@@ -818,6 +841,54 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }
 
     /**
+     * PLANNED FOR MORE THAN ONE VISIT, said before the work and not after.
+     * Once anybody has arrived at (or finished) a visit on the job, saying it
+     * was always going to take several is a return visit described kindly,
+     * and the first time fix rate would leave it out. Refused in words that
+     * say what to do instead. Taking the plan off is always allowed.
+     */
+    /**
+     * THE BUDGET IS FIXED ONCE THE WORK STARTS. A budget moved after the first
+     * hour was punched is a budget fitted to the hours, and the budgeted hour
+     * variance would read every overrun as on budget. Hours the customer agreed
+     * to add are a change order's crew hours, which the variance takes off.
+     */
+    let budget: { budgetedHours: string | null } | null = null;
+    if (input.budgetedHours !== undefined) {
+      const next = input.budgetedHours === null ? null : budgetOf(input.budgetedHours);
+      if (next !== before.budgetedHours && Number(next ?? -1) !== Number(before.budgetedHours ?? -1)) {
+        const [punched] = await tx.select({ id: schema.timeclockEntry.id }).from(schema.timeclockEntry)
+          .where(eq(schema.timeclockEntry.jobId, input.id)).limit(1);
+        if (punched) {
+          throw new ConflictError(
+            "Hours have already been punched on this job, so its budget can no longer change. "
+            + "If the customer agreed to more work, put the hours on a change order.",
+          );
+        }
+        budget = { budgetedHours: next };
+      }
+    }
+
+    let planned: { multiVisitPlannedAt: Date | null; multiVisitPlannedByUserId: string | null } | null = null;
+    if (input.multiVisitPlanned === true && before.multiVisitPlannedAt === null) {
+      /** An arrival is stamped by the phone's `visit.arrive` (`services/field.ts`), a finish by either side. */
+      const [started] = await tx.select({ id: schema.visit.id }).from(schema.visit)
+        .where(and(
+          eq(schema.visit.jobId, input.id),
+          sql`(visit.arrived_at is not null or visit.completed_at is not null)`,
+        )).limit(1);
+      if (started) {
+        throw new ConflictError(
+          "Work on this job has already started, so it can no longer be marked as planned for more than one visit. "
+          + "If it is waiting on a part or an inspection, put it on hold and say so.",
+        );
+      }
+      planned = { multiVisitPlannedAt: new Date(), multiVisitPlannedByUserId: ctx.actor.userId };
+    } else if (input.multiVisitPlanned === false && before.multiVisitPlannedAt !== null) {
+      planned = { multiVisitPlannedAt: null, multiVisitPlannedByUserId: null };
+    }
+
+    /**
      * THE JOB TYPE'S WORKFLOW, when a connected application registered one:
      * a move past a stage whose gates are not met is refused in words that
      * name each of them. Checked against the fields as this same update
@@ -868,6 +939,8 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       ...(input.priceSource !== undefined ? { priceSource: input.priceSource } : {}),
       ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(planned ?? {}),
+      ...(budget ?? {}),
       // Completion is a timestamp as well as a status, and a job that reaches
       // "completed" without one is invisible to every report that asks what
       // was finished this week.
@@ -881,6 +954,11 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }).where(eq(schema.job.id, input.id)).returning();
 
     await audit(tx, ctx, "job.updated", "job", input.id, before, after!);
+
+    /** Off hold by a plain status change: the hold it was on is over too. */
+    if (before.status === "on_hold" && after!.status !== "on_hold") {
+      await closeOpenHold(tx, ctx, input.id);
+    }
 
     /**
      * Emitted in the same transaction as the update. After commit is the
@@ -1404,9 +1482,82 @@ export async function lines(ctx: ServiceContext, input: z.infer<typeof listJobLi
           quantity: row.quantity, unitPrice: row.unitPrice,
           ...("unitCost" in shown ? { unitCost: row.unitCost } : {}),
           taxable: row.taxable, invoiceLineId: row.invoiceLineId, nonBillableReason: row.nonBillableReason,
+          billedBackAt: row.billedBackAt?.toISOString() ?? null,
           occurredAt: row.occurredAt.toISOString(),
         };
       }),
+    };
+  });
+}
+
+/**
+ * A SUPPLY BILLED BACK AT COST, marked or unmarked.
+ *
+ * Supplies a company stocks for a customer and bills back at what it paid
+ * are a pass through, and the supply cost share of revenue leaves them out,
+ * so the office says which they are. Only a supply (a `part` line): labour is
+ * hours, and equipment fitted is capital rather than a consumable. Setting
+ * the mark it already has changes nothing, so a replay is harmless. Scoped
+ * like the job it is on, and on the audit log.
+ */
+export async function markBilledBack(ctx: ServiceContext, input: { id: string; billedBack: boolean }) {
+  return guardedWrite(ctx, "job:write", async (tx) => {
+    const [line] = await tx.select().from(schema.jobLine).where(eq(schema.jobLine.id, input.id)).limit(1);
+    if (!line) throw new NotFoundError("Job line");
+    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+      .where(and(eq(schema.job.id, line.jobId), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf(ctx, "job"), ctx.actor)))
+      .limit(1);
+    if (!job) throw new NotFoundError("Job line");
+    if (line.kind !== "part") {
+      throw new ConflictError("Only a supply can be billed back at cost. Labour and equipment fitted are not supplies.");
+    }
+    let after = line;
+    if (input.billedBack !== (line.billedBackAt !== null)) {
+      [after] = await tx.update(schema.jobLine).set({
+        billedBackAt: input.billedBack ? new Date() : null, updatedAt: new Date(),
+      }).where(eq(schema.jobLine.id, line.id)).returning() as [typeof line];
+      await audit(tx, ctx, input.billedBack ? "job_line.billed_back" : "job_line.not_billed_back", "job_line", line.id, line, after);
+    }
+    const shown = clean(ctx, "jobLine", after);
+    return {
+      id: after.id, jobId: after.jobId, visitId: after.visitId, kind: after.kind, source: after.source,
+      priceBookItemVersionId: after.priceBookItemVersionId, name: after.name, description: after.description,
+      quantity: after.quantity, unitPrice: after.unitPrice,
+      ...("unitCost" in shown ? { unitCost: after.unitCost } : {}),
+      taxable: after.taxable, invoiceLineId: after.invoiceLineId, nonBillableReason: after.nonBillableReason,
+      billedBackAt: after.billedBackAt?.toISOString() ?? null,
+      occurredAt: after.occurredAt.toISOString(),
+    };
+  });
+}
+
+/**
+ * A job's crew hours against its budget, for its page: what was budgeted,
+ * the working hours punched on it so far (each person separately, as the
+ * budgeted hour variance counts them), and whether the budget is fixed, which
+ * it is from the first punch.
+ */
+export async function hoursAgainstBudget(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({ budgetedHours: schema.job.budgetedHours }).from(schema.job)
+      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf(ctx, "job"), ctx.actor)))
+      .limit(1);
+    if (!job) throw new NotFoundError("Job");
+    const [row] = await tx.execute<{ punches: string; minutes: string; running: string; changed: string }>(sql`
+      select count(*)::text as punches,
+             coalesce(sum(te.minutes) filter (where te.ended_at is not null
+               and te.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])), 0)::text as minutes,
+             count(*) filter (where te.ended_at is null)::text as running,
+             (select coalesce(sum(co.crew_hours), 0) from public.project_change_order co
+               where co.job_id = ${input.id} and co.status = 'approved')::text as changed
+      from public.timeclock_entry te
+      where te.job_id = ${input.id} and te.deleted_at is null`);
+    return {
+      budgetedHours: job.budgetedHours,
+      crewHours: (Number(row?.minutes ?? 0) / 60).toFixed(2),
+      approvedChangeHours: Number(row?.changed ?? 0).toFixed(2),
+      punchStillRunning: Number(row?.running ?? 0) > 0,
+      locked: Number(row?.punches ?? 0) > 0,
     };
   });
 }

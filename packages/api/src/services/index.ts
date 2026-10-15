@@ -2,6 +2,7 @@ export * from "./context";
 export * as customers from "./customers";
 export * as inventory from "./inventory";
 export * as jobs from "./jobs";
+export * as jobHolds from "./job-holds";
 export * as billing from "./billing";
 export * as branding from "./branding";
 export * as estimates from "./estimates";

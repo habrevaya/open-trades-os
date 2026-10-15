@@ -59,6 +59,8 @@ export interface ChangeOrderView {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   /** Null for a caller who may not read cost, and when a line's cost is unknown. */
   cost: string | null;
@@ -99,6 +101,8 @@ function shape(
     projectPhaseId: row.projectPhaseId,
     phaseName,
     scheduleDays: row.scheduleDays,
+    crewHours: row.crewHours,
+    jobId: row.jobId,
     amount: row.amount,
     cost: seesCost ? row.cost : null,
     sentAt: row.sentAt,
@@ -153,6 +157,22 @@ export async function list(ctx: ServiceContext, input: { projectId: string }): P
   });
 }
 
+/**
+ * The project's jobs by number and summary, which a change order's crew hours
+ * can be put on. Scoped by nothing beyond the project, like the log itself.
+ */
+export async function jobsFor(ctx: ServiceContext, input: { projectId: string }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const project = await loadProjectIn(tx, ctx.actor.organizationId, input.projectId);
+    return tx.select({
+      id: schema.job.id, number: schema.job.number, numberPrefix: schema.job.numberPrefix, summary: schema.job.summary,
+    }).from(schema.projectJob)
+      .innerJoin(schema.job, eq(schema.job.id, schema.projectJob.jobId))
+      .where(and(eq(schema.projectJob.projectId, project.id), isNull(schema.job.deletedAt)))
+      .orderBy(asc(schema.job.number));
+  });
+}
+
 export async function get(ctx: ServiceContext, input: { id: string }): Promise<ChangeOrderView> {
   return guardedRead(ctx, "job:read", async (tx) => viewIn(tx, ctx, input.id));
 }
@@ -188,6 +208,33 @@ export interface ChangeOrderInput {
   reason?: string | null | undefined;
   phaseId?: string | null | undefined;
   scheduleDays?: number | null | undefined;
+  /** Crew hours the change adds, on which of the project's jobs. Both or neither. */
+  crewHours?: string | null | undefined;
+  jobId?: string | null | undefined;
+}
+
+/**
+ * Crew hours and the job they are worked on, checked: both or neither, a
+ * positive number of hours, and a job that is one of this project's. Answers
+ * the two columns to write, or nothing when neither was sent.
+ */
+async function crewHoursOf(
+  tx: Database, projectId: string,
+  input: { crewHours?: string | null | undefined; jobId?: string | null | undefined },
+  current: { crewHours: string | null; jobId: string | null } = { crewHours: null, jobId: null },
+): Promise<{ crewHours: string | null; jobId: string | null } | null> {
+  if (input.crewHours === undefined && input.jobId === undefined) return null;
+  const crewHours = input.crewHours !== undefined ? input.crewHours : current.crewHours;
+  const jobId = input.jobId !== undefined ? input.jobId : current.jobId;
+  if ((crewHours === null) !== (jobId === null)) {
+    throw new ConflictError("Crew hours on a change order name the job they are worked on. Give both, or neither.");
+  }
+  if (crewHours === null || jobId === null) return { crewHours: null, jobId: null };
+  if (!(Number(crewHours) > 0)) throw new ConflictError("Crew hours on a change order are more than nought.");
+  const [linked] = await tx.select({ id: schema.projectJob.id }).from(schema.projectJob)
+    .where(and(eq(schema.projectJob.projectId, projectId), eq(schema.projectJob.jobId, jobId))).limit(1);
+  if (!linked) throw new ConflictError("That job is not part of this project, so the change order cannot add hours to it.");
+  return { crewHours: Number(crewHours).toFixed(4), jobId };
 }
 
 /**
@@ -212,6 +259,7 @@ export async function request(ctx: ServiceContext, input: ChangeOrderInput): Pro
     const title = input.title.trim();
     if (title === "") throw new ConflictError("A change order needs a title. It heads the page the customer signs.");
     if (input.phaseId) await assertPhaseOf(tx, project.id, input.phaseId);
+    const hours = await crewHoursOf(tx, project.id, input);
 
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`change_order:${project.id}`}))`);
     const [top] = await tx.select({ number: sql<number>`coalesce(max(${schema.projectChangeOrder.number}), 0)` })
@@ -227,6 +275,7 @@ export async function request(ctx: ServiceContext, input: ChangeOrderInput): Pro
       reason: input.reason?.trim() || null,
       projectPhaseId: input.phaseId ?? null,
       scheduleDays: input.scheduleDays ?? null,
+      ...(hours ?? {}),
       status: "requested",
     }).returning();
 
@@ -255,6 +304,7 @@ export async function update(
     if (input.title !== undefined && input.title.trim() === "") {
       throw new ConflictError("A change order needs a title.");
     }
+    const hours = await crewHoursOf(tx, before.projectId, input, before);
     const [after] = await tx.update(schema.projectChangeOrder).set({
       ...(input.title !== undefined ? { title: input.title.trim() } : {}),
       ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
@@ -262,6 +312,7 @@ export async function update(
       ...(input.reason !== undefined ? { reason: input.reason?.trim() || null } : {}),
       ...(input.phaseId !== undefined ? { projectPhaseId: input.phaseId } : {}),
       ...(input.scheduleDays !== undefined ? { scheduleDays: input.scheduleDays } : {}),
+      ...(hours ?? {}),
       updatedAt: new Date(),
     }).where(eq(schema.projectChangeOrder.id, before.id)).returning();
     await audit(tx, ctx, "project_change_order.updated", "project_change_order", before.id, before, after!);

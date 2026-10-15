@@ -226,6 +226,36 @@ export const job = pgTable("job", {
     .$type<Array<{ skill: string; reason: string; droppedAt: string; droppedByUserId: string | null; through?: string | null }>>()
     .notNull().default([]),
   total: money("total"),
+  /**
+   * PLANNED FOR MORE THAN ONE VISIT, and when somebody said so.
+   *
+   * A two day install or a rough in and a trim out is several visits by
+   * design, and the first time fix rate EXCLUDES it: "including planned
+   * return visits makes this meaningless". Visit counts were always here and
+   * the plan was not, so a planned three day install read as three failures
+   * to fix it first time.
+   *
+   * A time rather than a flag, because a plan is only a plan if it came
+   * before the work: the jobs service refuses it once the job's first visit
+   * has started, and the KPI reads it only when it is no later than that
+   * start, so a job that went badly cannot be relabelled as planned
+   * afterwards. Null is not planned.
+   */
+  multiVisitPlannedAt: timestamp("multi_visit_planned_at", { withTimezone: true }),
+  multiVisitPlannedByUserId: uuid("multi_visit_planned_by_user_id"),
+  /**
+   * CREW HOURS BUDGETED FOR THIS JOB: people times hours, on site and
+   * travelling to it, as the bid was built.
+   *
+   * The budgeted hour variance (lawn and landscape) is actual crew hours less
+   * this, over this. `job_type.default_duration_minutes` is a scheduling
+   * default, a phase's budget is money and the company budget is money for a
+   * month, so none of them is a budget in hours for one job. Fixed once the
+   * first hour is punched on the job, which the jobs service enforces: hours
+   * the customer agreed to add come through a change order with its own crew
+   * hours, never by moving the budget after the work showed it was short.
+   */
+  budgetedHours: money("budgeted_hours"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   cancellationReason: text("cancellation_reason"),
@@ -396,6 +426,18 @@ export const jobLine = pgTable("job_line", {
   invoiceLineId: uuid("invoice_line_id"),
   /** Set when the line is deliberately not billable: warranty, goodwill, rework. */
   nonBillableReason: text("non_billable_reason"),
+  /**
+   * BILLED BACK TO THE CUSTOMER AT COST, and when somebody said so.
+   *
+   * Paper, liners and soap a cleaning company stocks for a commercial account
+   * and bills back at what it paid are a pass through, not a margin leak, and
+   * the supply cost share of revenue EXCLUDES them. Without a mark the pass
+   * through appears as both a cost and a revenue and makes the ratio look
+   * right for the wrong reason. A supply (a `part` line) only; set and taken
+   * off by the office. The KPI leaves it out once it is on an issued invoice,
+   * cost and billed amount both.
+   */
+  billedBackAt: timestamp("billed_back_at", { withTimezone: true }),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   ...sourceRef,
   ...timestamps,

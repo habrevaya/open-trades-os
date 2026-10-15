@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { projects, projectChangeOrders, NotFoundError } from "@opentradesos/api/services";
-import { can, money } from "@opentradesos/core";
+import { can, money, work } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { Empty } from "@/components/Table";
@@ -32,6 +32,7 @@ export default async function ChangeOrdersPage({ params }: { params: Promise<{ i
     throw error;
   });
   const log = await projectChangeOrders.list(ctx, { projectId: id });
+  const projectJobs = await projectChangeOrders.jobsFor(ctx, { projectId: id });
   const agreed = log.filter((c) => c.status === "approved");
   const net = money.sum(agreed.map((c) => money.money(c.amount)));
   const waiting = log.filter((c) => c.status === "sent" || c.status === "priced" || c.status === "requested");
@@ -109,7 +110,19 @@ export default async function ChangeOrdersPage({ params }: { params: Promise<{ i
                 </select>
               </label>
               <TextField label="Days it adds to the job" name="scheduleDays" inputMode="numeric" placeholder="0" />
+              <TextField label="Crew hours it adds" name="crewHours" inputMode="decimal" placeholder="0" />
+              <label className="block">
+                <span className="text-sm font-medium text-ink-700">On which job</span>
+                <select name="crewJobId" defaultValue="" className="mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm">
+                  <option value="">{projectJobs.length === 0 ? "No jobs on this project yet" : "Choose the job, with crew hours"}</option>
+                  {projectJobs.map((j) => <option key={j.id} value={j.id}>Job {work.documentNumber(j.numberPrefix, j.number)}, {j.summary}</option>)}
+                </select>
+              </label>
             </div>
+            <p className="text-xs text-ink-500">
+              Crew hours the customer approves come off that job&apos;s hours in the budgeted hour variance, so agreed extra
+              work does not read as an overrun.
+            </p>
           </ChangeOrderForm>
         </section>
       )}

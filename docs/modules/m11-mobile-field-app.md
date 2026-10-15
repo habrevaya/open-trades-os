@@ -191,7 +191,11 @@ visit, the price book, and what is owed on the job's invoices.
 
 A report made on the phone is filed against the job type's template and its
 version, so the office reads it against the fields the technician was asked
-for.
+for. It also keeps the list of fields it was **required** to capture, frozen
+from the template when the server writes it (each with whether a regulator asks
+for it), so a template changed next month does not change what this visit was
+held to. The phone marks a required field with a star; pest control's
+application record completeness (M21) reads the frozen list.
 
 The company's own records on the visit's job or on a unit recorded on the
 visit (a permit, a warranty registration, M29) come with the day too, of the
@@ -680,7 +684,17 @@ because a conflict is a question about a visit.
 `PATCH /v1/service-reports/{id}` annotates one from the office, and
 `POST /v1/service-reports/{id}/publish` puts it on the customer portal.
 Publishing is its own permission, because showing a customer what a technician
-wrote is a different decision from writing it.
+wrote is a different decision from writing it. A report read back says what it
+was required to capture (`requiredFields`), or null for one written before that
+was kept.
+
+**What a technician must fill in** is set per template on Settings, Service
+reports (`/settings/service-reports`): every field of every template, which a
+regulator asks for, and a box for each the company requires. Saving is
+`PATCH /v1/service-report-templates/{id}` (`servicereport:write`) and moves the
+template to a new version. An edit keeps which fields are regulated; it used to
+drop that, so the first change in the office stopped every field being
+regulated.
 
 ## Permissions
 
@@ -753,7 +767,11 @@ to is set only on `/settings/phones`.
 Readings cover the kinds a keyboard can fill in: numbers, measurements, text,
 yes or no, a choice, and a chemical application; a photo or signature field on
 a template is taken with the camera and the signature pad instead. A report
-cannot be changed on the phone after it is sent.
+cannot be changed on the phone after it is sent. The phone stars a required
+field and does not stop a technician sending a report without it: an
+application record with a gap is still a record, and the gap is what the
+completeness figure counts. Which fields a regulator asks for comes from the
+trade pack; the settings screen shows it and does not change it.
 
 Selling on site is on the phone and on `/my-day`, and the phone app has, like
 everything else in it, not been run on a device: the estimate builder, the

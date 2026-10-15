@@ -388,8 +388,19 @@ run("the records behind every computed KPI", () => {
     await trade("hvac");
     await expect(kpis.drill(owner(), { key: "stops_per_day", half: "numerator", ...WINDOW }))
       .rejects.toBeInstanceOf(NotFoundError);
-    await expect(kpis.drill(owner(), { key: "first_time_fix", half: "numerator", ...WINDOW }))
-      .rejects.toBeInstanceOf(NotFoundError);
+    /**
+     * One the catalogue still cannot compute, found rather than named: this
+     * named `first_time_fix` until a job could say it was planned as several
+     * visits and a hold could say why, and a name here goes stale every time
+     * a datum arrives.
+     */
+    const needs = packs.flatMap((pack) => pack.kpis.map((kpi) => ({ trade: pack.id, key: kpi.key })))
+      .find(({ key }) => CATALOGUE[key]?.state === "needs");
+    if (needs) {
+      await trade(needs.trade);
+      await expect(kpis.drill(owner(), { key: needs.key, half: "numerator", ...WINDOW }))
+        .rejects.toBeInstanceOf(NotFoundError);
+    }
   });
 });
 

@@ -86,6 +86,8 @@ export interface AddChangeOrderLineOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -577,6 +579,12 @@ export interface AnnotateServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -3606,6 +3614,8 @@ export interface CreateJobInput {
   parentJobId?: string;
   isWarranty?: boolean;
   priceSource?: "price_book" | "rate_card" | "warranty_schedule" | "manufacturer_allowance" | "insurance_schedule" | "bid";
+  multiVisitPlanned?: boolean;
+  budgetedHours?: string;
   parties?: Array<{
     role: "requester" | "site_contact" | "approver" | "bill_to" | "payer" | "referrer" | "owner";
     customerId?: string;
@@ -3661,6 +3671,8 @@ export interface CreateJobOutput {
   tags: string[];
   customFields: Record<string, unknown>;
   businessUnitId?: string | null;
+  multiVisitPlannedAt?: string | null;
+  budgetedHours?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -4961,6 +4973,8 @@ export interface DecideChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -5475,6 +5489,7 @@ export interface DefineServiceReportTemplateInput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
 }
 
@@ -5496,6 +5511,7 @@ export interface DefineServiceReportTemplateOutput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
 }
 
@@ -6992,6 +7008,8 @@ export interface GetChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -9143,6 +9161,8 @@ export interface GetJobOutput {
   tags: string[];
   customFields: Record<string, unknown>;
   businessUnitId?: string | null;
+  multiVisitPlannedAt?: string | null;
+  budgetedHours?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -11773,6 +11793,12 @@ export interface GetServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -13505,6 +13531,8 @@ export interface ListChangeOrdersOutput {
     projectPhaseId: string | null;
     phaseName: string | null;
     scheduleDays: number | null;
+    crewHours: string | null;
+    jobId: string | null;
     amount: string;
     cost: string | null;
     sentAt: string | null;
@@ -15022,6 +15050,23 @@ export interface ListJobClocksOutput {
   }>;
 }
 
+export interface ListJobHoldsOutput {
+  data: Array<{
+    id: string;
+    jobId: string;
+    reason: "part" | "inspection" | "customer" | "weather" | "other";
+    reasonLabel: string;
+    purchaseOrderId: string | null;
+    purchaseOrderNumber: number | null;
+    purchaseOrderStatus: string | null;
+    note: string | null;
+    statusBefore: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
+    placedAt: string;
+    placedByName: string | null;
+    releasedAt: string | null;
+  }>;
+}
+
 export interface ListJobLinesOutput {
   data: Array<{
     id: string;
@@ -15038,6 +15083,7 @@ export interface ListJobLinesOutput {
     taxable: boolean;
     invoiceLineId: string | null;
     nonBillableReason: string | null;
+    billedBackAt?: string | null;
     occurredAt: string;
   }>;
 }
@@ -15080,6 +15126,8 @@ export interface ListJobsOutput {
     tags: string[];
     customFields: Record<string, unknown>;
     businessUnitId?: string | null;
+    multiVisitPlannedAt?: string | null;
+    budgetedHours?: string | null;
     cost?: string | null;
     grossMargin?: string | null;
     externalRef: {
@@ -16795,6 +16843,7 @@ export interface ListServiceReportTemplatesOutput {
       min?: number;
       max?: number;
       required?: boolean;
+      regulated?: boolean;
     }>;
   }>;
 }
@@ -18135,6 +18184,29 @@ export interface MarkExternalWorkOrderPushedOutput {
   weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
 }
 
+export interface MarkJobLineBilledBackInput {
+  billedBack: boolean;
+}
+
+export interface MarkJobLineBilledBackOutput {
+  id: string;
+  jobId: string;
+  visitId: string | null;
+  kind: string;
+  source: string;
+  priceBookItemVersionId: string | null;
+  name: string;
+  description: string | null;
+  quantity: string;
+  unitPrice: string;
+  unitCost?: string | null;
+  taxable: boolean;
+  invoiceLineId: string | null;
+  nonBillableReason: string | null;
+  billedBackAt?: string | null;
+  occurredAt: string;
+}
+
 export interface MarkRequestSentInput {
   messageId?: string;
 }
@@ -18715,6 +18787,29 @@ export interface PinPropertyOutput {
   longitude: string | null;
   locationPrecision: "rooftop" | "interpolated" | "street" | "postal_code" | "locality" | "placed" | null;
   locationSource: string | null;
+}
+
+export interface PlaceJobHoldInput {
+  reason: "part" | "inspection" | "customer" | "weather" | "other";
+  purchaseOrderId?: string;
+  note?: string;
+}
+
+export interface PlaceJobHoldOutput {
+  data: Array<{
+    id: string;
+    jobId: string;
+    reason: "part" | "inspection" | "customer" | "weather" | "other";
+    reasonLabel: string;
+    purchaseOrderId: string | null;
+    purchaseOrderNumber: number | null;
+    purchaseOrderStatus: string | null;
+    note: string | null;
+    statusBefore: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
+    placedAt: string;
+    placedByName: string | null;
+    releasedAt: string | null;
+  }>;
 }
 
 export interface PlacePriceBookCategoryInput {
@@ -19347,6 +19442,12 @@ export interface PublishServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -20745,6 +20846,25 @@ export interface RegisterWebhookEndpointOutput {
   secret: string;
 }
 
+export type ReleaseJobHoldInput = Record<string, unknown>;
+
+export interface ReleaseJobHoldOutput {
+  data: Array<{
+    id: string;
+    jobId: string;
+    reason: "part" | "inspection" | "customer" | "weather" | "other";
+    reasonLabel: string;
+    purchaseOrderId: string | null;
+    purchaseOrderNumber: number | null;
+    purchaseOrderStatus: string | null;
+    note: string | null;
+    statusBefore: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
+    placedAt: string;
+    placedByName: string | null;
+    releasedAt: string | null;
+  }>;
+}
+
 export interface ReleasePhoneNumberInput {
   reason?: string;
 }
@@ -20819,6 +20939,8 @@ export interface RemoveChangeOrderLineOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -21269,6 +21391,8 @@ export interface RequestChangeOrderInput {
   reason?: string | null;
   phaseId?: string | null;
   scheduleDays?: number | null;
+  crewHours?: string | null;
+  jobId?: string | null;
 }
 
 export interface RequestChangeOrderOutput {
@@ -21283,6 +21407,8 @@ export interface RequestChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -25748,6 +25874,12 @@ export interface UnpublishServiceReportOutput {
   propertyId: string;
   templateId: string | null;
   templateVersion: number | null;
+  requiredFields?: Array<{
+    key: string;
+    label: string;
+    kind: string;
+    regulated: boolean;
+  }> | null;
   status: "draft" | "submitted" | "published" | "skipped";
   summary: string | null;
   technicianNotes: string | null;
@@ -26080,6 +26212,8 @@ export interface UpdateChangeOrderInput {
   reason?: string | null;
   phaseId?: string | null;
   scheduleDays?: number | null;
+  crewHours?: string | null;
+  jobId?: string | null;
 }
 
 export interface UpdateChangeOrderOutput {
@@ -26094,6 +26228,8 @@ export interface UpdateChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -26648,6 +26784,8 @@ export interface UpdateJobInput {
   parentJobId?: string;
   isWarranty?: boolean;
   priceSource?: "price_book" | "rate_card" | "warranty_schedule" | "manufacturer_allowance" | "insurance_schedule" | "bid";
+  multiVisitPlanned?: boolean;
+  budgetedHours?: string | null;
   status?: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
   completedAt?: string;
   cancelVisits?: boolean;
@@ -26679,6 +26817,8 @@ export interface UpdateJobOutput {
   tags: string[];
   customFields: Record<string, unknown>;
   businessUnitId?: string | null;
+  multiVisitPlannedAt?: string | null;
+  budgetedHours?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -27392,6 +27532,7 @@ export interface UpdateServiceReportTemplateInput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
   active?: boolean;
 }
@@ -27414,6 +27555,7 @@ export interface UpdateServiceReportTemplateOutput {
     min?: number;
     max?: number;
     required?: boolean;
+    regulated?: boolean;
   }>;
 }
 
@@ -28403,6 +28545,8 @@ export interface WithdrawChangeOrderOutput {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  crewHours: string | null;
+  jobId: string | null;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -30420,6 +30564,10 @@ export interface ListJobClocksInput {
   id: string;
 }
 
+export interface ListJobHoldsInput {
+  id: string;
+}
+
 export interface ListJobLinesInput {
   id: string;
 }
@@ -30981,6 +31129,10 @@ export interface MarkExternalWorkOrderPushedParams {
   id: string;
 }
 
+export interface MarkJobLineBilledBackParams {
+  id: string;
+}
+
 export interface MarkRequestSentParams {
   id: string;
 }
@@ -31061,6 +31213,10 @@ export interface PinLocationParams {
 }
 
 export interface PinPropertyParams {
+  id: string;
+}
+
+export interface PlaceJobHoldParams {
   id: string;
 }
 
@@ -31251,6 +31407,10 @@ export interface RefundableCardPaymentsInput {
 }
 
 export interface RefuseAppRequestParams {
+  id: string;
+}
+
+export interface ReleaseJobHoldParams {
   id: string;
 }
 
@@ -32799,6 +32959,7 @@ export interface OperationTypes {
   listInvoices: { input: ListInvoicesInput; output: ListInvoicesOutput };
   listItemTax: { input: ListItemTaxInput; output: ListItemTaxOutput };
   listJobClocks: { input: ListJobClocksInput; output: ListJobClocksOutput };
+  listJobHolds: { input: ListJobHoldsInput; output: ListJobHoldsOutput };
   listJobLines: { input: ListJobLinesInput; output: ListJobLinesOutput };
   listJobTypes: { input: ListJobTypesInput; output: ListJobTypesOutput };
   listJobs: { input: ListJobsInput; output: ListJobsOutput };
@@ -32950,6 +33111,7 @@ export interface OperationTypes {
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
   markExternalWorkOrderPushed: { input: MarkExternalWorkOrderPushedParams & MarkExternalWorkOrderPushedInput; output: MarkExternalWorkOrderPushedOutput };
+  markJobLineBilledBack: { input: MarkJobLineBilledBackParams & MarkJobLineBilledBackInput; output: MarkJobLineBilledBackOutput };
   markRequestSent: { input: MarkRequestSentParams & MarkRequestSentInput; output: MarkRequestSentOutput };
   markReviewRecovered: { input: MarkReviewRecoveredParams & MarkReviewRecoveredInput; output: MarkReviewRecoveredOutput };
   markSafetyMeetingSigned: { input: MarkSafetyMeetingSignedParams & MarkSafetyMeetingSignedInput; output: MarkSafetyMeetingSignedOutput };
@@ -32980,6 +33142,7 @@ export interface OperationTypes {
   pinDisposalFacility: { input: PinDisposalFacilityParams & PinDisposalFacilityInput; output: PinDisposalFacilityOutput };
   pinLocation: { input: PinLocationParams & PinLocationInput; output: PinLocationOutput };
   pinProperty: { input: PinPropertyParams & PinPropertyInput; output: PinPropertyOutput };
+  placeJobHold: { input: PlaceJobHoldParams & PlaceJobHoldInput; output: PlaceJobHoldOutput };
   placePriceBookCategory: { input: PlacePriceBookCategoryParams & PlacePriceBookCategoryInput; output: PlacePriceBookCategoryOutput };
   placeRetentionHold: { input: PlaceRetentionHoldInput; output: PlaceRetentionHoldOutput };
   planProjectDraw: { input: PlanProjectDrawParams & PlanProjectDrawInput; output: PlanProjectDrawOutput };
@@ -33054,6 +33217,7 @@ export interface OperationTypes {
   registerPricingRule: { input: RegisterPricingRuleInput; output: RegisterPricingRuleOutput };
   registerReportType: { input: RegisterReportTypeInput; output: RegisterReportTypeOutput };
   registerWebhookEndpoint: { input: RegisterWebhookEndpointInput; output: RegisterWebhookEndpointOutput };
+  releaseJobHold: { input: ReleaseJobHoldParams & ReleaseJobHoldInput; output: ReleaseJobHoldOutput };
   releasePhoneNumber: { input: ReleasePhoneNumberParams & ReleasePhoneNumberInput; output: ReleasePhoneNumberOutput };
   releaseRetentionHold: { input: ReleaseRetentionHoldParams & ReleaseRetentionHoldInput; output: ReleaseRetentionHoldOutput };
   releaseStock: { input: ReleaseStockInput; output: ReleaseStockOutput };
@@ -33954,6 +34118,7 @@ export const OPERATIONS = {
   listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
   listItemTax: { method: "GET", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listJobClocks: { method: "GET", path: "/v1/jobs/{id}/deadlines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  listJobHolds: { method: "GET", path: "/v1/jobs/{id}/holds", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobTypes: { method: "GET", path: "/v1/job-types", pathParams: [], queryParams: ["includeInactive"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
@@ -34105,6 +34270,7 @@ export const OPERATIONS = {
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   markExternalWorkOrderPushed: { method: "POST", path: "/v1/external-work-orders/{id}/pushed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  markJobLineBilledBack: { method: "POST", path: "/v1/job-lines/{id}/billed-back", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   markRequestSent: { method: "POST", path: "/v1/reviews/requests/{id}/sent", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   markReviewRecovered: { method: "POST", path: "/v1/reviews/{id}/recovered", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   markSafetyMeetingSigned: { method: "POST", path: "/v1/safety/meetings/{id}/attendees/{attendeeId}/signed", pathParams: ["id","attendeeId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
@@ -34135,6 +34301,7 @@ export const OPERATIONS = {
   pinDisposalFacility: { method: "PUT", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   pinLocation: { method: "POST", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   pinProperty: { method: "POST", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
+  placeJobHold: { method: "POST", path: "/v1/jobs/{id}/holds", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   placePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/place", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   placeRetentionHold: { method: "POST", path: "/v1/compliance/retention/holds", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   planProjectDraw: { method: "POST", path: "/v1/projects/{projectId}/draws", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
@@ -34209,6 +34376,7 @@ export const OPERATIONS = {
   registerPricingRule: { method: "POST", path: "/v1/plugins/pricing-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   registerReportType: { method: "POST", path: "/v1/plugins/report-types", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   registerWebhookEndpoint: { method: "POST", path: "/v1/webhooks/endpoints", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  releaseJobHold: { method: "POST", path: "/v1/job-holds/{id}/released", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   releasePhoneNumber: { method: "POST", path: "/v1/marketing/tracking-numbers/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   releaseRetentionHold: { method: "POST", path: "/v1/compliance/retention/holds/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   releaseStock: { method: "POST", path: "/v1/stock/releases", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -39538,6 +39706,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Why a job is, or was, on hold.
+   *
+   * GET /v1/jobs/{id}/holds. Needs job:read.
+   */
+  listJobHolds(input: ListJobHoldsInput, options?: CallOptions): Promise<ListJobHoldsOutput> {
+    return this.call("listJobHolds", input, options);
+  }
+
+  /**
    * List what was used on a job.
    *
    * GET /v1/jobs/{id}/lines. Needs job:read.
@@ -40897,6 +41074,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Mark a supply as billed back to the customer at cost, or take the mark off.
+   *
+   * POST /v1/job-lines/{id}/billed-back. Needs job:write.
+   */
+  markJobLineBilledBack(input: MarkJobLineBilledBackParams & MarkJobLineBilledBackInput, options?: CallOptions): Promise<MarkJobLineBilledBackOutput> {
+    return this.call("markJobLineBilledBack", input, options);
+  }
+
+  /**
    * Mark a request as gone out.
    *
    * POST /v1/reviews/requests/{id}/sent. Needs review:respond.
@@ -41164,6 +41350,15 @@ export abstract class GeneratedOperations {
    */
   pinProperty(input: PinPropertyParams & PinPropertyInput, options?: CallOptions): Promise<PinPropertyOutput> {
     return this.call("pinProperty", input, options);
+  }
+
+  /**
+   * Put a job on hold, saying why.
+   *
+   * POST /v1/jobs/{id}/holds. Needs job:write.
+   */
+  placeJobHold(input: PlaceJobHoldParams & PlaceJobHoldInput, options?: CallOptions): Promise<PlaceJobHoldOutput> {
+    return this.call("placeJobHold", input, options);
   }
 
   /**
@@ -41830,6 +42025,15 @@ export abstract class GeneratedOperations {
    */
   registerWebhookEndpoint(input: RegisterWebhookEndpointInput, options?: CallOptions): Promise<RegisterWebhookEndpointOutput> {
     return this.call("registerWebhookEndpoint", input, options);
+  }
+
+  /**
+   * Take a job off hold.
+   *
+   * POST /v1/job-holds/{id}/released. Needs job:write.
+   */
+  releaseJobHold(input: ReleaseJobHoldParams & ReleaseJobHoldInput, options?: CallOptions): Promise<ReleaseJobHoldOutput> {
+    return this.call("releaseJobHold", input, options);
   }
 
   /**

@@ -531,6 +531,13 @@ export const NAV: NavGroup[] = [
           { href: "/settings/custom-fields", label: "Custom fields" },
           /** The company's own kinds of record and their fields. Beside the fields, because they are defined the same way. */
           { href: "/settings/records", label: "Kinds of record" },
+          /**
+           * What a technician must fill in on each kind of service report, and
+           * which fields a regulator asks for. Inherits `settings:read` to be
+           * shown; the page reads with `servicereport:read` and saves with
+           * `servicereport:write`, as the template routes do.
+           */
+          { href: "/settings/service-reports", label: "Service reports" },
           { href: "/settings/service-area", label: "Service area" },
           /**
            * The days the company closes or keeps short hours, and what it charges

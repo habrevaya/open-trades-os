@@ -981,6 +981,13 @@
       "when": 1792102811791,
       "tag": "0139_fantastic_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1792103154389,
+      "tag": "0140_smooth_kid_colt",
+      "breakpoints": true
     }
   ]
 }

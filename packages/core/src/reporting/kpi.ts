@@ -22,6 +22,25 @@ import { dateIn } from "../time/index.js";
  *
  *   AN INSTALL'S MARGIN. Install revenue less material, subcontract, disposal
  *   and burdened labour, counted only over installs whose costs are all in.
+ *
+ *   A FIRST TIME FIX. A completed job done in one visit, with the jobs that
+ *   were planned as several visits, or held for a part order, left out.
+ *
+ *   A JOB'S SUPPLIES AGAINST ITS REVENUE. What its supplies cost over what it
+ *   billed, with the supplies billed back to the customer at cost taken out
+ *   of both.
+ *
+ *   AN APPLICATION RECORD'S COMPLETENESS. Every regulated field a visit's
+ *   report was required to capture, captured, judged against the list frozen
+ *   on the report when it was written.
+ *
+ *   A PANEL WORTH UPGRADING. Recorded as full, flagged as a known problem, or
+ *   rated below 100 amps, read only from values held to the pack's
+ *   declaration.
+ *
+ *   A JOB'S HOURS AGAINST ITS BUDGET. Crew hours less the hours of change
+ *   orders the customer approved, against the hours budgeted, counted only
+ *   over jobs whose hours are all in.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -196,4 +215,271 @@ export function installMargin(jobs: readonly InstallJob[]): {
     revenue,
     percent: isZero(revenue) ? null : combine("percent", Number(toString(earned)), Number(toString(revenue))),
   };
+}
+
+/* --------------------------------------------------------- first time fix */
+
+/**
+ * The visit statuses that are work done: a visit completed, and one completed
+ * on a phone that had not heard it was cancelled (which still happened).
+ */
+export const VISIT_DONE = ["completed", "completed_after_cancellation"] as const;
+
+/**
+ * Which holds each trade's first time fix definition leaves out.
+ *
+ * The three packs that declare `first_time_fix` define it three ways, and the
+ * difference is the exclusion, not the arithmetic: HVAC excludes only work
+ * planned as several visits; plumbing also "jobs held for a part order";
+ * electrical "jobs held for a part order or an inspection". A trade not listed
+ * leaves out no hold, which is the HVAC reading and the strict one.
+ */
+export const FIRST_TIME_FIX_HOLDS: Readonly<Record<string, readonly string[]>> = {
+  hvac: [],
+  plumbing: ["part"],
+  electrical: ["part", "inspection"],
+};
+
+export interface FixVisit {
+  status: string;
+  arrivedAt: Date | null;
+  completedAt: Date | null;
+}
+
+export interface FixHold {
+  reason: string;
+  placedAt: Date;
+  /**
+   * For a part hold: the purchase order it names went to the supplier and was
+   * not cancelled. A draft order is not an order, and one cancelled is a part
+   * nobody is waiting for.
+   */
+  orderPlaced: boolean;
+}
+
+export interface FixJob {
+  completedAt: Date;
+  multiVisitPlannedAt: Date | null;
+  visits: readonly FixVisit[];
+  holds: readonly FixHold[];
+}
+
+/**
+ * What one completed job counts as.
+ *
+ *   `unknown`   no visit on it was done, so how many visits it took is not
+ *               recorded (finished from the office, or brought in from
+ *               history). Out of both halves.
+ *   `excluded`  planned as several visits before its first visit started, or
+ *               held for a reason this trade's definition leaves out, before
+ *               it was finished. Out of both halves and counted beside.
+ *   `fixed`     done in one visit.
+ *   `returned`  done in more than one.
+ *
+ * A PLAN IS ONLY A PLAN BEFORE THE WORK. Planned at or before the first moment
+ * anybody arrived (or, with no arrival recorded, finished) a visit on it; a
+ * plan written after that is a return visit described kindly. The jobs service
+ * refuses one, and this reads the time anyway.
+ */
+export function firstTimeFixOf(job: FixJob, trade: string): "unknown" | "excluded" | "fixed" | "returned" {
+  const done = job.visits.filter((v) => (VISIT_DONE as readonly string[]).includes(v.status));
+  if (done.length === 0) return "unknown";
+
+  const starts = job.visits
+    .map((v) => v.arrivedAt ?? v.completedAt)
+    .filter((at): at is Date => at !== null)
+    .map((at) => at.getTime());
+  const started = starts.length > 0 ? Math.min(...starts) : Number.POSITIVE_INFINITY;
+  const planned = job.multiVisitPlannedAt !== null && job.multiVisitPlannedAt.getTime() <= started;
+
+  const leftOut = FIRST_TIME_FIX_HOLDS[trade] ?? [];
+  const held = job.holds.some((hold) => leftOut.includes(hold.reason)
+    && hold.placedAt.getTime() <= job.completedAt.getTime()
+    && (hold.reason !== "part" || hold.orderPlaced));
+
+  if (planned || held) return "excluded";
+  return done.length === 1 ? "fixed" : "returned";
+}
+
+/* ------------------------------------------------- budgeted hour variance */
+
+export interface BudgetPunch {
+  kind: string;
+  minutes: number | null;
+  /** Punched out. A punch still running has no hours yet. */
+  ended: boolean;
+}
+
+export interface BudgetJob {
+  /** Crew hours budgeted, as a number, or null when nobody set one. */
+  budgetedHours: number | null;
+  /** The punches on the job. */
+  punches: readonly BudgetPunch[];
+  /** Crew hours on change orders the customer approved that name this job. */
+  approvedChangeHours: number;
+}
+
+/**
+ * One completed job's hours against its budget, or why it is not counted.
+ *
+ * "Actual crew hours minus budgeted hours on completed jobs, as a percentage
+ * of budgeted. EXCLUDES change order hours that were separately approved, or
+ * every approved upsell reads as an overrun."
+ *
+ * ACTUAL is every working punch on the job, each person separately, which is
+ * what crew hours are: on site and travelling to it, and not leave or an
+ * unpaid break (`NOT_A_DAY_WORKED`). The approved change order hours come off
+ * it. A job is LEFT OUT OF BOTH HALVES when it has no budget, a punch still
+ * running, or no hours at all: a job nobody clocked would read as a hundred
+ * per cent under budget, the most flattering misreading of "not recorded".
+ */
+export function budgetVarianceOf(job: BudgetJob):
+  | { counted: false; why: "no_budget" | "punch_open" | "no_hours" }
+  | { counted: true; overHours: number; budgetedHours: number } {
+  if (job.budgetedHours === null || job.budgetedHours <= 0) return { counted: false, why: "no_budget" };
+  const working = job.punches.filter((p) => !(NOT_A_DAY_WORKED as readonly string[]).includes(p.kind));
+  if (working.some((p) => !p.ended)) return { counted: false, why: "punch_open" };
+  const minutes = working.reduce((sum, p) => sum + (p.minutes ?? 0), 0);
+  if (minutes === 0) return { counted: false, why: "no_hours" };
+  return {
+    counted: true,
+    overHours: minutes / 60 - job.approvedChangeHours - job.budgetedHours,
+    budgetedHours: job.budgetedHours,
+  };
+}
+
+/* -------------------------------------------- supply cost share of revenue */
+
+export interface SupplyLine {
+  /** The job line's kind. A supply is a `part`: equipment fitted is capital, and labour is hours. */
+  kind: string;
+  quantity: number;
+  /** Null when nobody recorded what it cost. */
+  unitCost: number | null;
+  /** Marked as billed back to the customer at cost. */
+  billedBack: boolean;
+  /**
+   * What it was billed at, net of discounts, on an invoice that was issued and
+   * not voided; null when it is on no such invoice.
+   */
+  billedRevenue: number | null;
+}
+
+export interface SupplyJob {
+  /** The ledger's revenue on the job. */
+  revenue: number;
+  lines: readonly SupplyLine[];
+}
+
+/**
+ * One completed job's supply cost and the revenue it is a share of, or why it
+ * is not counted.
+ *
+ * "Chemical, consumable and equipment consumable cost divided by invoiced
+ * revenue. EXCLUDES supplies stocked for a commercial account and billed back
+ * at cost, which are a pass through and not a margin leak."
+ *
+ * A PASS THROUGH is a supply marked billed back that is on an issued invoice:
+ * its cost leaves the top and what it was billed at leaves the bottom, so it
+ * moves neither. One marked and not yet billed is still a cost with nothing
+ * against it, and counts as one; the office marking a supply is a promise,
+ * and the invoice is the fact.
+ *
+ * A job with a supply whose cost nobody recorded is LEFT OUT OF BOTH HALVES:
+ * unknown is not free, and counted at nothing it would read as a cheaper job
+ * than it was.
+ */
+export function supplyCostOf(job: SupplyJob):
+  | { counted: false; why: "uncosted" }
+  | { counted: true; supplyCost: number; revenue: number; passedThrough: number } {
+  let supplyCost = 0;
+  let passed = 0;
+  let passedRevenue = 0;
+  for (const line of job.lines) {
+    if (line.kind !== "part") continue;
+    if (line.billedBack && line.billedRevenue !== null) {
+      passed += 1;
+      passedRevenue += line.billedRevenue;
+      continue;
+    }
+    if (line.unitCost === null) return { counted: false, why: "uncosted" };
+    supplyCost += line.quantity * line.unitCost;
+  }
+  return { counted: true, supplyCost, revenue: job.revenue - passedRevenue, passedThrough: passed };
+}
+
+/* ---------------------------------------- application record completeness */
+
+/**
+ * The field a pest control report says no product was applied in, and why.
+ * The pack's own key: a visit recorded with it "has its own required set" and
+ * the definition leaves it out.
+ */
+export const NO_PRODUCT_REASON = "no_product_reason";
+
+export interface RecordReport {
+  /** What it was required to capture, frozen when it was written; null when written before that was kept. */
+  required: ReadonlyArray<{ key: string; regulated: boolean }> | null;
+  /** The keys it captured a value for. */
+  captured: readonly string[];
+}
+
+/**
+ * What one completed visit counts as.
+ *
+ * "Completed visits where every regulated field required by the operator's
+ * configuration was captured, divided by completed visits. EXCLUDES visits
+ * recorded with a no product applied reason, which have their own required
+ * set."
+ *
+ *   `excluded`    a report on it gave a no product applied reason. Out of
+ *                 both halves and counted beside.
+ *   `incomplete`  no report at all (a completed visit with no application
+ *                 record is the most incomplete record there is), or a report
+ *                 missing a regulated field it was required to capture.
+ *   `complete`    a report on it captured every regulated field it was
+ *                 required to.
+ *   `unknown`     its reports were held to no regulated field: written before
+ *                 the list was kept, or the operator required none. Out of
+ *                 both halves and counted beside, rather than read as complete
+ *                 for having been asked nothing.
+ */
+export function recordCompletenessOf(visit: { reports: readonly RecordReport[] }):
+  "excluded" | "incomplete" | "complete" | "unknown" {
+  if (visit.reports.some((r) => r.captured.includes(NO_PRODUCT_REASON))) return "excluded";
+  if (visit.reports.length === 0) return "incomplete";
+  const judged = visit.reports.filter((r) => (r.required ?? []).some((f) => f.regulated));
+  if (judged.length === 0) return "unknown";
+  return judged.some((r) => r.required!.filter((f) => f.regulated).every((f) => r.captured.includes(f.key)))
+    ? "complete" : "incomplete";
+}
+
+/* ----------------------------------------------------- panel upgrade pipeline */
+
+/**
+ * Whether a panel is one the electrical pack's panel upgrade pipeline counts:
+ * "recorded as full, flagged as a known concern, or rated below 100 amps".
+ *
+ * Read only from values held to the declaration (`field.typedAttributes`):
+ * open spaces a number, the concern a yes or no, the rating one of the pack's
+ * options. Full is no open spaces. A panel none of whose readable values
+ * qualifies, carrying one of the three as something else (words typed before
+ * the register checked them), is `unknown`: its recommendation is counted
+ * beside the figure and never in it, because "100A" read as no rating would
+ * leave it out and read as a rating would be a guess.
+ */
+export function panelQualifies(
+  attributes: Readonly<Record<string, unknown>>,
+  ratings: readonly string[],
+): "in" | "out" | "unknown" {
+  const amps = attributes["service_amps"];
+  const open = attributes["spaces_open"];
+  const concern = attributes["known_concern"];
+  if (concern === true) return "in";
+  if (typeof open === "number" && open <= 0) return "in";
+  if (typeof amps === "string" && ratings.includes(amps) && Number(amps) < 100) return "in";
+  const untyped = (amps !== undefined && amps !== null && !(typeof amps === "string" && ratings.includes(amps)))
+    || (open !== undefined && open !== null && typeof open !== "number")
+    || (concern !== undefined && concern !== null && typeof concern !== "boolean");
+  return untyped ? "unknown" : "out";
 }

@@ -208,11 +208,11 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         continue;
       }
 
-      const numerator = await scalar(tx, total(entry.measure.numerator.records(input.from, input.to, zone)));
-      const denominator = await scalar(tx, total(entry.measure.denominator.records(input.from, input.to, zone)));
+      const numerator = await scalar(tx, total(entry.measure.numerator.records(input.from, input.to, zone, pack.id)));
+      const denominator = await scalar(tx, total(entry.measure.denominator.records(input.from, input.to, zone, pack.id)));
       const besides: NonNullable<KpiResult["besides"]> = [];
       for (const [key, half] of Object.entries(entry.measure.besides ?? {}) as Array<[BesideKey, Half]>) {
-        besides.push({ key, label: half.label, count: String(await scalar(tx, total(half.records(input.from, input.to, zone)))) });
+        besides.push({ key, label: half.label, count: String(await scalar(tx, total(half.records(input.from, input.to, zone, pack.id)))) });
       }
       const value = TOTALS.includes(kpi.key)
         ? numerator.toFixed(4)
@@ -387,6 +387,7 @@ export function drill(
     }
     const pack = await packOf(tx, ctx.actor.organizationId);
     const declared = pack?.kpis.find((k) => k.key === input.key);
+    const declaredBy = pack?.id ?? "";
     if (!declared) {
       /**
        * Only the company's own trade's numbers. A drill into a KPI the
@@ -425,7 +426,7 @@ export function drill(
     }
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
-    const records = half.records(input.from, input.to, zone);
+    const records = half.records(input.from, input.to, zone, declaredBy);
     /**
      * ONE PAGE, AND THE TOTAL OVER EVERY RECORD. The count, the total and the
      * kinds of record are one row over the whole half, with the page joined

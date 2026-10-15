@@ -15,6 +15,10 @@ export const OPEN_VISIT = ["unassigned", "scheduled", "dispatched", "en_route", 
 
 export interface UsedLine {
   id: string;
+  /** part, labor, equipment and the rest. Only a part is a supply that can be billed back. */
+  kind?: string;
+  /** When a supply was marked billed back to the customer at cost. */
+  billedBackAt?: string | null;
   name: string;
   quantity: string;
   unitPrice: string;
@@ -150,13 +154,29 @@ export function CancelJob({
   );
 }
 
-/** What was used on the job, and whether each one has been billed. */
-export function UsedOnJob({ lines }: { lines: UsedLine[] }) {
+/**
+ * What was used on the job, and whether each one has been billed.
+ *
+ * A supply can be marked as billed back to the customer at cost (paper and
+ * liners a cleaning company stocks for an office), by whoever may change the
+ * job. It is a pass through, so the supply cost share of revenue leaves it out
+ * once it is on an invoice; the column says which supplies are.
+ */
+export function UsedOnJob({ lines, jobId, markBilledBack }: {
+  lines: UsedLine[];
+  jobId?: string;
+  /** Given to somebody who may change the job; without it the column only says. */
+  markBilledBack?: Action;
+}) {
   if (lines.length === 0) return null;
+  const supplies = lines.some((line) => line.kind === "part");
   return (
     <section aria-label="Used on this job">
       <h2 className="mt-10 text-base font-semibold">Used on this job</h2>
-      <Table head={<><Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Price</Th><Th>Billed</Th></>}>
+      <Table head={<>
+        <Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Price</Th><Th>Billed</Th>
+        {supplies ? <Th>Billed back at cost</Th> : null}
+      </>}>
         {lines.map((line) => (
           <tr key={line.id}>
             <Td className="font-medium">{line.name}</Td>
@@ -166,6 +186,20 @@ export function UsedOnJob({ lines }: { lines: UsedLine[] }) {
               {line.nonBillableReason ? `Not billed: ${line.nonBillableReason}`
                 : line.invoiceLineId ? "On an invoice" : "Not yet"}
             </Td>
+            {supplies ? (
+              <Td className="text-ink-700">
+                {line.kind !== "part" ? null : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>{line.billedBackAt ? "Yes, a pass through" : "No"}</span>
+                    {markBilledBack && jobId ? (
+                      <ActionForm action={markBilledBack} tone="quiet" className="flex items-center"
+                                  submit={line.billedBackAt ? "Not billed back" : "Billed back at cost"}
+                                  hidden={{ jobId, lineId: line.id, billedBack: line.billedBackAt ? "0" : "1" }} />
+                    ) : null}
+                  </div>
+                )}
+              </Td>
+            ) : null}
           </tr>
         ))}
       </Table>

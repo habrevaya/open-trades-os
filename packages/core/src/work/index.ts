@@ -86,3 +86,54 @@ export function numberPrefix(code: string | null | undefined): string | null {
 export function documentNumber(prefix: string | null | undefined, number: number | string): string {
   return prefix ? `${prefix}-${number}` : String(number);
 }
+
+/**
+ * WHY A JOB IS ON HOLD
+ *
+ * A fixed list rather than words, because two numbers read it: the plumbing
+ * and electrical first time fix rates EXCLUDE "jobs held for a part order"
+ * (an electrician's, "or an inspection"), and a figure that read a reason out
+ * of a sentence would be guessing. "Part" in a note might be the part the
+ * customer is buying themselves.
+ */
+export type HoldReason = "part" | "inspection" | "customer" | "weather" | "other";
+
+export const HOLD_REASONS: { value: HoldReason; label: string }[] = [
+  { value: "part", label: "Waiting on a part" },
+  { value: "inspection", label: "Waiting on an inspection" },
+  { value: "customer", label: "Waiting on the customer" },
+  { value: "weather", label: "Waiting on the weather" },
+  { value: "other", label: "Something else" },
+];
+
+export function holdReasonLabel(reason: string): string {
+  return HOLD_REASONS.find((r) => r.value === reason)?.label ?? reason;
+}
+
+/**
+ * What a hold has to say for its reason to be believed, or null when it says
+ * enough.
+ *
+ * A part hold names the purchase order the part is on: "held for a part
+ * order" is the definition's own phrase, and a part nobody has ordered is a
+ * job waiting on the office rather than on a supplier. An inspection, and
+ * anything else, says which in words, because the next person to open the
+ * job has to know what to chase. Only a part hold names an order, so an order
+ * on any other reason is refused rather than kept and ignored.
+ */
+export function holdRefusal(input: { reason: HoldReason; purchaseOrderId?: string | null | undefined; note?: string | null | undefined }): string | null {
+  const note = (input.note ?? "").trim();
+  if (input.reason === "part" && !input.purchaseOrderId) {
+    return "Name the purchase order the part is on. Write the order under Purchasing first if there is none yet.";
+  }
+  if (input.reason !== "part" && input.purchaseOrderId) {
+    return "Only a hold for a part names a purchase order.";
+  }
+  if (input.reason === "inspection" && note === "") {
+    return "Say which inspection the job is waiting on, so whoever picks it up knows who to call.";
+  }
+  if (input.reason === "other" && note === "") {
+    return "Say what the job is waiting on.";
+  }
+  return null;
+}

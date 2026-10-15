@@ -514,6 +514,14 @@ async function ensureReport(
     propertyId: visit.propertyId,
     templateId: template?.id ?? null,
     templateVersion: template?.version ?? null,
+    /**
+     * What it is required to capture, frozen now: the template's required
+     * fields as they stand when the report is written, so editing the template
+     * next month does not change what this visit was held to. No template is
+     * a report nothing was required of.
+     */
+    requiredFields: (template?.fields ?? []).filter((f) => f.required === true)
+      .map((f) => ({ key: f.key, label: f.label, kind: f.kind, regulated: f.regulated === true })),
   /**
    * For the race this function cannot see, and NOT for an ordinary replay:
    * the existence check at the top already returns before reaching here on
@@ -1139,15 +1147,26 @@ async function effect(
         return { conflict: `Not added from the phone. ${equipment.describeMatches(serial!, matches)}` };
       }
 
+      /**
+       * The details held to what the trade declares for this kind of unit, as
+       * the office's are, with one difference: a value the phone sent that
+       * cannot be read as its kind is KEPT as it was sent rather than refused.
+       * The technician's record of what is in the box must not be thrown away
+       * in a basement; a figure that reads the declared detail does not read
+       * words, and says how many it could not (the panel upgrade pipeline).
+       */
+      const category = String(op.payload["category"] ?? "other");
+      const declared = await equipment.declaredAttributes(tx, org, category);
+      const sent = (op.payload["attributes"] as Record<string, unknown>) ?? {};
       await tx.insert(schema.equipment).values({
         organizationId: org,
         propertyId,
-        category: String(op.payload["category"] ?? "other"),
+        category,
         manufacturer: (op.payload["manufacturer"] as string) ?? null,
         model: (op.payload["model"] as string) ?? null,
         serialNumber: serial,
         location: (op.payload["location"] as string) ?? null,
-        attributes: (op.payload["attributes"] as Record<string, unknown>) ?? {},
+        attributes: declared.length > 0 ? field.typedAttributes(declared, sent).attributes : sent,
       });
       return null;
     }

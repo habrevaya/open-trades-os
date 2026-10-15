@@ -36,6 +36,13 @@ export const ChangeOrder = z.object({
   phaseName: z.string().nullable(),
   /** Days added to the programme, or taken off. Printed on the change order, not applied to the schedule. */
   scheduleDays: z.number().int().nullable(),
+  /**
+   * Crew hours the change adds to one of the project's jobs, and which job.
+   * When the change order is approved they come off that job's actual hours
+   * in the budgeted hour variance. Not printed on the page the customer signs.
+   */
+  crewHours: MoneyString.nullable(),
+  jobId: Uuid.nullable(),
   /** Negative for a credit. */
   amount: MoneyString,
   /** Null for a caller without job.cost:read, and when a line's cost is unknown. */
@@ -93,6 +100,9 @@ export const requestChangeOrder = defineRoute({
     /** The phase the work lands on. A credit has to name one. */
     phaseId: Uuid.nullable().optional(),
     scheduleDays: z.number().int().min(-3650).max(3650).nullable().optional(),
+    /** Crew hours the change adds, on which of the project's jobs. Both or neither. */
+    crewHours: MoneyString.nullable().optional(),
+    jobId: Uuid.nullable().optional(),
   }),
   output: ChangeOrder,
 });
@@ -123,6 +133,9 @@ export const updateChangeOrder = defineRoute({
     reason: z.string().max(2000).nullable().optional(),
     phaseId: Uuid.nullable().optional(),
     scheduleDays: z.number().int().min(-3650).max(3650).nullable().optional(),
+    /** Crew hours the change adds, on which of the project's jobs. Both or neither. */
+    crewHours: MoneyString.nullable().optional(),
+    jobId: Uuid.nullable().optional(),
   }),
   output: ChangeOrder,
 });

@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty eight of the forty seven are answered: twenty four computed here, four
-by M22's fleet report. The other nineteen each name what they still lack.
+Thirty three of the forty seven are answered: twenty nine computed here, four
+by M22's fleet report. The other fourteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -74,10 +74,10 @@ purchasing returns and late freight, part days off, estimate expiry, credit
 payouts, retainage, push notices). Where something answers half of one the
 `needs` sentence says which half is still missing: a hire's invoice is linked
 to it but holds only part of what the haul earned, and a cost can be put on a
-job but nothing marks a supply as billed back. The four retention, renewal and
+job but nothing marked a supply as billed back (something does now, below). The four retention, renewal and
 churn figures moved when a cancellation got a coded reason (below).
 
-The nineteen were checked once more against everything that has shipped since:
+The nineteen (as they then were) were checked once more against everything that has shipped since:
 punches on a crew's visits, costs journalled to a job and overhead as a mix,
 staff notices, call queues and calling back, inspections signed on the phone,
 hauls to a disposal facility and a truck's own kind, shared commission, budgets
@@ -85,13 +85,13 @@ by branch and job type, part days off, and review reminders. None of them
 supplies a datum one of the nineteen names, so none moved, and none is computed
 from something close to its datum instead. Where one of them comes near, the
 sentence now says how near: the company budget is money for a month and never
-hours for a job; a permit can be filed against a job as a compliance document,
+hours for a job (a job now carries its own crew hour budget, below); a permit can be filed against a job as a compliance document,
 but not the city's visits to it; the pest pack's template already asks why no
-product was applied, so record completeness lacks only the list of fields a
-report was required to capture when it was written; the electrical pack
+product was applied, so record completeness lacked only the list of fields a
+report was required to capture when it was written (a report keeps it now, below); the electrical pack
 declares a panel's rating, open spaces and known concern, but the register
-holds no value to that declaration; a job can be put on hold, but nothing says
-it is waiting on a part; and the phone's positions are kept three days by
+held no value to that declaration (it does now, below); a job could be put on hold, but nothing said
+it was waiting on a part (it can now, below); and the phone's positions are kept three days by
 design, so a month's route miles are gone before a month's figure could read
 them.
 
@@ -116,7 +116,9 @@ the ones somebody makes a hiring decision on.
 - **A flag for supplies billed back.** Two cost ratios need it. A cost posting
   was the other half of this item, and it exists now: an accountant can journal a
   subcontractor's bill or a disposal receipt to a job (M14) and job costing counts
-  it, which is what unlocked install gross margin.
+  it, which is what unlocked install gross margin. The flag itself arrived
+  later: a supply on a job can be marked billed back at cost (M10), which
+  unlocked the supply cost share of revenue (below).
 - **A finer job type class.** `job_revenue_class` was added for these and
   unlocked five. A trade's own upsell path (a drain job that became a lining, a
   troubleshooting call that converted on the visit) needs the pack to mark which
@@ -163,6 +165,154 @@ a job's margin takes: reading it needs the job costing permission and the
 financial reports permission (`job.cost:read` and `report.financial:read`), and a
 reader without them is told which in the unavailable list instead of being shown
 a margin one division away from the cost column.
+
+### First time fix, and the two data it waited on
+
+Plumbing's, HVAC's and electrical's **first time fix rate** is completed jobs
+done in one visit over completed jobs, and all three definitions leave jobs
+out: HVAC's those "planned as multi visit", plumbing's those and "jobs held for
+a part order", electrical's those and jobs held "for a part order or an
+inspection". Visit counts were always here; the plan and the reason a job
+waited were not. Both are recorded now (M10): a job can say it is **planned for
+more than one visit**, when it is booked or before anybody has arrived at a
+visit on it, and a **hold has a reason** from a fixed list, a part hold naming
+the purchase order the part is on.
+
+- A visit counts when it was done: completed, or completed on a phone that
+  missed its cancellation. A completed job none of whose visits was done
+  (finished from the office, brought in from history) has no count to judge
+  and is in neither half.
+- A plan counts only when it was said no later than the first arrival on the
+  job, so a job that went badly cannot be relabelled afterwards. The jobs
+  service refuses a late one as well.
+- A hold counts only when it was placed before the job was finished and for a
+  reason the company's trade leaves out (`reporting.FIRST_TIME_FIX_HOLDS` in
+  core), and a part hold only once its order went to the supplier and was not
+  cancelled: a draft is a part nobody has ordered.
+- Customer work only, every class but internal, as the callback rate counts it.
+
+The jobs left out are **counted beside the number** and open like a half
+(`half=excluded`), so the exclusion is visible rather than a way to tidy the
+figure. The rule is core's `reporting.firstTimeFixOf`, with unit tests, written
+again in SQL, and `kpi-first-time-fix.integration.test.ts` checks a month worked
+out by hand under each of the three trades and puts the same jobs through both.
+The catalogue's records take the company's trade for this one key, because the
+three packs define it three ways.
+
+### Budgeted hour variance, and the hours it waited on
+
+Lawn and landscape's **budgeted hour variance** is "actual crew hours minus
+budgeted hours on completed jobs, as a percentage of budgeted", and it EXCLUDES
+"change order hours that were separately approved, or every approved upsell
+reads as an overrun". It needed budgeted hours on a job, which nothing held (a
+job type's duration is a scheduling default, a phase's budget and the company
+budget are money), and hours on a change order, which carried only money. A job
+now carries the crew hours it was budgeted, fixed from the first punch on it
+(M10), and a change order the crew hours it adds and the project job they are
+worked on (M12).
+
+- Actual crew hours are every working punch on the job, each person separately:
+  on site and travelling to it, never leave or an unpaid break.
+- An approved change order's crew hours come off that job's actual hours. One
+  sent and not yet approved does not.
+- A completed job is **left out of both halves** with no budget, a punch still
+  running, or no hours at all, because a job nobody clocked would read as
+  entirely under budget. Customer work only, every class but internal.
+- The numerator's records are the jobs counted, each adding its hours over
+  budget (negative when under); the denominator's, each adding its budget. A
+  negative figure is under budget.
+
+The rule is core's `reporting.budgetVarianceOf`, with unit tests, written again
+in SQL, and `kpi-budget-hours.integration.test.ts` checks a month worked out by
+hand and puts the same jobs through both.
+
+### Supply cost share of revenue, and the flag it waited on
+
+Cleaning's **supply cost share of revenue** is "chemical, consumable and
+equipment consumable cost divided by invoiced revenue", and it EXCLUDES
+"supplies stocked for a commercial account and billed back at cost, which are a
+pass through and not a margin leak". A cost could already be put on a job; what
+was missing was a flag for supplies billed back, and a supply used on a job can
+now be marked billed back to the customer at cost (M10).
+
+- A supply is a job's `part` line: what a chemical, a consumable and an
+  equipment consumable are. Equipment fitted is capital and labour is hours.
+- Revenue is the ledger's on completed customer jobs, as every revenue figure
+  here is.
+- A supply marked billed back that is **on an invoice issued and not voided**
+  leaves both halves: its cost from the top, what it was billed at (net of
+  discounts, before tax) from the bottom. One marked and not yet billed counts
+  as a cost, because nothing has come back for it.
+- A job with a supply whose cost nobody recorded is **left out of both halves**,
+  rather than read as free.
+- The supplies passed through are counted beside the number and open like a
+  half.
+
+It is what supplies cost, so like install margin it needs `job.cost:read` and
+`report.financial:read`, and a reader without them sees it in the unavailable
+list with the permissions named. The rule is core's `reporting.supplyCostOf`,
+with unit tests, written again in SQL, and
+`kpi-supply-cost.integration.test.ts` checks a month worked out by hand and puts
+the same jobs through both.
+
+### Application record completeness, and the list it waited on
+
+Pest control's **application record completeness** is "completed visits where
+every regulated field required by the operator's configuration was captured,
+divided by completed visits", and it EXCLUDES "visits recorded with a no product
+applied reason, which have their own required set". The exclusion was always
+readable (the pack's template asks for `no_product_reason`); what a visit was
+required to capture was not, because a template keeps only its current fields.
+A report now keeps that list, frozen from its template when it is written (M11),
+and the operator sets what is required on Settings, Service reports.
+
+- A visit counts when it was done (completed, or completed on a phone that
+  missed its cancellation), on customer work.
+- **Complete**: a report on it captured every regulated field it was required
+  to. A field is captured when it holds a number, a yes or no, words that are not
+  only spaces, or one of a chemical application's regulated columns.
+- A completed visit with **no report at all** is not complete: it is the most
+  incomplete record there is.
+- A visit recorded with a no product applied reason is **left out** and counted
+  beside, as the definition says.
+- A visit whose reports were held to **no regulated field** (written before the
+  list was kept, or the operator required none) is left out of both halves and
+  counted beside as not known, rather than read as complete for having been
+  asked nothing.
+
+The rule is core's `reporting.recordCompletenessOf`, with unit tests, written
+again in SQL, and `kpi-record-completeness.integration.test.ts` checks a month
+worked out by hand, puts the same visits through both, and checks that a
+report's list is frozen when the phone writes it and does not move when the
+template is edited.
+
+### Panel upgrade pipeline, and the typed details it waited on
+
+The electrical pack's **panel upgrade pipeline** is "total value of declined
+panel and service upgrade recommendations on panels recorded as full, flagged
+as a known concern, or rated below 100 amps, counting only properties still on
+the customer list". The pack declares those three on a service panel with their
+kinds, and the register stored whatever it was sent under the keys, so "100A"
+or "yes" could not be read. The register now holds a unit's details to the
+declaration (M04), and the figure reads only values held to it.
+
+- A recommendation is a finding recorded against the panel itself, declined in
+  the window, with a quoted value, on a live unit whose kind is the pack's
+  service panel (by code or name).
+- **Full** is no open spaces (a number, nought or below); **a known concern** is
+  yes; **below 100 amps** is a rating from the pack's own list under 100.
+- **Still on the customer list** is a customer, not merged away, whose link to
+  the address has not ended.
+- Like the replacement pipeline it is a total, over the recommendations
+  counted, which the second half lists.
+- A panel carrying one of the three as words from before the register checked
+  them, and nothing that qualifies it, is **counted beside** the figure as not
+  known and never in it.
+
+The rule is core's `reporting.panelQualifies` (and `field.typedAttributes` for
+the register), with unit tests, written again in SQL over the typed values, and
+`kpi-panel-pipeline.integration.test.ts` checks a month worked out by hand, puts
+the same panels through both, and fails if the pack stops declaring the panel.
 
 ### The four that waited on a coded cancellation reason
 
@@ -583,9 +733,10 @@ sent once per run, so a run resumed after a wait does not send it again.
 `report:build` saves and deletes reports and sets up, changes, pauses and stops
 schedules. The financial datasets additionally need `report.financial:read`, and
 a drill is refused exactly where its report would be, in the same words.
-Install gross margin on the trade scorecard is what jobs cost, so it needs
-`job.cost:read` and `report.financial:read` on top of `report:read`, and a reader
-without them sees it in the unavailable list with the permissions named.
+Install gross margin and the supply cost share on the trade scorecard are what
+jobs cost, so they need `job.cost:read` and `report.financial:read` on top of
+`report:read`, and a reader without them sees them in the unavailable list with
+the permissions named.
 
 ## API
 
@@ -640,12 +791,45 @@ prefix off.
 
 ## What is not built
 
-Nineteen of the forty seven declared KPIs cannot be computed, and each one
+Fourteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the nineteen has its datum yet (above, "The
-unavailable list"); none is computed from something near it instead. The records
+since they were written and none of the fourteen has its datum yet (above, "The
+unavailable list"); none is computed from something near it instead.
+
+First time fix leaves out a part hold only when it names a purchase order in
+this product that went to the supplier, so a part bought over the counter and
+never written as an order counts as a return visit; the conservative choice,
+because a hold the office could claim without an order is the easiest way to
+tidy the figure. A job planned as several visits after somebody arrived counts
+as a return visit for the same reason. Holds are placed in the office, not on
+the phone.
+
+The budgeted hour variance is only as good as the budget typed: nothing takes a
+job's hours from its estimate, so a company that does not budget its jobs in
+hours sees "Not this window". A change order's crew hours are typed by the
+office and are not on the page the customer signs, so "separately approved" is
+the change order being approved, not those hours by name.
+
+The supply cost share counts what a supply cost on the job line, as job costing
+does; stock bought for a van and never put on a job is not a supply cost here,
+and neither is a receipt for supplies paid back to a cleaner (M17) unless it was
+put on the job as a line. A supply billed back is left out only once its
+invoice is issued, so a month's figure can move when the invoice goes out.
+
+Application record completeness judges a report written before reports kept
+their required list as not known, so a company's first months after this change
+read "Not this window" or a figure over only the new reports; nothing guesses
+the old list from the template's version, because the template keeps only its
+current fields. Which fields a regulator asks for is the trade pack's, and the
+"no product applied" exclusion is read from the pest pack's own field key.
+
+The panel upgrade pipeline counts a recommendation recorded against the panel
+itself, whatever it recommends: a finding has no field saying it is an upgrade
+rather than a repair, and one on a breaker under the panel is not counted. A
+panel whose details were typed before the register checked them is counted
+beside, not in, until somebody corrects it on the unit's page. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

@@ -1,12 +1,13 @@
 import { sql, type SQL } from "drizzle-orm";
 import { reporting, type Permission } from "@opentradesos/core";
+import { packById } from "@opentradesos/trade-packs";
 import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty four of the forty seven are computed here, four are
- * M22's, and the nineteen that are not each name what they still lack.)
+ * (They are read now. Twenty nine of the forty seven are computed here, four are
+ * M22's, and the fourteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -71,9 +72,12 @@ export type Format = "percent" | "money" | "number" | "duration";
  *   href     the screen it opens
  *
  * Written by us and never assembled from input, like every SQL fragment in the
- * reporting code. The window and the company's timezone are parameters.
+ * reporting code. The window and the company's timezone are parameters, and so
+ * is the company's trade, for the one key whose packs define it differently
+ * (`first_time_fix`, whose exclusions differ by trade); every other query
+ * ignores it.
  */
-export type Records = (from: string, to: string, zone: string) => SQL;
+export type Records = (from: string, to: string, zone: string, trade: string) => SQL;
 
 export interface Half {
   /** What the half is called on screen. */
@@ -638,6 +642,259 @@ const besidesOf = (records: (pick: "excluded" | "unknown") => Records, what: str
   excluded: { label: `${what} left out because the customer moved or sold the home`, records: records("excluded") },
   unknown: { label: `${what} counted whose reason was never recorded`, records: records("unknown") },
 });
+
+/**
+ * FIRST TIME FIX, per completed job: how many of its visits were done, and
+ * whether the trade's definition leaves it out. The rule is core's
+ * `reporting.firstTimeFixOf`, written here as SQL over a job called `j`, and
+ * `kpi-first-time-fix.integration.test.ts` puts the same jobs through both.
+ */
+const VISITS_DONE = `(
+  select count(*) from public.visit v
+  where v.job_id = j.id and v.deleted_at is null
+    and v.status::text = any(array['${reporting.VISIT_DONE.join("', '")}'])
+)`;
+
+/**
+ * Planned as several visits no later than the first moment anybody arrived
+ * at (or, with no arrival, finished) a visit on it; or held, before it was
+ * finished, for a reason this trade's definition leaves out, a part hold
+ * counting only once its order went to the supplier and was not cancelled.
+ */
+const fixLeftOut = (trade: string) => sql`(
+  (j.multi_visit_planned_at is not null and j.multi_visit_planned_at <= coalesce((
+    select min(coalesce(v.arrived_at, v.completed_at)) from public.visit v
+    where v.job_id = j.id and v.deleted_at is null
+  ), 'infinity'::timestamptz))
+  or exists (
+    select 1 from public.job_hold h
+    left join public.purchase_order po on po.id = h.purchase_order_id
+    where h.job_id = j.id
+      and h.reason::text = any(${sql.param([...(reporting.FIRST_TIME_FIX_HOLDS[trade] ?? [])])}::text[])
+      and h.placed_at <= j.completed_at
+      and (h.reason <> 'part' or (po.id is not null and po.status not in ('draft', 'cancelled')))
+  )
+)`;
+
+const firstTimeFixes = (pick: "numerator" | "denominator" | "excluded"): Records => (from, to, zone, trade) => sql`
+  select ${jobRow("1", zone)}
+  from public.job j
+  join public.job_type jt on jt.id = j.job_type_id
+  where j.deleted_at is null and j.completed_at is not null
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and ${sql.raw(VISITS_DONE)} >= 1
+    and ${{
+      numerator: sql`not ${fixLeftOut(trade)} and ${sql.raw(VISITS_DONE)} = 1`,
+      denominator: sql`not ${fixLeftOut(trade)}`,
+      excluded: sql`${fixLeftOut(trade)}`,
+    }[pick]}
+`;
+
+/**
+ * BUDGETED HOURS, per completed job with a budget whose hours are all in:
+ * crew hours (every working punch on the job, each person separately) less the
+ * crew hours of change orders approved for it, against the hours budgeted. The
+ * rule is core's `reporting.budgetVarianceOf`, and
+ * `kpi-budget-hours.integration.test.ts` puts the same jobs through both.
+ */
+const CREW_HOURS = `((
+  select coalesce(sum(te.minutes), 0) from public.timeclock_entry te
+  where te.job_id = j.id and te.deleted_at is null and te.ended_at is not null
+    and te.kind::text <> all(array['${reporting.NOT_A_DAY_WORKED.join("', '")}'])
+)::numeric / 60)`;
+
+const CHANGE_HOURS = `(
+  select coalesce(sum(co.crew_hours), 0) from public.project_change_order co
+  where co.job_id = j.id and co.status = 'approved' and co.crew_hours is not null
+)`;
+
+const budgetedJobs = (value: string): Records => (from, to, zone) => sql`
+  select ${jobRow(value, zone)}
+  from public.job j
+  join public.job_type jt on jt.id = j.job_type_id
+  where j.deleted_at is null and j.completed_at is not null
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and j.budgeted_hours is not null and j.budgeted_hours > 0
+    and not exists (
+      select 1 from public.timeclock_entry running
+      where running.job_id = j.id and running.deleted_at is null and running.ended_at is null
+        and running.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])
+    )
+    and ${sql.raw(CREW_HOURS)} > 0
+`;
+
+/**
+ * SUPPLIES AGAINST REVENUE, per completed job. A supply is a `part` line; a
+ * PASS THROUGH is one marked billed back at cost that is on an invoice issued
+ * and not voided, and it leaves both halves: its cost from the top, what it
+ * was billed at (net of discounts, before tax, as the ledger credits revenue)
+ * from the bottom. The rule is core's `reporting.supplyCostOf`, and
+ * `kpi-supply-cost.integration.test.ts` puts the same jobs through both.
+ */
+const PASSED_THROUGH = `(jl.billed_back_at is not null and exists (
+  select 1 from public.invoice_line il join public.invoice i on i.id = il.invoice_id
+  where il.id = jl.invoice_line_id and i.status not in ('draft', 'void')
+))`;
+
+const SUPPLY_COST = `(
+  select coalesce(sum(jl.quantity * jl.unit_cost), 0) from public.job_line jl
+  where jl.job_id = j.id and jl.kind = 'part' and not ${PASSED_THROUGH}
+)`;
+
+const PASSED_REVENUE = `(
+  select coalesce(sum(il.quantity * il.unit_price - il.discount_amount - il.member_discount_amount), 0)
+  from public.job_line jl join public.invoice_line il on il.id = jl.invoice_line_id
+  where jl.job_id = j.id and jl.kind = 'part' and ${PASSED_THROUGH}
+)`;
+
+/** Completed customer jobs in the window with no supply whose cost is unknown. */
+const suppliedJobs = (from: string, to: string, zone: string) => sql`
+  from public.job j
+  join public.job_type jt on jt.id = j.job_type_id
+  where j.deleted_at is null and j.completed_at is not null
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and not exists (
+      select 1 from public.job_line jl
+      where jl.job_id = j.id and jl.kind = 'part' and jl.unit_cost is null and not ${sql.raw(PASSED_THROUGH)}
+    )
+`;
+
+const supplyHalf = (value: string): Records => (from, to, zone) => sql`
+  select ${jobRow(value, zone)} ${suppliedJobs(from, to, zone)}
+`;
+
+/** Each supply passed through on a counted job: one row, opening on the job. */
+const passedThrough: Records = (from, to, zone) => sql`
+  select 'job'::text as kind, jl.id::text as id,
+         concat('#', j.number, ' ', j.summary, ': ', jl.name, ', billed back at cost') as label,
+         to_char(j.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/jobs/' || j.id as href
+  from public.job_line jl
+  join (select j.* ${suppliedJobs(from, to, zone)}) as j on j.id = jl.job_id
+  where jl.kind = 'part' and ${sql.raw(PASSED_THROUGH)}
+`;
+
+/**
+ * APPLICATION RECORDS, per completed visit. A field is CAPTURED when its row
+ * on the report holds a value: a number, a yes or no, words that are not only
+ * spaces, or one of a chemical application's regulated columns. The rule is
+ * core's `reporting.recordCompletenessOf`, and
+ * `kpi-record-completeness.integration.test.ts` puts the same visits through
+ * both.
+ */
+const captured = (key: string) => `exists (
+  select 1 from public.service_report_field f
+  where f.report_id = r.id and f.key = ${key}
+    and (f.value_numeric is not null or f.value_boolean is not null
+      or nullif(btrim(f.value_text), '') is not null or nullif(btrim(f.product_name), '') is not null
+      or nullif(btrim(f.epa_registration_number), '') is not null or f.quantity_applied is not null
+      or nullif(btrim(f.applicator_license), '') is not null or nullif(btrim(f.target_pest), '') is not null)
+)`;
+
+/** The report was held to at least one regulated field. */
+const HELD_TO_REGULATED = `exists (
+  select 1 from jsonb_array_elements(coalesce(r.required_fields, '[]'::jsonb)) q where (q->>'regulated')::boolean
+)`;
+
+const NO_PRODUCT = `exists (
+  select 1 from public.service_report r where r.visit_id = v.id and ${captured(`'${reporting.NO_PRODUCT_REASON}'`)}
+)`;
+const ANY_REPORT = `exists (select 1 from public.service_report r where r.visit_id = v.id)`;
+const ANY_JUDGED = `exists (select 1 from public.service_report r where r.visit_id = v.id and ${HELD_TO_REGULATED})`;
+const RECORD_COMPLETE = `exists (
+  select 1 from public.service_report r
+  where r.visit_id = v.id and ${HELD_TO_REGULATED}
+    and not exists (
+      select 1 from jsonb_array_elements(r.required_fields) q
+      where (q->>'regulated')::boolean and not ${captured("q->>'key'")}
+    )
+)`;
+
+const applicationRecords = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, v.id::text as id,
+         concat('#', j.number, ' visit ', v.sequence, ', ', j.summary) as label,
+         to_char(v.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit v
+  join public.job j on j.id = v.job_id
+  join public.job_type jt on jt.id = j.job_type_id
+  where v.deleted_at is null and j.deleted_at is null
+    and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+    and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and ${sql.raw({
+      numerator: `not ${NO_PRODUCT} and ${RECORD_COMPLETE}`,
+      denominator: `not ${NO_PRODUCT} and (not ${ANY_REPORT} or ${ANY_JUDGED})`,
+      excluded: NO_PRODUCT,
+      unknown: `not ${NO_PRODUCT} and ${ANY_REPORT} and not ${ANY_JUDGED}`,
+    }[pick])}
+`;
+
+/**
+ * THE PANEL THE ELECTRICAL PACK DECLARES, read from the pack rather than typed
+ * again here: the service panel's code and name (the register's category is
+ * either, in any case) and the ratings its `service_amps` may hold.
+ * `kpi-panel-pipeline.integration.test.ts` fails if the pack stops declaring
+ * them.
+ */
+const SERVICE_PANEL = packById("electrical")?.equipmentCategories.find((c) => c.code === "service-panel");
+export const PANEL_CATEGORIES = SERVICE_PANEL ? [SERVICE_PANEL.code.toLowerCase(), SERVICE_PANEL.name.toLowerCase()] : [];
+export const PANEL_RATINGS: string[] = [
+  ...(SERVICE_PANEL?.attributes.find((a) => a.key === "service_amps")?.options ?? []),
+];
+
+/**
+ * Declared recommendations on a live service panel at a property still on the
+ * customer list, declined in the window with a quoted value, which the panel
+ * either qualifies for (`in`) or cannot be read for (`unknown`). Core's
+ * `reporting.panelQualifies`, written again in SQL over the typed values only:
+ * a number is a jsonb number, a yes is a jsonb true, a rating one of the
+ * pack's options.
+ */
+const panelRecommendations = (value: string, pick: "in" | "unknown"): Records => (from, to) => {
+  const amps = sql`(jsonb_typeof(e.attributes->'service_amps') = 'string' and e.attributes->>'service_amps' = any(${sql.param(PANEL_RATINGS)}::text[]))`;
+  /**
+   * Never null: a detail that is missing is not a reason, and a null here
+   * would drop the row from both sides of a `not`. A cast happens only inside
+   * a `case` that has checked the value is a number, because Postgres does not
+   * promise to read an `and` left to right, and "100A" cast to a number fails
+   * the whole query rather than the one row.
+   */
+  const qualifies = sql`(
+    coalesce(e.attributes->'known_concern' = 'true'::jsonb, false)
+    or (case when jsonb_typeof(e.attributes->'spaces_open') = 'number'
+             then (e.attributes->>'spaces_open')::numeric <= 0 else false end)
+    or coalesce(jsonb_typeof(e.attributes->'service_amps') = 'string'
+                and e.attributes->>'service_amps' = any(${sql.param(PANEL_RATINGS.filter((r) => Number(r) < 100))}::text[]), false)
+  )`;
+  const untyped = sql`(
+    coalesce(jsonb_typeof(e.attributes->'service_amps') <> 'null' and not ${amps}, false)
+    or coalesce(jsonb_typeof(e.attributes->'spaces_open') not in ('number', 'null'), false)
+    or coalesce(jsonb_typeof(e.attributes->'known_concern') not in ('boolean', 'null'), false)
+  )`;
+  return sql`
+    select 'deficiency'::text as kind, d.id::text as id,
+           concat(coalesce(e.tag || ' ', ''), e.category, ': ', d.description) as label,
+           d.declined_on::text as on_day,
+           (${sql.raw(value)})::numeric as value,
+           '/equipment/' || e.id as href
+    from public.deficiency d
+    join public.equipment e on e.id = d.equipment_id
+    where d.deleted_at is null and d.declined_on is not null
+      and d.declined_on >= ${from}::date and d.declined_on <= ${to}::date
+      and d.quoted_amount is not null
+      and e.deleted_at is null and e.active = true
+      and lower(btrim(e.category)) = any(${sql.param(PANEL_CATEGORIES)}::text[])
+      and exists (
+        select 1 from public.customer_property cp join public.customer c on c.id = cp.customer_id
+        where cp.property_id = e.property_id and cp.ended_on is null and c.deleted_at is null
+      )
+      and ${pick === "in" ? qualifies : sql`not ${qualifies} and ${untyped}`}
+  `;
+};
 
 /* ------------------------------------------------------------- the entries */
 
@@ -1246,16 +1503,48 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   first_time_fix: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A job that says it was PLANNED as multi visit. The definition EXCLUDES "
-      + "those and jobs held for a part order or an inspection, and 'including "
-      + "planned return visits makes this meaningless'. Visit counts are "
-      + "available; the plan is not, so an install scheduled across three days "
-      + "would count as three failures to fix it first time. A job can be put on "
-      + "hold, but nothing records why, and a purchase order names no job, so a "
-      + "job waiting on a part cannot be told from one waiting on the customer.",
+    measure: {
+      /**
+       * "Jobs completed in one visit divided by all completed jobs, EXCLUDING
+       * jobs planned as multi visit" (HVAC), "and jobs held for a part order"
+       * (plumbing), "or an inspection" (electrical). "Including planned return
+       * visits makes this meaningless."
+       *
+       * WHAT IT NEEDED, and what changed: a job that says it was PLANNED as
+       * several visits, and a hold that says why. A job can now be marked
+       * planned for more than one visit (`job.multi_visit_planned_at`), when it
+       * is booked or before any visit on it has started, and a hold has a
+       * reason from a fixed list with a part hold naming the purchase order the
+       * part is on (`job_hold`, M10 and M16).
+       *
+       * A visit counts when it was done: completed, or completed on a phone that
+       * missed its cancellation. A completed job none of whose visits was done
+       * (finished from the office, brought in from history) has no visit count
+       * to judge and is out of both halves. The jobs left out by the
+       * definition are counted beside the number, so the exclusion is visible
+       * rather than a way to tidy the figure:
+       *
+       *   a plan counts only when it was written no later than the first
+       *   arrival on the job, so a job that went badly cannot be relabelled;
+       *   a hold counts only when it was placed before the job was finished,
+       *   for a reason this trade leaves out (`reporting.FIRST_TIME_FIX_HOLDS`),
+       *   and a part hold only once its order went to the supplier and was not
+       *   cancelled: a draft order is a part nobody has ordered.
+       *
+       * Customer work only, every class but `internal`, as the callback rate
+       * counts it.
+       */
+      numerator: { label: "completed jobs done in one visit", records: firstTimeFixes("numerator") },
+      denominator: { label: "completed jobs, other than those left out", records: firstTimeFixes("denominator") },
+      besides: {
+        excluded: {
+          label: "jobs left out: planned as more than one visit, or held for a reason the definition excludes",
+          records: firstTimeFixes("excluded"),
+        },
+      },
+    },
   },
 
   inspection_pass: {
@@ -1274,17 +1563,31 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   budget_hour_variance: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Budgeted hours on the job. `job_type.default_duration_minutes` is a "
-      + "scheduling default rather than a budget for this job, a project "
-      + "phase carries a budget in money, not hours, and the company budget "
-      + "(M15) is money for a month, by branch or job type, never hours for one "
-      + "job. Change orders now exist "
-      + "(M12) and the definition EXCLUDES separately approved change order "
-      + "hours, but a change order carries an amount and a cost and no hours, so "
-      + "there is nothing to take out of the actual hours either.",
+    measure: {
+      /**
+       * "Actual crew hours minus budgeted hours on completed jobs, as a
+       * percentage of budgeted. EXCLUDES change order hours that were
+       * separately approved, or every approved upsell reads as an overrun."
+       *
+       * WHAT IT NEEDED, and what changed: budgeted hours on the job, and hours
+       * on a change order. A job now carries the crew hours it was budgeted
+       * (`job.budgeted_hours`), fixed once the first hour is punched on it, and
+       * a change order carries the crew hours it adds and the project job they
+       * are worked on (`project_change_order.crew_hours`, `job_id`). When the
+       * customer approves it, those hours come off the job's actual hours.
+       *
+       * Actual crew hours are every working punch on the job, each person
+       * separately: on site and travelling to it, never leave or an unpaid
+       * break. A job is LEFT OUT OF BOTH HALVES when it has no budget, a punch
+       * still running, or no hours at all, because a job nobody clocked would
+       * read as entirely under budget. Each half is the jobs counted, the first
+       * adding its hours over budget (negative under), the second its budget.
+       */
+      numerator: { label: "crew hours over budget, less approved change order hours", records: budgetedJobs(`${CREW_HOURS} - ${CHANGE_HOURS} - j.budgeted_hours`) },
+      denominator: { label: "crew hours budgeted on completed jobs", records: budgetedJobs("j.budgeted_hours") },
+    },
   },
 
   production_per_crew_hour: {
@@ -1326,32 +1629,73 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   supply_cost_pct: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A flag for supplies billed back. A cost can now be put on a job from the "
-      + "office (a journal line naming the job, M14) and job costing counts it, "
-      + "but the definition EXCLUDES supplies stocked for a commercial account "
-      + "and billed back at cost, and nothing marks a supply line, a stock "
-      + "movement or a purchase as billed back, so a pass through would appear "
-      + "as both a cost and a revenue and make the ratio look right for the "
-      + "wrong reason. The one pass through flag that exists, "
-      + "`rental.disposal_pass_through`, is a container hire's terms about a "
-      + "facility's fee and says nothing about a supply.",
+    /** What supplies cost is what jobs cost, so it takes what a job's margin takes. */
+    permissions: ["job.cost:read", "report.financial:read"],
+    measure: {
+      /**
+       * "Chemical, consumable and equipment consumable cost divided by
+       * invoiced revenue. EXCLUDES supplies stocked for a commercial account
+       * and billed back at cost, which are a pass through and not a margin
+       * leak."
+       *
+       * WHAT IT NEEDED, and what changed: a flag for supplies billed back. A
+       * supply used on a job (a `part` line, which is what a chemical, a
+       * consumable and an equipment consumable are; equipment fitted is
+       * capital and labour is hours) can now be marked billed back to the
+       * customer at cost (`job_line.billed_back_at`, M10).
+       *
+       * Revenue is the ledger's, on completed customer jobs, as every revenue
+       * figure here is. A supply marked billed back that is on an issued
+       * invoice leaves BOTH halves, its cost and what it was billed at; one
+       * marked and not billed yet counts as a cost, because nothing has come
+       * back for it. A job with a supply whose cost nobody recorded is left
+       * out of both halves, rather than read as free. The supplies passed
+       * through are counted beside the number.
+       */
+      numerator: { label: "dollars of supplies used", money: true, records: supplyHalf(SUPPLY_COST) },
+      denominator: { label: "revenue on those jobs, less supplies billed back at cost", money: true, records: supplyHalf(`${REVENUE_ON_JOB} - ${PASSED_REVENUE}`) },
+      besides: {
+        excluded: { label: "supplies billed back at cost, left out of both halves", records: passedThrough },
+      },
+    },
   },
 
   record_completeness: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Which regulated fields the operator required WHEN the visit was "
-      + "recorded. A service report template marks fields required and "
-      + "regulated, and editing its fields bumps its version, but a report keeps "
-      + "only that version number and the template keeps only its current fields "
-      + "on the same row, so last spring's visits would be judged against "
-      + "today's list. The exclusion is readable: the pest pack's template has a "
-      + "`no_product_reason` field, so a visit recorded with no product applied "
-      + "can be told apart. What it was required to capture cannot.",
+    measure: {
+      /**
+       * "Completed visits where every regulated field required by the
+       * operator's configuration was captured, divided by completed visits.
+       * EXCLUDES visits recorded with a no product applied reason, which have
+       * their own required set."
+       *
+       * WHAT IT NEEDED, and what changed: which regulated fields the operator
+       * required WHEN the visit was recorded. A report now keeps that list,
+       * frozen from its template when it is written
+       * (`service_report.required_fields`, each field with whether a regulator
+       * asks for it), so a template edited today does not judge last spring's
+       * visits. The operator sets what is required on Settings, Service
+       * reports, and an edit keeps which fields are regulated, which it used to
+       * drop.
+       *
+       * A completed visit with no report at all is not complete: it is the
+       * most incomplete record there is. A visit whose reports were held to no
+       * regulated field (written before the list was kept, or the operator
+       * required none) is left out of both halves and counted beside as not
+       * known, rather than read as complete for having been asked nothing. A
+       * visit recorded with a no product applied reason is left out and counted
+       * beside, as the definition says.
+       */
+      numerator: { label: "completed visits with every required regulated field captured", records: applicationRecords("numerator") },
+      denominator: { label: "completed visits, other than those left out", records: applicationRecords("denominator") },
+      besides: {
+        excluded: { label: "visits with no product applied, left out", records: applicationRecords("excluded") },
+        unknown: { label: "visits whose report was held to no regulated field, left out", records: applicationRecords("unknown") },
+      },
+    },
   },
 
   diag_conversion: {
@@ -1428,20 +1772,35 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   panel_pipeline: {
-    state: "needs",
+    state: "computed",
     format: "money",
-    needs:
-      "Typed panel attributes. The declined value is computable from "
-      + "`deficiency.quoted_amount` and `declined_on`, but the definition narrows "
-      + "it to panels 'recorded as full, flagged as a known concern, or rated "
-      + "below 100 amps', and all three live in untyped `equipment.attributes`. "
-      + "Published without the narrowing it would be the value of every declined "
-      + "recommendation, which is a different and much larger number. The "
-      + "electrical pack declares those three on a service panel "
-      + "(`service_amps`, `spaces_open`, `known_concern`, with their kinds), but "
-      + "the register stores whatever it is sent under those keys and holds no "
-      + "value to the declaration, so a '100A' or a 'yes' would be read as no "
-      + "rating and no concern.",
+    measure: {
+      /**
+       * "Total value of declined panel and service upgrade recommendations on
+       * panels recorded as full, flagged as a known concern, or rated below 100
+       * amps, counting only properties still on the customer list."
+       *
+       * WHAT IT NEEDED, and what changed: typed panel attributes. The pack
+       * declares a service panel's rating (one of its options), open spaces (a
+       * number) and known concern (yes or no), and the register now holds a
+       * unit's details to that declaration (`field.typedAttributes`): the
+       * office and the API are refused a value that is not its kind, and the
+       * phone's is stored typed when it can be. A recommendation is one
+       * recorded against the panel itself, declined, with a quoted value.
+       *
+       * Full is no open spaces. "Still on the customer list" is a customer,
+       * not merged away, whose link to the address has not ended. Like the
+       * replacement pipeline it is a total over the recommendations counted,
+       * declined in the window. A panel carrying one of the three as words
+       * from before the register checked them, and nothing that qualifies it,
+       * is counted beside the figure as not known and never in it.
+       */
+      numerator: { label: "value of declined recommendations on full, problem or under 100 amp panels", records: panelRecommendations("d.quoted_amount", "in") },
+      denominator: { label: "declined recommendations counted", records: panelRecommendations("1", "in") },
+      besides: {
+        unknown: { label: "declined recommendations on panels whose details were never checked, left out", records: panelRecommendations("1", "unknown") },
+      },
+    },
   },
 
   replace_pipeline: {

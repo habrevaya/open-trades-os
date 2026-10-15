@@ -276,19 +276,23 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
     expect(computed).toEqual([
       "avg_ticket",
       "backflow_recert",
+      "budget_hour_variance",
       "callback_rate",
       "churn",
       "close_rate",
       "drive_time_pct",
+      "first_time_fix",
       "hauls_per_truck_day",
       "install_gross_margin",
       "maint_attach",
       "not_out_rate",
       "oneoff_to_recurring",
+      "panel_pipeline",
       "program_attach",
       "programme_renewal",
       "reapplication_rate",
       "reclean_rate",
+      "record_completeness",
       "recurring_retention",
       "referral_share",
       "renewal_rate",
@@ -298,6 +302,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "revenue_per_stop",
       "revenue_per_tech",
       "stops_per_day",
+      "supply_cost_pct",
     ]);
 
     const elsewhere = KEYS.filter((key) => CATALOGUE[key]!.state === "elsewhere").sort();
@@ -321,8 +326,16 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * link to the address, which moved the four retention, renewal and churn
      * figures, making twenty seven. `hauls_per_truck_day` made twenty eight when a
      * truck got a kind (M22): a driver is whoever has a vehicle with one checked out.
+     * `first_time_fix` made twenty nine when a job could say it was planned as
+     * several visits and a hold could say it was waiting on a part order or an
+     * inspection. `budget_hour_variance` made thirty when a job could carry the
+     * crew hours it was budgeted and a change order the hours it adds, and
+     * `supply_cost_pct` thirty one when a supply could be marked billed back,
+     * and `record_completeness` thirty two when a report kept the list of
+     * fields it was required to capture. `panel_pipeline` made thirty three
+     * when the register held a panel's details to what the pack declares.
      */
-    expect(computed.length + elsewhere.length).toBe(28);
+    expect(computed.length + elsewhere.length).toBe(33);
     expect(KEYS.length).toBe(47);
   });
 });
@@ -713,6 +726,14 @@ run("the numbers it computes", () => {
 
 run("what it will not pretend to know", () => {
   it("names the one datum each unavailable KPI needs", async () => {
+    /**
+     * A trade that still has one, found rather than assumed: HVAC's last one
+     * was `first_time_fix`, until a job could say it was planned as several
+     * visits.
+     */
+    const lacking = packs.find((pack) => pack.kpis.some((kpi) => CATALOGUE[kpi.key]?.state === "needs"));
+    if (!lacking) return;
+    await raw`update public.organization set primary_trade = ${lacking.id} where id = ${ORG}`;
     const card = await kpis.scorecard(owner(), WINDOW);
     expect(card.unavailable.length).toBeGreaterThan(0);
     for (const row of card.unavailable) {

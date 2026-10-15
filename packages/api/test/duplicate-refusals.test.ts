@@ -112,6 +112,8 @@ const REFUSED: Record<string, Refused> = {
   proposal_template_default_idx: { file: "proposal-templates.ts", how: "catch" },
 
   /* ---- selected first and refused in the service's own words ---- */
+  /** A second open hold on a job: "already on hold", with the reason it is on hold for. */
+  job_hold_open_idx: { file: "job-holds.ts", how: "check", says: "This job is already on hold" },
   certification_type_code_idx: {
     file: "people.ts", how: "check", says: "already has a certification with the code",
   },
