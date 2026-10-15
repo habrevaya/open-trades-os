@@ -164,6 +164,32 @@ marking them are left as they are. "Cancel this job" on `/jobs/{id}` offers
 it, ticked, says how many visits it would cancel, and names the ones under
 way it leaves.
 
+### Put it on hold, and say why
+
+"Put on hold" on `/jobs/{id}` asks why the job is waiting, from a fixed list:
+a part, an inspection, the customer, the weather, or something else said in
+words. A part hold names the purchase order the part is on, chosen from the
+company's open orders, and is refused without one, because a part nobody has
+ordered is a job waiting on the office rather than on a supplier. An
+inspection, or something else, says which. The job page then says it is on
+hold, why, since when and by whom, with the order linked and whether it has
+been sent; the order's own page (`/purchasing/{id}`) lists the jobs waiting on
+it. "Take off hold" puts the job back where it was, booked or under way. The
+same through the API: `POST /v1/jobs/{id}/holds` places one (`job:write`, and
+`po:read` to name an order), `POST /v1/job-holds/{id}/released` takes the job
+off it, and `GET /v1/jobs/{id}/holds` lists every hold the job has had. A job
+moved off hold by a plain status change has its hold closed too, and a job
+put on hold that way before reasons existed can be given one. Every hold is on
+the audit log.
+
+A job can also say it is **planned for more than one visit** (a two day
+install, a rough in and a trim out): ticked when it is booked on `/jobs/new`,
+or "Planned for more than one visit" on its page, or `multiVisitPlanned` on
+`POST /v1/jobs` and `PATCH /v1/jobs/{id}`. It is refused once anybody has
+arrived at a visit on the job, and the page stops offering it, because a plan
+said after the work is a return visit described kindly. Both are what the
+first time fix rate (M21) leaves out.
+
 ### Finish it
 
 `POST /v1/visits/{id}/complete` records what was done, the notes, the checklist
@@ -237,6 +263,9 @@ because a technician may finish work and may not re-describe it.
 | `POST /v1/jobs` | `job:write` |
 | `PATCH /v1/jobs/{id}` | `job:write`, and `visit:reschedule` with `cancelVisits` |
 | `GET /v1/jobs/{id}/lines` | `job:read` |
+| `GET /v1/jobs/{id}/holds` | `job:read` |
+| `POST /v1/jobs/{id}/holds` | `job:write`, and `po:read` to name a purchase order |
+| `POST /v1/job-holds/{id}/released` | `job:write` |
 | `POST /v1/jobs/{id}/visits` | `visit:write` |
 | `POST /v1/visits/{id}/assign` | `visit:dispatch` |
 | `POST /v1/jobs/{id}/dropped-skills` | `job:write`, `visit:assign_unqualified` |
@@ -280,3 +309,12 @@ board. Cancelling a job does not cancel its visits unless the office ticks
 it; an API caller has to ask with `cancelVisits`, so an integration that
 cancels jobs today keeps its behaviour. A visit somebody is already on the
 way to is never cancelled with the job: the office rings them.
+
+A hold is placed by the office, never from the phone: a technician who needs a
+part says so to whoever orders it, and that person names the order. A part
+held for without an order in this product (bought over the counter, say) can
+be held for "something else" with words, but it is not "held for a part
+order", so the first time fix rate counts it. A hold names one order; a job
+waiting on two orders names the one the work is waiting for. Nothing reminds
+anybody about a job that has been on hold a long time, and the board does not
+show the reason.

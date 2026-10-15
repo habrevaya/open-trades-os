@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
   NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking, expenses, plugins,
+  jobHolds, inventory,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -37,6 +38,8 @@ import { Origin } from "./Origin";
 import { JobFiles } from "./Files";
 import { EstimateDrafts } from "./EstimateDrafts";
 import { Stages } from "./Stages";
+import { JobHoldPanel, PlannedVisits } from "./Hold";
+import { placeHold, releaseHold, setMultiVisitPlanned } from "./hold-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -205,6 +208,18 @@ export default async function JobPage({ params, searchParams }: {
   const canInvoice = can(user.actor, "invoice:write") && job.status !== "cancelled";
   /** The stages a connected application set for this job's type, when one did. */
   const stages = await plugins.stagesOf(ctx, { id });
+  /**
+   * Why the job is waiting, and the orders a part could be on. Only open
+   * orders, newest first, for somebody who reads purchasing.
+   */
+  const holds = (await jobHolds.holdsOf(ctx, { id })).data;
+  const mayNameOrder = writes && can(user.actor, "po:read");
+  const orderChoices = mayNameOrder
+    ? (await inventory.purchaseOrders(ctx))
+      .filter((o) => ["draft", "submitted", "acknowledged", "partially_received"].includes(o.status))
+      .map((o) => ({ id: o.id, number: o.number, vendorName: o.vendorName, status: o.status }))
+    : [];
+  const started = job.visits.some((v) => v.arrivedAt !== null || v.completedAt !== null);
   const items = completes && openVisits.length > 0 && can(user.actor, "pricebook:read")
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
       .map((item) => ({ id: item.id, name: item.name, price: item.price }))
@@ -256,6 +271,8 @@ export default async function JobPage({ params, searchParams }: {
       <Stages data={stages} />
 
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
+      <PlannedVisits jobId={id} plannedAt={job.multiVisitPlannedAt ?? null} started={started} writes={writes}
+                     timezone={user.organizationTimezone} action={setMultiVisitPlanned} />
       <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />
       <RequiredSkills jobId={id} actor={user.actor} writes={writes} timezone={user.organizationTimezone} />
 
@@ -548,6 +565,14 @@ export default async function JobPage({ params, searchParams }: {
       ))}
 
       {writes && <JobLifecycle action={setJobStatus} jobId={id} status={job.status} openVisits={openVisits.length} />}
+      {writes ? (
+        <JobHoldPanel jobId={id} status={job.status} holds={holds} orders={orderChoices} mayNameOrder={mayNameOrder}
+                      timezone={user.organizationTimezone} place={placeHold} release={releaseHold} />
+      ) : holds.some((h) => h.releasedAt === null) ? (
+        <p className="mt-4 text-sm">
+          <span className="font-medium">On hold:</span> {holds.find((h) => h.releasedAt === null)!.reasonLabel}
+        </p>
+      ) : null}
       {writes && (
         <CancelJob action={setJobStatus} jobId={id} status={job.status}
                    toCome={visitsToCome} underWay={visitsUnderWay}

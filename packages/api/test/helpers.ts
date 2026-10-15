@@ -101,6 +101,8 @@ const ORDER = [
   "custom_object_record",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
+  /** Why a job waited points at the job and at the order its part is on. */
+  "job_hold",
   "visit", "entitlement", "job_party", "job",
   /** A card's labour rate points at the job type it is for and at its card, so it goes before both. */
   "rate_card_labour_rate",

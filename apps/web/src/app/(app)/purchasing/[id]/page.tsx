@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory, NotFoundError } from "@opentradesos/api/services";
-import { can, money as m } from "@opentradesos/core";
+import { inventory, jobHolds, NotFoundError } from "@opentradesos/api/services";
+import { can, money as m, work } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb, Fact, Facts } from "@/components/Detail";
 import { PrintButton } from "@/components/PrintButton";
@@ -46,6 +46,8 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
   const writes = can(user.actor, "po:write");
   const approves = can(user.actor, "po:approve");
   const waiting = order.approval.steps.find((s) => s.state === "waiting");
+  /** The jobs on hold for a part on this order: who is waiting for the truck. */
+  const waitingJobs = await jobHolds.waitingOn({ actor: user.actor, db: getDb() }, { purchaseOrderId: order.id });
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -113,6 +115,25 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
       </Table>
       <p className="mt-3 text-right text-sm font-medium">Total <Money value={order.total} /></p>
       {order.notes ? <p className="mt-4 whitespace-pre-line text-sm text-ink-700">{order.notes}</p> : null}
+
+      {waitingJobs.length > 0 ? (
+        <section className="mt-8 print:hidden" aria-labelledby="waiting-jobs">
+          <h2 id="waiting-jobs" className="text-base font-semibold">Jobs waiting on this order</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {waitingJobs.map((row) => (
+              <li key={row.holdId}>
+                <a href={`/jobs/${row.jobId}`} className="underline underline-offset-4">
+                  Job {work.documentNumber(row.numberPrefix, row.number)}, {row.summary}
+                </a>
+                <span className="text-ink-500">
+                  {row.releasedAt ? ", off hold since " + formatIn(row.releasedAt, user.organizationTimezone)
+                    : ", on hold since " + formatIn(row.placedAt, user.organizationTimezone)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {order.status !== "draft" ? (
         <section className="mt-8 print:hidden" aria-labelledby="reply">

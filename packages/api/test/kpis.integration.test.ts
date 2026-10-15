@@ -280,6 +280,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "churn",
       "close_rate",
       "drive_time_pct",
+      "first_time_fix",
       "hauls_per_truck_day",
       "install_gross_margin",
       "maint_attach",
@@ -321,8 +322,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * link to the address, which moved the four retention, renewal and churn
      * figures, making twenty seven. `hauls_per_truck_day` made twenty eight when a
      * truck got a kind (M22): a driver is whoever has a vehicle with one checked out.
+     * `first_time_fix` made twenty nine when a job could say it was planned as
+     * several visits and a hold could say it was waiting on a part order or an
+     * inspection.
      */
-    expect(computed.length + elsewhere.length).toBe(28);
+    expect(computed.length + elsewhere.length).toBe(29);
     expect(KEYS.length).toBe(47);
   });
 });
@@ -713,6 +717,14 @@ run("the numbers it computes", () => {
 
 run("what it will not pretend to know", () => {
   it("names the one datum each unavailable KPI needs", async () => {
+    /**
+     * A trade that still has one, found rather than assumed: HVAC's last one
+     * was `first_time_fix`, until a job could say it was planned as several
+     * visits.
+     */
+    const lacking = packs.find((pack) => pack.kpis.some((kpi) => CATALOGUE[kpi.key]?.state === "needs"));
+    if (!lacking) return;
+    await raw`update public.organization set primary_trade = ${lacking.id} where id = ${ORG}`;
     const card = await kpis.scorecard(owner(), WINDOW);
     expect(card.unavailable.length).toBeGreaterThan(0);
     for (const row of card.unavailable) {

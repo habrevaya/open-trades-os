@@ -26,6 +26,7 @@ import { gate as qualificationGate, workDay, workSkills } from "./qualification"
 import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
+import { closeOpenHold } from "./job-holds";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -543,6 +544,8 @@ export async function create(ctx: ServiceContext, input: CreateInput) {
       parentJobId: input.parentJobId ?? null,
       isWarranty: input.isWarranty ?? false,
       priceSource: input.priceSource ?? "price_book",
+      /** Planned as several visits when it was booked, which is before any of them started. */
+      ...(input.multiVisitPlanned ? { multiVisitPlannedAt: new Date(), multiVisitPlannedByUserId: ctx.actor.userId } : {}),
       ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...provenance(input.externalRef),
     }).returning();
@@ -818,6 +821,32 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }
 
     /**
+     * PLANNED FOR MORE THAN ONE VISIT, said before the work and not after.
+     * Once anybody has arrived at (or finished) a visit on the job, saying it
+     * was always going to take several is a return visit described kindly,
+     * and the first time fix rate would leave it out. Refused in words that
+     * say what to do instead. Taking the plan off is always allowed.
+     */
+    let planned: { multiVisitPlannedAt: Date | null; multiVisitPlannedByUserId: string | null } | null = null;
+    if (input.multiVisitPlanned === true && before.multiVisitPlannedAt === null) {
+      /** An arrival is stamped by the phone's `visit.arrive` (`services/field.ts`), a finish by either side. */
+      const [started] = await tx.select({ id: schema.visit.id }).from(schema.visit)
+        .where(and(
+          eq(schema.visit.jobId, input.id),
+          sql`(visit.arrived_at is not null or visit.completed_at is not null)`,
+        )).limit(1);
+      if (started) {
+        throw new ConflictError(
+          "Work on this job has already started, so it can no longer be marked as planned for more than one visit. "
+          + "If it is waiting on a part or an inspection, put it on hold and say so.",
+        );
+      }
+      planned = { multiVisitPlannedAt: new Date(), multiVisitPlannedByUserId: ctx.actor.userId };
+    } else if (input.multiVisitPlanned === false && before.multiVisitPlannedAt !== null) {
+      planned = { multiVisitPlannedAt: null, multiVisitPlannedByUserId: null };
+    }
+
+    /**
      * THE JOB TYPE'S WORKFLOW, when a connected application registered one:
      * a move past a stage whose gates are not met is refused in words that
      * name each of them. Checked against the fields as this same update
@@ -868,6 +897,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       ...(input.priceSource !== undefined ? { priceSource: input.priceSource } : {}),
       ...(input.businessUnitId !== undefined ? { businessUnitId: input.businessUnitId } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(planned ?? {}),
       // Completion is a timestamp as well as a status, and a job that reaches
       // "completed" without one is invisible to every report that asks what
       // was finished this week.
@@ -881,6 +911,11 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }).where(eq(schema.job.id, input.id)).returning();
 
     await audit(tx, ctx, "job.updated", "job", input.id, before, after!);
+
+    /** Off hold by a plain status change: the hold it was on is over too. */
+    if (before.status === "on_hold" && after!.status !== "on_hold") {
+      await closeOpenHold(tx, ctx, input.id);
+    }
 
     /**
      * Emitted in the same transaction as the update. After commit is the

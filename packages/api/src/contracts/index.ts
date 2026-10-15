@@ -1,6 +1,7 @@
 import { customerRoutes } from "./customers";
 import { propertyRoutes } from "./properties";
 import { jobRoutes } from "./jobs";
+import { jobHoldRoutes } from "./job-holds";
 import { priceBookRoutes } from "./pricebook";
 import { billingRoutes } from "./billing";
 import { estimateRoutes } from "./estimates";
@@ -118,6 +119,7 @@ export * from "./visits";
 export * from "./customers";
 export * from "./properties";
 export * from "./jobs";
+export * from "./job-holds";
 export * from "./pricebook";
 export * from "./billing";
 export * from "./estimates";
@@ -240,6 +242,7 @@ export const routes = {
   ...customerRoutes,
   ...propertyRoutes,
   ...jobRoutes,
+  ...jobHoldRoutes,
   ...priceBookRoutes,
   ...billingRoutes,
   ...creditNoteRoutes,

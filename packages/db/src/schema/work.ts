@@ -226,6 +226,23 @@ export const job = pgTable("job", {
     .$type<Array<{ skill: string; reason: string; droppedAt: string; droppedByUserId: string | null; through?: string | null }>>()
     .notNull().default([]),
   total: money("total"),
+  /**
+   * PLANNED FOR MORE THAN ONE VISIT, and when somebody said so.
+   *
+   * A two day install or a rough in and a trim out is several visits by
+   * design, and the first time fix rate EXCLUDES it: "including planned
+   * return visits makes this meaningless". Visit counts were always here and
+   * the plan was not, so a planned three day install read as three failures
+   * to fix it first time.
+   *
+   * A time rather than a flag, because a plan is only a plan if it came
+   * before the work: the jobs service refuses it once the job's first visit
+   * has started, and the KPI reads it only when it is no later than that
+   * start, so a job that went badly cannot be relabelled as planned
+   * afterwards. Null is not planned.
+   */
+  multiVisitPlannedAt: timestamp("multi_visit_planned_at", { withTimezone: true }),
+  multiVisitPlannedByUserId: uuid("multi_visit_planned_by_user_id"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   cancellationReason: text("cancellation_reason"),

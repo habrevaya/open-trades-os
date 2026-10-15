@@ -5,8 +5,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Twenty four of the forty seven are computed here, four are
- * M22's, and the nineteen that are not each name what they still lack.)
+ * (They are read now. Twenty five of the forty seven are computed here, four are
+ * M22's, and the eighteen that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -71,9 +71,12 @@ export type Format = "percent" | "money" | "number" | "duration";
  *   href     the screen it opens
  *
  * Written by us and never assembled from input, like every SQL fragment in the
- * reporting code. The window and the company's timezone are parameters.
+ * reporting code. The window and the company's timezone are parameters, and so
+ * is the company's trade, for the one key whose packs define it differently
+ * (`first_time_fix`, whose exclusions differ by trade); every other query
+ * ignores it.
  */
-export type Records = (from: string, to: string, zone: string) => SQL;
+export type Records = (from: string, to: string, zone: string, trade: string) => SQL;
 
 export interface Half {
   /** What the half is called on screen. */
@@ -638,6 +641,54 @@ const besidesOf = (records: (pick: "excluded" | "unknown") => Records, what: str
   excluded: { label: `${what} left out because the customer moved or sold the home`, records: records("excluded") },
   unknown: { label: `${what} counted whose reason was never recorded`, records: records("unknown") },
 });
+
+/**
+ * FIRST TIME FIX, per completed job: how many of its visits were done, and
+ * whether the trade's definition leaves it out. The rule is core's
+ * `reporting.firstTimeFixOf`, written here as SQL over a job called `j`, and
+ * `kpi-first-time-fix.integration.test.ts` puts the same jobs through both.
+ */
+const VISITS_DONE = `(
+  select count(*) from public.visit v
+  where v.job_id = j.id and v.deleted_at is null
+    and v.status::text = any(array['${reporting.VISIT_DONE.join("', '")}'])
+)`;
+
+/**
+ * Planned as several visits no later than the first moment anybody arrived
+ * at (or, with no arrival, finished) a visit on it; or held, before it was
+ * finished, for a reason this trade's definition leaves out, a part hold
+ * counting only once its order went to the supplier and was not cancelled.
+ */
+const fixLeftOut = (trade: string) => sql`(
+  (j.multi_visit_planned_at is not null and j.multi_visit_planned_at <= coalesce((
+    select min(coalesce(v.arrived_at, v.completed_at)) from public.visit v
+    where v.job_id = j.id and v.deleted_at is null
+  ), 'infinity'::timestamptz))
+  or exists (
+    select 1 from public.job_hold h
+    left join public.purchase_order po on po.id = h.purchase_order_id
+    where h.job_id = j.id
+      and h.reason::text = any(${sql.param([...(reporting.FIRST_TIME_FIX_HOLDS[trade] ?? [])])}::text[])
+      and h.placed_at <= j.completed_at
+      and (h.reason <> 'part' or (po.id is not null and po.status not in ('draft', 'cancelled')))
+  )
+)`;
+
+const firstTimeFixes = (pick: "numerator" | "denominator" | "excluded"): Records => (from, to, zone, trade) => sql`
+  select ${jobRow("1", zone)}
+  from public.job j
+  join public.job_type jt on jt.id = j.job_type_id
+  where j.deleted_at is null and j.completed_at is not null
+    and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and ${sql.raw(VISITS_DONE)} >= 1
+    and ${{
+      numerator: sql`not ${fixLeftOut(trade)} and ${sql.raw(VISITS_DONE)} = 1`,
+      denominator: sql`not ${fixLeftOut(trade)}`,
+      excluded: sql`${fixLeftOut(trade)}`,
+    }[pick]}
+`;
 
 /* ------------------------------------------------------------- the entries */
 
@@ -1246,16 +1297,48 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   first_time_fix: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A job that says it was PLANNED as multi visit. The definition EXCLUDES "
-      + "those and jobs held for a part order or an inspection, and 'including "
-      + "planned return visits makes this meaningless'. Visit counts are "
-      + "available; the plan is not, so an install scheduled across three days "
-      + "would count as three failures to fix it first time. A job can be put on "
-      + "hold, but nothing records why, and a purchase order names no job, so a "
-      + "job waiting on a part cannot be told from one waiting on the customer.",
+    measure: {
+      /**
+       * "Jobs completed in one visit divided by all completed jobs, EXCLUDING
+       * jobs planned as multi visit" (HVAC), "and jobs held for a part order"
+       * (plumbing), "or an inspection" (electrical). "Including planned return
+       * visits makes this meaningless."
+       *
+       * WHAT IT NEEDED, and what changed: a job that says it was PLANNED as
+       * several visits, and a hold that says why. A job can now be marked
+       * planned for more than one visit (`job.multi_visit_planned_at`), when it
+       * is booked or before any visit on it has started, and a hold has a
+       * reason from a fixed list with a part hold naming the purchase order the
+       * part is on (`job_hold`, M10 and M16).
+       *
+       * A visit counts when it was done: completed, or completed on a phone that
+       * missed its cancellation. A completed job none of whose visits was done
+       * (finished from the office, brought in from history) has no visit count
+       * to judge and is out of both halves. The jobs left out by the
+       * definition are counted beside the number, so the exclusion is visible
+       * rather than a way to tidy the figure:
+       *
+       *   a plan counts only when it was written no later than the first
+       *   arrival on the job, so a job that went badly cannot be relabelled;
+       *   a hold counts only when it was placed before the job was finished,
+       *   for a reason this trade leaves out (`reporting.FIRST_TIME_FIX_HOLDS`),
+       *   and a part hold only once its order went to the supplier and was not
+       *   cancelled: a draft order is a part nobody has ordered.
+       *
+       * Customer work only, every class but `internal`, as the callback rate
+       * counts it.
+       */
+      numerator: { label: "completed jobs done in one visit", records: firstTimeFixes("numerator") },
+      denominator: { label: "completed jobs, other than those left out", records: firstTimeFixes("denominator") },
+      besides: {
+        excluded: {
+          label: "jobs left out: planned as more than one visit, or held for a reason the definition excludes",
+          records: firstTimeFixes("excluded"),
+        },
+      },
+    },
   },
 
   inspection_pass: {

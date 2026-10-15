@@ -22,6 +22,9 @@ import { dateIn } from "../time/index.js";
  *
  *   AN INSTALL'S MARGIN. Install revenue less material, subcontract, disposal
  *   and burdened labour, counted only over installs whose costs are all in.
+ *
+ *   A FIRST TIME FIX. A completed job done in one visit, with the jobs that
+ *   were planned as several visits, or held for a part order, left out.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -196,4 +199,88 @@ export function installMargin(jobs: readonly InstallJob[]): {
     revenue,
     percent: isZero(revenue) ? null : combine("percent", Number(toString(earned)), Number(toString(revenue))),
   };
+}
+
+/* --------------------------------------------------------- first time fix */
+
+/**
+ * The visit statuses that are work done: a visit completed, and one completed
+ * on a phone that had not heard it was cancelled (which still happened).
+ */
+export const VISIT_DONE = ["completed", "completed_after_cancellation"] as const;
+
+/**
+ * Which holds each trade's first time fix definition leaves out.
+ *
+ * The three packs that declare `first_time_fix` define it three ways, and the
+ * difference is the exclusion, not the arithmetic: HVAC excludes only work
+ * planned as several visits; plumbing also "jobs held for a part order";
+ * electrical "jobs held for a part order or an inspection". A trade not listed
+ * leaves out no hold, which is the HVAC reading and the strict one.
+ */
+export const FIRST_TIME_FIX_HOLDS: Readonly<Record<string, readonly string[]>> = {
+  hvac: [],
+  plumbing: ["part"],
+  electrical: ["part", "inspection"],
+};
+
+export interface FixVisit {
+  status: string;
+  arrivedAt: Date | null;
+  completedAt: Date | null;
+}
+
+export interface FixHold {
+  reason: string;
+  placedAt: Date;
+  /**
+   * For a part hold: the purchase order it names went to the supplier and was
+   * not cancelled. A draft order is not an order, and one cancelled is a part
+   * nobody is waiting for.
+   */
+  orderPlaced: boolean;
+}
+
+export interface FixJob {
+  completedAt: Date;
+  multiVisitPlannedAt: Date | null;
+  visits: readonly FixVisit[];
+  holds: readonly FixHold[];
+}
+
+/**
+ * What one completed job counts as.
+ *
+ *   `unknown`   no visit on it was done, so how many visits it took is not
+ *               recorded (finished from the office, or brought in from
+ *               history). Out of both halves.
+ *   `excluded`  planned as several visits before its first visit started, or
+ *               held for a reason this trade's definition leaves out, before
+ *               it was finished. Out of both halves and counted beside.
+ *   `fixed`     done in one visit.
+ *   `returned`  done in more than one.
+ *
+ * A PLAN IS ONLY A PLAN BEFORE THE WORK. Planned at or before the first moment
+ * anybody arrived (or, with no arrival recorded, finished) a visit on it; a
+ * plan written after that is a return visit described kindly. The jobs service
+ * refuses one, and this reads the time anyway.
+ */
+export function firstTimeFixOf(job: FixJob, trade: string): "unknown" | "excluded" | "fixed" | "returned" {
+  const done = job.visits.filter((v) => (VISIT_DONE as readonly string[]).includes(v.status));
+  if (done.length === 0) return "unknown";
+
+  const starts = job.visits
+    .map((v) => v.arrivedAt ?? v.completedAt)
+    .filter((at): at is Date => at !== null)
+    .map((at) => at.getTime());
+  const started = starts.length > 0 ? Math.min(...starts) : Number.POSITIVE_INFINITY;
+  const planned = job.multiVisitPlannedAt !== null && job.multiVisitPlannedAt.getTime() <= started;
+
+  const leftOut = FIRST_TIME_FIX_HOLDS[trade] ?? [];
+  const held = job.holds.some((hold) => leftOut.includes(hold.reason)
+    && hold.placedAt.getTime() <= job.completedAt.getTime()
+    && (hold.reason !== "part" || hold.orderPlaced));
+
+  if (planned || held) return "excluded";
+  return done.length === 1 ? "fixed" : "returned";
 }

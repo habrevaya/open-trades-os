@@ -120,6 +120,12 @@ export const Job = z.object({
    * seen by the people who see the whole company.
    */
   businessUnitId: Uuid.nullable().optional(),
+  /**
+   * When somebody said this job was planned as more than one visit, before
+   * any visit on it started, or null. The first time fix rate leaves such a
+   * job out. See `multiVisitPlanned`.
+   */
+  multiVisitPlannedAt: z.string().datetime().nullable().optional(),
   visits: z.array(Visit),
   /** Redacted unless the caller holds job.cost:read. */
   cost: MoneyString.nullable().optional(),
@@ -193,6 +199,15 @@ export const JobCreate = z.object({
    * price.
    */
   priceSource: PriceSource.optional(),
+  /**
+   * PLANNED AS MORE THAN ONE VISIT: a two day install, a rough in and a trim
+   * out. The first time fix rate leaves such a job out, because "including
+   * planned return visits makes this meaningless". Said when it is booked or
+   * before any visit on it has started; once somebody has arrived it is
+   * refused, because a plan written after the work is a return visit
+   * described kindly. `false` takes the plan off at any time.
+   */
+  multiVisitPlanned: z.boolean().optional(),
   /**
    * Parties beyond the customer. Omit entirely for residential, where the
    * customer holds every role and the degenerate case should stay simple.

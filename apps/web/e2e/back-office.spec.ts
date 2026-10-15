@@ -282,11 +282,14 @@ test("Trade scorecard: the pack's own numbers come back with both halves, and th
   await expect(ticket).toContainText("over");
 
   /**
-   * And the other half of the answer: the ones it cannot compute, each naming
-   * the datum it needs rather than saying "not built".
+   * And the other half of the answer, which for HVAC is now empty: its last
+   * gap was first time fix, until a job could say it was planned as several
+   * visits. A section listing nothing is not drawn, rather than drawn empty;
+   * a trade with gaps names each datum (`kpis.integration.test.ts`).
    */
-  await expect(owner.getByText("Not computed, and what each one needs")).toBeVisible();
-  await expect(owner.getByText(/Needs:/).first()).toBeVisible();
+  await expect(owner.getByRole("listitem").filter({ hasText: "First time fix rate" })).toBeVisible();
+  await expect(owner.getByText("Not computed, and what each one needs")).toHaveCount(0);
+  await expect(owner.getByText(/Needs:/)).toHaveCount(0);
 
   // A backwards window is refused in a sentence rather than a stack trace.
   await owner.goto(`/reports/scorecard?from=${inDays(30)}&to=${inDays(-30)}`);

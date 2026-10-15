@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Twenty eight of the forty seven are answered: twenty four computed here, four
-by M22's fleet report. The other nineteen each name what they still lack.
+Twenty nine of the forty seven are answered: twenty five computed here, four
+by M22's fleet report. The other eighteen each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -77,7 +77,7 @@ to it but holds only part of what the haul earned, and a cost can be put on a
 job but nothing marks a supply as billed back. The four retention, renewal and
 churn figures moved when a cancellation got a coded reason (below).
 
-The nineteen were checked once more against everything that has shipped since:
+The nineteen (as they then were) were checked once more against everything that has shipped since:
 punches on a crew's visits, costs journalled to a job and overhead as a mix,
 staff notices, call queues and calling back, inspections signed on the phone,
 hauls to a disposal facility and a truck's own kind, shared commission, budgets
@@ -90,8 +90,8 @@ but not the city's visits to it; the pest pack's template already asks why no
 product was applied, so record completeness lacks only the list of fields a
 report was required to capture when it was written; the electrical pack
 declares a panel's rating, open spaces and known concern, but the register
-holds no value to that declaration; a job can be put on hold, but nothing says
-it is waiting on a part; and the phone's positions are kept three days by
+holds no value to that declaration; a job could be put on hold, but nothing said
+it was waiting on a part (it can now, below); and the phone's positions are kept three days by
 design, so a month's route miles are gone before a month's figure could read
 them.
 
@@ -163,6 +163,39 @@ a job's margin takes: reading it needs the job costing permission and the
 financial reports permission (`job.cost:read` and `report.financial:read`), and a
 reader without them is told which in the unavailable list instead of being shown
 a margin one division away from the cost column.
+
+### First time fix, and the two data it waited on
+
+Plumbing's, HVAC's and electrical's **first time fix rate** is completed jobs
+done in one visit over completed jobs, and all three definitions leave jobs
+out: HVAC's those "planned as multi visit", plumbing's those and "jobs held for
+a part order", electrical's those and jobs held "for a part order or an
+inspection". Visit counts were always here; the plan and the reason a job
+waited were not. Both are recorded now (M10): a job can say it is **planned for
+more than one visit**, when it is booked or before anybody has arrived at a
+visit on it, and a **hold has a reason** from a fixed list, a part hold naming
+the purchase order the part is on.
+
+- A visit counts when it was done: completed, or completed on a phone that
+  missed its cancellation. A completed job none of whose visits was done
+  (finished from the office, brought in from history) has no count to judge
+  and is in neither half.
+- A plan counts only when it was said no later than the first arrival on the
+  job, so a job that went badly cannot be relabelled afterwards. The jobs
+  service refuses a late one as well.
+- A hold counts only when it was placed before the job was finished and for a
+  reason the company's trade leaves out (`reporting.FIRST_TIME_FIX_HOLDS` in
+  core), and a part hold only once its order went to the supplier and was not
+  cancelled: a draft is a part nobody has ordered.
+- Customer work only, every class but internal, as the callback rate counts it.
+
+The jobs left out are **counted beside the number** and open like a half
+(`half=excluded`), so the exclusion is visible rather than a way to tidy the
+figure. The rule is core's `reporting.firstTimeFixOf`, with unit tests, written
+again in SQL, and `kpi-first-time-fix.integration.test.ts` checks a month worked
+out by hand under each of the three trades and puts the same jobs through both.
+The catalogue's records take the company's trade for this one key, because the
+three packs define it three ways.
 
 ### The four that waited on a coded cancellation reason
 
@@ -640,12 +673,20 @@ prefix off.
 
 ## What is not built
 
-Nineteen of the forty seven declared KPIs cannot be computed, and each one
+Eighteen of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the nineteen has its datum yet (above, "The
-unavailable list"); none is computed from something near it instead. The records
+since they were written and none of the eighteen has its datum yet (above, "The
+unavailable list"); none is computed from something near it instead.
+
+First time fix leaves out a part hold only when it names a purchase order in
+this product that went to the supplier, so a part bought over the counter and
+never written as an order counts as a return visit; the conservative choice,
+because a hold the office could claim without an order is the easiest way to
+tidy the figure. A job planned as several visits after somebody arrived counts
+as a return visit for the same reason. Holds are placed in the office, not on
+the phone. The records
 behind a KPI are listed only for a reader whose scope is the whole company. A
 page of records, of a report or of a KPI, is always a thousand: the API takes
 which page, not how many to a page. A custom field on an address, a unit or a

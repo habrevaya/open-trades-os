@@ -60961,6 +60961,144 @@
         "x-dry-run": true
       }
     },
+    "/v1/job-holds/{id}/released": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "releaseJobHold",
+        "summary": "Take a job off hold",
+        "description": "Closes the hold and puts the job back in the status it was held from. A job somebody already moved off hold some other way only has its hold closed (an ordinary status change closes it too).\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseJobHoldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a job off hold",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseJobHoldOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
+        ]
+      }
+    },
     "/v1/job-types": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -62689,6 +62827,248 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RestoreJobSkillOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
+        ]
+      }
+    },
+    "/v1/jobs/{id}/holds": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listJobHolds",
+        "summary": "Why a job is, or was, on hold",
+        "description": "Every hold the job has had, oldest first. The open one has no `releasedAt`.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Why a job is, or was, on hold",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListJobHoldsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      },
+      "post": {
+        "operationId": "placeJobHold",
+        "summary": "Put a job on hold, saying why",
+        "description": "Moves a booked job, or one under way, to on hold with a reason from a fixed list. A part hold names the purchase order the part is on (and needs `po:read` to name it); an inspection, or anything else, says which in `note`. A job already on hold for a reason is refused: take it off hold first. A job moved to on hold before reasons existed can be given one here, and goes back to booked when it comes off.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaceJobHoldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put a job on hold, saying why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceJobHoldOutput"
                 }
               }
             }
@@ -159465,6 +159845,9 @@
               "bid"
             ]
           },
+          "multiVisitPlanned": {
+            "type": "boolean"
+          },
           "parties": {
             "type": "array",
             "items": {
@@ -159764,6 +160147,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "multiVisitPlannedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "visits": {
             "type": "array",
@@ -187445,6 +187835,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "multiVisitPlannedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "visits": {
             "type": "array",
@@ -218903,6 +219300,113 @@
           "clocks"
         ]
       },
+      "ListJobHoldsOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "part",
+                    "inspection",
+                    "customer",
+                    "weather",
+                    "other"
+                  ]
+                },
+                "reasonLabel": {
+                  "type": "string"
+                },
+                "purchaseOrderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "purchaseOrderNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "purchaseOrderStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "statusBefore": {
+                  "type": "string",
+                  "enum": [
+                    "lead",
+                    "estimating",
+                    "scheduled",
+                    "in_progress",
+                    "on_hold",
+                    "completed",
+                    "invoiced",
+                    "paid",
+                    "cancelled"
+                  ]
+                },
+                "placedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "placedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "releasedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "jobId",
+                "reason",
+                "reasonLabel",
+                "purchaseOrderId",
+                "purchaseOrderNumber",
+                "purchaseOrderStatus",
+                "note",
+                "statusBefore",
+                "placedAt",
+                "placedByName",
+                "releasedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "ListJobLinesOutput": {
         "type": "object",
         "properties": {
@@ -219217,6 +219721,13 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "multiVisitPlannedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
                 },
                 "cost": {
                   "type": [
@@ -237904,6 +238415,139 @@
           "locationSource"
         ]
       },
+      "PlaceJobHoldInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "part",
+              "inspection",
+              "customer",
+              "weather",
+              "other"
+            ]
+          },
+          "purchaseOrderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "PlaceJobHoldOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "part",
+                    "inspection",
+                    "customer",
+                    "weather",
+                    "other"
+                  ]
+                },
+                "reasonLabel": {
+                  "type": "string"
+                },
+                "purchaseOrderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "purchaseOrderNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "purchaseOrderStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "statusBefore": {
+                  "type": "string",
+                  "enum": [
+                    "lead",
+                    "estimating",
+                    "scheduled",
+                    "in_progress",
+                    "on_hold",
+                    "completed",
+                    "invoiced",
+                    "paid",
+                    "cancelled"
+                  ]
+                },
+                "placedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "placedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "releasedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "jobId",
+                "reason",
+                "reasonLabel",
+                "purchaseOrderId",
+                "purchaseOrderNumber",
+                "purchaseOrderStatus",
+                "note",
+                "statusBefore",
+                "placedAt",
+                "placedByName",
+                "releasedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "PlacePriceBookCategoryInput": {
         "type": "object",
         "properties": {
@@ -248079,6 +248723,117 @@
           "previousSecretExpiresAt",
           "createdAt",
           "secret"
+        ]
+      },
+      "ReleaseJobHoldInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReleaseJobHoldOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "part",
+                    "inspection",
+                    "customer",
+                    "weather",
+                    "other"
+                  ]
+                },
+                "reasonLabel": {
+                  "type": "string"
+                },
+                "purchaseOrderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "purchaseOrderNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "purchaseOrderStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "statusBefore": {
+                  "type": "string",
+                  "enum": [
+                    "lead",
+                    "estimating",
+                    "scheduled",
+                    "in_progress",
+                    "on_hold",
+                    "completed",
+                    "invoiced",
+                    "paid",
+                    "cancelled"
+                  ]
+                },
+                "placedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "placedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "releasedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "jobId",
+                "reason",
+                "reasonLabel",
+                "purchaseOrderId",
+                "purchaseOrderNumber",
+                "purchaseOrderStatus",
+                "note",
+                "statusBefore",
+                "placedAt",
+                "placedByName",
+                "releasedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "ReleasePhoneNumberInput": {
@@ -276358,6 +277113,9 @@
               "bid"
             ]
           },
+          "multiVisitPlanned": {
+            "type": "boolean"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -276537,6 +277295,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "multiVisitPlannedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "visits": {
             "type": "array",

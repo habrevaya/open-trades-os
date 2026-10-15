@@ -25,6 +25,7 @@ export * from "./platform";
 export * from "./comms";
 export * from "./automation";
 export * from "./inventory";
+export * from "./job-holds";
 export * from "./rentals";
 export * from "./marketing";
 export * from "./tracking";

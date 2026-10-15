@@ -4,7 +4,7 @@ import type { RouteDefinition, AuthOf } from "../lib/define";
 import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
-  customers, jobs, billing, estimates, estimateExpiry, deposits, portal, booking,
+  customers, jobs, jobHolds, billing, estimates, estimateExpiry, deposits, portal, booking,
   fieldOps, fieldDevices, fieldPayments, knowledge, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting, accountingBranches,
@@ -120,6 +120,9 @@ export const handlers = {
   completeVisit: jobs.complete,
   listJobLines: jobs.lines,
   listJobTypes: jobs.listTypes,
+  listJobHolds: jobHolds.handlers.listJobHolds,
+  placeJobHold: jobHolds.handlers.placeJobHold,
+  releaseJobHold: jobHolds.handlers.releaseJobHold,
 
   // Money
   createInvoice: (ctx, input) => billing.create(ctx, input, { requireFields: true }),
