@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { anthropicProvider } from "../src/ai/anthropic";
 import { openAiProvider } from "../src/ai/openai";
+import { googleProvider } from "../src/ai/google";
 import type { CompletionRequest, HttpResponse, HttpTransport, StreamDelta } from "../src/ai/provider";
 
 /**
@@ -124,5 +125,95 @@ describe("OpenAI, streamed", () => {
         usage: { inputTokens: 80, outputTokens: 12, cachedInputTokens: null },
       },
     });
+  });
+});
+
+/**
+ * Google's `streamGenerateContent?alt=sse`: every event a
+ * `GenerateContentResponse` with the next parts, usage reported as it grows.
+ * Text arrives in pieces; Google documents a function call only whole, so it
+ * is handed on in one piece when its event comes.
+ */
+describe("Google, streamed", () => {
+  const event = (parts: unknown[], extra: Record<string, unknown> = {}) =>
+    [null, { candidates: [{ content: { role: "model", parts }, index: 0 }], modelVersion: "gemini-test-001", ...extra }] as [null, unknown];
+
+  it("asks the streaming method with the key in a header, hands on text as it comes, and answers whole", async () => {
+    const body = sse([
+      event([{ text: "We open " }], { usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 2 } }),
+      event([{ text: "at seven." }]),
+      [null, { candidates: [{ content: { role: "model", parts: [] }, finishReason: "STOP", index: 0 }], usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 9 } }],
+    ]);
+    const sent: { url: string; headers: Record<string, string> }[] = [];
+    const { transport } = streaming(body, 13);
+    const watching: HttpTransport = async (url, init) => { sent.push({ url, headers: init.headers }); return transport(url, init); };
+    const deltas: StreamDelta[] = [];
+    const outcome = await googleProvider({ baseUrl: "https://gemini.test/v1beta" }, SECRET, watching).stream!(request, (d) => deltas.push(d));
+    expect(sent[0]!.url).toBe("https://gemini.test/v1beta/models/test-model:streamGenerateContent?alt=sse");
+    expect(sent[0]!.url).not.toContain(SECRET);
+    expect(sent[0]!.headers["x-goog-api-key"]).toBe(SECRET);
+    expect(deltas).toEqual([{ type: "text", text: "We open " }, { type: "text", text: "at seven." }]);
+    expect(outcome).toEqual({
+      ok: true,
+      completion: {
+        model: "gemini-test-001", stop: "end",
+        content: [{ type: "text", text: "We open at seven." }],
+        usage: { inputTokens: 40, outputTokens: 9, cachedInputTokens: null },
+      },
+    });
+  });
+
+  it("hands on a function call in one piece when it arrives, and answers with it as a tool call", async () => {
+    const body = sse([
+      event([{ functionCall: { name: "reply", args: { text: "It is $149. Shall I book?" } } }], { usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 12 } }),
+      [null, { candidates: [{ content: { role: "model", parts: [] }, finishReason: "STOP", index: 0 }], usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 12 } }],
+    ]);
+    const deltas: StreamDelta[] = [];
+    const outcome = await googleProvider({}, SECRET, streaming(body).transport).stream!(request, (d) => deltas.push(d));
+    expect(deltas).toEqual([
+      { type: "toolStart", index: 0, name: "reply" },
+      { type: "toolInput", index: 0, partialJson: '{"text":"It is $149. Shall I book?"}' },
+    ]);
+    expect(outcome).toMatchObject({
+      ok: true,
+      completion: {
+        stop: "toolUse",
+        content: [{ type: "toolCall", callId: "gemini-0-reply", name: "reply", input: { text: "It is $149. Shall I book?" } }],
+      },
+    });
+  });
+
+  it("fails an answer whose usage never came, and a blocked prompt, as whole ones would", async () => {
+    const noUsage = sse([event([{ text: "Hello." }], { candidates: [{ content: { parts: [{ text: "Hello." }] }, finishReason: "STOP" }] })]);
+    expect(await googleProvider({}, SECRET, streaming(noUsage).transport).stream!(request, () => {}))
+      .toMatchObject({ ok: false, code: "no_usage" });
+    const blocked = sse([[null, { promptFeedback: { blockReason: "SAFETY" }, usageMetadata: { promptTokenCount: 9 } }]]);
+    expect(await googleProvider({}, SECRET, streaming(blocked).transport).stream!(request, () => {}))
+      .toMatchObject({ ok: false, code: "blocked_safety" });
+  });
+
+  it("fails on an error sent in the middle of the stream, without the key in what it says", async () => {
+    const body = sse([
+      event([{ text: "We open " }], { usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 2 } }),
+      [null, { error: { code: 503, status: "UNAVAILABLE", message: `The model is overloaded for ${SECRET}.` } }],
+    ]);
+    const outcome = await googleProvider({}, SECRET, streaming(body).transport).stream!(request, () => {});
+    expect(outcome).toMatchObject({ ok: false, code: "UNAVAILABLE" });
+    expect(JSON.stringify(outcome)).not.toContain(SECRET);
+  });
+
+  it("reads an answer that came back whole, or an error status, the ordinary way", async () => {
+    const whole = JSON.stringify({
+      candidates: [{ content: { parts: [{ text: "Hello." }] }, finishReason: "STOP" }],
+      usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2 },
+    });
+    expect(await googleProvider({}, SECRET, streaming(whole, 7, "application/json").transport).stream!(request, () => {}))
+      .toMatchObject({ ok: true, completion: { content: [{ type: "text", text: "Hello." }] } });
+    const refused: HttpTransport = async () => ({
+      status: 429, contentType: "application/json",
+      text: async () => JSON.stringify({ error: { code: 429, status: "RESOURCE_EXHAUSTED", message: "Slow down." } }),
+    });
+    expect(await googleProvider({}, SECRET, refused).stream!(request, () => {}))
+      .toMatchObject({ ok: false, code: "RESOURCE_EXHAUSTED", retryable: true });
   });
 });

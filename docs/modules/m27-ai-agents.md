@@ -164,7 +164,7 @@ phone and email on the record and only for one of their addresses; any other
 address gets "Which of your addresses on file is this for?". With it off, the
 message goes to a person.
 
-**Writing as it thinks.** On a connection that streams (Anthropic and OpenAI), the
+**Writing as it thinks.** On a connection that streams a reply as it is written (Anthropic and OpenAI), the
 visitor sees a reply while the model is still writing it, in a bubble marked
 "Automated assistant, writing": each sentence once it is finished, and a sentence
 naming a price the company has not published is never shown, nor anything after it.
@@ -185,7 +185,10 @@ part way is not sent again; the widget reads the chat for the reply. The whole a
 then checked exactly as before, and only it is kept: the reply that becomes the
 message, or a person being asked to answer, takes the bubble's place. Only a reply is
 shown this way; what goes with a booking or a hand over is shown once it has been
-done. Texts are sent whole, and a Google connection answers whole.
+done. Texts are sent whole. A Google connection streams too, through Google's
+`streamGenerateContent`, but Google's documentation shows a function call's arguments
+only whole, and every agent here answers through one, so on Google the reply arrives in
+one piece at the end and is shown or said whole.
 
 ### Phone assistant
 
@@ -212,8 +215,9 @@ spend ceiling or its runs a day stop it, when the model fails, and when an answe
 have said a price the company has not published, which is never said. A caller put
 through goes to the ring group on its settings, or voicemail.
 
-**Speaking as it thinks.** With a model connection that streams (Anthropic and OpenAI do
-here; Google's sends a tool call's arguments whole, so it is asked for the whole answer),
+**Speaking as it thinks.** With a model connection that streams a tool call's arguments
+as they are written (Anthropic and OpenAI; Google's connection streams but sends a tool
+call's arguments whole, so its reply is said once it is complete),
 a reply is said a sentence at a time while the model is still writing the rest: each
 sentence goes to ConversationRelay as soon as it is finished, as a text token with `last`
 false, and the rest of the answer follows with `last` true once the whole of it has been
@@ -300,8 +304,8 @@ it answered and from how many records, never what was asked.
 `POST /v1/ai/field-assistant` is the same, and a retry with the same
 idempotency key answers from the record rather than asking twice.
 
-On `/my-day` the answer is shown as it is written, on a connection that streams
-(Anthropic and OpenAI): each finished sentence appears under "Still writing...",
+On `/my-day` the answer is shown as it is written, on a connection that streams it
+as it is written (Anthropic and OpenAI): each finished sentence appears under "Still writing...",
 and a sentence naming an amount that is not in the records it was given is never
 shown, nor anything after it. The screen asks through `/my-day/ask`, which sends
 the answer so far line by line and then the whole answer after its checks: whether
@@ -426,7 +430,7 @@ handshake are untested, and so is how the carrier paces text tokens sent with `l
 false. It needs the voice relay deployed as its own process; with no relay, calls sent to
 it are put through instead, and a relay restarted mid call puts that caller through. A
 reply is spoken as it is written only on Anthropic and OpenAI connections, and only a
-reply: on a Google connection, and for everything that goes with a booking or a message,
+reply: on a Google connection (which streams, but hands over a tool call whole), and for everything that goes with a booking or a message,
 the caller hears nothing until the answer is complete. A sentence is spoken only once it
 is finished, so the first words wait for the first full stop. It speaks and hears English
 only. It keeps what
@@ -440,8 +444,12 @@ meaning, so a question in words no note uses finds nothing and says so; it reads
 equipment and notes of one address and the price book, not the photographs, the
 manufacturer's literature or another customer's history, and it needs a signal. The
 phone assistant, the website chat and the field assistant show an answer as
-it is written, on Anthropic and OpenAI connections only; on a Google connection they
-answer whole. A sentence is shown only once it is finished, so a reply of one long
+it is written, on Anthropic and OpenAI connections only. A Google connection streams
+through `streamGenerateContent`, tested against a fake of Google's events and never
+against Google, but Google's documentation shows a function call's arguments only
+whole, so the reply, which every agent writes as a function call, arrives in one piece
+and is shown whole; a Google model that streamed the arguments in pieces would still be
+read whole by this adapter. A sentence is shown only once it is finished, so a reply of one long
 sentence appears all at once. The website chat's reply reaches the visitor as a stream, but a visitor may read the
 start of a reply that the whole answer's check then replaces with a hand over to a
 person (never a sentence with an unpublished price). Where the stream cannot open, the

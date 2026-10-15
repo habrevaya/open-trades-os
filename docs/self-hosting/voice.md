@@ -128,7 +128,8 @@ The phone assistant (M27) is the company's own model answering a call. Twilio
 holds the call with ConversationRelay, turns the caller's speech into text and
 sends it over a WebSocket; the answer goes back as text and Twilio reads it
 aloud, a sentence at a time while the model is still writing when the model
-connection streams (Anthropic and OpenAI). The web app cannot hold a WebSocket open (a Next.js route handler
+connection streams a reply as it is written (Anthropic and OpenAI; a Google
+connection hands over a reply whole, so it is said once it is complete). The web app cannot hold a WebSocket open (a Next.js route handler
 answers a request and is done), so the conversations go to the **voice
 relay**, a small process of its own:
 
