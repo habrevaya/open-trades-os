@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -47,7 +48,14 @@ export default async function ChangeRecurringTaskPage({ params }: { params: Prom
             they are, because somebody may be halfway through one. A day that was missed is not made up.
           </p>
           <ActionForm action={changeTemplate} submit="Save changes" className="mt-4 space-y-3" hidden={{ id: template.id }}>
-            <TemplateFields template={template} people={people} today={todayIn(tz)} />
+            {/*
+              Keyed on what is held, so once a save lands the boxes are drawn again with it,
+              whatever order the form's own reset and the refreshed page arrive in. Only the
+              boxes: the form keeps its answer ("Saved. It applies from the next time...").
+            */}
+            <Fragment key={JSON.stringify(template)}>
+              <TemplateFields template={template} people={people} today={todayIn(tz)} />
+            </Fragment>
           </ActionForm>
         </section>
       ) : (

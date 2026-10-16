@@ -12,7 +12,7 @@ const ready = (page: Page) => page.waitForFunction(() => (window as { __otsReady
  */
 
 test("a recurring task's title, schedule and checklist are changed on its own page", async ({ owner }) => {
-  const title = `Check the vans ${run}`;
+  const title = `Wash the trucks ${run}`;
   await owner.goto("/tasks/recurring");
   await owner.getByLabel("What needs doing").fill(title);
   await owner.getByLabel("How often").selectOption("weekly");
@@ -31,7 +31,7 @@ test("a recurring task's title, schedule and checklist are changed on its own pa
   await expect(owner.getByLabel("What needs doing")).toHaveValue(title);
   await expect(owner.getByLabel("Checklist, one item a line")).toHaveValue("Tyres\nOil");
 
-  const renamed = `Check the vans and trailers ${run}`;
+  const renamed = `Wash the trucks and trailers ${run}`;
   await owner.getByLabel("What needs doing").fill(renamed);
   await owner.getByLabel("How often").selectOption("every_n_weeks");
   await owner.getByLabel(/^Day of the week/).selectOption("3");
