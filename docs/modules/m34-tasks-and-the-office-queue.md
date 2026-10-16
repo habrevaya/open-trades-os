@@ -432,8 +432,11 @@ switched late tasks on, if they can open tasks at all.
 own page, with their own number. The office's part is having a registered
 number that can send texts.
 
-**What raises an obligation today?** One thing: a visit completed after it was
-cancelled. The primitive is built for more than that and nothing else writes one yet.
+**What raises an obligation today?** Several things, listed at the end of "What is not
+built": a visit completed after it was cancelled, a contract's clocks on a job, an
+invoice the contract does not price, compliance documents and filings, and a serialised
+unit installed on a job whose maker wants it registered. The primitive is built for more
+than that.
 
 ## What is not built
 
@@ -500,6 +503,10 @@ up and no further, so it does no harm, but nothing warns about it.
 Obligations are raised by work finished on a cancelled visit, by a contract's
 clocks on a job (respond by, on site by, finished by, invoice by and claim by,
 M31), by an invoice carrying an item the customer's rate card does not price or
-going over a contract's not to exceed amount, and by compliance documents running out and filings falling due
-(M23). A warranty registration deadline, which the obligation kinds name, is
-raised by nothing.
+going over a contract's not to exceed amount, by compliance documents running out and filings falling due
+(M23), and by a serialised unit installed on a job whose price book item says its maker
+wants it registered within so many days (`warranty.register_by`, M32). That last one is
+kept on the unit rather than the job, and is closed by recording the registration on the
+unit with `equipment:write`, not the task permissions an obligation is normally closed
+with. A unit put on the register by hand, or an item not tracked by serial number, raises
+no registration deadline.

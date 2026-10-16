@@ -9,6 +9,7 @@ import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { enforceWithin } from "./custom-fields";
 import { propertyVisibility } from "./scope";
 import { textFilter } from "./text-search";
+import * as warrantyRegistration from "./warranty-registration";
 
 /**
  * THE EQUIPMENT AT AN ADDRESS
@@ -505,6 +506,9 @@ export async function retire(
       .where(eq(schema.equipment.id, input.id))
       .returning();
 
+    /** A unit no longer on the register owes its maker nothing. */
+    await warrantyRegistration.cancelForRetired(tx, ctx.actor.organizationId, input.id);
+
     await audit(tx, ctx, "equipment.retired", "equipment", input.id, before, after!);
     return { id: input.id, retired: true as const, on, reason };
   });
@@ -798,6 +802,9 @@ export async function get(ctx: ServiceContext, input: { id: string; on?: string 
       customer,
       parent: parent ?? null,
       children,
+      warrantyRegistration: await warrantyRegistration.standingWithin(tx, ctx.actor.organizationId, {
+        id: row.id, registeredOn: row.warrantyRegisteredOn, reference: row.warrantyRegistrationReference,
+      }),
     };
   });
 }

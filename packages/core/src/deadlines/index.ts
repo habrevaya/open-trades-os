@@ -30,9 +30,14 @@ export const DEADLINE_LABEL: Record<DeadlineKind, string> = {
   "claim.file_by": "Claim by",
 };
 
+/** The kinds raised outside a contract, which have a name worth reading. */
+const OTHER_LABEL: Record<string, string> = {
+  "warranty.register_by": "Register the warranty by",
+};
+
 /** A label for any kind, including the ones raised elsewhere in the product. */
 export const deadlineLabel = (kind: string): string =>
-  DEADLINE_LABEL[kind as DeadlineKind] ?? kind.replace(/[._]/g, " ");
+  DEADLINE_LABEL[kind as DeadlineKind] ?? OTHER_LABEL[kind] ?? kind.replace(/[._]/g, " ");
 
 /** The SLA kinds a contract can state, as the contract writes them. */
 export const SLA_KINDS = ["respond", "arrive", "complete"] as const;

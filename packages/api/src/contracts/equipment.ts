@@ -132,6 +132,17 @@ export const getEquipment = defineRoute({
     /** What it is nested in, and what is nested in it, one level each way. */
     parent: z.object({ id: Uuid, tag: z.string().nullable(), category: z.string() }).nullable(),
     children: z.array(z.object({ id: Uuid, tag: z.string().nullable(), category: z.string() })),
+    /**
+     * Where the unit stands on registering its warranty with its maker (M32). `dueBy` is the last
+     * day, in the company's calendar, while a deadline from an install is open; `overdue` is worked
+     * out against the clock. `registeredOn` and `reference` are null until somebody records it.
+     */
+    warrantyRegistration: z.object({
+      registeredOn: IsoDate.nullable(),
+      reference: z.string().nullable(),
+      dueBy: IsoDate.nullable(),
+      overdue: z.boolean(),
+    }),
   }),
 });
 
@@ -370,7 +381,26 @@ export const retireEquipment = defineRoute({
   }),
 });
 
+export const recordWarrantyRegistration = defineRoute({
+  method: "post",
+  path: "/v1/equipment/{id}/warranty-registration",
+  summary: "Say a unit has been registered with its maker",
+  description:
+    "Records the day (today in the company's calendar when left out) and the maker's reference, and closes the registration deadline an install raised for the unit, with the day it was done, so a late registration is met late rather than hidden. The deadline is raised when a serialised part whose price book item has `warrantyRegistrationDays` is issued to a job and becomes, or goes into, the customer's unit. A day that has not come yet, or one before the unit went in, is refused. Saying it again corrects the day or the reference shown on the unit; a deadline already closed stays closed. Needs `equipment:write`, not the task permissions, because the person who registers a unit is usually the technician who installed it.",
+  module: "M32",
+  permissions: ["equipment:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, registeredOn: IsoDate.optional(), reference: z.string().max(120).nullish() }),
+  output: z.object({
+    id: Uuid,
+    registeredOn: IsoDate,
+    reference: z.string().nullable(),
+    /** How many open deadlines this closed. */
+    closed: z.number().int(),
+  }),
+});
+
 export const equipmentRoutes = {
   listEquipment, getEquipment, getEquipmentHistory, getWarrantyWatch, listEquipmentSerialMatches,
-  registerEquipment, updateEquipment, moveEquipment, retireEquipment,
+  registerEquipment, updateEquipment, moveEquipment, retireEquipment, recordWarrantyRegistration,
 } as const;

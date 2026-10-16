@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { coverage, money as m, work } from "../src/index";
+import { coverage, deadlines, money as m, work } from "../src/index";
 
 /**
  * WHO IS PAYING, AND WHY
@@ -226,5 +226,40 @@ describe("a branch's mark on a job or invoice number", () => {
   it("prints the number with its mark, or alone", () => {
     expect(work.documentNumber("AUS", 1042)).toBe("AUS-1042");
     expect(work.documentNumber(null, 1042)).toBe("1042");
+  });
+});
+
+describe("a maker's registration deadline", () => {
+  it("counts the days from the install and lets the last day itself be in time", () => {
+    expect(coverage.registrationLastDay("2026-10-15", 30)).toBe("2026-11-14");
+    expect(coverage.registrationLastDay("2026-12-20", 30)).toBe("2027-01-19");
+    expect(coverage.registrationLastDay("2028-02-15", 14)).toBe("2028-02-29");
+    expect(coverage.registrationLastDay("2026-10-15", 365)).toBe("2027-10-15");
+  });
+
+  it("refuses a number of days that is not a whole number from one to a year", () => {
+    for (const days of [0, -3, 1.5, 366]) expect(() => coverage.registrationLastDay("2026-10-15", days)).toThrow(/whole number from 1 to 365/);
+  });
+
+  it("reminds a week ahead, or from the install day when the window is a week or less", () => {
+    expect(coverage.registrationReminderDay("2026-10-15", "2026-11-14")).toBe("2026-11-07");
+    expect(coverage.registrationReminderDay("2026-10-15", "2026-10-22")).toBe("2026-10-15");
+    expect(coverage.registrationReminderDay("2026-10-15", "2026-10-18")).toBe("2026-10-15");
+  });
+
+  it("says what is owed in a first sentence that works as a title", () => {
+    const text = coverage.registrationConsequence({
+      unit: "the Furnace (59SC5, serial FN-1)", maker: "Carrier", lastDay: "2026-11-14", jobLabel: "AUS-1042",
+    });
+    expect(text).toBe("Register the Furnace (59SC5, serial FN-1) with Carrier by 2026-11-14. The warranty may not start until it is registered. It went in on job AUS-1042.");
+    expect(coverage.registrationTitle(text)).toBe("Register the Furnace (59SC5, serial FN-1) with Carrier by 2026-11-14");
+    expect(coverage.registrationConsequence({ unit: "the Coil", maker: null, lastDay: "2026-11-14", jobLabel: null }))
+      .toBe("Register the Coil with the maker by 2026-11-14. The warranty may not start until it is registered.");
+    expect(coverage.registrationTitle(null)).toBe("Register the unit with its maker");
+  });
+
+  it("is the kind the schema has always named, and has a label people can read", () => {
+    expect(coverage.WARRANTY_REGISTRATION_KIND).toBe("warranty.register_by");
+    expect(deadlines.deadlineLabel("warranty.register_by")).toBe("Register the warranty by");
   });
 });

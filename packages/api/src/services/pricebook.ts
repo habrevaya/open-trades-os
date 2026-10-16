@@ -139,6 +139,7 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     taxClass: row.version.taxClass ?? null,
     laborMinutes: row.version.laborMinutes ?? null,
     warrantyMonths: row.version.warrantyMonths ?? null,
+    warrantyRegistrationDays: row.version.warrantyRegistrationDays ?? null,
     components: row.version.components,
     active: row.item.active,
     externalRef: row.item.sourceSystem && row.item.sourceId
@@ -262,6 +263,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       taxClass: input.taxClass ?? null,
       laborMinutes: input.laborMinutes ?? null,
       warrantyMonths: input.warrantyMonths ?? null,
+      warrantyRegistrationDays: input.warrantyRegistrationDays ?? null,
       effectiveFrom: new Date(),
     }).returning();
 
@@ -316,6 +318,7 @@ export async function revise(ctx: ServiceContext, input: z.infer<typeof revisePr
       ...(input.taxable !== undefined ? { taxable: input.taxable } : {}),
       ...(input.taxClass !== undefined ? { taxClass: input.taxClass } : {}),
       ...(input.warrantyMonths !== undefined ? { warrantyMonths: input.warrantyMonths } : {}),
+      ...(input.warrantyRegistrationDays !== undefined ? { warrantyRegistrationDays: input.warrantyRegistrationDays } : {}),
       ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
       ...(input.commissionRate !== undefined ? { commissionRate: input.commissionRate } : {}),
       ...(input.components !== undefined ? { components: await checkedComponents(tx, current.item.id, input.components) } : {}),
@@ -348,6 +351,8 @@ export interface RevisionChanges {
    */
   taxClass?: string | null;
   warrantyMonths?: number | null;
+  /** Days after an install the maker allows to register the unit. Null clears it; left out it carries forward. */
+  warrantyRegistrationDays?: number | null;
   /** A kit's parts, already checked by `checkedComponents`. */
   components?: Array<{ itemId: string; quantity: number }>;
   /** The picture's https address; null takes it off, left out it carries forward. */
@@ -461,6 +466,8 @@ export async function reviseWithin(
     taxClass: changes.taxClass !== undefined ? changes.taxClass : current.version.taxClass,
     commissionRate: changes.commissionRate !== undefined ? changes.commissionRate : current.version.commissionRate,
     warrantyMonths: changes.warrantyMonths !== undefined ? changes.warrantyMonths : current.version.warrantyMonths,
+    warrantyRegistrationDays: changes.warrantyRegistrationDays !== undefined
+      ? changes.warrantyRegistrationDays : current.version.warrantyRegistrationDays,
     components: changes.components ?? current.version.components,
     effectiveFrom,
   }).returning();

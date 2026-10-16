@@ -1,3 +1,4 @@
+import { addDays } from "../time/index.js";
 import { type Money, add, subtract, multiply, min, zero, isNegative } from "../money/index.js";
 
 /**
@@ -256,3 +257,59 @@ export function split(entitlement: Entitlement, charges: Charge[]): Split {
  */
 export const isOurCost = (source: CoverageSource): boolean =>
   source === "our_warranty" || source === "goodwill" || source === "no_charge_callback";
+
+/* ----------------------------------------------- registering a unit */
+
+/**
+ * The deadline a maker puts on registering a unit, as the obligation that
+ * keeps it. The same string the schema's own comment names.
+ */
+export const WARRANTY_REGISTRATION_KIND = "warranty.register_by";
+
+/** The longest a maker is taken to allow, in days. A year is already generous. */
+export const MAX_REGISTRATION_DAYS = 365;
+
+/** Days before the last day that the office is reminded, in the queue. */
+export const REGISTRATION_REMINDER_DAYS = 7;
+
+/**
+ * The last day a unit can be registered, counted from the day it went in.
+ *
+ * "Within 30 days of installation" is read as the install day plus thirty, and
+ * registering ON that day is in time. Calendar days with no zone: the caller
+ * says which company's day the install was.
+ */
+export function registrationLastDay(installedOn: string, days: number): string {
+  if (!Number.isInteger(days) || days < 1 || days > MAX_REGISTRATION_DAYS) {
+    throw new Error(`Registration days have to be a whole number from 1 to ${MAX_REGISTRATION_DAYS}.`);
+  }
+  return addDays(installedOn, days);
+}
+
+/**
+ * The day the office starts being reminded: a week before the last day, or the
+ * install day itself when the maker allows a week or less, so a short window
+ * does not start its reminder before the unit is in.
+ */
+export function registrationReminderDay(installedOn: string, lastDay: string): string {
+  const week = addDays(lastDay, -REGISTRATION_REMINDER_DAYS);
+  return week > installedOn ? week : installedOn;
+}
+
+/**
+ * What the deadline says, in two sentences. The first stands alone as the
+ * title of the task the reminder raises, so it names the unit and the day.
+ */
+export function registrationConsequence(input: {
+  unit: string; maker: string | null; lastDay: string; jobLabel: string | null;
+}): string {
+  const who = input.maker ? `with ${input.maker}` : "with the maker";
+  const where = input.jobLabel ? ` It went in on job ${input.jobLabel}.` : "";
+  return `Register ${input.unit} ${who} by ${input.lastDay}. The warranty may not start until it is registered.${where}`;
+}
+
+/** The first sentence of a registration deadline, which is its task's title. */
+export function registrationTitle(consequence: string | null): string {
+  const first = (consequence ?? "").split(/\.\s/)[0]?.trim() ?? "";
+  return first === "" ? "Register the unit with its maker" : first.slice(0, 300);
+}

@@ -9,11 +9,11 @@ import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
 import { Empty, Table, Th, Td } from "@/components/Table";
-import { formatDay, formatIn } from "@/lib/dates";
+import { formatDay, formatIn, todayIn } from "@/lib/dates";
 import { JOB_STATUS, JOB_TONE, label, tone, enumText } from "@/lib/labels";
 import { attributeLines, keptAsTheyAre } from "@/lib/unit-attributes";
 import { followUp } from "../../customers/warranties/actions";
-import { editUnit, moveUnit } from "./actions";
+import { editUnit, moveUnit, recordRegistration } from "./actions";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
 
@@ -185,6 +185,42 @@ export default async function EquipmentPage({
         </p>
       ) : null}
 
+
+      {/*
+        The maker's registration, said whenever there is something to say: a deadline
+        from the install while it is open, or the day it was done. A unit whose maker
+        asks for nothing shows nothing here until somebody records a registration.
+      */}
+      {unit.warrantyRegistration.registeredOn || unit.warrantyRegistration.dueBy || canEdit ? (
+        <section aria-label="Warranty registration" className="mt-8">
+          <h2 className="text-base font-semibold">Warranty registration</h2>
+          {unit.warrantyRegistration.registeredOn ? (
+            <p className="mt-1 text-sm text-ink-700">
+              Registered with the maker on {formatDay(unit.warrantyRegistration.registeredOn, tz)}
+              {unit.warrantyRegistration.reference ? `, reference ${unit.warrantyRegistration.reference}` : ""}.
+            </p>
+          ) : null}
+          {unit.warrantyRegistration.dueBy ? (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-700">
+              <span>Register it with the maker by {formatDay(unit.warrantyRegistration.dueBy, tz)}. The warranty may not start until it is registered.</span>
+              {unit.warrantyRegistration.overdue ? <Chip tone="danger">Past due</Chip> : null}
+            </p>
+          ) : null}
+          {!unit.warrantyRegistration.registeredOn && !unit.warrantyRegistration.dueBy ? (
+            <p className="mt-1 text-sm text-ink-500">Nothing recorded, and no deadline from an install is open.</p>
+          ) : null}
+          {canEdit ? (
+            <ActionForm action={recordRegistration} tone="quiet" hidden={{ id: unit.id }}
+                        submit={unit.warrantyRegistration.registeredOn ? "Correct the registration" : "It has been registered"}
+                        className="mt-3 flex flex-wrap items-end gap-3">
+              <TextField label="Registered on" name="registeredOn" type="date" required
+                         defaultValue={unit.warrantyRegistration.registeredOn ?? todayIn(tz)} />
+              <TextField label="Their reference, if they gave one" name="reference" maxLength={120}
+                         defaultValue={unit.warrantyRegistration.reference ?? ""} className="block w-64" />
+            </ActionForm>
+          ) : null}
+        </section>
+      ) : null}
 
       {canEdit ? (
         <section aria-label="Change this unit" className="mt-8 space-y-3">

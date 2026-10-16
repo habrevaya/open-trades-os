@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, comms, consent, contacts, customerNotes, secrets, equipment, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
+  apps, comms, consent, contacts, customerNotes, secrets, equipment, warrantyRegistration, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
   dispatchMap, dispatchDays, geocoding, visits,
   liveLocation,
   reports, deliverySchedules, statementDelivery,
@@ -785,6 +785,7 @@ export const handlers = {
   updateEquipment: equipment.handlers.updateEquipment,
   moveEquipment: equipment.handlers.moveEquipment,
   retireEquipment: equipment.handlers.retireEquipment,
+  recordWarrantyRegistration: warrantyRegistration.handlers.recordWarrantyRegistration,
 
   getAppSelf: apps.handlers.getAppSelf,
   listApps: apps.handlers.listApps,

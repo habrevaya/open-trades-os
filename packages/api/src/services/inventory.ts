@@ -5,6 +5,7 @@ import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as equipmentRegister from "./equipment";
+import * as warrantyRegistration from "./warranty-registration";
 import * as approvals from "./purchase-approvals";
 import * as acknowledgements from "./purchase-acknowledgements";
 import { sendsWithin } from "./purchase-order-email";
@@ -920,6 +921,12 @@ async function installUnits(ctx: ServiceContext, itemId: string, jobId: string, 
       if (!equipmentId) continue;
       await tx.update(schema.stockLot).set({ equipmentId, updatedAt: new Date() }).where(eq(schema.stockLot.id, lot.id));
       await audit(tx, ctx, "stock_lot.installed", "stock_lot", lot.id, { equipmentId: lot.equipmentId }, { equipmentId, jobId });
+      /**
+       * The maker's registration deadline, if this item's maker asks for one
+       * (the price book item's `warrantyRegistrationDays`). In this transaction,
+       * so a unit that did not go in raises nothing.
+       */
+      await warrantyRegistration.raiseForInstall(tx, ctx.actor.organizationId, { equipmentId, itemId, jobId });
     }
   });
 }

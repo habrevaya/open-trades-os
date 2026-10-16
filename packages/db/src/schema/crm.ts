@@ -450,6 +450,15 @@ export const equipment = pgTable("equipment", {
   installedByUs: boolean("installed_by_us").notNull().default(false),
   warrantyPartsExpiresOn: date("warranty_parts_expires_on"),
   warrantyLaborExpiresOn: date("warranty_labor_expires_on"),
+  /**
+   * The day the unit was registered with its maker, and their reference, once
+   * somebody has said so. Recording it closes the registration deadline the
+   * install raised (`obligation` kind `warranty.register_by`). Null is "not
+   * recorded", which is not the same as "not required": whether the maker asks
+   * is the price book item's term, not this row's.
+   */
+  warrantyRegisteredOn: date("warranty_registered_on"),
+  warrantyRegistrationReference: text("warranty_registration_reference"),
   location: text("location"),
   attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   active: boolean("active").notNull().default(true),

@@ -90,6 +90,51 @@ extension the dates do not.
 The API sets coverage with `PUT /v1/jobs/{id}/coverage`, the job screen with
 the source, the claim reference and the deductible.
 
+### Register the unit with its maker
+
+Many makers start the warranty only when the installer registers the unit, within a
+number of days, and a company that misses the day has put in a furnace whose owner
+finds it has no warranty. The days live on the price book item, beside the warranty
+months (M06, "Register with the maker within (days)", `warrantyRegistrationDays`), and
+are empty for every item until somebody fills them in: an item whose maker asks for
+nothing raises nothing.
+
+When a serialised part of such an item is used on a job and becomes the customer's
+unit, or goes into one of their units (`POST /v1/stock/issues` with `installAs` or
+`equipmentId`, M16), a deadline of the kind `warranty.register_by` is raised for the
+unit. Its last day is the install day plus the maker's days, counted in the company's
+calendar, and registering on the last day is in time. The deadline falls due at the end
+of that day. It reads "Register the Furnace (59SC5, serial FN-1) with Carrier by
+2026-11-14. The warranty may not start until it is registered. It went in on job
+AUS-1042." and is in the deadlines the office reads: `Deadlines` on `/tasks`, and
+`/contracts/deadlines`, each linking to the unit.
+
+A week before the last day (or the install day itself, when the maker allows a week
+or less) the sweep that stamps the other deadlines puts a high priority task about the
+unit in the task queue, titled with that first sentence, so it goes through the
+company's own escalation rules like any late task. It is raised once.
+
+The deadline is on the UNIT and not on the job: one job can put in a furnace, a coil and
+a condenser, each registered on its own, and a deadline on the job could not say which
+was done. The job is named in the sentence. A second part going into a unit that already
+has a deadline open does not stack another on it; the earlier day stands. A unit
+installed by being added to the register by hand (`POST /v1/equipment`) is not an
+install on a job and raises nothing, and neither does an item that is not tracked by
+serial number.
+
+The unit's page, `/equipment/{id}`, has a "Warranty registration" section. It says
+what is owed and by when (with "Past due" once the day has gone), or the day it was
+registered and the maker's reference. "It has been registered" records the day (today
+unless changed) and the reference, `POST /v1/equipment/{id}/warranty-registration`. That
+closes the open deadline with the day it was done, as the thing that closed it, and
+takes the queue task out with it. Registering after the last day closes it too, and
+the record says it was met late rather than hiding that. A day that has not come, or
+one before the unit went in, is refused. Saying it again corrects the day or the
+reference the unit shows; a deadline already closed stays closed. Taking the unit off
+the register cancels an open deadline: it is cancelled rather than met, so a count of
+deadlines met does not include it. `GET /v1/equipment/{id}` carries `warrantyRegistration`
+(`registeredOn`, `reference`, `dueBy`, `overdue`).
+
 ### Find out what to charge
 
 `quote` splits the job between the customer and whoever is covering it,
@@ -148,7 +193,7 @@ attached to it.
 
 ## Permissions
 
-Resolving coverage needs `job:write`, because it is a decision about the job.
+Resolving coverage needs `job:write`, because it is a decision about the job. Recording that a unit was registered with its maker needs `equipment:write`, not the task permissions, because the person who registers a unit is usually the technician who installed it, and the register is theirs to write (M04); it closes only that unit's registration deadline.
 Quoting needs `invoice:read`. The coverage report needs
 `report.financial:read`, because it is a revenue number. Filing a claim and
 recording its decision need `invoice:write`; recording their payment needs
@@ -163,3 +208,14 @@ customer automatically; whether the homeowner owes it is a conversation, and
 the shortfall stays on the third party's invoice until somebody decides.
 Coverage read from a unit covers what the dates say and nothing about why: a
 warranty voided by an unlicensed install is not something the dates know.
+
+The maker's registration days are one number per item. There is no list of makers with
+their own terms, so two makers whose items share a price book entry share its days, and
+a maker who gives different days for different models needs a price book item for each.
+The deadline asks for a day and a reference and nothing more: no registration is sent to
+the maker's portal, and the product cannot tell whether the registration was real. The
+deadline starts from the day a serialised part was used on a job, which is not
+necessarily the day the unit was switched on, and a unit added to the register by hand
+or an item not tracked by serial raises none. Recording the registration cannot be undone
+to reopen the deadline: a mistaken record is corrected by recording the right day, and a
+deadline it closed stays closed.

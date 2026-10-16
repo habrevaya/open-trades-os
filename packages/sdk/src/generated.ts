@@ -4074,6 +4074,7 @@ export interface CreatePriceBookItemInput {
   taxClass?: string;
   laborMinutes?: number;
   warrantyMonths?: number;
+  warrantyRegistrationDays?: number;
   feeRole?: "diagnostic" | "after_hours";
   externalRef?: {
     source: string;
@@ -4097,6 +4098,7 @@ export interface CreatePriceBookItemOutput {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  warrantyRegistrationDays: number | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -8074,6 +8076,12 @@ export interface GetEquipmentOutput {
     tag: string | null;
     category: string;
   }>;
+  warrantyRegistration: {
+    registeredOn: string | null;
+    reference: string | null;
+    dueBy: string | null;
+    overdue: boolean;
+  };
 }
 
 export interface GetEstimateFinancingOutput {
@@ -10764,6 +10772,7 @@ export interface GetPriceBookItemOutput {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  warrantyRegistrationDays: number | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -16088,6 +16097,7 @@ export interface ListPriceBookOutput {
     taxClass: string | null;
     laborMinutes: number | null;
     warrantyMonths: number | null;
+    warrantyRegistrationDays: number | null;
     components: Array<{
       itemId: string;
       quantity: number;
@@ -20563,6 +20573,18 @@ export interface RecordVendorCreditOutput {
   }>;
 }
 
+export interface RecordWarrantyRegistrationInput {
+  registeredOn?: string;
+  reference?: string | null;
+}
+
+export interface RecordWarrantyRegistrationOutput {
+  id: string;
+  registeredOn: string;
+  reference: string | null;
+  closed: number;
+}
+
 export type RefreshFinancingApplicationInput = Record<string, unknown>;
 
 export interface RefreshFinancingApplicationOutput {
@@ -22319,6 +22341,7 @@ export interface RevisePriceBookItemInput {
   taxClass?: string | null;
   laborMinutes?: number;
   warrantyMonths?: number | null;
+  warrantyRegistrationDays?: number | null;
   components?: Array<{
     itemId: string;
     quantity: number;
@@ -22344,6 +22367,7 @@ export interface RevisePriceBookItemOutput {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  warrantyRegistrationDays: number | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -27233,6 +27257,7 @@ export type UpdatePriceBookItemOutput = {
   taxClass: string | null;
   laborMinutes: number | null;
   warrantyMonths: number | null;
+  warrantyRegistrationDays: number | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -31451,6 +31476,10 @@ export interface RecordVendorCreditParams {
   id: string;
 }
 
+export interface RecordWarrantyRegistrationParams {
+  id: string;
+}
+
 export interface RefreshFinancingApplicationParams {
   id: string;
 }
@@ -33271,6 +33300,7 @@ export interface OperationTypes {
   recordTechnicianSkill: { input: RecordTechnicianSkillParams & RecordTechnicianSkillInput; output: RecordTechnicianSkillOutput };
   recordUnitOutcome: { input: RecordUnitOutcomeParams & RecordUnitOutcomeInput; output: RecordUnitOutcomeOutput };
   recordVendorCredit: { input: RecordVendorCreditParams & RecordVendorCreditInput; output: RecordVendorCreditOutput };
+  recordWarrantyRegistration: { input: RecordWarrantyRegistrationParams & RecordWarrantyRegistrationInput; output: RecordWarrantyRegistrationOutput };
   refreshFinancingApplication: { input: RefreshFinancingApplicationParams & RefreshFinancingApplicationInput; output: RefreshFinancingApplicationOutput };
   refundDeposit: { input: RefundDepositParams & RefundDepositInput; output: RefundDepositOutput };
   refundPayment: { input: RefundPaymentParams & RefundPaymentInput; output: RefundPaymentOutput };
@@ -34433,6 +34463,7 @@ export const OPERATIONS = {
   recordTechnicianSkill: { method: "POST", path: "/v1/technicians/{technicianId}/skills", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   recordUnitOutcome: { method: "POST", path: "/v1/visits/{visitId}/units/{equipmentId}/outcome", pathParams: ["visitId","equipmentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   recordVendorCredit: { method: "POST", path: "/v1/vendor-returns/{id}/credit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
+  recordWarrantyRegistration: { method: "POST", path: "/v1/equipment/{id}/warranty-registration", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   refreshFinancingApplication: { method: "POST", path: "/v1/financing/applications/{id}/refresh", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   refundDeposit: { method: "POST", path: "/v1/deposits/{id}/refund", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:refund"] },
   refundPayment: { method: "POST", path: "/v1/payments/{paymentId}/refund", pathParams: ["paymentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
@@ -41997,6 +42028,15 @@ export abstract class GeneratedOperations {
    */
   recordVendorCredit(input: RecordVendorCreditParams & RecordVendorCreditInput, options?: CallOptions): Promise<RecordVendorCreditOutput> {
     return this.call("recordVendorCredit", input, options);
+  }
+
+  /**
+   * Say a unit has been registered with its maker.
+   *
+   * POST /v1/equipment/{id}/warranty-registration. Needs equipment:write.
+   */
+  recordWarrantyRegistration(input: RecordWarrantyRegistrationParams & RecordWarrantyRegistrationInput, options?: CallOptions): Promise<RecordWarrantyRegistrationOutput> {
+    return this.call("recordWarrantyRegistration", input, options);
   }
 
   /**
