@@ -227,7 +227,7 @@ export const updateCustomRecord = defineRoute({
   path: "/v1/custom-records/{id}",
   summary: "Change a record",
   description:
-    "Only what this changes is checked against the fields. Links left out stay; null takes one off. Emits `record.updated` with the values before and after, so an automation can wait for a field to change to something.",
+    "Only what this changes is checked against the fields. Links left out stay; null takes one off. A link to something new is held to the same checks as making the record with it: the permission that reads that thing and the caller's scope on it (a job, customer or invoice through its own list's scope, an address or a unit by the work at the address, a person on the caller's people list or the caller, a record they may open), and a link to something they cannot open is refused at its key as though it did not exist. A link sent as it already was is not checked again. Audited with the record before and after, and emits `record.updated` with the values and links before and after, so an automation can wait for a field to change to something.",
   module: "M29",
   permissions: ["record:read", "record:write"],
   idempotent: true,

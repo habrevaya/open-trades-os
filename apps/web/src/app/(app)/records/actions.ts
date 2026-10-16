@@ -72,6 +72,35 @@ export async function updateRecord(_previous: FormState, form: FormData): Promis
   return result;
 }
 
+/** The input key each link is written under, for the one form that changes any of them. */
+const LINK_INPUT: Record<string, string> = {
+  customer: "customerId", property: "propertyId", job: "jobId", equipment: "equipmentId",
+  invoice: "invoiceId", membership: "membershipId", record: "linkedRecordId",
+};
+
+/**
+ * Point a record at something else, or take a link off (no `value`). The
+ * service checks the new link exactly as making the record with it would:
+ * the reader's own permission and scope on the thing, refused in words when
+ * they cannot open it. Chosen from the picker, it goes back to the record.
+ */
+export async function setRecordLink(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const type = String(form.get("type") ?? "");
+  const key = LINK_INPUT[String(form.get("link") ?? "")];
+  if (!key) return refused(form, "Choose what to point it at.");
+  const value = field(form, "value") ?? null;
+  let moved = false;
+  const result = await attempt(form, async () => {
+    await customObjects.updateRecord(await ctx(), { id, [key]: value });
+    moved = value !== null;
+    return { message: value === null ? "Taken off." : "Saved." };
+  });
+  revalidatePath("/records", "layout");
+  if (moved) redirect(`/records/${type}/${id}`);
+  return result;
+}
+
 export async function removeRecord(_previous: FormState, form: FormData): Promise<FormState> {
   const id = String(form.get("id") ?? "");
   const type = String(form.get("type") ?? "");
