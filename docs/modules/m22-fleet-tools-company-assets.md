@@ -397,9 +397,13 @@ and the office names the haul a job's own line bills (M10), so a hire sold at a
 flat price on its job is a can's revenue too. The facility's fee recorded on the
 haul is the cost. M21 says what each counts and leaves out.
 
-The last, `turnaround_hours`, is absent rather than approximated: it needs the
-moment a can was emptied at the facility, which nothing records, and the cans
-held at a customer's request, which the definition leaves out and nothing marks.
+The last, `turnaround_hours`, is absent rather than approximated: it is hours
+from emptied to placed, and neither end is recorded to the hour. A pickup keeps
+the scale ticket, which is the weighbridge and not the tip; the board takes a
+delivery as a day (kept at midday, for the reason under "The container screen").
+It also leaves out the cans held at a customer's request, which nothing marks,
+and the cans sent for repair, whose out of service tag is the can's current state
+with no history of when it was put on and taken off.
 A KPI computed from the nearest available number is one an owner makes a fleet
 purchase on.
 

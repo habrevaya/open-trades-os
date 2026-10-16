@@ -2494,14 +2494,18 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "duration",
     needs:
-      "The moment a container was emptied at the facility. A pickup records the "
-      + "scale ticket, which is the weighbridge rather than the tip, and the "
-      + "definition measures from emptied to next placement. Using the pickup "
-      + "time instead would include the drive and the queue at the gate and "
-      + "report a worse figure than the fleet achieves. A haul now names the "
-      + "facility it went to, but not the time it was tipped there, and nothing "
-      + "records a can held at the customer's request, the other exclusion the "
-      + "definition makes.",
+      "Three times nothing records to the hour. The moment a can was emptied at the "
+      + "facility: a pickup records the scale ticket's number and weight, which is the "
+      + "weighbridge and not the tip, and a ticket file is read to the day. The moment "
+      + "the can was placed on the next site: the containers board takes a delivery as a "
+      + "day (kept at midday), so hours from it would be hours from a guess, and only a "
+      + "hire raised through the API with its own instant has one. And the days a can "
+      + "was held at a customer's request, which the definition leaves out and nothing "
+      + "marks, beside the days it was out for repair, which are kept only as the can's "
+      + "current state with no history. Using the pickup time instead would include the "
+      + "drive and the queue at the gate and report a worse figure than the fleet "
+      + "achieves. Revenue now names the haul (revenue per container month), which "
+      + "answers none of the three.",
   },
 };
 

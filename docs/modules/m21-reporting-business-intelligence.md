@@ -1013,6 +1013,12 @@ register does not hold. A disposal fee is what was recorded on the haul; the fee
 worked out from a ticket's weight at the facility's rate is an estimate and is
 not read.
 
+The dumpster pack's turnaround between pickup and redelivery stays unanswered:
+it is hours from a can emptied at the facility to it placed on the next site,
+and neither moment is recorded to the hour (the board takes a delivery as a
+day), nor are the days a can was held for a customer or out for repair. Recording
+them is a change to how a haul and a delivery are written, not to this report.
+
 First time fix leaves out a part hold only when it names a purchase order in
 this product that went to the supplier, so a part bought over the counter and
 never written as an order counts as a return visit; the conservative choice,
