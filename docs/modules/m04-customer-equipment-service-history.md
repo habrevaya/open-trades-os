@@ -154,6 +154,17 @@ goes with it, and the move shows under "Where it has been". A unit that was repl
 or taken away is retired from its address's register instead. A unit taken off the
 register shows neither form.
 
+### Register it with its maker
+
+The unit's page has a "Warranty registration" section. When the unit went onto a job
+from a serialised part whose price book item says the maker wants it registered within
+so many days, it says what is owed and by when, and "It has been registered" records
+the day and the maker's reference and closes that deadline
+(`POST /v1/equipment/{id}/warranty-registration`, `equipment:write`, so the technician
+can). The deadline itself, the reminder and what closes it are M32's. `GET /v1/equipment/{id}`
+carries `warrantyRegistration`. The two dates above are the warranty's length; this is
+whether the warranty was started.
+
 ### Find out what happened to it
 
 `/equipment/{id}` is the unit's own page: what it is, its serial, where it is
@@ -244,6 +255,7 @@ beside them narrows to that address. Without either, the address is needed.
 | `PATCH /v1/equipment/{id}` | `equipment:write` |
 | `POST /v1/equipment/{id}/move` | `equipment:write` |
 | `POST /v1/equipment/{id}/retire` | `equipment:write` |
+| `POST /v1/equipment/{id}/warranty-registration` | `equipment:write` |
 
 The register comes back FLAT, in reading order, with a depth on every row, and
 the screen's own read is a tree. That is not an inconsistency: a recursive
@@ -282,8 +294,10 @@ everything naming it still resolves.
 
 A job's coverage is read from its unit's parts and labour dates by M32
 (`POST /v1/jobs/{id}/coverage/from-equipment`), on the day of the first visit,
-and from nothing else about the warranty: the dates are all this register
-keeps of it. The field app's sync
+and from nothing else about the warranty: the two dates, and the day the unit
+was registered with its maker with their reference, are all this register keeps
+of it. Whether a maker asks for registration, and within how many days, is the
+price book item's term (M06), not the unit's. The field app's sync
 matches with the office's rules, across the company, but it cannot ask the
 technician the office's question: a unit whose serial is on file at another
 address, or taken off a register, is held for the office on the field

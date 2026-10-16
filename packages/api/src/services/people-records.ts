@@ -957,6 +957,8 @@ export function removeContinuingEducation(ctx: ServiceContext, input: { id: stri
 
 export interface PersonView {
   membershipId: string;
+  /** The person's user id, which the reporting line (M34) is set by. */
+  userId: string;
   name: string | null;
   email: string;
   role: string;
@@ -972,7 +974,7 @@ export interface PersonView {
    * two cannot disagree. Null when nobody is recorded. `active` is false for a manager
    * who has left, whose line is still there until somebody changes it.
    */
-  reportsTo: { membershipId: string; name: string | null; email: string; active: boolean } | null;
+  reportsTo: { membershipId: string; userId: string; name: string | null; email: string; active: boolean } | null;
   /** What they were asked to sign, and whether they have. */
   documents: { requestId: string; documentId: string; title: string; askedAt: string; signedAt: string | null; signedVia: string | null }[];
   /** The address and phone they keep themselves, with what each change was and when. Read with the rest of their record. */
@@ -1002,6 +1004,7 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
       : [];
     return {
       membershipId: member.id,
+      userId: member.userId,
       name: directory?.name ?? null,
       email: directory?.email ?? "",
       role: member.role,
@@ -1013,7 +1016,7 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
       employment: await employmentWithin(tx, member.id),
       skills: technician ? await skillsWithin(tx, technician) : null,
       reportsTo: manager
-        ? { membershipId: manager.id, name: managerName?.name ?? null, email: managerName?.email ?? "", active: manager.active }
+        ? { membershipId: manager.id, userId: member.reportsToUserId!, name: managerName?.name ?? null, email: managerName?.email ?? "", active: manager.active }
         : null,
       documents: (await staffDocuments.ownWithin(tx, member.id)).map(({ body: _body, signerName: _signer, ...rest }) => rest),
       ownContact: await ownContactWithin(tx, member.id),

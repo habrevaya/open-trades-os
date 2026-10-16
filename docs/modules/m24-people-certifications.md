@@ -318,9 +318,10 @@ roster's, `user:read` to read and `user:write` to change, and it is on
 
 A person's own page, `/people/{membershipId}`, also says who they report to
 ("Reports to", linked to the manager's page, or "Nobody recorded"), and
-`GET /v1/people/{membershipId}` carries it as `reportsTo`. The line is the one the
-escalation screen sets (M34) and nothing here changes it; the page links there for
-somebody who may.
+`GET /v1/people/{membershipId}` carries it as `reportsTo`, with the person's `userId`.
+The line is the one the escalation screen sets (M34), and somebody with `user:write`
+sets or clears it here too, with the same refusals and audit line; the page offers
+only people who work there now.
 
 ### Skills with dates and evidence
 

@@ -31,6 +31,7 @@ export async function createItem(_previous: FormState, form: FormData): Promise<
       price: amount(field(form, "price")), cost: amount(field(form, "cost")),
       taxable: form.get("taxable") === "on",
       laborMinutes: whole(field(form, "laborMinutes")), warrantyMonths: whole(field(form, "warrantyMonths")),
+      warrantyRegistrationDays: whole(field(form, "warrantyRegistrationDays")),
       feeRole: field(form, "feeRole"),
     });
     id = (await priceBook.create(ctx, input)).id;
@@ -87,6 +88,9 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
           taxClass: field(form, "taxClass") ?? null,
           laborMinutes: whole(field(form, "laborMinutes")),
           warrantyMonths: field(form, "warrantyMonths") === undefined ? null : Number(field(form, "warrantyMonths")),
+          ...(form.has("warrantyRegistrationDays")
+            ? { warrantyRegistrationDays: field(form, "warrantyRegistrationDays") === undefined ? null : Number(field(form, "warrantyRegistrationDays")) }
+            : {}),
           ...(from && start ? { effectiveFrom: start.toISOString() } : {}),
         }));
         return { message: from ? `Saved as a new version, in force from ${from}.` : "Saved as a new version, in force now." };

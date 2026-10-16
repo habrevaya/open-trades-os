@@ -38,6 +38,8 @@ export const PriceBookItem = z.object({
   taxClass: z.string().nullable(),
   laborMinutes: z.number().int().nullable(),
   warrantyMonths: z.number().int().nullable(),
+  /** The maker wants a unit of this registered within this many days of the install; null when they do not ask. Raises a deadline when a serialised unit is installed on a job (M32). */
+  warrantyRegistrationDays: z.number().int().nullable(),
   /** A kit's parts: other items included in it, each with how many. Empty for an item that is not a kit. */
   components: z.array(KitComponent),
   active: z.boolean(),
@@ -89,6 +91,8 @@ export const createPriceBookItem = defineRoute({
     taxClass: z.string().max(50).optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
     warrantyMonths: z.number().int().min(0).max(600).optional(),
+    /** Days after the install the maker allows to register the unit. Left out, the maker does not ask. */
+    warrantyRegistrationDays: z.number().int().min(1).max(365).optional(),
     feeRole: FeeRole.optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
@@ -119,6 +123,8 @@ export const revisePriceBookItem = defineRoute({
     taxClass: z.string().max(50).nullable().optional(),
     laborMinutes: z.number().int().min(0).max(10000).optional(),
     warrantyMonths: z.number().int().min(0).max(600).nullable().optional(),
+    /** Days after the install the maker allows to register the unit. Null takes it off; left out, the current one carries forward. */
+    warrantyRegistrationDays: z.number().int().min(1).max(365).nullable().optional(),
     /**
      * The kit's parts, replacing the whole list, written into the new version
      * like any other field. An empty list makes it an item that is not a kit.

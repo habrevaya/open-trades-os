@@ -106,6 +106,15 @@ export const priceBookItemVersion = pgTable("price_book_item_version", {
   /** Commission basis override. Null means use the technician's plan default. */
   commissionRate: rate("commission_rate"),
   warrantyMonths: integer("warranty_months"),
+  /**
+   * The maker asks for the unit to be registered within this many days of the
+   * install, or the warranty may not start. Null means they do not ask, which
+   * is every item until somebody says so: a deadline invented for an item that
+   * has none would put a false obligation in a real queue. Versioned with the
+   * warranty it belongs to. Read when a serialised unit of this item is
+   * installed on a job (`services/warranty-registration.ts`).
+   */
+  warrantyRegistrationDays: integer("warranty_registration_days"),
   /** Kits: child items included in this one, with quantities. */
   components: jsonb("components").$type<Array<{ itemId: string; quantity: number }>>().notNull().default([]),
   effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),

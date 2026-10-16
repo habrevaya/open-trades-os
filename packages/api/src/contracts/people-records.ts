@@ -142,11 +142,14 @@ export const getPersonRecord = defineRoute({
   permissions: ["user:read"],
   input: z.object({ membershipId: Uuid }),
   output: z.object({
-    membershipId: Uuid, name: z.string().nullable(), email: z.string(), role: z.string(), roleLabel: z.string(),
+    membershipId: Uuid,
+    /** The person's user id, which `POST /v1/reporting-lines` (M34) is set by. */
+    userId: Uuid,
+    name: z.string().nullable(), email: z.string(), role: z.string(), roleLabel: z.string(),
     active: z.boolean(), technicianId: Uuid.nullable(),
     onboarding: Onboarding, emergencyContacts: z.array(Contact), employment: Employment.nullable(), skills: Skills.nullable(),
     /** Who they report to, as set on the escalation screen (`POST /v1/reporting-lines`, M34). Null when nobody is recorded. */
-    reportsTo: z.object({ membershipId: Uuid, name: z.string().nullable(), email: z.string(), active: z.boolean() }).nullable(),
+    reportsTo: z.object({ membershipId: Uuid, userId: Uuid, name: z.string().nullable(), email: z.string(), active: z.boolean() }).nullable(),
     /** The address and phone they keep themselves, with what each change was and when. Home details: `user:read`, like the emergency contacts. */
     ownContact: OwnContactRecord,
     /** What they were asked to sign, and whether and how they did. */

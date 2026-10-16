@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { equipment, inspections, ConflictError } from "@opentradesos/api/services";
-import { moveEquipment, updateEquipment } from "@opentradesos/api/contracts";
+import { equipment, inspections, warrantyRegistration, ConflictError } from "@opentradesos/api/services";
+import { moveEquipment, recordWarrantyRegistration, updateEquipment } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, refused, type FormState } from "@/lib/actions";
 import { parseAttributeLines } from "@/lib/unit-attributes";
 
@@ -121,5 +121,33 @@ export async function declineFinding(_previous: FormState, form: FormData): Prom
     return { message: "Recorded as declined." };
   });
   if (state?.done) revalidatePath(`/equipment/${unitId}`);
+  return state;
+}
+
+/**
+ * Say the unit was registered with its maker, through
+ * `warrantyRegistration.record`, which is what
+ * `POST /v1/equipment/{id}/warranty-registration` runs. It closes the deadline
+ * the install raised, and the page and the queue show it closed.
+ */
+export async function recordRegistration(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  const state = await attempt(form, async () => {
+    const input = parsed(recordWarrantyRegistration.input, {
+      id, registeredOn: field(form, "registeredOn"), reference: field(form, "reference"),
+    });
+    const done = await warrantyRegistration.record(await ctx(), {
+      id: input.id,
+      ...(input.registeredOn ? { registeredOn: input.registeredOn } : {}),
+      ...(input.reference !== undefined ? { reference: input.reference } : {}),
+    });
+    return {
+      message: done.closed > 0
+        ? "Saved. The deadline to register it is closed."
+        : "Saved.",
+    };
+  });
+  revalidatePath(`/equipment/${id}`);
+  revalidatePath("/tasks");
   return state;
 }

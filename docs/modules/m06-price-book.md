@@ -28,7 +28,7 @@ moment to find out your records are not records.
 **Two tables and one rule.** An item is a stable identity: a code, a kind, a
 category, and whether it is still sold. A version holds everything that can
 change: the name, the description, the price, the cost, the tax class, the
-labour minutes, the warranty. Editing creates a new version and closes the old
+labour minutes, the warranty and the days the maker allows to register the unit. Editing creates a new version and closes the old
 one.
 
 **Documents reference the version, never the item.** Raising the price of a
@@ -78,7 +78,8 @@ same list. Cost and margin appear only for a reader holding
 `/pricebook/items/new` adds one and every row on `/pricebook` opens its own
 screen, `/pricebook/items/{id}`. There, "Change the price or wording" saves a
 new version (the name, the customer's description, the price, the cost for
-whoever may see it, labour minutes, warranty and tax class), in force now or
+whoever may see it, labour minutes, warranty, the days the maker allows to register
+the unit and tax class), in force now or
 from a date ahead; every price the item has ever had is listed with when it
 was in force and whether it is past, in force or scheduled, and a scheduled
 one can be brought forward or called off there by whoever holds
@@ -125,10 +126,17 @@ added to that shelf later without saying takes it. An item created without sayin
 on a shelf that says nothing, is taxed unless it is labour, because most states
 that tax parts do not tax labour.
 
+"Register with the maker within (days)" (`warrantyRegistrationDays`, 1 to 365) is empty
+for every item until somebody fills it in, and means the item's maker asks for the unit
+to be registered that many days after it is installed. It is read when a serialised unit
+of the item is used on a job, which raises the registration deadline described in M32;
+an item with nothing in it raises none. A trade pack sets none and its upgrades carry
+it forward.
+
 `POST /v1/pricebook/items` creates one. `GET /v1/pricebook/items/{id}` is the
 item with every version. `POST /v1/pricebook/items/{id}/revise` is how a price
 changes: it writes a new version rather than editing the old one, and carries
-the warranty and tax class forward unless they change.
+the warranty, the registration days and tax class forward unless they change.
 `PATCH /v1/pricebook/items/{id}` changes what the item is, refusing a code
 another item already has. `POST /v1/pricebook/items/{id}/active` stops an item
 being sold without removing it, because documents point at its versions.

@@ -26,6 +26,7 @@ export function shelfOptions(shelves: { id: string; name: string; depth: number 
 export interface PriceFieldDefaults {
   name?: string; description?: string | null; price?: string; cost?: string | null;
   taxable?: boolean; taxClass?: string | null; laborMinutes?: number | null; warrantyMonths?: number | null;
+  warrantyRegistrationDays?: number | null;
 }
 
 const two = (value: string | null | undefined) => (value ? String(Number(value).toFixed(2)) : "");
@@ -50,11 +51,17 @@ export function PriceFields({ item = {}, seesCost }: { item?: PriceFieldDefaults
                    defaultValue={item.laborMinutes == null ? "" : String(item.laborMinutes)} />
         <TextField label="Warranty months" name="warrantyMonths" inputMode="numeric"
                    defaultValue={item.warrantyMonths == null ? "" : String(item.warrantyMonths)} />
+        <TextField label="Register with the maker within (days)" name="warrantyRegistrationDays" inputMode="numeric"
+                   defaultValue={item.warrantyRegistrationDays == null ? "" : String(item.warrantyRegistrationDays)} />
         <TextField label="Tax class" name="taxClass" maxLength={50} defaultValue={item.taxClass ?? ""} />
         <label className="flex items-center gap-2 pt-6 text-sm">
           <input type="checkbox" name="taxable" defaultChecked={item.taxable ?? true} /> Taxable
         </label>
       </div>
+      <p className="text-xs text-ink-500">
+        Leave the registration days empty if the maker does not ask for it. When it is filled in, a unit of this
+        item that goes on a job with a serial number gets a deadline to register it, and the office is reminded.
+      </p>
     </div>
   );
 }

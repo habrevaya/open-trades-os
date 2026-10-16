@@ -309,7 +309,10 @@ async function escalate(tx: Database, ctx: ServiceContext, now: Date): Promise<n
       organizationId: ctx.actor.organizationId,
       title: number !== undefined
         ? taskTitle(obligation.kind, number)
-        : `${deadlines.deadlineLabel(obligation.kind)}: ${obligation.entityType}`,
+        : obligation.kind === coverage.WARRANTY_REGISTRATION_KIND
+          // "Register the Condenser (24ACC636) with Carrier by 2026-11-12": the deadline's own first sentence, which names the unit.
+          ? coverage.registrationTitle(obligation.consequence)
+          : `${deadlines.deadlineLabel(obligation.kind)}: ${obligation.entityType}`,
       body: obligation.consequence,
       priority: "high",
       entityType: obligation.entityType,

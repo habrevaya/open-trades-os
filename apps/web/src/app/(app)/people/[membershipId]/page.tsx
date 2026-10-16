@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customFields, peopleRecords, people as peopleService, staffDocuments, NotFoundError } from "@opentradesos/api/services";
+import { customFields, peopleRecords, people as peopleService, staffDocuments, taskRules, NotFoundError } from "@opentradesos/api/services";
 import { can, people as peopleCore } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
@@ -14,6 +14,7 @@ import {
   addContactAction, askToSignAction, endSkillAction, logCeAction, recordSkillAction, removeContactAction, setSkillExpiryAction,
   setEmploymentAction, setOnboardingLineAction, startOnboardingAction,
 } from "../actions";
+import { setManager } from "../../tasks/rule-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,10 @@ export default async function PersonPage({ params }: { params: Promise<{ members
       ])
     : [null, []];
   const hidden = { membershipId };
+  // Who they could report to: everybody who works here now, bar themselves. Read with the same permission that sets it.
+  const colleagues = writes
+    ? (await taskRules.reportingLines(ctx)).filter((p) => p.userId !== person.userId)
+    : [];
   const askedFor = new Set(person.documents.map((d) => d.documentId));
   const askable = writes
     ? (await staffDocuments.list(ctx)).filter((d) => !d.retired && !askedFor.has(d.id))
@@ -83,9 +88,21 @@ export default async function PersonPage({ params }: { params: Promise<{ members
             ) : (
               <span className="text-ink-500">Nobody recorded</span>
             )}
-            {writes ? (
-              <a href="/tasks/escalation" className="ml-3 text-xs text-ink-500 underline underline-offset-4">Change</a>
-            ) : null}
+          {writes ? (
+            <ActionForm action={setManager} submit="Save" tone="quiet" className="mt-2 flex flex-wrap items-center gap-2"
+                        hidden={{ userId: person.userId, membershipId }} done="Saved.">
+              <select name="reportsToUserId" defaultValue={person.reportsTo?.userId ?? ""}
+                      aria-label={`Manager of ${person.name ?? person.email}`}
+                      className="h-9 w-56 rounded border border-steel-300 bg-canvas px-3 text-sm">
+                <option value="">Nobody recorded</option>
+                {colleagues.map((p) => <option key={p.userId} value={p.userId}>{p.name}</option>)}
+                {/* Kept so saving does not quietly take the line off; the service says a manager has to work here. */}
+                {person.reportsTo && !colleagues.some((p) => p.userId === person.reportsTo!.userId) ? (
+                  <option value={person.reportsTo.userId}>{person.reportsTo.name ?? person.reportsTo.email} (no longer works here)</option>
+                ) : null}
+              </select>
+            </ActionForm>
+          ) : null}
           </dd>
         </div>
       </Facts>

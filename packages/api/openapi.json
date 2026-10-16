@@ -49162,6 +49162,144 @@
         ]
       }
     },
+    "/v1/equipment/{id}/warranty-registration": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordWarrantyRegistration",
+        "summary": "Say a unit has been registered with its maker",
+        "description": "Records the day (today in the company's calendar when left out) and the maker's reference, and closes the registration deadline an install raised for the unit, with the day it was done, so a late registration is met late rather than hidden. The deadline is raised when a serialised part whose price book item has `warrantyRegistrationDays` is issued to a job and becomes, or goes into, the customer's unit. A day that has not come yet, or one before the unit went in, is refused. Saying it again corrects the day or the reference shown on the unit; a deadline already closed stays closed. Needs `equipment:write`, not the task permissions, because the person who registers a unit is usually the technician who installed it.\n\nRequires a session holding: equipment:write.",
+        "tags": [
+          "M32"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordWarrantyRegistrationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Say a unit has been registered with its maker",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordWarrantyRegistrationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "equipment:write"
+        ]
+      }
+    },
     "/v1/estimate-discount-policy": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -164192,6 +164330,11 @@
             "minimum": 0,
             "maximum": 600
           },
+          "warrantyRegistrationDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
           "feeRole": {
             "type": "string",
             "enum": [
@@ -164309,6 +164452,12 @@
               "null"
             ]
           },
+          "warrantyRegistrationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "components": {
             "type": "array",
             "items": {
@@ -164400,6 +164549,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "warrantyRegistrationDays",
           "components",
           "active",
           "externalRef",
@@ -184285,6 +184435,40 @@
                 "category"
               ]
             }
+          },
+          "warrantyRegistration": {
+            "type": "object",
+            "properties": {
+              "registeredOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "reference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dueBy": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "overdue": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "registeredOn",
+              "reference",
+              "dueBy",
+              "overdue"
+            ]
           }
         },
         "required": [
@@ -184309,7 +184493,8 @@
           "address",
           "customer",
           "parent",
-          "children"
+          "children",
+          "warrantyRegistration"
         ]
       },
       "GetEquipmentHistoryOutput": {
@@ -196713,6 +196898,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": [
               "string",
@@ -197257,6 +197446,10 @@
                 "type": "string",
                 "format": "uuid"
               },
+              "userId": {
+                "type": "string",
+                "format": "uuid"
+              },
               "name": {
                 "type": [
                   "string",
@@ -197272,6 +197465,7 @@
             },
             "required": [
               "membershipId",
+              "userId",
               "name",
               "email",
               "active"
@@ -197443,6 +197637,7 @@
         },
         "required": [
           "membershipId",
+          "userId",
           "name",
           "email",
           "role",
@@ -198945,6 +199140,12 @@
               "null"
             ]
           },
+          "warrantyRegistrationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "components": {
             "type": "array",
             "items": {
@@ -199096,6 +199297,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "warrantyRegistrationDays",
           "components",
           "active",
           "externalRef",
@@ -227109,6 +227311,12 @@
                     "null"
                   ]
                 },
+                "warrantyRegistrationDays": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "components": {
                   "type": "array",
                   "items": {
@@ -227200,6 +227408,7 @@
                 "taxClass",
                 "laborMinutes",
                 "warrantyMonths",
+                "warrantyRegistrationDays",
                 "components",
                 "active",
                 "externalRef",
@@ -249961,6 +250170,50 @@
           "units"
         ]
       },
+      "RecordWarrantyRegistrationInput": {
+        "type": "object",
+        "properties": {
+          "registeredOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          }
+        }
+      },
+      "RecordWarrantyRegistrationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "registeredOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closed": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "registeredOn",
+          "reference",
+          "closed"
+        ]
+      },
       "RefreshFinancingApplicationInput": {
         "type": "object",
         "properties": {}
@@ -258217,6 +258470,14 @@
             "minimum": 0,
             "maximum": 600
           },
+          "warrantyRegistrationDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 365
+          },
           "components": {
             "type": "array",
             "items": {
@@ -258345,6 +258606,12 @@
               "null"
             ]
           },
+          "warrantyRegistrationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "components": {
             "type": "array",
             "items": {
@@ -258436,6 +258703,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "warrantyRegistrationDays",
           "components",
           "active",
           "externalRef",
@@ -282763,6 +283031,12 @@
               "null"
             ]
           },
+          "warrantyRegistrationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "components": {
             "type": "array",
             "items": {
@@ -282854,6 +283128,7 @@
           "taxClass",
           "laborMinutes",
           "warrantyMonths",
+          "warrantyRegistrationDays",
           "components",
           "active",
           "externalRef",

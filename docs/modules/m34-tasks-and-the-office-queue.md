@@ -192,6 +192,25 @@ holidays" and "Raise on holidays too", `skipHolidays` on
 `PATCH /v1/task-templates/{id}`), and applies from the next occurrence: a day
 already skipped stays skipped.
 
+Every row on the list has a "Change" link to `/tasks/recurring/{id}`, which shows
+the same boxes as adding one with the template's own values in them: what needs
+doing, more detail, how often and on which day, the due time, the starting day,
+the priority, skipping holidays, who it is for and the checklist. Saving sends the
+whole form to `PATCH /v1/task-templates/{id}` (`task:write`), so a box emptied is a
+thing taken off (no detail, nobody in particular, no checklist), and the screen
+reads the same function that adding one does, so a schedule is refused in the same
+sentence either way ("A weekly task needs the day of the week it comes round on.").
+The page says, above the button and again in the answer after it, that the change
+applies from the next time the task comes round: the tasks it has already raised
+are people's work in progress and are not rewritten, and a day missed meanwhile is
+not made up. Changing the starting day of an every other week or every few weeks task
+moves which week is the on week, and the note under the boxes says how the weeks are counted. A task
+given to somebody who has since left is shown with "(no longer works here)" and
+saving it is refused until somebody else is chosen, rather than handing it to the
+queue unnoticed. Someone who can read tasks and not change them sees the list and
+the page without the form. The change is audited as `task_template.updated`, with
+what it replaced.
+
 Never twice: the task carries the template and the day, a unique index on the
 pair decides, and the worker inserts with `on conflict do nothing`, so a worker
 killed mid pass, restarted, or running twice raises the day's task once. A
@@ -242,7 +261,16 @@ other task reads the company's week and list.
 (`user:write`, because it is a fact about people), and which the person's own
 page at `/people/{membershipId}` shows as "Reports to", linked to the manager's
 page, with "Nobody recorded" when there is none and a note when the manager has
-since left (`GET /v1/people/{membershipId}` carries it as `reportsTo`). With no manager recorded, an
+since left (`GET /v1/people/{membershipId}` carries it as `reportsTo`, with the
+person's `userId` and the manager's, which `POST /v1/reporting-lines` is set by).
+Somebody with `user:write` also sets it on that page, from a list of the people who
+work there now (never the person themselves), or clears it with "Nobody recorded":
+the page posts the same call as the escalation screen, so it is the same permission,
+the same refusals ("Somebody cannot be their own manager", "A manager has to be
+somebody who works here now") and the same audit line (`membership.reports_to_set`,
+with the line it replaced), and either screen shows what the other set. A manager who
+has left stays in the list, marked, so saving the page does not take the line off
+unnoticed. Without `user:write` the page shows the line and no list. With no manager recorded, an
 unassigned task, nobody in the chosen role, or a named person who has left, the
 owners are told and the escalation says so in words.
 `GET /v1/task-escalation-rules`, `POST /v1/task-escalation-rules`,
@@ -404,8 +432,11 @@ switched late tasks on, if they can open tasks at all.
 own page, with their own number. The office's part is having a registered
 number that can send texts.
 
-**What raises an obligation today?** One thing: a visit completed after it was
-cancelled. The primitive is built for more than that and nothing else writes one yet.
+**What raises an obligation today?** Several things, listed at the end of "What is not
+built": a visit completed after it was cancelled, a contract's clocks on a job, an
+invoice the contract does not price, compliance documents and filings, and a serialised
+unit installed on a job whose maker wants it registered. The primitive is built for more
+than that.
 
 ## What is not built
 
@@ -459,17 +490,23 @@ on a closed holiday rather than moving it to the next working day,
 deliberately, and an every other week task's off week stays the off week
 whatever the holidays. A change to a template applies to the tasks it raises
 from then on, and a missed occurrence is not backfilled, deliberately. The
-recurring screen adds templates, pauses and resumes them and switches skipping
-holidays; changing an existing one's title, schedule or checklist is through
-`PATCH /v1/task-templates/{id}`, not the screen.
+recurring screen adds templates, pauses and resumes them, switches skipping
+holidays and changes an existing one's title, schedule, person and checklist on its own
+page, with the change applying from the next occurrence.
 
-Reporting lines are set only on the escalation screen, and are read by escalation
-and shown on the person's own page; nothing else in the product reads them, and
-the page does not change them.
+Reporting lines are read by escalation and by the licence notice, and shown on the
+person's own page, where they can also be set; nothing else in the product reads them.
+They are one manager per person, with no limit on how long a chain is and no check that
+it does not loop: A reports to B and B to A is accepted, and escalation looks one step
+up and no further, so it does no harm, but nothing warns about it.
 
 Obligations are raised by work finished on a cancelled visit, by a contract's
 clocks on a job (respond by, on site by, finished by, invoice by and claim by,
 M31), by an invoice carrying an item the customer's rate card does not price or
-going over a contract's not to exceed amount, and by compliance documents running out and filings falling due
-(M23). A warranty registration deadline, which the obligation kinds name, is
-raised by nothing.
+going over a contract's not to exceed amount, by compliance documents running out and filings falling due
+(M23), and by a serialised unit installed on a job whose price book item says its maker
+wants it registered within so many days (`warranty.register_by`, M32). That last one is
+kept on the unit rather than the job, and is closed by recording the registration on the
+unit with `equipment:write`, not the task permissions an obligation is normally closed
+with. A unit put on the register by hand, or an item not tracked by serial number, raises
+no registration deadline.

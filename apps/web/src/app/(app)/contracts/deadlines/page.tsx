@@ -47,13 +47,14 @@ export default async function DeadlinesPage() {
 
   const row = (item: (typeof live)[number]) => {
     const job = item.entityType === "job" ? jobsById.get(item.entityId) : undefined;
-    const href = job ? `/jobs/${job.id}` : item.entityType === "invoice" ? `/invoices/${item.entityId}` : null;
+    const href = job ? `/jobs/${job.id}` : item.entityType === "invoice" ? `/invoices/${item.entityId}`
+      : item.entityType === "equipment" ? `/equipment/${item.entityId}` : null;
     return (
       <li key={item.id} className="bg-canvas p-4">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium">{deadlines.deadlineLabel(item.kind)}</span>
           {job && <a href={`/jobs/${job.id}`} className="text-sm text-ink-700 hover:underline">Job {job.number} · {job.summary}</a>}
-          {!job && href && <a href={href} className="text-sm text-ink-700 hover:underline">Open the {item.entityType}</a>}
+          {!job && href && <a href={href} className="text-sm text-ink-700 hover:underline">Open the {item.entityType === "equipment" ? "unit" : item.entityType}</a>}
           {item.overdue
             ? <Chip tone="danger">Past due</Chip>
             : <Chip tone={item.minutesRemaining <= SOON ? "warning" : "neutral"}>{away(item.minutesRemaining)}</Chip>}

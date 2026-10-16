@@ -48,6 +48,7 @@ export * as phoneNumbers from "./phone-numbers";
 export * as laborSettings from "./labor-settings";
 export * as customerLifecycle from "./customer-lifecycle";
 export * as equipment from "./equipment";
+export * as warrantyRegistration from "./warranty-registration";
 export * as inspections from "./inspections";
 export * as creditNotes from "./credit-notes";
 export * as creditPayouts from "./credit-payouts";
