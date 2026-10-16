@@ -50,3 +50,65 @@ test("the office records a truck's fresh water for a day, and takes it off", asy
   await row.getByRole("button", { name: "Take off" }).click();
   await expect(owner.getByRole("region", { name: label })).toHaveCount(0);
 });
+
+/** The seeded technician's own id: the first technician the seed made. */
+async function seededTechnician(): Promise<string> {
+  const db = createClient();
+  try {
+    const [row] = await db.execute<{ id: string }>(sql`
+      select t.id from public.technician t
+      join public.organization o on o.id = t.organization_id
+      where o.slug = 'ridgeline' order by t.created_at, t.id limit 1`);
+    return row!.id;
+  } finally {
+    await db.$close();
+  }
+}
+
+async function handOver(assetId: string, technicianId: string, from: string): Promise<() => Promise<void>> {
+  const db = createClient();
+  try {
+    await db.execute(sql`
+      insert into public.asset_custody (organization_id, asset_id, custodian_kind, custodian_id, held_from)
+      select organization_id, id, 'technician', ${technicianId}, ${from} from public.company_asset where id = ${assetId}`);
+  } finally {
+    await db.$close();
+  }
+  return async () => {
+    const end = createClient();
+    try {
+      await end.execute(sql`delete from public.company_asset where id = ${assetId}`);
+    } finally {
+      await end.$close();
+    }
+  };
+}
+
+test("a driver reads the truck's fresh water on their day, and it reaches the office", async ({ tech, owner }) => {
+  test.setTimeout(180_000);
+  const label = `Route truck ${run}`;
+  const truckId = await aTruck(label);
+  const today = companyToday();
+  const done = await handOver(truckId, await seededTechnician(), today);
+  try {
+    await tech.goto("/my-day");
+    const card = tech.getByRole("region", { name: `Fresh water, ${label}` });
+    await expect(card).toContainText("Not recorded yet.");
+    await card.getByLabel("Gallons used today").fill("about four hundred");
+    await card.getByRole("button", { name: "Save the reading" }).click();
+    await expect(card.getByRole("alert").filter({ hasText: "as a number" })).toBeVisible();
+    await card.getByLabel("Gallons used today").fill("395");
+    await card.getByRole("button", { name: "Save the reading" }).click();
+    await expect(card).toContainText("395 gallons recorded");
+
+    /** The office sees it on the truck's day, read on the driver's phone. */
+    await expect(async () => {
+      await owner.goto(`/fleet/water?truck=${truckId}`);
+      const row = owner.getByRole("table", { name: `Water by day, ${label}` }).getByRole("row").filter({ hasText: today });
+      await expect(row).toContainText("395", { timeout: 2_000 });
+      await expect(row).toContainText("The driver's phone", { timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+  } finally {
+    await done();
+  }
+});
