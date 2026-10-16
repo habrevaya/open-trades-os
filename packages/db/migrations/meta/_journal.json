@@ -1009,6 +1009,13 @@
       "when": 1792107746978,
       "tag": "0143_purple_blacklash",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1792109973437,
+      "tag": "0144_curved_shinko_yamashiro",
+      "breakpoints": true
     }
   ]
 }

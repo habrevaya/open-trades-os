@@ -15095,6 +15095,7 @@ export interface ListJobLinesOutput {
     invoiceLineId: string | null;
     nonBillableReason: string | null;
     billedBackAt?: string | null;
+    rentalId?: string | null;
     occurredAt: string;
   }>;
 }
@@ -18253,6 +18254,7 @@ export interface MarkJobLineBilledBackOutput {
   invoiceLineId: string | null;
   nonBillableReason: string | null;
   billedBackAt?: string | null;
+  rentalId?: string | null;
   occurredAt: string;
 }
 
@@ -18437,6 +18439,30 @@ export interface MoveProjectPhaseOutput {
     startsOn: string;
     endsOn: string;
   }>;
+}
+
+export interface NameJobLineHaulInput {
+  rentalId: string | null;
+}
+
+export interface NameJobLineHaulOutput {
+  id: string;
+  jobId: string;
+  visitId: string | null;
+  kind: string;
+  source: string;
+  priceBookItemVersionId: string | null;
+  name: string;
+  description: string | null;
+  quantity: string;
+  unitPrice: string;
+  unitCost?: string | null;
+  taxable: boolean;
+  invoiceLineId: string | null;
+  nonBillableReason: string | null;
+  billedBackAt?: string | null;
+  rentalId?: string | null;
+  occurredAt: string;
 }
 
 export interface NumberStockUnitsInput {
@@ -31296,6 +31322,10 @@ export interface MoveProjectPhaseParams {
   id: string;
 }
 
+export interface NameJobLineHaulParams {
+  id: string;
+}
+
 export interface OpenPortalLinkInput {
   token: string;
 }
@@ -33263,6 +33293,7 @@ export interface OperationTypes {
   moveEquipment: { input: MoveEquipmentParams & MoveEquipmentInput; output: MoveEquipmentOutput };
   moveExternalWorkOrder: { input: MoveExternalWorkOrderParams & MoveExternalWorkOrderInput; output: MoveExternalWorkOrderOutput };
   moveProjectPhase: { input: MoveProjectPhaseParams & MoveProjectPhaseInput; output: MoveProjectPhaseOutput };
+  nameJobLineHaul: { input: NameJobLineHaulParams & NameJobLineHaulInput; output: NameJobLineHaulOutput };
   numberStockUnits: { input: NumberStockUnitsInput; output: NumberStockUnitsOutput };
   openPortalLink: { input: OpenPortalLinkInput; output: OpenPortalLinkOutput };
   openPortalRecord: { input: OpenPortalRecordInput; output: OpenPortalRecordOutput };
@@ -34429,6 +34460,7 @@ export const OPERATIONS = {
   moveEquipment: { method: "POST", path: "/v1/equipment/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   moveExternalWorkOrder: { method: "POST", path: "/v1/external-work-orders/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   moveProjectPhase: { method: "POST", path: "/v1/project-phases/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  nameJobLineHaul: { method: "POST", path: "/v1/job-lines/{id}/haul", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   numberStockUnits: { method: "POST", path: "/v1/stock/numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   openPortalLink: { method: "GET", path: "/v1/portal/session", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openPortalRecord: { method: "POST", path: "/v1/portal/account/open", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -41365,6 +41397,15 @@ export abstract class GeneratedOperations {
    */
   moveProjectPhase(input: MoveProjectPhaseParams & MoveProjectPhaseInput, options?: CallOptions): Promise<MoveProjectPhaseOutput> {
     return this.call("moveProjectPhase", input, options);
+  }
+
+  /**
+   * Name the container a line bills, or take the name off.
+   *
+   * POST /v1/job-lines/{id}/haul. Needs job:write.
+   */
+  nameJobLineHaul(input: NameJobLineHaulParams & NameJobLineHaulInput, options?: CallOptions): Promise<NameJobLineHaulOutput> {
+    return this.call("nameJobLineHaul", input, options);
   }
 
   /**

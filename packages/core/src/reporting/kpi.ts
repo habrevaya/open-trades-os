@@ -55,6 +55,11 @@ import { streetKey } from "../geo/index.js";
  *   had a reading and completed stops, over those stops, and nothing guessed
  *   for a day missing either.
  *
+ *   A CONTAINER'S REVENUE AND ITS MONTHS, AND A HAUL'S DISPOSAL AGAINST WHAT
+ *   IT EARNED. Revenue is the invoice lines that name the haul they bill, on
+ *   invoices issued and not voided, before tax and without permits; a month is
+ *   a container's days in the fleet, each a share of its calendar month.
+ *
  *   HOMES PER SERVED STREET. Active subscriptions over the distinct streets
  *   they are on, commercial stops left out and an address whose street is not
  *   recorded left out of both halves rather than guessed from its line.
@@ -790,4 +795,85 @@ export function waterPerStopOf(days: readonly WaterTruckDay[]): {
     byTruck.set(day.truck, truck);
   }
   return { gallons, stops, byTruck, notRead, noStops };
+}
+
+/* --------------------------------------------- a container's revenue and months */
+
+/** Statuses of an invoice that was issued and still stands: what invoiced revenue is. */
+export const INVOICE_ISSUED = ["open", "partially_paid", "paid", "written_off"] as const;
+
+export interface HaulLine {
+  /** The haul (rental row) the line names, its own or through the job line it billed. */
+  rentalId: string;
+  /** What it was billed at: quantity times price, less discounts, before tax. */
+  amount: number;
+  invoiceStatus: string;
+  /** The job line it billed is a permit, which is passed through and not revenue. */
+  permit: boolean;
+}
+
+/**
+ * Each haul's invoiced revenue: the lines naming it, on invoices issued and not
+ * voided (a draft is not invoiced, a void was never owed), before tax (tax is
+ * held apart on the line), and never a permit, which the dumpster pack says is
+ * passed through at cost and is not revenue. Every permit line is left out,
+ * whether or not it carried a markup, which reads lower and never higher.
+ */
+export function haulRevenue(lines: readonly HaulLine[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const line of lines) {
+    if (line.permit) continue;
+    if (!(INVOICE_ISSUED as readonly string[]).includes(line.invoiceStatus)) continue;
+    out.set(line.rentalId, (out.get(line.rentalId) ?? 0) + line.amount);
+  }
+  return out;
+}
+
+/** Days in a date's calendar month. */
+function monthDays(day: string): number {
+  const [y, mo] = day.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(y, mo, 0)).getUTCDate();
+}
+
+/**
+ * "The months that container was in the fleet, including months it never left
+ * the yard": each day it was in the fleet inside the window, as a share of its
+ * own calendar month, so a whole June is one month and half of February is
+ * half. In the fleet from the day it `joined` (the register's own date, or its
+ * first hire when that came first) until the day it `left` (retired), that day
+ * not included. Out of service is still in the fleet.
+ */
+export function containerMonths(container: { joined: string; left: string | null }, window: { from: string; to: string }): number {
+  let months = 0;
+  const start = container.joined > window.from ? container.joined : window.from;
+  for (let day = start; day <= window.to; day = nextDay(day)) {
+    if (container.left !== null && day >= container.left) break;
+    months += 1 / monthDays(day);
+  }
+  return months;
+}
+
+function nextDay(day: string): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * One collected haul's disposal cost against what it was invoiced, or why it
+ * is not counted.
+ *
+ * "Tipping and disposal cost taken from scale tickets divided by invoiced
+ * revenue on the same hauls." A haul with no disposal cost recorded is LEFT
+ * OUT OF BOTH HALVES (counted at nothing it would read as a free tip), and so
+ * is one with no invoiced revenue yet (counted, its cost would sit over nothing
+ * and read as a facility several times dearer). Fuel, labour and the truck are
+ * never in it: the cost is the facility's fee alone.
+ */
+export function disposalHaulOf(haul: { fee: number | null; revenue: number | undefined }):
+  | { counted: true; cost: number; revenue: number }
+  | { counted: false; why: "no_fee" | "not_invoiced" } {
+  if (haul.fee === null) return { counted: false, why: "no_fee" };
+  if (haul.revenue === undefined) return { counted: false, why: "not_invoiced" };
+  return { counted: true, cost: haul.fee, revenue: haul.revenue };
 }

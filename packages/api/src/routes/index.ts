@@ -121,6 +121,7 @@ export const handlers = {
   listJobLines: jobs.lines,
   listJobTypes: jobs.listTypes,
   markJobLineBilledBack: jobs.markBilledBack,
+  nameJobLineHaul: jobs.nameHaul,
   listJobHolds: jobHolds.handlers.listJobHolds,
   placeJobHold: jobHolds.handlers.placeJobHold,
   releaseJobHold: jobHolds.handlers.releaseJobHold,

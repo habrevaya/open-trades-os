@@ -498,6 +498,12 @@ export const JobLine = z.object({
    * once it is on an issued invoice.
    */
   billedBackAt: z.string().datetime().nullable().optional(),
+  /**
+   * The container haul this line bills (a rental row), when the office named
+   * one. Revenue per container month and disposal cost per haul read each
+   * can's share of a job's revenue from it.
+   */
+  rentalId: Uuid.nullable().optional(),
   occurredAt: z.string().datetime(),
 });
 
@@ -526,7 +532,20 @@ export const markJobLineBilledBack = defineRoute({
   output: JobLine,
 });
 
+export const nameJobLineHaul = defineRoute({
+  method: "post",
+  path: "/v1/job-lines/{id}/haul",
+  summary: "Name the container a line bills, or take the name off",
+  description:
+    "For a roll off job sold at a flat price, or with several cans on it in a swap chain: which haul (a rental at the job's own address) this line bills. Revenue per container month and disposal cost per haul read each can's share of the job's revenue from it. Naming what is already named changes nothing, so a replay is harmless.",
+  module: "M10",
+  permissions: ["job:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, rentalId: Uuid.nullable() }),
+  output: JobLine,
+});
+
 export const jobRoutes = {
   listJobs, getJob, createJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines,
-  markJobLineBilledBack,
+  markJobLineBilledBack, nameJobLineHaul,
 } as const;

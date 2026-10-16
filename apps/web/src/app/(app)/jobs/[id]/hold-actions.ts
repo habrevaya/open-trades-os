@@ -72,3 +72,14 @@ export async function setBilledBack(_previous: FormState, form: FormData): Promi
   revalidatePath(`/jobs/${jobId}`);
   return result;
 }
+
+/** Naming the container haul a line on the job bills, or taking the name off. */
+export async function setLineHaul(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const result = await attempt(form, async () => {
+    await jobs.nameHaul(await ctx(), { id: field(form, "lineId") ?? "", rentalId: field(form, "rentalId") ?? null });
+    return { message: "Saved." };
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}

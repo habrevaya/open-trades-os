@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty four of the forty seven are computed here, four are
- * M22's, and the nine that are not each name what they still lack.)
+ * (They are read now. Thirty six of the forty seven are computed here, four are
+ * M22's, and the seven that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -63,9 +63,9 @@ export type Format = "percent" | "money" | "number" | "duration";
  * Every records query returns the same six columns:
  *
  *   kind     job, estimate, agreement, visit, customer, technician_day,
- *            crew_day, time, deficiency, equipment, route_day, street, truck
- *            or truck_day: what the row is, which decides who may see it
- *            listed
+ *            crew_day, time, deficiency, equipment, route_day, street, truck,
+ *            truck_day, container or haul: what the row is, which decides who
+ *            may see it listed
  *   id       the record's id, as text
  *   label    what to call it on a list
  *   on_day   the date it falls on in the window, as YYYY-MM-DD
@@ -347,6 +347,104 @@ const waterPerStop = (pick: "numerator" | "denominator" | "excluded" | "unknown"
            '/fleet/water?truck=' || x.asset_id as href
     from (${truckDaysSql(from, to, zone)}) as x
     where ${pick === "unknown" ? sql`x.gallons is null and x.stops > 0` : sql`x.gallons is not null and x.stops = 0`}`;
+
+/**
+ * WHAT EACH HAUL WAS INVOICED, line by line: every invoice line that names the
+ * haul it bills (a rental row: one can's time on a site), its own name when a
+ * hire's invoice wrote it, or the name on the job line it billed. On invoices
+ * issued and not voided, before tax (tax is held apart on the line), net of
+ * discounts, and never a permit line, which the dumpster pack calls a pass
+ * through and not revenue. Core's `reporting.haulRevenue` is the same rule.
+ */
+const haulLines = () => sql`
+  select coalesce(il.rental_id, jl.rental_id) as rental_id, il.id as line_id, i.issued_on,
+         (il.quantity * il.unit_price - il.discount_amount - il.member_discount_amount)::numeric as amount
+  from public.invoice_line il
+  join public.invoice i on i.id = il.invoice_id
+  left join public.job_line jl on jl.invoice_line_id = il.id
+  where coalesce(il.rental_id, jl.rental_id) is not null
+    and i.deleted_at is null
+    and i.status::text = any(${sql.param([...reporting.INVOICE_ISSUED])}::text[])
+    and coalesce(jl.kind::text, '') <> 'permit'
+`;
+
+/** A container as it reads on a list: its number and its size. */
+const containerName = (alias: string) => sql.raw(`concat('Container ', ${alias}.identifier, coalesce(' (' || ${alias}.size || ')', ''))`);
+
+/** Revenue per container month's records. See `revenue_per_container_month`. */
+const containerMonths = (pick: "numerator" | "denominator" | "unknown"): Records => (from, to, zone) => ({
+  numerator: sql`
+    select 'container'::text as kind, ra.id::text as id,
+           concat(${containerName("ra")}, ': ', count(*), case when count(*) = 1 then ' line' else ' lines' end, ' invoiced') as label,
+           max(hl.issued_on)::text as on_day, sum(hl.amount) as value, '/fleet/containers' as href
+    from (${haulLines()}) as hl
+    join public.rental r on r.id = hl.rental_id
+    join public.rentable_asset ra on ra.id = r.asset_id
+    where hl.issued_on >= ${from}::date and hl.issued_on <= ${to}::date
+    group by ra.id, ra.identifier, ra.size`,
+  denominator: sql`
+    with fleet as (
+      select ra.id, ra.identifier, ra.size,
+             least((ra.created_at at time zone ${zone})::date,
+                   coalesce((select min((r.delivered_at at time zone ${zone})::date) from public.rental r where r.asset_id = ra.id),
+                            'infinity'::date)) as joined,
+             (ra.deleted_at at time zone ${zone})::date as left_on
+      from public.rentable_asset ra
+    )
+    select 'container'::text as kind, f.id::text as id,
+           concat(${containerName("f")}, ': ',
+                  to_char(sum(1.0 / extract(day from (date_trunc('month', d.day) + interval '1 month - 1 day'))), 'FM9990.00'),
+                  ' months in the fleet') as label,
+           ${to}::text as on_day,
+           sum(1.0 / extract(day from (date_trunc('month', d.day) + interval '1 month - 1 day')))::numeric as value,
+           '/fleet/containers' as href
+    from fleet f
+    cross join lateral generate_series(greatest(f.joined, ${from}::date)::timestamp, ${to}::date::timestamp, interval '1 day') as d(day)
+    where f.left_on is null or d.day::date < f.left_on
+    group by f.id, f.identifier, f.size`,
+  unknown: sql`
+    select 'job'::text as kind, j.id::text as id,
+           concat('#', j.number, ' ', j.summary, ': ', count(*), case when count(*) = 1 then ' line' else ' lines' end,
+                  ' naming no container') as label,
+           max(i.issued_on)::text as on_day, 1::numeric as value, '/jobs/' || j.id as href
+    from public.invoice_line il
+    join public.invoice i on i.id = il.invoice_id
+    join public.job_line jl on jl.invoice_line_id = il.id
+    join public.job j on j.id = jl.job_id
+    where il.rental_id is null and jl.rental_id is null and jl.kind::text <> 'permit'
+      and i.deleted_at is null
+      and i.status::text = any(${sql.param([...reporting.INVOICE_ISSUED])}::text[])
+      and i.issued_on >= ${from}::date and i.issued_on <= ${to}::date
+      and exists (select 1 from public.visit v where v.job_id = j.id and v.rental_id is not null)
+    group by j.id, j.number, j.summary`,
+}[pick]);
+
+/**
+ * Disposal cost's records: each haul collected in the window (the pickup or
+ * swap that took the full can to the facility), with its facility fee and the
+ * revenue invoiced on it. See `disposal_cost_pct`. Core's
+ * `reporting.disposalHaulOf` is the rule.
+ */
+const disposalHauls = (pick: "numerator" | "denominator" | "unknown" | "excluded"): Records => (from, to, zone) => sql`
+  select 'haul'::text as kind, r.id::text as id,
+         concat(${containerName("ra")}, ', collected ', to_char(r.picked_up_at at time zone ${zone}, 'Mon FMDD'),
+                coalesce(', ' || r.disposal_facility, ''), coalesce(', ticket ' || r.disposal_ticket_number, '')) as label,
+         to_char(r.picked_up_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         ${pick === "numerator" ? sql`r.disposal_fee::numeric` : pick === "denominator" ? sql`inv.revenue` : sql`1::numeric`} as value,
+         '/fleet/containers' as href
+  from public.rental r
+  join public.rentable_asset ra on ra.id = r.asset_id
+  left join lateral (
+    select sum(hl.amount) as revenue, count(*) as lines from (${haulLines()}) as hl where hl.rental_id = r.id
+  ) as inv on true
+  where r.picked_up_at >= ${dayStart(from, zone)} and r.picked_up_at < ${dayAfter(to, zone)}
+    and ${{
+      numerator: sql`r.disposal_fee is not null and inv.lines > 0`,
+      denominator: sql`r.disposal_fee is not null and inv.lines > 0`,
+      unknown: sql`r.disposal_fee is null`,
+      excluded: sql`r.disposal_fee is not null and inv.lines = 0`,
+    }[pick]}
+`;
 
 /** The haul events of the pack: a delivery, a pickup, a swap, a dump and return, a relocation. */
 const HAULS = ["delivery", "pickup", "swap", "dump-return", "relocate"];
@@ -2305,36 +2403,67 @@ export const CATALOGUE: Record<string, Entry> = {
   /* ------------------------------------------- the rental ones that need more */
 
   revenue_per_container_month: {
-    state: "needs",
+    state: "computed",
     format: "money",
-    needs:
-      "Revenue attributed to a container. A hire's own invoice is linked to it "
-      + "now (`rental.invoice_id`), but it holds only the period (for a hire "
-      + "priced by the day), a meter that went over and the charges found on the "
-      + "haul: a hire sold at a flat price has that price on the job, which can "
-      + "have several containers on it in a swap chain. The ratio needs each "
-      + "container's share of a job's revenue, which nothing records, so the "
-      + "figure would be fleet revenue divided by fleet months rather than per "
-      + "container, which is the comparison the number exists to make. A hire "
-      + "billed as a swap chain puts several cans on one invoice, so even a "
-      + "hire's own invoice no longer belongs to one container.",
+    measure: {
+      /**
+       * "Rental, overage, disposal and fee revenue attributed to a container
+       * divided by the months that container was in the fleet, including
+       * months it never left the yard. EXCLUDES taxes and permit amounts passed
+       * through at cost, which are not revenue."
+       *
+       * WHAT IT NEEDED: each container's share of a job's revenue. A hire's
+       * invoice now names the haul each of its lines bills (the period, the
+       * meters, the charges found, the disposal fee passed on), so a swap chain
+       * on one invoice still says which can earned what, and the office names
+       * the haul a job's own line bills (a flat priced hire, a trip) on the
+       * job's page. Nothing is read from a line's words.
+       *
+       * Revenue is those lines on invoices issued in the window and not
+       * voided, before tax, never a permit. A container's months are its days
+       * in the fleet in the window, each a share of its own month, from when it
+       * joined the register (or its first hire, if earlier) until it was
+       * retired, the yard and the repair shop included. Lines on a container
+       * job that name no container are counted beside, not guessed.
+       */
+      numerator: { label: "invoiced revenue naming a container", records: containerMonths("numerator") },
+      denominator: { label: "container months in the fleet", records: containerMonths("denominator") },
+      besides: {
+        unknown: { label: "Jobs with a container whose invoiced lines name none, left out", records: containerMonths("unknown") },
+      },
+    },
   },
   disposal_cost_pct: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Revenue attributed to the same hauls as the disposal cost. "
-      + "`rental.disposal_fee` is the cost side and is recorded, and a hire's own "
-      + "invoice is linked to it (`rental.invoice_id`), but that invoice holds only "
-      + "the period of a hire priced by the day, the meters that went over and the "
-      + "charges found. The definition divides by invoiced revenue ON THE SAME "
-      + "HAULS, which for a hire sold at a flat price is on the job, shared by "
-      + "every container in a swap chain, and nothing records a haul's share. "
-      + "Dividing by the hire invoice alone would read as a disposal cost several "
-      + "times the truth. A haul now names its facility and the facility's rate, "
-      + "which firms up the cost half, and a fee passed on to the customer is a "
-      + "line on the hire's invoice, but that is the cost recovered and not the "
-      + "revenue the definition divides by.",
+    /** What a facility charged against what a haul earned is what work costs. */
+    permissions: ["job.cost:read", "report.financial:read"],
+    measure: {
+      /**
+       * "Tipping and disposal cost taken from scale tickets divided by
+       * invoiced revenue on the same hauls. EXCLUDES fuel, driver labour and
+       * truck cost, which belong in cost per haul."
+       *
+       * WHAT IT NEEDED: revenue attributed to the same hauls as the cost. The
+       * cost was always on the haul (`rental.disposal_fee`, what the facility
+       * billed for the load); the revenue is now the invoice lines naming the
+       * haul, as for revenue per container month. A haul counts in the window
+       * it was collected (the pickup or swap that took the full can to the
+       * facility).
+       *
+       * A haul with no disposal fee recorded is left out of both halves and
+       * counted beside as not known, never read as a free tip; one with a fee
+       * and nothing invoiced on it yet is left out and counted beside too,
+       * because its cost over nothing would read as a facility several times
+       * dearer. Fuel, labour and the truck are not in it.
+       */
+      numerator: { label: "facility fees on hauls collected and invoiced", records: disposalHauls("numerator"), money: true },
+      denominator: { label: "invoiced revenue on those hauls", records: disposalHauls("denominator"), money: true },
+      besides: {
+        unknown: { label: "Hauls collected with no disposal fee recorded, left out of both halves", records: disposalHauls("unknown") },
+        excluded: { label: "Hauls with a disposal fee and nothing invoiced on them yet, left out of both halves", records: disposalHauls("excluded") },
+      },
+    },
   },
   hauls_per_truck_day: {
     state: "computed",

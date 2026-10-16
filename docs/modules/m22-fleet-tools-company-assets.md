@@ -390,15 +390,18 @@ and relocations that a driver on a truck day did; a visit where the truck
 arrived and the haul did not happen (the customer was not there, the way was
 blocked) is counted beside the number as a dry run, not as a haul.
 
-The other three are absent rather than approximated:
-`revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue
-attributed to the container and the haul, which a hire billed as a chain (several
-cans on one invoice) and a hire sold at a flat price on its job both leave
-unrecorded, even though a haul now names its facility and the facility's rate;
-and `turnaround_hours` needs the moment a can was emptied at the facility, which
-nothing records, and the cans held at a customer's request, which the definition
-leaves out and nothing marks. A KPI computed from the nearest available number is
-one an owner makes a fleet purchase on.
+Two more are on the scorecard too, `revenue_per_container_month` and
+`disposal_cost_pct`, because each haul's revenue is now recorded: a hire's own
+invoice names the haul (the rental row) on every line it writes, chain or not,
+and the office names the haul a job's own line bills (M10), so a hire sold at a
+flat price on its job is a can's revenue too. The facility's fee recorded on the
+haul is the cost. M21 says what each counts and leaves out.
+
+The last, `turnaround_hours`, is absent rather than approximated: it needs the
+moment a can was emptied at the facility, which nothing records, and the cans
+held at a customer's request, which the definition leaves out and nothing marks.
+A KPI computed from the nearest available number is one an owner makes a fleet
+purchase on.
 
 ## Permissions
 
@@ -561,7 +564,7 @@ this product's own board first.
   billed as one invoice cannot be raised until its last can is collected: the
   cans already collected are invoiced by changing the hire to one invoice per
   haul.
-- **Three of the eight KPIs**, listed above with what each one needs.
+- **One of the eight KPIs**, turnaround, listed above with what it needs.
 - **No telematics.** Cost per hour and per mile on a company asset are only as
   good as what somebody enters, and so is a truck's water: a reading is what
   the driver read off the gauge, and a flow meter is not connected.

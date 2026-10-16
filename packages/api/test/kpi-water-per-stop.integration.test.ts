@@ -262,7 +262,7 @@ run("a truck's water, read by its driver on the phone", () => {
     /** Somebody else's truck is the office's to record. */
     const refused = await send(truck.t2!, "2026-06-10", "200", "2026-06-10T23:30:00Z");
     expect(refused.status).toBe("rejected");
-    expect(refused.rejection ?? refused.error).toMatch(/not checked out to you/);
+    expect(refused.rejection).toMatch(/not checked out to you/);
 
     const snapshot = await dispatch.snapshot(ana(), { deviceId: device, from: "2026-06-11", days: 1 });
     expect(snapshot.trucks).toEqual([{

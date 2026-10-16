@@ -19,6 +19,8 @@ export interface UsedLine {
   kind?: string;
   /** When a supply was marked billed back to the customer at cost. */
   billedBackAt?: string | null;
+  /** The container haul this line bills, when the office named one. */
+  rentalId?: string | null;
   name: string;
   quantity: string;
   unitPrice: string;
@@ -162,20 +164,31 @@ export function CancelJob({
  * job. It is a pass through, so the supply cost share of revenue leaves it out
  * once it is on an invoice; the column says which supplies are.
  */
-export function UsedOnJob({ lines, jobId, markBilledBack }: {
+export function UsedOnJob({ lines, jobId, markBilledBack, hauls = [], nameHaul }: {
   lines: UsedLine[];
   jobId?: string;
   /** Given to somebody who may change the job; without it the column only says. */
   markBilledBack?: Action;
+  /**
+   * The containers that have been on this job's site, newest first. With any,
+   * each line says which one it bills, because a roll off job can have several
+   * cans on it and revenue per container needs each can's share.
+   */
+  hauls?: Array<{ id: string; label: string }>;
+  /** Given to somebody who may change the job; without it the column only says. */
+  nameHaul?: Action;
 }) {
   if (lines.length === 0) return null;
   const supplies = lines.some((line) => line.kind === "part");
+  const containers = hauls.length > 0;
+  const haulName = new Map(hauls.map((h) => [h.id, h.label]));
   return (
     <section aria-label="Used on this job">
       <h2 className="mt-10 text-base font-semibold">Used on this job</h2>
       <Table head={<>
         <Th>Item</Th><Th className="text-right">Qty</Th><Th className="text-right">Price</Th><Th>Billed</Th>
         {supplies ? <Th>Billed back at cost</Th> : null}
+        {containers ? <Th>Container it bills</Th> : null}
       </>}>
         {lines.map((line) => (
           <tr key={line.id}>
@@ -198,6 +211,21 @@ export function UsedOnJob({ lines, jobId, markBilledBack }: {
                     ) : null}
                   </div>
                 )}
+              </Td>
+            ) : null}
+            {containers ? (
+              <Td className="text-ink-700">
+                {nameHaul && jobId ? (
+                  <ActionForm action={nameHaul} submit="Save" tone="quiet" className="flex flex-wrap items-center gap-2"
+                              hidden={{ jobId, lineId: line.id }}>
+                    <label className="sr-only" htmlFor={`haul-${line.id}`}>Container {line.name} bills</label>
+                    <select id={`haul-${line.id}`} name="rentalId" defaultValue={line.rentalId ?? ""}
+                            className="h-9 max-w-64 rounded border border-steel-300 bg-canvas px-2 text-sm">
+                      <option value="">No container</option>
+                      {hauls.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
+                    </select>
+                  </ActionForm>
+                ) : (line.rentalId ? haulName.get(line.rentalId) ?? "A container" : "No container")}
               </Td>
             ) : null}
           </tr>

@@ -280,6 +280,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "callback_rate",
       "churn",
       "close_rate",
+      "disposal_cost_pct",
       "drive_time_pct",
       "first_time_fix",
       "hauls_per_truck_day",
@@ -300,6 +301,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "renewal_rate",
       "replace_pipeline",
       "revenue_per_cleaner_hour",
+      "revenue_per_container_month",
       "revenue_per_crew_day",
       "revenue_per_stop",
       "revenue_per_tech",
@@ -352,8 +354,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * geocoder's own parts or typed, never read out of the line.
      * `water_per_stop` made thirty eight when a truck's day got the fresh
      * water its driver read off the tank, on the phone or from the office.
+     * `revenue_per_container_month` and `disposal_cost_pct` made forty when a
+     * hire's invoice named the haul each line bills and the office could name
+     * the haul a job's own line bills.
      */
-    expect(computed.length + elsewhere.length).toBe(38);
+    expect(computed.length + elsewhere.length).toBe(40);
     expect(KEYS.length).toBe(47);
   });
 });
