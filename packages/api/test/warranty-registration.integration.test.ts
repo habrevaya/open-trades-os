@@ -35,10 +35,8 @@ let raw: postgres.Sql;
 let furnace = "";
 let coil = "";
 let plain = "";
-let shop = "";
 let van = "";
 let jobId = "";
-let propertyId = "";
 
 const db = () => testDb(url!);
 const as = (roles: string[], key?: string): ServiceContext => ({
@@ -73,8 +71,6 @@ beforeAll(async () => {
   furnace = await item("FURN-80", "Furnace, 80 percent", 30);
   coil = await item("COIL-3T", "Evaporator coil, 3 ton", 60);
   plain = await item("BLOWER-1", "Blower, no registration", null);
-  [{ id: shop }] = await raw<{ id: string }[]>`
-    insert into public.location (organization_id, name, is_warehouse) values (${ORG}, 'Shop', true) returning id` as unknown as [{ id: string }];
   [{ id: van }] = await raw<{ id: string }[]>`
     insert into public.location (organization_id, name) values (${ORG}, 'Van 9') returning id` as unknown as [{ id: string }];
   const customer = await customers.create(owner(), {
@@ -85,7 +81,6 @@ beforeAll(async () => {
     address: { line1: "9 Cedar Row", city: "Austin", state: "TX", postalCode: "78704", country: "US" },
     hasDog: false, customFields: {}, customerId: customer.id, customerRole: "owner",
   });
-  propertyId = property.id;
   jobId = (await jobs.create(owner(), {
     customerId: customer.id, propertyId: property.id, summary: "Replace the furnace", tags: [], customFields: {},
   })).id;
