@@ -58,6 +58,10 @@ import { distanceKm } from "../location/index.js";
  *   the visit that found the fault, with the calls whose fault was in another
  *   trade's equipment left out.
  *
+ *   A DRAIN CALL CONVERTED. A drain job that produced a camera inspection, a
+ *   lining or an excavation, with a return to the same line inside thirty
+ *   days left out rather than counted as a second sale.
+ *
  *   A LATE CANCELLATION. A stop the customer called off with less notice than
  *   the company asks for, judged by when they asked and the notice window in
  *   force then, with the company's own cancellations left out.
@@ -854,4 +858,46 @@ export function troubleshootingOf(call: TroubleshootingCall): "excluded" | "conv
   if (arrivedAt !== null && call.approvedAt.some((at) =>
     at.getTime() >= arrivedAt.getTime() && at.getTime() <= completedAt.getTime())) return "converted";
   return "not_converted";
+}
+
+/* ------------------------------------------------------ drain call conversion */
+
+/** How long after one drain job another on the same line is a return, not a new call. */
+export const DRAIN_REPEAT_DAYS = 30;
+
+export interface DrainCall {
+  completedAt: Date;
+  /** The unit the job names (a sewer lateral), or null. */
+  equipmentId: string | null;
+  /** The other drain jobs finished at the same address. */
+  others: ReadonlyArray<{ completedAt: Date; equipmentId: string | null }>;
+  /** It, or a job raised from it, carries a camera inspection, lining or excavation the pack marks: done, or signed for. */
+  producedUpsell: boolean;
+}
+
+/**
+ * What one completed drain job counts as.
+ *
+ * "Drain jobs that produced a camera inspection, a lining or an excavation,
+ * divided by all drain jobs. Excludes repeat visits on the same line within
+ * thirty days, because counting the rework as a second conversion flatters
+ * the number."
+ *
+ *   `repeat`         another drain job on the same line finished in the
+ *                    thirty days before it. Out of both halves and counted
+ *                    beside. The same line is the same address, and the same
+ *                    unit when both jobs name one: two jobs naming different
+ *                    laterals are two lines; one that names none could be
+ *                    either, and is read as the same, which leaves it out
+ *                    rather than letting it count twice.
+ *   `converted`      it produced one of the upsells.
+ *   `not_converted`  neither.
+ */
+export function drainCallOf(call: DrainCall): "repeat" | "converted" | "not_converted" {
+  const since = call.completedAt.getTime() - DRAIN_REPEAT_DAYS * 86_400_000;
+  const repeat = call.others.some((o) => o.completedAt.getTime() < call.completedAt.getTime()
+    && o.completedAt.getTime() >= since
+    && (o.equipmentId === null || call.equipmentId === null || o.equipmentId === call.equipmentId));
+  if (repeat) return "repeat";
+  return call.producedUpsell ? "converted" : "not_converted";
 }

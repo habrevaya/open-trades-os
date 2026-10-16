@@ -282,6 +282,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "churn",
       "close_rate",
       "diag_conversion",
+      "drain_conversion",
       "drive_time_pct",
       "first_time_fix",
       "hauls_per_truck_day",
@@ -355,9 +356,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * recommendation could say why as a code, "already booked with another
      * company" among them. `diag_conversion` made thirty nine when the
      * electrical pack marked its troubleshooting call and its charges, and its
-     * service report asked where the fault was.
+     * service report asked where the fault was. `drain_conversion` made forty
+     * when the plumbing pack marked its drain call and the camera, lining and
+     * excavation it can turn into.
      */
-    expect(computed.length + elsewhere.length).toBe(39);
+    expect(computed.length + elsewhere.length).toBe(40);
     expect(KEYS.length).toBe(47);
   });
 });

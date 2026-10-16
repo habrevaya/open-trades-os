@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty five of the forty seven are computed here, four are
- * M22's, and the eight that are not each name what they still lack.)
+ * (They are read now. Thirty six of the forty seven are computed here, four are
+ * M22's, and the seven that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -1130,6 +1130,71 @@ const troubleshootingCalls = (pick: "converted" | "denominator" | "excluded"): R
   where x.verdict = any(${sql.param(pick === "denominator" ? ["converted", "not_converted"] : [pick])}::text[])
 `;
 
+/**
+ * DRAIN CALLS, core's `reporting.drainCallOf` written again in SQL. A drain call
+ * is a completed job of a type the trade pack marks as a drain call. It produced
+ * an upsell when it, or a job raised from it (`parent_job_id`), carries a line
+ * of an item the pack marks as the camera inspection, the lining or the
+ * excavation, or an estimate the customer approved whose chosen option does. A
+ * repeat is another drain job at the same address finished in the thirty days
+ * before, on the same unit when both name one.
+ */
+const drainCalls = (pick: "converted" | "denominator" | "repeat"): Records => (from, to, zone, trade) => {
+  const upsell = sql.param(markedItems(trade, "drain_upsell"));
+  return sql`
+  with calls as (
+    select j.id, j.number, j.summary, j.property_id, j.equipment_id, j.completed_at, c.name as customer
+    from public.job j
+    join public.job_type jt on jt.id = j.job_type_id
+    join public.customer c on c.id = j.customer_id
+    where j.deleted_at is null and j.completed_at is not null
+      and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+      and jt.code = any(${sql.param(markedJobTypes(trade, "drain"))}::text[])
+      and jt.revenue_class::text <> 'internal'
+  ),
+  judged as (
+    select x.*,
+           case
+             when exists (
+               select 1 from public.job o
+               join public.job_type ot on ot.id = o.job_type_id
+               where o.id <> x.id and o.deleted_at is null and o.property_id = x.property_id
+                 and ot.code = any(${sql.param(markedJobTypes(trade, "drain"))}::text[])
+                 and o.completed_at < x.completed_at
+                 and o.completed_at >= x.completed_at - make_interval(days => ${reporting.DRAIN_REPEAT_DAYS})
+                 and (o.equipment_id is null or x.equipment_id is null or o.equipment_id = x.equipment_id)
+             ) then 'repeat'
+             when exists (
+               select 1
+               from public.job w
+               join public.job_line jl on jl.job_id = w.id and jl.deleted_at is null
+               join public.price_book_item_version piv on piv.id = jl.price_book_item_version_id
+               join public.price_book_item pi on pi.id = piv.item_id
+               where (w.id = x.id or (w.parent_job_id = x.id and w.deleted_at is null and w.status <> 'cancelled'))
+                 and pi.code = any(${upsell}::text[])
+             ) or exists (
+               select 1
+               from public.job w
+               join public.estimate e on e.job_id = w.id and e.deleted_at is null
+                 and e.status::text in ('approved', 'converted')
+               join public.estimate_line el on el.option_id = e.selected_option_id
+               join public.price_book_item_version piv on piv.id = el.price_book_item_version_id
+               join public.price_book_item pi on pi.id = piv.item_id
+               where (w.id = x.id or (w.parent_job_id = x.id and w.deleted_at is null and w.status <> 'cancelled'))
+                 and pi.code = any(${upsell}::text[])
+             ) then 'converted'
+             else 'not_converted'
+           end as verdict
+    from calls x
+  )
+  select 'job'::text as kind, x.id::text as id, concat('#', x.number, ' ', x.summary, ', ', x.customer) as label,
+         to_char(x.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/jobs/' || x.id as href
+  from judged x
+  where x.verdict = any(${sql.param(pick === "denominator" ? ["converted", "not_converted"] : [pick])}::text[])
+`;
+};
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1843,8 +1908,12 @@ export const CATALOGUE: Record<string, Entry> = {
       "Mobilisation recorded separately. `job.production_quantity` and on-site "
       + "minutes are both here, and the definition EXCLUDES mobilisation on the "
       + "first day as well as drive time. Travel is a timeclock kind and "
-      + "mobilisation is not, so a two day build would read as slower than a one "
-      + "day one for no reason the crew controls.",
+      + "mobilisation is not (`time_entry_kind` has travel, on site, shop and "
+      + "the kinds of leave), so the hours a crew spent unloading and setting up "
+      + "on a build's first day are on site hours, and a two day build would "
+      + "read as slower than a one day one for no reason the crew controls. "
+      + "Recording it means a punch kind the phone offers, with payroll paying it "
+      + "as on site time, which nothing has yet.",
   },
 
   cancel_rate_route: {
@@ -1886,11 +1955,14 @@ export const CATALOGUE: Record<string, Entry> = {
     needs:
       "A product application tied to the product register. Service reports "
       + "record what was applied (`service_report_field.product_name`, quantity "
-      + "and unit, the EPA number) but by name rather than as a price book item, "
-      + "so nothing values it, and the definition values product from the "
-      + "register and EXCLUDES devices, bait stations and monitors, which are "
-      + "capital. Valuing it from what was issued to a truck instead would make "
-      + "this a purchasing number rather than a cost per stop.",
+      + "and unit, the EPA number), typed on the phone by name rather than chosen "
+      + "as a price book item, so nothing values it, and the definition values "
+      + "product from the register and EXCLUDES devices, bait stations and "
+      + "monitors, which are capital. The trade pack marks added since (a "
+      + "troubleshooting call, a drain upsell) mark no product as chemistry. "
+      + "Valuing it from what was issued to a truck instead would make this a "
+      + "purchasing number rather than a cost per stop, and matching the typed "
+      + "name to an item would be reading words for a meaning.",
   },
 
   supply_cost_pct: {
@@ -1997,13 +2069,33 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   drain_conversion: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A finer job type class than `revenue_class`. The definition is drain jobs "
-      + "that produced a camera inspection, a lining or an excavation, and both "
-      + "halves are `service` work: the pack would have to mark which of its own "
-      + "job types and price book items are the upsell.",
+    measure: {
+      /**
+       * "Drain jobs that produced a camera inspection, a lining or an
+       * excavation, divided by all drain jobs. Excludes repeat visits on the
+       * same line within thirty days, because counting the rework as a second
+       * conversion flatters the number."
+       *
+       * WHAT IT NEEDED, and what changed: which job types are drain calls and
+       * which items are the upsell, both `service` work to `revenue_class`. The
+       * plumbing pack now marks its drain call and its camera inspection,
+       * lining and excavation (pack version 2, `marks`).
+       *
+       * A drain call is counted in the window it was completed. It produced
+       * the upsell when it, or a job raised from it, carries a line of one of
+       * those items, or an estimate the customer approved whose chosen option
+       * does. A return to the same line (the same address, the same unit when
+       * both name one) inside thirty days of an earlier drain job is out of
+       * both halves and counted beside.
+       */
+      numerator: { label: "drain calls that produced a camera inspection, a lining or an excavation", records: drainCalls("converted") },
+      denominator: { label: "drain calls, other than returns to the same line", records: drainCalls("denominator") },
+      besides: {
+        excluded: { label: "returns to the same line inside thirty days, left out", records: drainCalls("repeat") },
+      },
+    },
   },
 
   wh_attach: {

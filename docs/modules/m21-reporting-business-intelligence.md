@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty nine of the forty seven are answered: thirty five computed here, four
-by M22's fleet report. The other eight each name what they still lack.
+Forty of the forty seven are answered: thirty six computed here, four by
+M22's fleet report. The other seven each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -121,8 +121,10 @@ the ones somebody makes a hiring decision on.
   unlocked the supply cost share of revenue (below).
 - **A finer job type class.** `job_revenue_class` was added for these and
   unlocked five. A trade's own upsell path (a drain job that became a lining, a
-  troubleshooting call that converted on the visit) needs the pack to mark which
-  of its own job types and price book items are the upsell.
+  troubleshooting call that converted on the visit) needed the pack to mark which
+  of its own job types and price book items are the upsell, and the packs do now
+  (M02), which unlocked drain call conversion and, with the question of where
+  the fault was, troubleshooting conversion (below).
 
 ### The two that were unlocked, and what they leave out
 
@@ -438,6 +440,30 @@ hand, puts the same stops through both, and checks every path that cancels a
 visit records who and when; `visit-cancellation-paths.test.ts` reads the
 service layer and fails when a new path cancels a visit without saying who.
 
+### Drain call conversion, from what the plumbing pack marks
+
+Plumbing's **drain call conversion** is "drain jobs that produced a camera
+inspection, a lining or an excavation, divided by all drain jobs", and it
+EXCLUDES "repeat visits on the same line within thirty days, because counting the
+rework as a second conversion flatters the number". Both halves are `service`
+work to `revenue_class`; the plumbing pack (version two, M02) now marks its
+drain call and its camera inspection, lining and excavation items.
+
+- A **drain call** is a completed job of a type the company's trade pack marks as
+  a drain call, in the window it was completed.
+- It **produced** the upsell when it, or a job raised from it and not cancelled,
+  carries a line of one of the marked items, or an estimate the customer
+  approved whose chosen option does. An option the customer did not choose
+  produced nothing.
+- A **return** is a drain call at an address that had another drain job finished
+  in the thirty days before it, on the same unit when both name one (two jobs on
+  different laterals are two lines). It is out of both halves and counted beside;
+  the earlier job is counted as itself.
+
+The rule is core's `reporting.drainCallOf`, with unit tests, written again in
+SQL, and `kpi-drain-conversion.integration.test.ts` checks a month worked out by
+hand, puts the same jobs through both, and reads the marks from the pack.
+
 ### Troubleshooting conversion, and where the fault was
 
 Electrical's **troubleshooting conversion** is "troubleshooting calls that
@@ -600,7 +626,7 @@ Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
 assembly due a retest, a crew's day, a permitted job, a person's route day, a
-scheduled stop, an old water heater inspected, a troubleshooting call. The scorecard's number is the sum of those rows, and
+scheduled stop, an old water heater inspected, a troubleshooting call, a drain call. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -978,12 +1004,19 @@ prefix off.
 
 ## What is not built
 
-Eight of the forty seven declared KPIs cannot be computed, and each one
+Seven of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the eight has its datum yet (above, "The
+since they were written and none of the seven has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
+
+Drain call conversion reads the drain call and the upsell items the company's
+trade pack marks, by code: a camera inspection sold under an item the company
+made itself is not counted. A job that names no unit is read as being on the same
+line as any drain job at its address, which leaves it out as a return rather than
+letting it count twice. A camera, lining or excavation done on a new job that was
+not raised from the drain call is not linked to it.
 
 Troubleshooting conversion reads the job types and charges the company's trade
 pack marks, by the codes it seeded: a troubleshooting job type made by hand under
