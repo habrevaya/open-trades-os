@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty four of the forty seven are computed here, four are
- * M22's, and the nine that are not each name what they still lack.)
+ * (They are read now. Thirty five of the forty seven are computed here, four are
+ * M22's, and the eight that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -1055,6 +1055,81 @@ const heatersSeen = (pick: "replaced" | "denominator" | "booked_elsewhere" | "un
   where x.verdict = any(${sql.param(pick === "denominator" ? ["replaced", "open"] : [pick])}::text[])
 `;
 
+/**
+ * WHAT A TRADE PACK MARKS, read from the company's own trade pack: the codes of
+ * its job types and price book items marked for a KPI (`JobTypeMark`,
+ * `ItemMark`), matched against the codes the pack seeded. A pack that marks
+ * nothing gives an empty list, and the figure has no calls.
+ */
+const markedJobTypes = (trade: string, mark: "troubleshooting" | "drain"): string[] =>
+  (packById(trade)?.jobTypes ?? []).filter((t) => (t.marks ?? []).includes(mark)).map((t) => t.code);
+const markedItems = (trade: string, mark: "troubleshooting" | "drain_upsell"): string[] =>
+  (packById(trade)?.priceBook ?? []).filter((i) => (i.marks ?? []).includes(mark)).map((i) => i.code);
+
+/**
+ * TROUBLESHOOTING CALLS, core's `reporting.troubleshootingOf` written again in
+ * SQL. A call is a job of a type the trade pack marks as troubleshooting,
+ * counted once, in the window its first visit that was done was finished. It
+ * converted when, on that visit, work was recorded other than the pack's
+ * charges for finding the fault, or the customer approved an estimate on the
+ * job between the visit's arrival and its finish. The last answer on the job's
+ * reports to where the fault was decides the exclusion.
+ */
+const troubleshootingCalls = (pick: "converted" | "denominator" | "excluded"): Records => (from, to, zone, trade) => sql`
+  with calls as (
+    select j.id, j.number, j.summary, c.name as customer, fv.id as visit_id, fv.arrived_at, fv.completed_at
+    from public.job j
+    join public.job_type jt on jt.id = j.job_type_id
+    join public.customer c on c.id = j.customer_id
+    cross join lateral (
+      select v.id, v.arrived_at, v.completed_at
+      from public.visit v
+      where v.job_id = j.id and v.deleted_at is null and v.completed_at is not null
+        and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+      order by v.completed_at, v.id
+      limit 1
+    ) fv
+    where j.deleted_at is null
+      and jt.code = any(${sql.param(markedJobTypes(trade, "troubleshooting"))}::text[])
+      and jt.revenue_class::text <> 'internal'
+      and fv.completed_at >= ${dayStart(from, zone)} and fv.completed_at < ${dayAfter(to, zone)}
+  ),
+  judged as (
+    select x.*,
+           case
+             when (
+               select f.value_text
+               from public.service_report r
+               join public.service_report_field f on f.report_id = r.id
+               where r.job_id = x.id and f.key = ${reporting.FAULT_LOCATION}
+               order by f.recorded_at desc, f.created_at desc
+               limit 1
+             ) = ${reporting.FAULT_ELSEWHERE} then 'excluded'
+             when exists (
+               select 1
+               from public.job_line jl
+               left join public.price_book_item_version piv on piv.id = jl.price_book_item_version_id
+               left join public.price_book_item pi on pi.id = piv.item_id
+               where jl.visit_id = x.visit_id and jl.deleted_at is null
+                 and (pi.code is null or not (pi.code = any(${sql.param(markedItems(trade, "troubleshooting"))}::text[])))
+             ) then 'converted'
+             when x.arrived_at is not null and exists (
+               select 1 from public.estimate e
+               where e.job_id = x.id and e.deleted_at is null
+                 and e.status::text in ('approved', 'converted')
+                 and e.decided_at >= x.arrived_at and e.decided_at <= x.completed_at
+             ) then 'converted'
+             else 'not_converted'
+           end as verdict
+    from calls x
+  )
+  select 'job'::text as kind, x.id::text as id, concat('#', x.number, ' ', x.summary, ', ', x.customer) as label,
+         to_char(x.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/jobs/' || x.id as href
+  from judged x
+  where x.verdict = any(${sql.param(pick === "denominator" ? ["converted", "not_converted"] : [pick])}::text[])
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1889,18 +1964,36 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   diag_conversion: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Which trade owned the fault. The same visit half is now measurable (an "
-      + "estimate's signature has a time and the visit has its arrival and "
-      + "completion), but the definition EXCLUDES calls where the fault was in "
-      + "equipment another trade owns, 'which the electrician was never going to "
-      + "close', and nothing on a job or a visit records that. Those calls are a "
-      + "large share of troubleshooting, so the number would read low for a "
-      + "reason the technicians do not control. Nor does the electrical pack mark "
-      + "which of its job types is a troubleshooting call: `revenue_class` puts "
-      + "it among all `service` work.",
+    measure: {
+      /**
+       * "Troubleshooting calls that produced approved repair work on the same
+       * visit, divided by all troubleshooting calls. Excludes calls where the
+       * fault was found in equipment another trade owns, which the
+       * electrician was never going to close."
+       *
+       * WHAT IT NEEDED, and what changed: which job types are troubleshooting
+       * calls, and which trade owned the fault. The electrical pack now marks
+       * its troubleshooting call and the charges for finding a fault (pack
+       * version 2, `marks`), and its service report asks where the fault was,
+       * from three answers, one of them "In equipment another trade owns",
+       * which the technician gives on the phone.
+       *
+       * A call is counted once, in the window its first visit that was done
+       * was finished. It converted when the customer approved an estimate on
+       * the job between that visit's arrival and its finish, or repair work
+       * (anything but the pack's charges for finding the fault) was recorded
+       * on the visit. An approval on a visit nobody timed cannot be placed and
+       * does not convert it. A call whose report says the fault was another
+       * trade's is out of both halves and counted beside.
+       */
+      numerator: { label: "troubleshooting calls that turned into repair work on the visit", records: troubleshootingCalls("converted") },
+      denominator: { label: "troubleshooting calls, other than those left out", records: troubleshootingCalls("denominator") },
+      besides: {
+        excluded: { label: "calls where the fault was in equipment another trade owns, left out", records: troubleshootingCalls("excluded") },
+      },
+    },
   },
 
   drain_conversion: {

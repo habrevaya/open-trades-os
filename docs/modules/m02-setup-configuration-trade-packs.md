@@ -72,6 +72,16 @@ is a category, and the ones who do two things are being told half of what they
 do is not what this product is for. The per job type model stays, because that
 one decides real behaviour and is set where the difference exists.
 
+**A pack marks what its KPIs need that a job type's revenue class does not
+say.** A job type can be marked as a troubleshooting call or a drain call, and a
+price book item as the charge for finding a fault or as the camera inspection,
+lining or excavation a drain call can turn into (`marks`). The scorecard reads
+the marks of the company's own trade pack against the codes it seeded (M21).
+Electrical marks its troubleshooting call and charges, and its service report
+asks where the fault was; plumbing marks its drain call and the camera, lining
+and excavation. A pack that declares troubleshooting conversion or drain call
+conversion and marks nothing fails its tests.
+
 **A pack's pricing is a national average starting point, not a
 recommendation.** It exists so hour one is useful. The wizard walks the owner
 through re-margining it for their market, and says so on the screen.
@@ -446,8 +456,12 @@ company whose pack was applied before the template, programmes, rules and layout
 were recorded cannot be told it removed one of them, so one it took out is set up
 again by an upgrade. An item's description or cost that a newer
 version removes is left as it was, because a price book version cannot clear
-either. Every pack ships at version one today, so no company has an upgrade
-waiting yet.
+either. Electrical and plumbing are at version two, for the marks above
+(electrical's also adds the "Where the fault was" question to its service
+report template); every other pack is at version one. The marks are read from
+the pack itself, not copied into a company's rows, so a job type or item the
+company made by hand under another code is not marked, and there is no screen
+to mark one.
 
 The 10DLC step records a registration made in the carrier's portal; it does
 not submit one to a carrier. Company licences are compliance documents rather

@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty eight of the forty seven are answered: thirty four computed here, four
-by M22's fleet report. The other nine each name what they still lack.
+Thirty nine of the forty seven are answered: thirty five computed here, four
+by M22's fleet report. The other eight each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -438,6 +438,36 @@ hand, puts the same stops through both, and checks every path that cancels a
 visit records who and when; `visit-cancellation-paths.test.ts` reads the
 service layer and fails when a new path cancels a visit without saying who.
 
+### Troubleshooting conversion, and where the fault was
+
+Electrical's **troubleshooting conversion** is "troubleshooting calls that
+produced approved repair work on the same visit, divided by all troubleshooting
+calls", and it EXCLUDES "calls where the fault was found in equipment another
+trade owns, which the electrician was never going to close". `revenue_class`
+put a troubleshooting call among all `service` work, and nothing recorded whose
+equipment the fault was in. The electrical pack (version two, M02) now marks its
+troubleshooting call and its charges for finding a fault, and its service report
+asks "Where the fault was": in our electrical work, in equipment another trade
+owns, or no fault found. The technician answers it on the phone's readings, and
+the office reads the answer on the visit's page.
+
+- A **call** is a job of a type the company's trade pack marks as
+  troubleshooting, counted once, in the window its first visit that was done was
+  finished.
+- It **converted** when, on that visit, the customer approved an estimate on the
+  job between the visit's arrival and its finish, or work was recorded on the
+  visit other than the pack's charges for finding the fault (a breaker fitted, a
+  neutral tightened). An approval on a visit nobody timed cannot be placed, so
+  only work recorded on it converts it; an approval on a later visit is not the
+  same visit.
+- A call whose report's last answer is "In equipment another trade owns" is out
+  of both halves and counted beside.
+
+The rule is core's `reporting.troubleshootingOf`, with unit tests, written again
+in SQL, and `kpi-troubleshooting.integration.test.ts` checks a month worked out
+by hand, puts the same calls through both, and checks the pack's template asks
+the question.
+
 ### Water heater opportunity capture, and why the customer said no
 
 Plumbing's **water heater opportunity capture** is "water heaters replaced
@@ -570,7 +600,7 @@ Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
 assembly due a retest, a crew's day, a permitted job, a person's route day, a
-scheduled stop, an old water heater inspected. The scorecard's number is the sum of those rows, and
+scheduled stop, an old water heater inspected, a troubleshooting call. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -948,12 +978,20 @@ prefix off.
 
 ## What is not built
 
-Nine of the forty seven declared KPIs cannot be computed, and each one
+Eight of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the nine has its datum yet (above, "The
+since they were written and none of the eight has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
+
+Troubleshooting conversion reads the job types and charges the company's trade
+pack marks, by the codes it seeded: a troubleshooting job type made by hand under
+another code is not a call. A call whose technician never answered where the
+fault was is counted, never left out; a report answered before the electrical
+pack's version two asked has no answer. Repair work done on the visit counts as
+approved by being done; a customer who agreed out loud to work booked for later,
+with no estimate signed on the visit, is not converted.
 
 Water heater capture knows a customer booked elsewhere only from a finding on
 the unit declined with that code: a "they said no" on the phone is an estimate's,

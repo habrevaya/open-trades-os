@@ -63,6 +63,8 @@ export const getVisit = defineRoute({
     reports: z.array(z.object({
       id: Uuid, summary: z.string().nullable(), skipped: z.boolean(), skipReason: z.string().nullable(),
       submittedAt: At, publishedAt: At,
+      /** The last answer to each field the report recorded, in words. */
+      readings: z.array(z.object({ key: z.string(), label: z.string(), value: z.string() })).optional(),
     })),
     inspections: z.array(z.object({
       id: Uuid, performedOn: z.string().nullable(), result: z.string().nullable(), programme: z.string().nullable(),

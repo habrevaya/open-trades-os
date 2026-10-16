@@ -220,6 +220,16 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
               <li key={r.id}>
                 Service report: {r.skipped ? `skipped${r.skipReason ? `, ${r.skipReason}` : ""}` : r.publishedAt ? "shown to the customer" : r.submittedAt ? "submitted, not yet shown to the customer" : "started"}
                 {r.summary ? <span className="block text-ink-700">{r.summary}</span> : null}
+                {r.readings.length > 0 && (
+                  <dl className="mt-1 grid gap-x-6 gap-y-1 text-ink-700 sm:grid-cols-2">
+                    {r.readings.map((a) => (
+                      <div key={a.key} className="flex gap-2">
+                        <dt className="text-ink-500">{a.label}:</dt>
+                        <dd>{a.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
               </li>
             ))}
             {visit.inspections.map((i) => (

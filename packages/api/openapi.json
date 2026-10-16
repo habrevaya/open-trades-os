@@ -206078,6 +206078,28 @@
                     "string",
                     "null"
                   ]
+                },
+                "readings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label",
+                      "value"
+                    ]
+                  }
                 }
               },
               "required": [

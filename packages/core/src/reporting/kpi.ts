@@ -54,6 +54,10 @@ import { distanceKm } from "../location/index.js";
  *   replace, with the ones the customer had booked with somebody else left
  *   out.
  *
+ *   A TROUBLESHOOTING CALL CONVERTED. Repair work the customer agreed to on
+ *   the visit that found the fault, with the calls whose fault was in another
+ *   trade's equipment left out.
+ *
  *   A LATE CANCELLATION. A stop the customer called off with less notice than
  *   the company asks for, judged by when they asked and the notice window in
  *   force then, with the company's own cancellations left out.
@@ -799,4 +803,55 @@ export function heaterCaptureOf(unit: HeaterSeen):
   if (unit.replacements.some((r) => r.byUs && r.movedOn >= unit.inspectedOn)) return "replaced";
   if (unit.declines.some((d) => d.code === "booked_elsewhere" && d.declinedOn >= unit.inspectedOn)) return "booked_elsewhere";
   return "open";
+}
+
+/* ----------------------------------------------- troubleshooting conversion */
+
+/**
+ * The service report field a troubleshooting call says where the fault was
+ * in, and the answer that leaves the call out: both the electrical pack's
+ * own, and `packs.test.ts` fails if the pack stops declaring them.
+ */
+export const FAULT_LOCATION = "fault_location";
+export const FAULT_ELSEWHERE = "In equipment another trade owns";
+
+export interface TroubleshootingCall {
+  /** The first visit on the call that was done. */
+  visit: { arrivedAt: Date | null; completedAt: Date };
+  /** When each estimate on the job the customer approved was approved. */
+  approvedAt: readonly Date[];
+  /** Work recorded on that visit other than the charge for finding the fault. */
+  repairOnVisit: boolean;
+  /** The last answer on the job's reports to where the fault was, or null. */
+  faultLocation: string | null;
+}
+
+/**
+ * What one troubleshooting call counts as.
+ *
+ * "Troubleshooting calls that produced approved repair work on the same
+ * visit, divided by all troubleshooting calls. Excludes calls where the fault
+ * was found in equipment another trade owns, which the electrician was never
+ * going to close."
+ *
+ *   `excluded`        the report says the fault was in equipment another trade
+ *                     owns. Out of both halves and counted beside.
+ *   `converted`       on the visit that found it, the customer approved an
+ *                     estimate (signed between the arrival and the finish) or
+ *                     repair work was recorded on the visit itself, other than
+ *                     the pack's charges for finding the fault.
+ *   `not_converted`   neither.
+ *
+ * AN APPROVAL NEEDS AN ARRIVAL. With no arrival recorded (a visit finished
+ * from the office) the visit's span is not known, so only work recorded on it
+ * can convert it: an approval cannot be placed inside a visit nobody timed.
+ * The reading that never flatters.
+ */
+export function troubleshootingOf(call: TroubleshootingCall): "excluded" | "converted" | "not_converted" {
+  if (call.faultLocation === FAULT_ELSEWHERE) return "excluded";
+  if (call.repairOnVisit) return "converted";
+  const { arrivedAt, completedAt } = call.visit;
+  if (arrivedAt !== null && call.approvedAt.some((at) =>
+    at.getTime() >= arrivedAt.getTime() && at.getTime() <= completedAt.getTime())) return "converted";
+  return "not_converted";
 }

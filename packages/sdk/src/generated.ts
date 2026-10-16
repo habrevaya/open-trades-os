@@ -12193,6 +12193,11 @@ export interface GetVisitOutput {
     skipReason: string | null;
     submittedAt: string | null;
     publishedAt: string | null;
+    readings?: Array<{
+      key: string;
+      label: string;
+      value: string;
+    }>;
   }>;
   inspections: Array<{
     id: string;

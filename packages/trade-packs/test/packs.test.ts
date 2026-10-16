@@ -176,3 +176,32 @@ describe("every pack", () => {
     }
   });
 });
+
+describe("what a KPI needs a pack to mark", () => {
+  /**
+   * A pack that declares troubleshooting conversion or drain call conversion
+   * and marks nothing would score every company on it "Not this window" for
+   * ever, and nobody would know why. So the marks those two read are asked of
+   * any pack that declares them.
+   */
+  it("marks its troubleshooting calls and asks where the fault was, when it counts troubleshooting conversion", () => {
+    for (const pack of packs.filter((p) => p.kpis.some((k) => k.key === "diag_conversion"))) {
+      expect(pack.jobTypes.some((t) => (t.marks ?? []).includes("troubleshooting")), pack.id).toBe(true);
+      const where = pack.readings.find((r) => r.key === "fault_location");
+      expect(where?.options, pack.id).toContain("In equipment another trade owns");
+    }
+  });
+
+  it("marks its drain calls and what they turn into, when it counts drain call conversion", () => {
+    for (const pack of packs.filter((p) => p.kpis.some((k) => k.key === "drain_conversion"))) {
+      expect(pack.jobTypes.some((t) => (t.marks ?? []).includes("drain")), pack.id).toBe(true);
+      expect(pack.priceBook.filter((i) => (i.marks ?? []).includes("drain_upsell")).length, pack.id).toBeGreaterThan(0);
+    }
+  });
+
+  it("marks a charge for finding a fault only in a pack that marks the call it is charged on", () => {
+    for (const pack of packs.filter((p) => p.priceBook.some((i) => (i.marks ?? []).includes("troubleshooting")))) {
+      expect(pack.jobTypes.some((t) => (t.marks ?? []).includes("troubleshooting")), pack.id).toBe(true);
+    }
+  });
+});

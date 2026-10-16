@@ -281,6 +281,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "cancel_rate_route",
       "churn",
       "close_rate",
+      "diag_conversion",
       "drive_time_pct",
       "first_time_fix",
       "hauls_per_truck_day",
@@ -352,9 +353,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * customer or the company) and when, with the company's notice window
      * frozen on the visit. `wh_attach` made thirty eight when a declined
      * recommendation could say why as a code, "already booked with another
-     * company" among them.
+     * company" among them. `diag_conversion` made thirty nine when the
+     * electrical pack marked its troubleshooting call and its charges, and its
+     * service report asked where the fault was.
      */
-    expect(computed.length + elsewhere.length).toBe(38);
+    expect(computed.length + elsewhere.length).toBe(39);
     expect(KEYS.length).toBe(47);
   });
 });

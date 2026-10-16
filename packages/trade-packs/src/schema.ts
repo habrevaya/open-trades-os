@@ -25,6 +25,26 @@ import { z } from "zod";
 
 export const CapacityModel = z.enum(["technician_dispatch", "crew_production", "route", "asset_rental"]);
 
+/**
+ * WHAT A KPI NEEDS TO KNOW ABOUT AN ITEM OR A JOB TYPE THAT ITS CLASS DOES NOT SAY.
+ *
+ * `revenueClass` puts a drain call, a troubleshooting call and a repair all in
+ * `service`, and two pack KPIs turn on the difference: electrical's
+ * troubleshooting conversion is about "troubleshooting calls", and plumbing's
+ * drain conversion about "drain jobs that produced a camera inspection, a
+ * lining or an excavation". Only the pack's author knows which of its own job
+ * types and items those are, so the pack says, here, and the scorecard reads
+ * the marks of the company's own trade pack against the codes it seeded.
+ *
+ *   troubleshooting   a job type that is a call to find a fault; an item that
+ *                     is the charge for finding it (so it is not repair work)
+ *   drain             a job type that is a drain call
+ *   drain_upsell      an item that is the camera inspection, the lining or the
+ *                     excavation a drain call can turn into
+ */
+export const JobTypeMark = z.enum(["troubleshooting", "drain"]);
+export const ItemMark = z.enum(["troubleshooting", "drain_upsell"]);
+
 export const PriceBookSeedItem = z.object({
   code: z.string().min(1).max(60),
   name: z.string().min(1).max(200),
@@ -44,6 +64,12 @@ export const PriceBookSeedItem = z.object({
   /** Labour is not taxable in many jurisdictions and material usually is. */
   taxClass: z.enum(["labor", "material", "equipment", "service", "exempt"]).optional(),
   warrantyMonths: z.number().int().min(0).max(600).optional(),
+  /**
+   * What a KPI needs to know about it. See `ItemMark`. Optional rather than
+   * defaulted, so a pack built in code without it (a test's own pack, a
+   * contributor's draft) is still a pack; absent reads as no marks.
+   */
+  marks: z.array(ItemMark).optional(),
 });
 
 /**
@@ -66,6 +92,8 @@ export const JobTypeSeed = z.object({
   /** Units of production for crew work: square feet, linear feet, yards. */
   productionUnit: z.string().max(40).optional(),
   color: z.string().optional(),
+  /** What a KPI needs to know about it. See `JobTypeMark`. Absent reads as no marks. */
+  marks: z.array(JobTypeMark).optional(),
 });
 
 export const ChecklistSeed = z.object({
