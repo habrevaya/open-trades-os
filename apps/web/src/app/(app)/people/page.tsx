@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export default async function PeoplePage({
   searchParams,
 }: {
-  searchParams: Promise<{ field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{ field?: string | string[]; value?: string | string[]; fieldmatch?: string }>;
 }) {
   const user = await requireSetupUser();
   if (!can(user.actor, "user:read")) {
@@ -39,7 +39,7 @@ export default async function PeoplePage({
    * them out rather than guessing.
    */
   const declared = await customFields.formFields(ctx, "technician");
-  const { pairs, byField } = fieldFrom(await searchParams);
+  const { pairs, match: fieldJoin, byField } = fieldFrom(await searchParams);
   const { page: matching, refusal } = pairs.length > 0
     ? await withFieldFilter(async (withField) => (withField ? staff.listPeople(ctx, byField) : null))
     : { page: null, refusal: null };
@@ -55,7 +55,7 @@ export default async function PeoplePage({
         each person holds are on <a href="/certifications" className="underline underline-offset-4">Certifications</a>.
       </p>
       <CustomFieldFilter action="/people" declared={declared} pairs={pairs}
-                         refusal={refusal} noun="technicians" />
+                         refusal={refusal} noun="technicians" match={fieldJoin} anyOf />
       <Table label="People" head={<><Th>Name</Th><Th>Role</Th><Th>Started</Th><Th>Onboarding</Th><Th>Emergency contact</Th></>}>
         {people.map((p) => (
           <tr key={p.membershipId} className={p.active ? undefined : "text-ink-500"}>

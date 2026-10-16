@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, pageOf } from "./common";
-import { CustomFieldDefinition, FieldFilters } from "./custom-fields";
+import { CustomFieldDefinition, FieldFilters, FieldMatch } from "./custom-fields";
 
 /**
  * A COMPANY'S OWN KINDS OF RECORD
@@ -171,7 +171,7 @@ export const listCustomRecords = defineRoute({
   path: "/v1/custom-records",
   summary: "One kind's records, searched and filtered",
   description:
-    "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job, unit, invoice, person or record.",
+    "`q` searches the name and every value, each word somewhere in one of them, as every other list reads it. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold, or at least one of them with `fieldMatch=any`. The links narrow to one customer, address, job, unit, invoice, person or record.",
   module: "M29",
   permissions: ["record:read"],
   input: z.object({
@@ -180,6 +180,7 @@ export const listCustomRecords = defineRoute({
     fieldKey: z.string().max(64).optional(),
     fieldValue: z.string().max(200).optional(),
     fields: FieldFilters,
+    fieldMatch: FieldMatch,
     customerId: Uuid.optional(),
     propertyId: Uuid.optional(),
     jobId: Uuid.optional(),
@@ -226,7 +227,7 @@ export const updateCustomRecord = defineRoute({
   path: "/v1/custom-records/{id}",
   summary: "Change a record",
   description:
-    "Only what this changes is checked against the fields. Links left out stay; null takes one off. Emits `record.updated` with the values before and after, so an automation can wait for a field to change to something.",
+    "Only what this changes is checked against the fields. Links left out stay; null takes one off. A link to something new is held to the same checks as making the record with it: the permission that reads that thing and the caller's scope on it (a job, customer or invoice through its own list's scope, an address or a unit by the work at the address, a person on the caller's people list or the caller, a record they may open), and a link to something they cannot open is refused at its key as though it did not exist. A link sent as it already was is not checked again. Audited with the record before and after, and emits `record.updated` with the values and links before and after, so an automation can wait for a field to change to something.",
   module: "M29",
   permissions: ["record:read", "record:write"],
   idempotent: true,

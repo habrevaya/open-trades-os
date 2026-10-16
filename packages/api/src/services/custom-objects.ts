@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, can, customObjects as rules, reporting, type Permission } from "@opentradesos/core";
 import {
@@ -8,8 +8,10 @@ import {
 import { refusingDuplicate } from "./duplicates";
 import { definitionsWithin, enforceWithin, listFilter } from "./custom-fields";
 import { emit } from "./events";
-import { jobVisibility } from "./scope";
+import { customerScopeFilter, invoiceScopeFilter, jobVisibility, propertyVisibility } from "./scope";
+import { members } from "./people-scope";
 import { remember, replayed } from "./once";
+import { textFilter } from "./text-search";
 
 /**
  * A COMPANY'S OWN KINDS OF RECORD
@@ -490,10 +492,25 @@ function gate(ctx: ServiceContext, write: boolean) {
  * THE LINKS A WRITE ASKED FOR, CHECKED AND FILLED IN.
  *
  * A link the kind does not offer is refused, in words, rather than stored
- * where no screen would show it. A linked record has to exist in this
- * company. And a job carries its customer and its address: a permit put on a
- * job is on that customer's page and that address's too, without anybody
- * picking them a second time, when the kind offers those links.
+ * where no screen would show it. And a job carries its customer and its
+ * address: a permit put on a job is on that customer's page and that
+ * address's too, without anybody picking them a second time, when the kind
+ * offers those links.
+ *
+ * EVERY LINK IS TO SOMETHING THE WRITER MAY OPEN, with the permission that
+ * reads it and at the scope they read it at, whether the record is being made
+ * or changed: a job, a customer, an invoice through their own lists' scopes,
+ * an address and a unit by the work at the address (`propertyVisibility`, as
+ * the search box narrows them), a person they may see on the people list or
+ * themselves, a record of the kind this kind names that they may open. A
+ * record must not be the way somebody learns that a thing exists, by trying
+ * ids until one is not refused, so out of scope and not there read the same.
+ *
+ * ONLY WHAT THE WRITE CHANGES IS CHECKED. A link left out, or sent as it
+ * already was, stays as it is unchecked: a branch manager correcting a
+ * permit's name is not refused because somebody at head office put it on a
+ * job in another branch. Taking a link off (null) is never refused, and needs
+ * only the kind's write permission, which the caller has already passed.
  */
 async function resolveLinks(tx: Database, ctx: ServiceContext, kind: TypeRow, wanted: Links, previous?: Links) {
   const offered = kind.links as rules.Link[];
@@ -516,12 +533,19 @@ async function resolveLinks(tx: Database, ctx: ServiceContext, kind: TypeRow, wa
     }
     next[key] = value;
   }
+  /** Pointed somewhere new by this write: named, not null, and not what it already was. */
+  const moved = (key: keyof Links): boolean =>
+    wanted[key] !== undefined && next[key] !== null && next[key] !== (previous?.[key] ?? null);
+  /** Read nothing for a permission the caller lacks: the link is refused as one they cannot see. */
+  const holding = async <T>(permission: Permission, read: () => PromiseLike<T[]>): Promise<T[]> =>
+    can(ctx.actor, permission) ? await read() : [];
 
-  if (next.jobId && wanted.jobId !== undefined) {
-    const [job] = await tx.select({ id: schema.job.id, customerId: schema.job.customerId, propertyId: schema.job.propertyId })
-      .from(schema.job)
-      .where(and(eq(schema.job.id, next.jobId), isNull(schema.job.deletedAt),
-        jobVisibility(scopeOf(ctx, "job"), ctx.actor, sql`${schema.job.id}`))).limit(1);
+  if (moved("jobId")) {
+    const [job] = await holding("job:read", () => tx.select({
+      id: schema.job.id, customerId: schema.job.customerId, propertyId: schema.job.propertyId,
+    }).from(schema.job)
+      .where(and(eq(schema.job.id, next.jobId!), isNull(schema.job.deletedAt),
+        jobVisibility(scopeOf(ctx, "job"), ctx.actor, sql`${schema.job.id}`))).limit(1));
     if (!job) issues.push({ path: "jobId", message: "That job is not one you can see." });
     else {
       if (offered.includes("customer") && wanted.customerId === undefined) next.customerId = job.customerId;
@@ -529,37 +553,49 @@ async function resolveLinks(tx: Database, ctx: ServiceContext, kind: TypeRow, wa
     }
   }
   /**
-   * AN INVOICE is money, so pointing at one needs `invoice:read`: a record
-   * must not be the way somebody who may not see invoices finds out which
-   * ones exist. It carries its customer, as a job does.
+   * AN INVOICE is money, so pointing at one needs `invoice:read` and the
+   * invoice list's scope: a record must not be the way somebody who may not
+   * see invoices finds out which ones exist. It carries its customer, as a
+   * job does.
    */
-  if (next.invoiceId && wanted.invoiceId !== undefined) {
-    const [found] = can(ctx.actor, "invoice:read")
-      ? await tx.select({ id: schema.invoice.id, customerId: schema.invoice.customerId })
-        .from(schema.invoice).where(eq(schema.invoice.id, next.invoiceId)).limit(1)
-      : [];
+  if (moved("invoiceId")) {
+    const [found] = await holding("invoice:read", () => tx.select({ id: schema.invoice.id, customerId: schema.invoice.customerId })
+      .from(schema.invoice)
+      .where(and(eq(schema.invoice.id, next.invoiceId!), invoiceScopeFilter(scopeOf(ctx, "invoice"), ctx.actor))).limit(1));
     if (!found) issues.push({ path: "invoiceId", message: "That invoice is not one you can see." });
     else if (offered.includes("customer") && wanted.customerId === undefined && !next.customerId) next.customerId = found.customerId;
   }
-  if (next.customerId && wanted.customerId !== undefined) {
-    const [found] = await tx.select({ id: schema.customer.id }).from(schema.customer)
-      .where(and(eq(schema.customer.id, next.customerId), isNull(schema.customer.deletedAt))).limit(1);
-    if (!found) issues.push({ path: "customerId", message: "There is no such customer." });
+  if (moved("customerId")) {
+    const [found] = await holding("customer:read", () => tx.select({ id: schema.customer.id }).from(schema.customer)
+      .where(and(eq(schema.customer.id, next.customerId!), isNull(schema.customer.deletedAt),
+        customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor))).limit(1));
+    if (!found) issues.push({ path: "customerId", message: "That customer is not one you can see." });
   }
-  if (next.propertyId && wanted.propertyId !== undefined) {
-    const [found] = await tx.select({ id: schema.property.id }).from(schema.property)
-      .where(and(eq(schema.property.id, next.propertyId), isNull(schema.property.deletedAt))).limit(1);
-    if (!found) issues.push({ path: "propertyId", message: "There is no such address." });
+  if (moved("propertyId")) {
+    const [found] = await holding("property:read", () => tx.select({ id: schema.property.id }).from(schema.property)
+      .where(and(eq(schema.property.id, next.propertyId!), isNull(schema.property.deletedAt),
+        propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.property.id}`))).limit(1));
+    if (!found) issues.push({ path: "propertyId", message: "That address is not one you can see." });
   }
-  if (next.equipmentId && wanted.equipmentId !== undefined) {
-    const [found] = await tx.select({ id: schema.equipment.id }).from(schema.equipment)
-      .where(and(eq(schema.equipment.id, next.equipmentId), isNull(schema.equipment.deletedAt))).limit(1);
-    if (!found) issues.push({ path: "equipmentId", message: "There is no such unit." });
+  if (moved("equipmentId")) {
+    const [found] = await holding("equipment:read", () => tx.select({ id: schema.equipment.id }).from(schema.equipment)
+      .where(and(eq(schema.equipment.id, next.equipmentId!), isNull(schema.equipment.deletedAt),
+        propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.equipment.propertyId}`))).limit(1));
+    if (!found) issues.push({ path: "equipmentId", message: "That unit is not one you can see." });
   }
-  if (next.membershipId && wanted.membershipId !== undefined) {
+  /**
+   * A PERSON is somebody on the caller's people list (`user:read`, at the
+   * scope their people are read with), or the caller themselves, which is how
+   * somebody with no staff list files their own van check from their own page.
+   */
+  if (moved("membershipId")) {
     const [found] = await tx.select({ id: schema.membership.id }).from(schema.membership)
-      .where(and(eq(schema.membership.id, next.membershipId),
-        eq(schema.membership.organizationId, ctx.actor.organizationId))).limit(1);
+      .where(and(eq(schema.membership.id, next.membershipId!),
+        eq(schema.membership.organizationId, ctx.actor.organizationId),
+        or(
+          eq(schema.membership.userId, ctx.actor.userId),
+          can(ctx.actor, "user:read") ? members(ctx) ?? sql`true` : sql`false`,
+        ))).limit(1);
     if (!found) issues.push({ path: "membershipId", message: "That is not somebody in this company." });
   }
   /**
@@ -567,11 +603,11 @@ async function resolveLinks(tx: Database, ctx: ServiceContext, kind: TypeRow, wa
    * one the caller may open: pointing at a record you cannot see would be a
    * way to learn that it exists.
    */
-  if (next.linkedRecordId && wanted.linkedRecordId !== undefined) {
+  if (moved("linkedRecordId")) {
     const [found] = await tx.select({ id: schema.customObjectRecord.id, kind: schema.customObjectType })
       .from(schema.customObjectRecord)
       .innerJoin(schema.customObjectType, eq(schema.customObjectType.id, schema.customObjectRecord.objectTypeId))
-      .where(and(eq(schema.customObjectRecord.id, next.linkedRecordId), isNull(schema.customObjectRecord.deletedAt),
+      .where(and(eq(schema.customObjectRecord.id, next.linkedRecordId!), isNull(schema.customObjectRecord.deletedAt),
         isNull(schema.customObjectType.deletedAt), visibility(ctx))).limit(1);
     if (!found || !canRead(ctx, found.kind) || found.kind.key !== kind.recordKind) {
       issues.push({
@@ -590,6 +626,8 @@ export interface ListRecordsInput {
   fieldValue?: string | undefined;
   /** Several fields at once, each `key:value`. */
   fields?: readonly string[] | undefined;
+  /** Every field above has to hold (`all`, the default), or at least one (`any`). */
+  fieldMatch?: "all" | "any" | undefined;
   customerId?: string | undefined;
   propertyId?: string | undefined;
   jobId?: string | undefined;
@@ -604,9 +642,9 @@ export interface ListRecordsInput {
 /**
  * One kind's records, newest first, searched and filtered.
  *
- * The search is the name and every value, ignoring case, because somebody
- * looking for "the permit for Elm Street" types the street, not the field it
- * is in.
+ * The search is the name and every value, word by word and ignoring case,
+ * because somebody looking for "the permit for Elm Street" types the street,
+ * not the field it is in.
  */
 export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) {
   gate(ctx, false);
@@ -614,8 +652,6 @@ export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) 
     const kind = await kindFor(tx, ctx, input.type, false);
     const byField = await listFilter(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key),
       input, sql`${schema.customObjectRecord.customFields}`);
-    const q = input.q?.trim();
-    const pattern = q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
     const cursor = decodeCursor(input.cursor);
 
@@ -624,10 +660,19 @@ export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) 
         eq(schema.customObjectRecord.objectTypeId, kind.id),
         isNull(schema.customObjectRecord.deletedAt),
         visibility(ctx),
-        pattern ? or(
-          ilike(schema.customObjectRecord.title, pattern),
-          sql`${schema.customObjectRecord.customFields}::text ilike ${pattern}`,
-        ) : undefined,
+        /**
+         * Word by word, as every other list reads `q` (`text-search.ts`):
+         * each word in the name or in one of the values. The values and not
+         * the stored document, which also holds every key, so "permit"
+         * used to find every record of a kind with a `permit_number` field.
+         */
+        textFilter(input.q, [
+          schema.customObjectRecord.title,
+          (pattern) => sql`exists (
+            select 1 from jsonb_each_text(${schema.customObjectRecord.customFields}) rv
+            where rv.value ilike ${pattern}
+          )`,
+        ]),
         byField,
         input.customerId ? eq(schema.customObjectRecord.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.customObjectRecord.propertyId, input.propertyId) : undefined,
@@ -783,7 +828,9 @@ export async function createRecord(ctx: ServiceContext, input: RecordInput) {
  * Change a record. Only what the write changed is checked against the
  * fields, so a record from before a field became required still saves, as
  * everywhere else in M29. Links not named are left as they are; a null takes
- * one off.
+ * one off; a new one is checked exactly as making the record with it would
+ * be (`resolveLinks`). The audit line carries the row before and after, so
+ * "who moved this permit off the Smiths' job" has an answer.
  */
 export async function updateRecord(
   ctx: ServiceContext,
@@ -1004,7 +1051,9 @@ export async function jobByNumber(ctx: ServiceContext, input: { number: number }
 /**
  * The company's people a record can point at, by membership, for the form.
  * Under `user:read`, which is what the people list needs: a record's form
- * must not be the way somebody who may not see the team reads its names.
+ * must not be the way somebody who may not see the team reads its names. And
+ * at the scope the people list reads them, so a branch manager is offered
+ * their branch's people, the only ones a record of theirs may point at.
  */
 export async function peopleToLink(ctx: ServiceContext): Promise<{ membershipId: string; name: string }[]> {
   return guardedRead(ctx, "user:read", async (tx) => {
@@ -1012,7 +1061,7 @@ export async function peopleToLink(ctx: ServiceContext): Promise<{ membershipId:
       sql`select user_id, name, email from app.organization_people()`))].map((p) => [p.user_id, p.name ?? p.email]));
     const rows = await tx.select({ id: schema.membership.id, userId: schema.membership.userId })
       .from(schema.membership)
-      .where(and(eq(schema.membership.organizationId, ctx.actor.organizationId), eq(schema.membership.active, true)));
+      .where(and(eq(schema.membership.organizationId, ctx.actor.organizationId), eq(schema.membership.active, true), members(ctx)));
     return rows.map((r) => ({ membershipId: r.id, name: names.get(r.userId) ?? "Somebody" }))
       .sort((a, b) => a.name.localeCompare(b.name));
   });

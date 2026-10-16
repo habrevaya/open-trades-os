@@ -13,9 +13,10 @@ import type { FieldMatch, FieldPair } from "@/lib/field-filter";
  * Each field chosen is added to the ones already applied, and every one of
  * them has to hold: Plan is Annual, then Has pets is yes, is the customers who
  * are both. Each applied field is listed with a link that takes it off and
- * leaves the rest. A list that offers it (`anyOf`) also has a link, from the
- * second field on, that turns "and" into "or": the customers on the Annual
- * plan or who have pets. It says which it is doing in the sentence, because a
+ * leaves the rest. Every list that passes `anyOf` (all of them now: customers,
+ * jobs, invoices, estimates, people and each kind of record) also has a link,
+ * from the second field on, that turns "and" into "or": the customers on the
+ * Annual plan or who have pets. It says which it is doing in the sentence, because a
  * list that quietly got longer is the one nobody trusts.
  *
  * The suggestions are each choice field's own options and yes or no, so the
@@ -37,7 +38,7 @@ export function CustomFieldFilter({
   noun: string;
   /** How the fields are joined now, from `fieldFrom`. */
   match?: FieldMatch;
-  /** Whether this list can join them by "or". Only the customer list can so far. */
+  /** Whether this list can join them by "or", which its service then does through `fieldMatch`. */
   anyOf?: boolean;
 }) {
   if (declared.length === 0) return null;

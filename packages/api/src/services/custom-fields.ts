@@ -1260,7 +1260,9 @@ export interface FieldFilterInput {
   fields?: readonly string[] | undefined;
   /**
    * How the fields above are joined: `all` of them (the default) or `any`.
-   * Only the customer list offers `any` so far.
+   * Every list that filters by fields takes it, and joins here, so "any of
+   * these" means the same on customers, jobs, invoices, estimates, addresses,
+   * people and a kind of record's own list.
    */
   fieldMatch?: "all" | "any" | undefined;
 }

@@ -403,8 +403,9 @@ A contact attached to an address and no customer is reached through neither the
 customer's page nor the customer's contact routes, which are about a customer's
 people. A customer's custom
 fields filter `/customers` and `GET /v1/customers` several at once, every one of
-which has to hold (M29 says how), and reach the report builder on every dataset
-that hangs off a customer; there is no "any of these" across fields.
+them or any one of them (M29 says how), and reach the report builder on every dataset
+that hangs off a customer; "any" is one choice for every field applied, not a mix of
+"and" and "or".
 
 A customer note is never deleted and, after its writer's 15 minutes, never
 changed: a wrong note stays, with its correction beside it. Notes are not

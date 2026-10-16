@@ -37186,7 +37186,7 @@
       "get": {
         "operationId": "listCustomRecords",
         "summary": "One kind's records, searched and filtered",
-        "description": "`q` searches the name and every value. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold. The links narrow to one customer, address, job, unit, invoice, person or record.\n\nRequires a session holding: record:read.",
+        "description": "`q` searches the name and every value, each word somewhere in one of them, as every other list reads it. `fieldKey` and `fieldValue` filter by one field the way the customer list does, and `fields` by several at once, each `key:value`, every one of which has to hold, or at least one of them with `fieldMatch=any`. The links narrow to one customer, address, job, unit, invoice, person or record.\n\nRequires a session holding: record:read.",
         "tags": [
           "M29"
         ],
@@ -37241,7 +37241,20 @@
                 "maxLength": 270
               },
               "maxItems": 10,
-              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
             }
           },
           {
@@ -37648,7 +37661,7 @@
       "patch": {
         "operationId": "updateCustomRecord",
         "summary": "Change a record",
-        "description": "Only what this changes is checked against the fields. Links left out stay; null takes one off. Emits `record.updated` with the values before and after, so an automation can wait for a field to change to something.\n\nRequires a session holding: record:read, record:write.",
+        "description": "Only what this changes is checked against the fields. Links left out stay; null takes one off. A link to something new is held to the same checks as making the record with it: the permission that reads that thing and the caller's scope on it (a job, customer or invoice through its own list's scope, an address or a unit by the work at the address, a person on the caller's people list or the caller, a record they may open), and a link to something they cannot open is refused at its key as though it did not exist. A link sent as it already was is not checked again. Audited with the record before and after, and emits `record.updated` with the values and links before and after, so an automation can wait for a field to change to something.\n\nRequires a session holding: record:read, record:write.",
         "tags": [
           "M29"
         ],
@@ -39314,7 +39327,7 @@
                 "maxLength": 270
               },
               "maxItems": 10,
-              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
             }
           },
           {
@@ -49691,7 +49704,20 @@
                 "maxLength": 270
               },
               "maxItems": 10,
-              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
             }
           }
         ],
@@ -59096,7 +59122,20 @@
                 "maxLength": 270
               },
               "maxItems": 10,
-              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
             }
           }
         ],
@@ -61876,7 +61915,20 @@
                 "maxLength": 270
               },
               "maxItems": 10,
-              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
             }
           }
         ],
@@ -86364,7 +86416,20 @@
                 "maxLength": 270
               },
               "maxItems": 10,
-              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
             }
           }
         ],
@@ -101965,7 +102030,20 @@
                 "maxLength": 270
               },
               "maxItems": 10,
-              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold."
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
             }
           }
         ],
@@ -121178,7 +121256,7 @@
       "get": {
         "operationId": "searchEverything",
         "summary": "Find customers, jobs, invoices, estimates, addresses, units and the company's own records",
-        "description": "Every word of `q` has to be somewhere in what each group searches, and a number on its own (`1042` or `#1042`) is also a document's number. Customers by name, email and phone (`customer:read`); jobs by number, summary and customer name (`job:read`); invoices by number and customer name (`invoice:read`); estimates by number, title and customer name (`estimate:read`); addresses by street (`property:read`); units by serial, make and model (`equipment:read`); and each kind of record by its name and values (`record:read` and the kind's own read permission). Every part is held to the caller's scope as its own list is: addresses and units by the work at the address, the way customers are. A part the caller may not read is left out. At most five of each with `more` and a `seeAll` link to the list filtered by the same words, and nothing for fewer than two characters. `in` asks for one of the first six groups alone, at up to fifty.\n\nRequires a session. No further permission is checked.",
+        "description": "Every word of `q` has to be somewhere in what each group searches, and a number on its own (`1042` or `#1042`) is also a document's number. Customers by name, email and phone (`customer:read`); jobs by number, summary, description, the customer's words from intake, visit notes and customer name (`job:read`); invoices by number, memo, line names and descriptions and customer name (`invoice:read`); estimates by number, title, option and line names and descriptions and customer name (`estimate:read`); addresses by street (`property:read`); units by serial, make and model (`equipment:read`); and each kind of record by its name and values, word by word (`record:read` and the kind's own read permission). Every part is held to the caller's scope as its own list is: addresses and units by the work at the address, the way customers are. A part the caller may not read is left out. At most five of each with `more` and a `seeAll` link to the list filtered by the same words, and nothing for fewer than two characters. `in` asks for one of the first six groups alone, at up to fifty.\n\nRequires a session. No further permission is checked.",
         "tags": [
           "M29"
         ],

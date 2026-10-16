@@ -2,13 +2,13 @@ import { notFound, redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customObjects, NotFoundError } from "@opentradesos/api/services";
-import { PermissionError } from "@opentradesos/core";
+import { customObjects as rules, PermissionError } from "@opentradesos/core";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { CustomFieldInputs, customFieldText } from "@/components/CustomFieldInputs";
 import { Crumb, Fact, Facts } from "@/components/Detail";
 import { PageHeader } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
-import { removeRecord, updateRecord } from "../../actions";
+import { removeRecord, setRecordLink, updateRecord } from "../../actions";
 import { RecordsPanel } from "@/components/RecordsPanel";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,13 @@ export const dynamic = "force-dynamic";
 /**
  * ONE RECORD: what it points at, its values, and changing or removing it.
  * Read only for somebody who may see the kind and not change it.
+ *
+ * WHAT IT POINTS AT CHANGES HERE TOO. Each link the kind offers has "Change"
+ * (a page that finds the job, customer, address, unit, invoice, person or
+ * record to point at, through the lists the writer is already narrowed on)
+ * and, when set, "Take it off". The service checks a new link exactly as it
+ * does when a record is made, so the page offers nothing the writer could
+ * not open and refuses in words anything sent past it.
  */
 export default async function RecordPage({ params }: { params: Promise<{ type: string; id: string }> }) {
   const user = await requireSetupUser();
@@ -32,6 +39,11 @@ export default async function RecordPage({ params }: { params: Promise<{ type: s
    */
   if (record.type !== type) redirect(`/records/${record.type}/${id}`);
   const kind = record.kind;
+  /** What each link points at now, by the link's name, for the panel that changes them. */
+  const linked: Record<string, { id: string; name: string } | null> = {
+    customer: record.customer, property: record.property, job: record.job, equipment: record.equipment,
+    invoice: record.invoice, membership: record.membership, record: record.record,
+  };
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -60,7 +72,28 @@ export default async function RecordPage({ params }: { params: Promise<{ type: s
 
       {record.canWrite ? (
         <section className="mt-8" aria-labelledby="record-edit">
-          <h2 id="record-edit" className="text-base font-semibold">Change it</h2>
+          <h2 id="record-links" className="text-base font-semibold">What it points at</h2>
+          <ul aria-labelledby="record-links" className="mt-2 divide-y divide-steel-200 rounded-md border border-steel-200 text-sm">
+            {kind.links.map((link) => {
+              const current = linked[link];
+              const label = rules.LINK_LABEL[link];
+              return (
+                <li key={link} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                  <span className="w-20 text-ink-500">{label}</span>
+                  <span className="min-w-0 flex-1">{current ? (current.name || "One you cannot open") : "Nothing"}</span>
+                  <a href={`/records/${type}/${id}/link?${new URLSearchParams({ to: link })}`}
+                     className="underline underline-offset-4" aria-label={`Change the ${label.toLowerCase()}`}>
+                    {current ? "Change" : "Choose"}
+                  </a>
+                  {current ? (
+                    <ActionForm action={setRecordLink} submit="Take it off" tone="quiet" className=""
+                                hidden={{ id, type, link }} />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <h2 id="record-edit" className="mt-8 text-base font-semibold">Change it</h2>
           <ActionForm action={updateRecord} submit="Save" hidden={{ id }} done="Saved.">
             <TextField label={kind.titleLabel} name="title" required maxLength={200} defaultValue={record.title} />
             <CustomFieldInputs definitions={record.fields} values={record.customFields} />

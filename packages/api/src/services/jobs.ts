@@ -168,11 +168,25 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
         input.propertyId ? eq(schema.job.propertyId, input.propertyId) : undefined,
         byExternal(schema.job, input),
         /**
-         * Words in what the job is, or in the customer's name, or its number.
-         * The contract has taken `q` all along and nothing read it, so the
-         * job list ignored a search and showed every job as found.
+         * Words in what the job is, what was written about it, or the
+         * customer's name, or its number. The contract has taken `q` all
+         * along and nothing read it, so the job list ignored a search and
+         * showed every job as found.
+         *
+         * "What was written about it" is the description, the customer's own
+         * words from intake, and every visit's notes: the technician's and
+         * what the office chose to show the customer. Those are on the job's
+         * page for anybody who may open the job, so finding the job by them
+         * shows nobody a word they could not already read there.
          */
-        textFilter(input.q, [schema.job.summary, schema.customer.name], schema.job.number),
+        textFilter(input.q, [
+          schema.job.summary, schema.customer.name, schema.job.description, schema.job.customerComplaint,
+          (pattern) => sql`exists (
+            select 1 from public.visit sv
+            where sv.job_id = ${schema.job.id}
+              and (sv.technician_notes ilike ${pattern} or sv.customer_notes ilike ${pattern})
+          )`,
+        ], schema.job.number),
         /**
          * A branch somebody picked, or `none` for the jobs nobody has put in
          * one. On top of the scope below, never instead of it.

@@ -34,7 +34,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       <form action="/search" role="search" className="mt-4 flex gap-2">
         <label className="sr-only" htmlFor="search-page-q">Search for</label>
         <input id="search-page-q" type="search" name="q" defaultValue={q} autoFocus
-               placeholder="A name, a street, a job or invoice number, a serial number"
+               placeholder="A name, a street, a number, a serial, or what the work was"
                className="h-10 min-w-0 flex-1 rounded border border-steel-300 bg-canvas px-3 text-sm" />
         {alone ? <input type="hidden" name="in" value={alone.key} /> : null}
         <button type="submit" className="h-10 rounded bg-ink-900 px-4 text-sm font-medium text-white">Search</button>

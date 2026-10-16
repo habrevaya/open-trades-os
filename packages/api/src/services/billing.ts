@@ -1417,8 +1417,17 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         input.jobId ? eq(schema.invoice.jobId, input.jobId) : undefined,
         input.businessUnitId ? invoiceBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.invoice, input),
-        // Its number as people say it, or words in the customer's name.
-        textFilter(input.q, [schema.customer.name], schema.invoice.number),
+        // Its number as people say it, or words in the customer's name, its
+        // memo, or what its lines say (the name and description a customer
+        // reads on it), so "water heater" finds the invoice that charged one.
+        textFilter(input.q, [
+          schema.customer.name, schema.invoice.memo,
+          (pattern) => sql`exists (
+            select 1 from public.invoice_line sl
+            where sl.invoice_id = ${schema.invoice.id}
+              and (sl.name ilike ${pattern} or sl.description ilike ${pattern})
+          )`,
+        ], schema.invoice.number),
         await listFilter(tx, ctx.actor.organizationId, "invoice", input, sql`${schema.invoice.customFields}`),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))

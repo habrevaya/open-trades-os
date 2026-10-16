@@ -19,7 +19,9 @@ export const dynamic = "force-dynamic";
 export default async function EstimatesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; sort?: string; branch?: string; field?: string | string[]; value?: string | string[] }>;
+  searchParams: Promise<{
+    q?: string; sort?: string; branch?: string; field?: string | string[]; value?: string | string[]; fieldmatch?: string;
+  }>;
 }) {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
@@ -28,8 +30,9 @@ export default async function EstimatesPage({
   const options = await branches.options(ctx);
   const branch = chosenBranch(options, params.branch);
   const declared = await customFields.formFields(ctx, "estimate");
-  const { pairs, keep: fieldKeep, byField } = fieldFrom(params);
-  /** The estimate's number, or words in its title or the customer's name. */
+  /** From the second field on, "any of these" joins them by or (`fieldmatch=any`), as on the customer list. */
+  const { pairs, match: fieldJoin, keep: fieldKeep, byField } = fieldFrom(params);
+  /** The estimate's number, or words in its title, its options and lines, or the customer's name. */
   const q = searchWords(params.q);
   const [{ page, refusal }, waiting] = await Promise.all([
     withFieldFilter((withField) => estimates.list(ctx, {
@@ -101,11 +104,11 @@ export default async function EstimatesPage({
         list: an estimate belongs to a branch through its job, and the unsold
         pipeline above is the company's follow up list.
       */}
-      <ListSearch action="/estimates" q={q} label="Search estimates" placeholder="An estimate number, its title, or the customer"
+      <ListSearch action="/estimates" q={q} label="Search estimates" placeholder="An estimate number, what it offers, or the customer"
                   keep={{ sort: params.sort, branch, ...fieldKeep }} />
       <BranchFilter options={options} action="/estimates" current={branch} keep={{ q, sort: params.sort, ...fieldKeep }} />
       <CustomFieldFilter action="/estimates" declared={declared} keep={{ q, sort: params.sort, branch }}
-                         pairs={pairs} refusal={refusal} noun="estimates" />
+                         pairs={pairs} refusal={refusal} noun="estimates" match={fieldJoin} anyOf />
       {page.data.length === 0 ? (
         q ? (
           <Empty title="No estimates match">

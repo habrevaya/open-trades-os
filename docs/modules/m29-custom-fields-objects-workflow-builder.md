@@ -349,9 +349,12 @@ customer list also has a link, "Show customers that match any of these", that jo
 them by "or" instead (the Annual plan or pets), says so in the sentence above the list
 ("whose Plan is Annual, or whose Pets is yes"), carries it in the address as
 `fieldmatch=any`, and offers "Show only customers that match all of these" to go back.
-So do `/jobs`, `/invoices`,
-`/estimates`, `/people` (by a technician's fields) and each kind of record's own
-list, which join fields by "and" only.
+So do `/jobs`, `/invoices`, `/estimates`, `/people` (by a technician's fields) and
+each kind of record's own list (`/records/{type}`), each with its own words ("Show
+jobs that match any of these"), and each list's search box keeps the choice while it
+searches. "Any" only widens which of the fields has to hold: the rows are still
+the ones the reader's scope shows on that list, so a technician asking for any of
+two fields sees their own jobs that hold either, never somebody else's.
 A choice matches exactly, several choices match a customer holding that one among
 theirs, yes or no matches as stored, a number matches as a number, and free text
 matches anywhere in the value, ignoring case. `GET /v1/customers`,
@@ -359,9 +362,10 @@ matches anywhere in the value, ignoring case. `GET /v1/customers`,
 `GET /v1/people` and `GET /v1/custom-records` take `fields`, repeated, each the
 field's key, a colon and the value (`fields=plan:Annual&fields=has_pets:yes`), every
 one of which has to hold, up to ten; `fieldKey` and `fieldValue` still work and are
-one more beside them. `GET /v1/customers` also takes `fieldMatch`: `all` (the default) or
-`any`, which lists the customers for whom at least one of the fields holds (the Annual plan
-or pets); one field is the same either way, and the other lists take no `fieldMatch`. A key
+one more beside them. Each of them also takes `fieldMatch`: `all` (the default) or
+`any`, which lists the records for which at least one of the fields holds (the Annual plan
+or pets), joined in one place (`listFilter` in `services/custom-fields.ts`) for every
+list; one field is the same either way, and any other word is refused. A key
 the company has not declared on that record is refused in words rather than matching
 nobody, whichever is chosen, and so is a filter that is not a key, a colon and a value.
 
@@ -406,7 +410,26 @@ on `PATCH /v1/custom-fields/{id}`, refused on a field that is not on a kind of r
 searched across the name and every value, filtered by a field, downloaded as a CSV
 and loaded from one at `/records/{type}/import` (checked first if you like, then all
 or nothing). `/records/{type}/new` adds one, carrying the job, customer, address or
-unit it was opened from, and `/records/{type}/{id}` changes or removes it. Every
+unit it was opened from, and `/records/{type}/{id}` changes or removes it.
+That page also lists what the record points at, one line for each link its kind
+offers, with "Change" (or "Choose") and, when it is set, "Take it off". "Change"
+opens `/records/{type}/{id}/link?to=job` (or `customer`, `property`, `equipment`,
+`invoice`, `membership`, `record`), which finds the new one with words the way the
+search box does, through the same lists and so at the writer's own scope: a
+technician allowed to file records is offered the work they were sent to, a branch
+manager their branch's. "Point at this one" saves it and goes back to the record. A
+job brings its customer and address with it when the kind points at those too.
+`PATCH /v1/custom-records/{id}` does the same through the API, and both are held to
+exactly the checks making a record with that link is: the kind's write permission,
+the permission that reads the thing pointed at, and the writer's scope on it (a job,
+a customer and an invoice through their own lists' scopes, an address and a unit by
+the work at the address, a person on the writer's people list or the writer, a
+record they may open). Something they cannot open is refused in words at its key,
+the same as something that is not there, so a record cannot be used to find out
+what exists. A link sent as it already was is not checked again, so a branch
+manager can correct a permit's name beside a link somebody at head office set.
+Every change is in the audit log with the record before and after, and emits
+`record.updated` with the links before and after. Every
 kind that can point at a job, a customer, an address, a unit, an invoice or a person
 has a panel on that record's page (`/invoices/{id}` and `/people/{membershipId}`
 among them) with its records and "Add one", and a record's own page lists the
@@ -418,21 +441,30 @@ of the kind it points at; an invoice is carried in from the invoice's page.
 
 The search box at the top of the menu (`/search`, `GET /v1/search`) finds
 customers by name, email or phone; jobs by their number or by words in what the
-job is or in the customer's name; invoices by their number or the customer's
-name, and estimates by their number, their title or the customer's name;
-addresses by their street; units by the serial on their sticker or their make and
-model; and the company's own records by their name or any value. Every word typed
-has to be somewhere ("smith furnace" finds the Smiths' furnace job either way
-round), a number on its own is also a job's, an invoice's or an estimate's number,
-with or without its `#`, and a typed `%` or `_` is the character it is. The words
-are read once, in core (`search`), and each comparison is a trigram match a
-pg_trgm index answers.
+job is, its description, the customer's own words from when it was booked, any of
+its visits' notes (the technician's and what the office chose to show the
+customer) or the customer's name; invoices by their number, the customer's name,
+the memo, or what any line says (its name or its description); estimates by
+their number, their title, the customer's name, or what any option or any line
+says; addresses by their street; units by the serial on their sticker or their
+make and model; and the company's own records by their name or any value. Every
+word typed has to be somewhere, and each word may be in a different place
+("smith furnace" finds the Smiths' job when "furnace" is only in a technician's
+note on it, either way round). A number on its own is also a job's, an invoice's
+or an estimate's number, with or without its `#`, and a typed `%` or `_` is the
+character it is. The words are read once, in core (`search`), and each comparison
+is a trigram match a pg_trgm index answers, the notes, lines and options through
+an `exists` on the job, invoice or estimate being listed.
 
 Each part is read through its own list's service with the reader's own
 permission and scope, so it finds nothing the reader could not open from that
-list: a technician finds the work they were sent to, a branch manager their
+list, whatever words are typed and wherever they are written: a technician finds the work they were sent to, a branch manager their
 branch's, somebody without `invoice:read` sees no invoices, and a kind of record
-they may not read is not searched. Addresses and units have no narrowed list of
+they may not read is not searched. A note, a line or an option is only looked
+in for a job, invoice or estimate the list already shows the reader, and each of
+those is on that record's own page for anybody who may open it, so the box never
+shows somebody a word they could not already read; a word written only in another
+company's notes, or on a job the reader was not sent to, finds nothing. Addresses and units have no narrowed list of
 their own, so the box narrows them the way customers are narrowed, by the work at
 the address: at a restricted scope an address is found only when a job the reader
 can see is at it, and a unit only at such an address. An address or a unit in the
@@ -442,7 +474,9 @@ Five of each, and a group with more says "See all", which opens its own list
 filtered by the same words: `/customers?q=`, `/jobs?q=`, `/invoices?q=`,
 `/estimates?q=` and `/records/{type}?q=`, each with a search box of its own that
 reads words the same way (`q` on `GET /v1/customers`, `GET /v1/jobs`,
-`GET /v1/invoices` and `GET /v1/estimates`). Addresses and units have no list
+`GET /v1/invoices`, `GET /v1/estimates` and `GET /v1/custom-records`). A kind
+of record's list matches each word in the record's name or in one of its
+values, not in the keys the values are stored under. Addresses and units have no list
 screen, so theirs is the search page showing that group alone, at up to fifty
 (`/search?q=...&in=addresses`, `in` on the API).
 
@@ -614,7 +648,7 @@ second is a much smaller list of people.
 | `GET /v1/custom-records` | `record:read` and the kind's own |
 | `GET /v1/custom-records/{id}` | `record:read` and the kind's own |
 | `POST /v1/custom-records` | `record:read`, `record:write` and the kind's own |
-| `PATCH /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
+| `PATCH /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own; a new link also needs the permission that reads what it points at (`job:read`, `customer:read`, `property:read`, `equipment:read`, `invoice:read`, `user:read` for anybody but yourself) |
 | `DELETE /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/custom-objects/{key}/export` | `record:read` and the kind's own |
 | `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read`, `job:read`, `invoice:read`, `estimate:read`, `property:read`, `equipment:read`, `record:read` and the kind's own) |
@@ -687,29 +721,35 @@ not when the person is invited, because the invitation carries no field. A recor
 product makes by itself starts with none, as above, and so does the first visit booked
 together with a new job. Visits and units have no company wide list to filter, so their
 fields are filtered in the report builder rather than on a list screen. "Any of these"
-across several fields is on the customer list and in the report builder; the job,
-invoice, estimate and people lists and each kind of record's own list join fields by
-"and" only.
+across several fields is on every list that filters by fields and in the report
+builder, but it is one choice for the whole list: there is no "this one, or both of
+those".
 The Tasks dataset has no fields to filter by, because a task can be about anything. A field's key
 cannot be changed once made (`/settings/custom-fields` says why), and neither can a
 kind of record's. A kind of record points at one record of one other kind, not
 several, and an invoice, a person and a record are chosen on the form only as
 described above: an invoice is carried in from its page, a person is picked only by
 somebody holding `user:read` (anybody else opens the form from the person's page),
-and the record list offered is the first two hundred. A link is set when a record is
-made, through the API or the import; the record's page shows its links and does not
-change them. Its name is the only thing a record is required to have beyond its
-fields. The record form takes a job by its number when opened on its own; a
-customer, an address or a unit is linked by opening the form from that record's
-page. A CSV import links by id or job number, not by name. The report builder groups
+and the record list offered is the first two hundred. A record's links are changed
+one at a time on its page, by finding the new one with words: there is no form
+that changes several at once (the API's `PATCH` does). The page that chooses a
+person offers the people the writer may see and themselves, and the page that
+chooses a record offers fifty of the kind it points at, narrowed by words. An
+address or a unit can be pointed at only when the writer can see work at that
+address, or sees every address, which is stricter than the address's own page
+(M04 reads the whole company there): a record with no job yet at a new address is
+linked by somebody who sees the whole company. Its name is the only thing a record
+is required to have beyond its fields. The form that adds a record takes a job by
+its number when opened on its own; a customer, an address or a unit is linked by
+opening that form from that record's page, or afterwards on the record's own page. A CSV import links by id or job number, not by name. The report builder groups
 a kind of record by its fields, its month, its customer and its job type, and not by
 another record's fields, its invoice, its person or the record it points at.
 
 The search box matches pieces of words, not meanings or misspellings: "furn"
 finds "Furnace" and "furnice" finds nothing, because there is no stemming and no
-fuzzy match. It does not look in a job's description or notes, an invoice's lines
-or memo, a visit, a person, a price book item or a message, and a kind of record's
-list still matches what was typed as one phrase rather than word by word.
+fuzzy match. It looks in a visit's notes only to find the visit's job, and does
+not list visits, people, price book items or messages. A customer's notes
+(M03) are not searched, nor is the text of an attached file.
 Addresses and units are narrowed by scope in the search box only: the address
 list (`GET /v1/properties`) and a unit's page read the whole company for anybody
 holding `property:read` or `equipment:read`, as they did before, and narrowing

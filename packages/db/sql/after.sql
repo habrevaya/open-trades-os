@@ -254,6 +254,28 @@ create index if not exists equipment_serial_trgm_idx
 create index if not exists equipment_make_model_trgm_idx
   on public.equipment using gin (manufacturer gin_trgm_ops, model gin_trgm_ops);
 
+-- What was written on and about the work: a job's description and the
+-- customer's words, its visits' notes, an invoice's memo and lines, and an
+-- estimate's options and lines. The lists reach the last five through an
+-- `exists` on the row they list, which Postgres answers from these indexes
+-- and a join rather than by reading every line of every invoice.
+create index if not exists job_description_trgm_idx
+  on public.job using gin (description gin_trgm_ops);
+create index if not exists job_complaint_trgm_idx
+  on public.job using gin (customer_complaint gin_trgm_ops);
+create index if not exists visit_technician_notes_trgm_idx
+  on public.visit using gin (technician_notes gin_trgm_ops);
+create index if not exists visit_customer_notes_trgm_idx
+  on public.visit using gin (customer_notes gin_trgm_ops);
+create index if not exists invoice_memo_trgm_idx
+  on public.invoice using gin (memo gin_trgm_ops);
+create index if not exists invoice_line_text_trgm_idx
+  on public.invoice_line using gin (name gin_trgm_ops, description gin_trgm_ops);
+create index if not exists estimate_option_text_trgm_idx
+  on public.estimate_option using gin (name gin_trgm_ops, description gin_trgm_ops);
+create index if not exists estimate_line_text_trgm_idx
+  on public.estimate_line using gin (name gin_trgm_ops, description gin_trgm_ops);
+
 -- ---- Login, without the application role ever reading a hash ------------
 -- SECURITY DEFINER so it runs as the owner and can read `credential` past the
 -- deny-all policy above. It returns a user id or null, never the hash.

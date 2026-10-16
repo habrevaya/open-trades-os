@@ -546,8 +546,23 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         input.jobId ? eq(schema.estimate.jobId, input.jobId) : undefined,
         input.businessUnitId ? estimateBranchFilter(input.businessUnitId) : undefined,
         byExternal(schema.estimate, input),
-        // Its number, or words in the customer's name or the estimate's own title.
-        textFilter(input.q, [schema.customer.name, schema.estimate.title], schema.estimate.number),
+        // Its number, or words in the customer's name, the estimate's own
+        // title, or what any of its options or their lines say: "heat pump"
+        // finds the estimate whose best option is one, whatever it is called.
+        textFilter(input.q, [
+          schema.customer.name, schema.estimate.title,
+          (pattern) => sql`exists (
+            select 1 from public.estimate_option so
+            where so.estimate_id = ${schema.estimate.id}
+              and (so.name ilike ${pattern} or so.description ilike ${pattern})
+          )`,
+          (pattern) => sql`exists (
+            select 1 from public.estimate_line sl
+            join public.estimate_option slo on slo.id = sl.option_id
+            where slo.estimate_id = ${schema.estimate.id}
+              and (sl.name ilike ${pattern} or sl.description ilike ${pattern})
+          )`,
+        ], schema.estimate.number),
         await listFilter(tx, ctx.actor.organizationId, "estimate", input, sql`${schema.estimate.customFields}`),
         after ? lt(schema.estimate.id, after) : undefined,
       ))

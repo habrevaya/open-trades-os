@@ -11,9 +11,9 @@ import { ConflictError } from "@opentradesos/api/services";
  * filter they asked for.
  *
  * `fieldmatch=any` makes it "any of these": the customers on the Annual plan OR
- * who have pets. Only a list that offers the choice passes it in, so a stray
- * `fieldmatch` on another list's address changes nothing there. Anything but
- * the word `any` is "all", the narrowing every list has always done.
+ * who have pets, and the same on every other list that filters by fields.
+ * Anything but the word `any` is "all", the narrowing every list has always
+ * done.
  *
  * A filter the service refuses (a field the company no longer declares, "soon"
  * for a number) is the list without the field filters and the sentence beside

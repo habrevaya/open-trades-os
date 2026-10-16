@@ -42,16 +42,28 @@ export const CustomFieldEntity = z.union([
  * stored, a number as a number, text anywhere in the value ignoring case).
  *
  * `fields` is several at once, each `key:value` (repeat the parameter), every
- * one of which has to hold; `fieldKey` and `fieldValue` are one more beside
- * them.
+ * one of which has to hold unless `fieldMatch` says `any`; `fieldKey` and
+ * `fieldValue` are one more beside them.
  */
 export const FieldFilters = z.array(z.string().min(3).max(270)).max(10).optional()
-  .describe("Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold.");
+  .describe("Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any.");
+
+/**
+ * How the fields above are joined: `all` (the default, every one has to hold)
+ * or `any` (at least one does). The same word, the same rule and the same
+ * joining (`listFilter` in services/custom-fields.ts) on every list that
+ * filters by fields, as the customer list and the report builder have had it.
+ * One field is the same either way, and a field that is refused is refused
+ * whichever is chosen.
+ */
+export const FieldMatch = z.enum(["all", "any"]).optional()
+  .describe("all (the default): every field filter has to hold. any: at least one of them does.");
 
 export const CustomFieldListFilter = {
   fieldKey: z.string().max(64).optional(),
   fieldValue: z.string().max(200).optional(),
   fields: FieldFilters,
+  fieldMatch: FieldMatch,
 };
 
 export const CustomFieldType = z.enum([
