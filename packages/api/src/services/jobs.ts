@@ -27,6 +27,7 @@ import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import { closeOpenHold } from "./job-holds";
+import { askedAtOf, callOff, calledOffFields, supersedeRequests, type CancelledBy } from "./visit-cancellations";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -807,6 +808,17 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       }
       assertCan(ctx.actor, "visit:reschedule");
     }
+    if ((input.cancelledBy !== undefined || input.cancelAskedAt !== undefined) && !input.cancelVisits) {
+      throw new UnprocessableError("Who asked goes with cancelling the visits", [{
+        path: input.cancelledBy !== undefined ? "cancelledBy" : "cancelAskedAt",
+        message: "Send it with cancelVisits.",
+      }]);
+    }
+    if (input.cancelAskedAt !== undefined && input.cancelledBy === undefined) {
+      throw new UnprocessableError("When they asked goes with who asked", [{
+        path: "cancelAskedAt", message: "Send cancelledBy as well.",
+      }]);
+    }
 
     /**
      * WHEN IT WAS FINISHED, on the move to finished and at no other time.
@@ -1029,7 +1041,8 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
     }
 
     if (input.cancelVisits && input.status === "cancelled") {
-      await cancelVisitsStillToCome(tx, ctx, input.id);
+      await cancelVisitsStillToCome(tx, ctx, input.id,
+        input.cancelledBy ? { by: input.cancelledBy, askedAt: input.cancelAskedAt } : null);
     }
 
     return clean(ctx, "job", after!);
@@ -1059,10 +1072,17 @@ const NOT_STARTED = ["unassigned", "scheduled", "dispatched"] as const;
  * notices ("Do not go"), and any request of the customer's still waiting
  * on it closed with that said, so nobody approves a move of a visit that is
  * no longer happening.
+ *
+ * WHO ASKED is said once for all of them (`visit-cancellations.ts`): the
+ * customer, or the company itself. A caller that does not say is recorded
+ * as not known, never given a default.
  */
-async function cancelVisitsStillToCome(tx: Database, ctx: ServiceContext, jobId: string): Promise<string[]> {
+async function cancelVisitsStillToCome(
+  tx: Database, ctx: ServiceContext, jobId: string,
+  who: { by: CancelledBy; askedAt?: string | undefined } | null,
+): Promise<string[]> {
   const now = new Date();
-  const visits = await tx.select({ id: schema.visit.id }).from(schema.visit)
+  const visits = await tx.select({ id: schema.visit.id, createdAt: schema.visit.createdAt }).from(schema.visit)
     .where(and(
       eq(schema.visit.jobId, jobId),
       inArray(schema.visit.status, [...NOT_STARTED]),
@@ -1072,27 +1092,16 @@ async function cancelVisitsStillToCome(tx: Database, ctx: ServiceContext, jobId:
   const cancelled: string[] = [];
   for (const visit of visits) {
     const before = await sideOf(tx, visit.id);
-    await tx.update(schema.visit).set({ status: "cancelled", routeOrder: null, updatedAt: now })
-      .where(eq(schema.visit.id, visit.id));
+    await callOff(tx, ctx, visit.id,
+      who ? { by: who.by, askedAt: askedAtOf(who.askedAt, visit.createdAt, now) } : null);
     if (before) await announce(tx, ctx, visit.id, before);
-
-    const overtaken = await tx.update(schema.visitChangeRequest).set({
-      status: "superseded", decidedAt: now, updatedAt: now, decidedByUserId: ctx.actor.userId,
-    }).where(and(
-      eq(schema.visitChangeRequest.visitId, visit.id),
-      inArray(schema.visitChangeRequest.status, ["pending", "proposed"]),
-    )).returning({ taskId: schema.visitChangeRequest.taskId });
-    for (const request of overtaken) {
-      if (!request.taskId) continue;
-      await tx.update(schema.task).set({
-        status: "done", outcome: "Overtaken: the office cancelled the job", completedAt: now,
-        completedByUserId: ctx.actor.userId, updatedAt: now,
-      }).where(and(eq(schema.task.id, request.taskId), isNull(schema.task.completedAt)));
-    }
+    await supersedeRequests(tx, ctx, visit.id, "Overtaken: the office cancelled the job");
     cancelled.push(visit.id);
   }
   if (cancelled.length > 0) {
-    await audit(tx, ctx, "job.visits_cancelled", "job", jobId, null, { visitIds: cancelled });
+    await audit(tx, ctx, "job.visits_cancelled", "job", jobId, null, {
+      visitIds: cancelled, cancelledBy: who?.by ?? null, askedAt: who?.askedAt ?? null,
+    });
   }
   return cancelled;
 }
@@ -1139,6 +1148,27 @@ export async function addVisit(
     const history = input.completedAt !== undefined
       ? await admitHistoryVisit(tx, ctx, job, input)
       : null;
+    /**
+     * WHO CALLED IT OFF, for a visit recorded as already cancelled: said
+     * together with when, or neither (not known). A time with nobody named
+     * is a half answer, and neither half goes without the status.
+     */
+    if ((input.cancelledBy !== undefined || input.cancelledAt !== undefined) && input.status !== "cancelled") {
+      throw new UnprocessableError("Who called it off goes with a cancelled visit", [{
+        path: input.cancelledBy !== undefined ? "cancelledBy" : "cancelledAt", message: 'Send it with status "cancelled".',
+      }]);
+    }
+    if ((input.cancelledBy === undefined) !== (input.cancelledAt === undefined)) {
+      throw new UnprocessableError("Who and when go together", [{
+        path: input.cancelledBy === undefined ? "cancelledBy" : "cancelledAt",
+        message: "Send cancelledBy and cancelledAt together, or neither when it is not known.",
+      }]);
+    }
+    const calledOffBefore = input.cancelledBy !== undefined && input.cancelledAt !== undefined
+      ? { by: input.cancelledBy, askedAt: new Date(input.cancelledAt) } : null;
+    if (calledOffBefore && calledOffBefore.askedAt.getTime() > Date.now() + 120_000) {
+      throw new ConflictError("That cancellation is in the future. Send when they asked.");
+    }
     if (input.technicianNotes !== undefined && history === null) {
       throw new UnprocessableError("Notes go with a visit recorded as done", [{
         path: "technicianNotes",
@@ -1213,6 +1243,8 @@ export async function addVisit(
        */
       status: history ? "completed" : input.status === "cancelled" ? "cancelled"
         : input.technicianIds.length > 0 && input.windowStart ? "scheduled" : "unassigned",
+      /** Who called it off and when, as the old system said, or not known (`visit-cancellations.ts`). */
+      ...(input.status === "cancelled" ? await calledOffFields(tx, ctx.actor.organizationId, calledOffBefore) : {}),
       ...(history ? { completedAt: history.completedAt, fromHistory: true, technicianNotes: input.technicianNotes ?? null } : {}),
       windowStart: input.windowStart ? new Date(input.windowStart) : null,
       windowEnd: input.windowEnd ? new Date(input.windowEnd) : null,

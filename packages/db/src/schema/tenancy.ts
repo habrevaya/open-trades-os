@@ -74,6 +74,14 @@ export const organization = pgTable("organization", {
   /** Trade pack applied at setup. Drives seeded price book, checklists, KPIs. */
   primaryTrade: text("primary_trade"),
   setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),
+  /**
+   * How many hours before a visit's window a customer must cancel for it not
+   * to count as a late cancellation. The company's policy, set on Settings;
+   * read by cleaning's cancellation rate and frozen onto each visit when it is
+   * called off (`visit.cancel_notice_hours`). A day by default, which is the
+   * booking page's default notice too.
+   */
+  cancelNoticeHours: integer("cancel_notice_hours").notNull().default(24),
   settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
   /** Set when this organization belongs to a franchise or holding network. */
   networkId: uuid("network_id").references(() => network.id, { onDelete: "set null" }),

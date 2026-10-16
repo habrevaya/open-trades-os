@@ -1,4 +1,5 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date, check } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, sourceRefIndex, money } from "./_shared";
 import { organization, businessUnit, location, technician } from "./tenancy";
 import { customer, property, equipment } from "./crm";
@@ -276,6 +277,22 @@ export const job = pgTable("job", {
   numberIdx: uniqueIndex("job_number_idx").on(t.organizationId, t.number),
 }));
 
+/**
+ * WHO CALLED A VISIT OFF.
+ *
+ * Cleaning's cancellation rate counts stops the CUSTOMER cancelled or skipped
+ * inside the notice window and EXCLUDES visits the company cancelled for
+ * weather or staffing, "which are a separate and more serious number". A
+ * cancelled visit said neither, so a customer ringing to cancel and a rain day
+ * were the same row. Two values, because that is the whole question; why the
+ * company called a day off is a note, not a code the figure reads.
+ *
+ * Null on a cancelled visit means nobody recorded who: a visit cancelled
+ * before this was kept, or brought in from another system that did not say.
+ * The figure counts those beside the number as not known and never guesses.
+ */
+export const visitCancelledBy = pgEnum("visit_cancelled_by", ["customer", "company"]);
+
 export const visit = pgTable("visit", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -343,6 +360,22 @@ export const visit = pgTable("visit", {
   customerNotesSharedAt: timestamp("customer_notes_shared_at", { withTimezone: true }),
   checklist: jsonb("checklist").$type<Array<{ id: string; label: string; required: boolean; doneAt: string | null }>>().notNull().default([]),
   signatureUrl: text("signature_url"),
+  /**
+   * Who called it off and WHEN THEY ASKED, written by every path that cancels
+   * a visit (`services/visit-cancellations.ts`, and a guard test that fails
+   * when a new path forgets). When is the moment the customer told us (their
+   * portal request, or the call the office took, which may be earlier than
+   * the office typed it), not when the row changed, because a late
+   * cancellation is late by when the customer said so.
+   *
+   * `cancel_notice_hours` is the company's notice window AS IT WAS when the
+   * visit was called off, frozen like a report's required fields, so a
+   * company that tightens its policy in March does not turn last winter's
+   * cancellations late.
+   */
+  cancelledBy: visitCancelledBy("cancelled_by"),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelNoticeHours: integer("cancel_notice_hours"),
   ...sourceRef,
   /**
    * The company's own fields, checked against the definitions in M29 by the
@@ -351,6 +384,9 @@ export const visit = pgTable("visit", {
   customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (t) => ({
+  /** A visit that says who called it off says when, and under what notice window. */
+  cancelSaysWhen: check("visit_cancel_says_when",
+    sql`${t.cancelledBy} is null or (${t.cancelledAt} is not null and ${t.cancelNoticeHours} is not null)`),
   sourceRefIdx: sourceRefIndex("visit_source_ref_idx", t),
   jobIdx: index("visit_job_idx").on(t.jobId),
   /** The dispatch board's primary query: everything in a window, by org. */

@@ -178,7 +178,7 @@ export const setDeficiencyStatus = defineRoute({
   path: "/v1/inspection-deficiencies/{id}/status",
   summary: "Move a finding along",
   description:
-    "The states that END it need a reason, and declining needs one most of all: a customer who declined a safety finding is the single sentence somebody will want in writing later, and a blank there is the record that was not kept.",
+    "The states that END it need a reason, and declining needs one most of all: a customer who declined a safety finding is the single sentence somebody will want in writing later, and a blank there is the record that was not kept. With `declined`, `declineCode` says why as a code (too dear, not now, already booked with another company, something else), and stands as the reason when no words are given. Plumbing's water heater capture leaves out a unit whose finding was declined as booked with another company, and reads nothing else for that.",
   module: "M33",
   permissions: ["compliance:write"],
   idempotent: true,
@@ -186,6 +186,7 @@ export const setDeficiencyStatus = defineRoute({
     id: Uuid,
     status: DeficiencyStatus,
     reason: z.string().max(2000).optional(),
+    declineCode: z.enum(["price", "not_now", "booked_elsewhere", "other"]).optional(),
     jobId: Uuid.nullish(),
     on: IsoDate.optional(),
   }),

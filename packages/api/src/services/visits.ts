@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
-import { can } from "@opentradesos/core";
+import { can, reporting } from "@opentradesos/core";
 import { guardedRead, NotFoundError, scopeOf, type ServiceContext } from "./context";
 import { jobVisibility } from "./scope";
 import { shopNames } from "./visit-shop";
@@ -94,6 +94,34 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
       publishedAt: schema.serviceReport.publishedAt,
     }).from(schema.serviceReport).where(eq(schema.serviceReport.visitId, visit.id));
 
+    /**
+     * WHAT EACH REPORT RECORDED, the last answer to each field, in words: a
+     * reading with its unit, a yes or no, a choice ("Where the fault was: In
+     * equipment another trade owns"), or a product and how much of it. The
+     * office reads here what the phone wrote, which the figures read too.
+     */
+    const answers = reports.length === 0 ? [] : await tx.select({
+      reportId: schema.serviceReportField.reportId, key: schema.serviceReportField.key, label: schema.serviceReportField.label,
+      valueNumeric: schema.serviceReportField.valueNumeric, valueText: schema.serviceReportField.valueText,
+      valueBoolean: schema.serviceReportField.valueBoolean, unit: schema.serviceReportField.unit,
+      productName: schema.serviceReportField.productName, quantityApplied: schema.serviceReportField.quantityApplied,
+      applicationUnit: schema.serviceReportField.applicationUnit,
+    }).from(schema.serviceReportField)
+      .where(inArray(schema.serviceReportField.reportId, reports.map((r) => r.id)))
+      .orderBy(desc(schema.serviceReportField.recordedAt), desc(schema.serviceReportField.createdAt));
+    const said = (a: (typeof answers)[number]): string => {
+      if (a.productName) return `${a.productName}${a.quantityApplied !== null ? `, ${Number(a.quantityApplied)}${a.applicationUnit ? ` ${a.applicationUnit}` : ""}` : ""}`;
+      if (a.valueNumeric !== null) return `${Number(a.valueNumeric)}${a.unit ? ` ${a.unit}` : ""}`;
+      if (a.valueBoolean !== null) return a.valueBoolean ? "Yes" : "No";
+      return a.valueText ?? "";
+    };
+    const readingsOf = (reportId: string) => {
+      const seen = new Set<string>();
+      return answers.filter((a) => a.reportId === reportId && !seen.has(a.key) && seen.add(a.key))
+        .map((a) => ({ key: a.key, label: a.label, value: said(a) }))
+        .filter((a) => a.value !== "");
+    };
+
     const inspections = await tx.select({
       id: schema.inspection.id, performedOn: schema.inspection.performedOn, result: schema.inspection.result,
       programme: schema.inspectionProgram.name,
@@ -146,10 +174,22 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
       used,
       time,
       units,
-      reports,
+      reports: reports.map((r) => ({ ...r, readings: readingsOf(r.id) })),
       inspections,
       changes,
       siblings,
+      /** Who called it off and when they asked, judged by the window frozen on it (`visit-cancellations.ts`). */
+      cancellation: (reporting.VISIT_CALLED_OFF as readonly string[]).includes(visit.status)
+        ? {
+          by: visit.cancelledBy,
+          at: visit.cancelledAt,
+          noticeHours: visit.cancelNoticeHours,
+          late: ((verdict) => verdict === "late" ? true : verdict === "in_time" ? false : null)(reporting.cancellationOf({
+            status: visit.status, windowStart: visit.windowStart, cancelledBy: visit.cancelledBy,
+            cancelledAt: visit.cancelledAt, noticeHours: visit.cancelNoticeHours,
+          })),
+        }
+        : null,
     };
   });
 }

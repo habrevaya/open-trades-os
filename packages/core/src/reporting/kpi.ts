@@ -49,6 +49,22 @@ import { distanceKm } from "../location/index.js";
  *
  *   A ROUTE DAY'S MILES. Driven between stops, never to the first or home from
  *   the last, and not counted at all when the phone's positions have a gap.
+ *
+ *   A WATER HEATER CAUGHT. An old heater we looked at that we went on to
+ *   replace, with the ones the customer had booked with somebody else left
+ *   out.
+ *
+ *   A TROUBLESHOOTING CALL CONVERTED. Repair work the customer agreed to on
+ *   the visit that found the fault, with the calls whose fault was in another
+ *   trade's equipment left out.
+ *
+ *   A DRAIN CALL CONVERTED. A drain job that produced a camera inspection, a
+ *   lining or an excavation, with a return to the same line inside thirty
+ *   days left out rather than counted as a second sale.
+ *
+ *   A LATE CANCELLATION. A stop the customer called off with less notice than
+ *   the company asks for, judged by when they asked and the notice window in
+ *   force then, with the company's own cancellations left out.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -685,4 +701,203 @@ export function routeDay(input: {
     status: "counted",
     note: null,
   };
+}
+
+/* ------------------------------------------------- cancellation rate by route */
+
+export interface CancelStop {
+  status: string;
+  /** When it was booked for. A visit with no time was never a scheduled stop. */
+  windowStart: Date | null;
+  /** Null on a cancelled visit when nobody recorded who. */
+  cancelledBy: "customer" | "company" | null;
+  /** When the customer asked, or the company decided. */
+  cancelledAt: Date | null;
+  /** The company's notice window when it was called off, in hours. */
+  noticeHours: number | null;
+}
+
+/** The visit statuses that mean somebody called it off (one done anyway is still one called off). */
+export const VISIT_CALLED_OFF = ["cancelled", "completed_after_cancellation"] as const;
+
+/**
+ * What one scheduled stop counts as.
+ *
+ * "Stops cancelled or skipped inside the notice window divided by stops
+ * scheduled, reported per route and per weekday. EXCLUDES visits the company
+ * cancelled for weather or staffing, which are a separate and more serious
+ * number."
+ *
+ *   `null`      no window, so it was never a scheduled stop.
+ *   `kept`      not called off: done, still to come, or missed.
+ *   `late`      the customer called it off with less notice than the window
+ *               asked for, or after it had started (skipped at the door).
+ *   `in_time`   the customer called it off with the notice asked for. In the
+ *               denominator: it was a scheduled stop, and an owner wants to
+ *               see how many customers cancel properly as well as how many
+ *               do not.
+ *   `company`   the company called it off. Out of both halves and counted
+ *               beside, as the definition says.
+ *   `unknown`   called off with nobody recording who (before this was kept, or
+ *               brought in from another system). Out of both halves and
+ *               counted beside, rather than read as either: a week of rain
+ *               read as customers would be the misreading the definition
+ *               warns about, and read as the company would hide real ones.
+ *
+ * Exactly the notice asked for is in time: a policy of a day's notice is met
+ * by a call a day before.
+ */
+export function cancellationOf(stop: CancelStop): "kept" | "late" | "in_time" | "company" | "unknown" | null {
+  if (stop.windowStart === null) return null;
+  if (!(VISIT_CALLED_OFF as readonly string[]).includes(stop.status)) return "kept";
+  if (stop.cancelledBy === null || stop.cancelledAt === null || stop.noticeHours === null) return "unknown";
+  if (stop.cancelledBy === "company") return "company";
+  const due = stop.windowStart.getTime() - stop.noticeHours * 3_600_000;
+  return stop.cancelledAt.getTime() > due ? "late" : "in_time";
+}
+
+/* ------------------------------------------------ water heater opportunity capture */
+
+export interface HeaterSeen {
+  /** When it was put in, as a date; null when nobody recorded it. */
+  installedOn: string | null;
+  /** The first day in the window somebody inspected or worked on it. */
+  inspectedOn: string;
+  /** Recorded as replaced, each with the day and whether the record names one of our jobs. */
+  replacements: ReadonlyArray<{ movedOn: string; byUs: boolean }>;
+  /** Recommendations on it the customer declined and still stand declined. */
+  declines: ReadonlyArray<{ declinedOn: string; code: string | null }>;
+}
+
+/** A date ten years before another, as Postgres counts it: the 29th of February falls back to the 28th. */
+export function tenYearsBefore(day: string): string {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  const last = new Date(Date.UTC(y - 10, m, 0)).getUTCDate();
+  return `${String(y - 10).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+/**
+ * What one water heater inspected in the window counts as.
+ *
+ * "Water heaters replaced divided by water heaters recorded as over ten years
+ * old and inspected in the period. Excludes units the customer has already
+ * scheduled with someone else, so the ones nobody followed up on stay
+ * visible."
+ *
+ *   `unknown_age`        no install date recorded, so nothing says it is over
+ *                        ten. Out of both halves and counted beside, because
+ *                        a register with no ages would otherwise read as a
+ *                        company with no old heaters.
+ *   `young`              ten years old or less on the day it was inspected.
+ *   `replaced`           over ten, and replaced on a job of ours on or after
+ *                        that day. In both halves. A replacement recorded with
+ *                        no job of ours named might be somebody else's and is
+ *                        not counted as caught.
+ *   `booked_elsewhere`   over ten, not replaced by us, and a recommendation on
+ *                        it declined, on or after that day, because the
+ *                        customer had booked the work with another company.
+ *                        Out of both halves and counted beside.
+ *   `open`               over ten and none of those: the one nobody followed
+ *                        up on, in the bottom half, visible.
+ */
+export function heaterCaptureOf(unit: HeaterSeen):
+  "unknown_age" | "young" | "replaced" | "booked_elsewhere" | "open" {
+  if (unit.installedOn === null) return "unknown_age";
+  if (unit.installedOn >= tenYearsBefore(unit.inspectedOn)) return "young";
+  if (unit.replacements.some((r) => r.byUs && r.movedOn >= unit.inspectedOn)) return "replaced";
+  if (unit.declines.some((d) => d.code === "booked_elsewhere" && d.declinedOn >= unit.inspectedOn)) return "booked_elsewhere";
+  return "open";
+}
+
+/* ----------------------------------------------- troubleshooting conversion */
+
+/**
+ * The service report field a troubleshooting call says where the fault was
+ * in, and the answer that leaves the call out: both the electrical pack's
+ * own, and `packs.test.ts` fails if the pack stops declaring them.
+ */
+export const FAULT_LOCATION = "fault_location";
+export const FAULT_ELSEWHERE = "In equipment another trade owns";
+
+export interface TroubleshootingCall {
+  /** The first visit on the call that was done. */
+  visit: { arrivedAt: Date | null; completedAt: Date };
+  /** When each estimate on the job the customer approved was approved. */
+  approvedAt: readonly Date[];
+  /** Work recorded on that visit other than the charge for finding the fault. */
+  repairOnVisit: boolean;
+  /** The last answer on the job's reports to where the fault was, or null. */
+  faultLocation: string | null;
+}
+
+/**
+ * What one troubleshooting call counts as.
+ *
+ * "Troubleshooting calls that produced approved repair work on the same
+ * visit, divided by all troubleshooting calls. Excludes calls where the fault
+ * was found in equipment another trade owns, which the electrician was never
+ * going to close."
+ *
+ *   `excluded`        the report says the fault was in equipment another trade
+ *                     owns. Out of both halves and counted beside.
+ *   `converted`       on the visit that found it, the customer approved an
+ *                     estimate (signed between the arrival and the finish) or
+ *                     repair work was recorded on the visit itself, other than
+ *                     the pack's charges for finding the fault.
+ *   `not_converted`   neither.
+ *
+ * AN APPROVAL NEEDS AN ARRIVAL. With no arrival recorded (a visit finished
+ * from the office) the visit's span is not known, so only work recorded on it
+ * can convert it: an approval cannot be placed inside a visit nobody timed.
+ * The reading that never flatters.
+ */
+export function troubleshootingOf(call: TroubleshootingCall): "excluded" | "converted" | "not_converted" {
+  if (call.faultLocation === FAULT_ELSEWHERE) return "excluded";
+  if (call.repairOnVisit) return "converted";
+  const { arrivedAt, completedAt } = call.visit;
+  if (arrivedAt !== null && call.approvedAt.some((at) =>
+    at.getTime() >= arrivedAt.getTime() && at.getTime() <= completedAt.getTime())) return "converted";
+  return "not_converted";
+}
+
+/* ------------------------------------------------------ drain call conversion */
+
+/** How long after one drain job another on the same line is a return, not a new call. */
+export const DRAIN_REPEAT_DAYS = 30;
+
+export interface DrainCall {
+  completedAt: Date;
+  /** The unit the job names (a sewer lateral), or null. */
+  equipmentId: string | null;
+  /** The other drain jobs finished at the same address. */
+  others: ReadonlyArray<{ completedAt: Date; equipmentId: string | null }>;
+  /** It, or a job raised from it, carries a camera inspection, lining or excavation the pack marks: done, or signed for. */
+  producedUpsell: boolean;
+}
+
+/**
+ * What one completed drain job counts as.
+ *
+ * "Drain jobs that produced a camera inspection, a lining or an excavation,
+ * divided by all drain jobs. Excludes repeat visits on the same line within
+ * thirty days, because counting the rework as a second conversion flatters
+ * the number."
+ *
+ *   `repeat`         another drain job on the same line finished in the
+ *                    thirty days before it. Out of both halves and counted
+ *                    beside. The same line is the same address, and the same
+ *                    unit when both jobs name one: two jobs naming different
+ *                    laterals are two lines; one that names none could be
+ *                    either, and is read as the same, which leaves it out
+ *                    rather than letting it count twice.
+ *   `converted`      it produced one of the upsells.
+ *   `not_converted`  neither.
+ */
+export function drainCallOf(call: DrainCall): "repeat" | "converted" | "not_converted" {
+  const since = call.completedAt.getTime() - DRAIN_REPEAT_DAYS * 86_400_000;
+  const repeat = call.others.some((o) => o.completedAt.getTime() < call.completedAt.getTime()
+    && o.completedAt.getTime() >= since
+    && (o.equipmentId === null || call.equipmentId === null || o.equipmentId === call.equipmentId));
+  if (repeat) return "repeat";
+  return call.producedUpsell ? "converted" : "not_converted";
 }

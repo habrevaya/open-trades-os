@@ -128,13 +128,27 @@ export function CancelJob({
                   hidden={{ jobId, status: "cancelled" }} className="mt-3 space-y-3">
         <p className="text-sm text-ink-700">The job stays on record as cancelled. Nothing is deleted.</p>
         {toCome > 0 && mayCancelVisits && (
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" name="cancelVisits" value="1" defaultChecked className="mt-0.5 h-4 w-4" />
-            <span>
-              Also cancel its {toCome === 1 ? "visit" : `${toCome} visits`} still to come, and tell the
-              technicians on {toCome === 1 ? "it" : "them"} not to go
-            </span>
-          </label>
+          <>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" name="cancelVisits" value="1" defaultChecked className="mt-0.5 h-4 w-4" />
+              <span>
+                Also cancel its {toCome === 1 ? "visit" : `${toCome} visits`} still to come, and tell the
+                technicians on {toCome === 1 ? "it" : "them"} not to go
+              </span>
+            </label>
+            {/*
+              Asked every time the visits go with the job: a customer's late
+              cancellation and a rain day are different numbers.
+            */}
+            <label className="block text-sm">
+              <span className="font-medium text-ink-700">Who asked to call {toCome === 1 ? "it" : "them"} off</span>
+              <select name="cancelledBy" defaultValue="" className="mt-1 block h-10 w-72 rounded border border-steel-300 bg-canvas px-3 text-sm">
+                <option value="">Choose</option>
+                <option value="customer">The customer asked</option>
+                <option value="company">We called it off (weather, staffing)</option>
+              </select>
+            </label>
+          </>
         )}
         {toCome > 0 && !mayCancelVisits && (
           <p className="text-sm text-amber-700">

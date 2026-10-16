@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty two of the forty seven are computed here, four are
- * M22's, and the eleven that are not each name what they still lack.)
+ * (They are read now. Thirty six of the forty seven are computed here, four are
+ * M22's, and the seven that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -954,6 +954,247 @@ const routeDays = (status: "counted" | "gap", value: "stops" | "miles" | "one"):
     and rd.day >= ${from}::date and rd.day <= ${to}::date
 `;
 
+/**
+ * SCHEDULED STOPS AND WHO CALLED THEM OFF, core's `reporting.cancellationOf`
+ * written again in SQL. A stop is a visit with a window in the window, on
+ * customer work; a stop called off says who and when they asked, and the
+ * notice window frozen on it when it was (`visit-cancellations.ts`).
+ *
+ * Each row names the route (or the crew, with no route) and the weekday,
+ * because the definition is "reported per route and per weekday": the
+ * scorecard's figure is the company's, and the records behind it say which
+ * route and which day each stop was.
+ */
+const CALLED_OFF = `v.status::text = any(array['cancelled', 'completed_after_cancellation'])`;
+const WHO_KNOWN = `(v.cancelled_by is not null and v.cancelled_at is not null and v.cancel_notice_hours is not null)`;
+const LATE = `(v.cancelled_at > v.window_start - make_interval(hours => v.cancel_notice_hours))`;
+const stopsCalledOff = (pick: "late" | "scheduled" | "company" | "unknown"): Records => (from, to, zone) => sql`
+  select 'visit'::text as kind, v.id::text as id,
+         concat('#', j.number, ' ', c.name, ', ', coalesce(r.name, cr.name, 'no route'), ', ',
+                trim(to_char(v.window_start at time zone ${zone}, 'Day'))) as label,
+         to_char(v.window_start at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/visits/' || v.id as href
+  from public.visit v
+  join public.job j on j.id = v.job_id
+  join public.job_type jt on jt.id = j.job_type_id
+  join public.customer c on c.id = j.customer_id
+  left join public.route r on r.id = v.route_id
+  left join public.crew cr on cr.id = v.crew_id
+  where v.deleted_at is null and j.deleted_at is null
+    and v.window_start >= ${dayStart(from, zone)} and v.window_start < ${dayAfter(to, zone)}
+    and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+    and ${sql.raw({
+      late: `${CALLED_OFF} and ${WHO_KNOWN} and v.cancelled_by = 'customer' and ${LATE}`,
+      scheduled: `(not ${CALLED_OFF} or (${WHO_KNOWN} and v.cancelled_by = 'customer'))`,
+      company: `${CALLED_OFF} and ${WHO_KNOWN} and v.cancelled_by = 'company'`,
+      unknown: `${CALLED_OFF} and not ${WHO_KNOWN}`,
+    }[pick])}
+`;
+
+/**
+ * THE WATER HEATER THE PLUMBING PACK DECLARES, read from the pack (its code and
+ * its name, either of which a unit's category may be) rather than typed again.
+ * `kpi-heater-capture.integration.test.ts` fails if the pack stops declaring it.
+ */
+const WATER_HEATER = packById("plumbing")?.equipmentCategories.find((c) => c.code === "water-heater");
+export const HEATER_CATEGORIES = WATER_HEATER ? [WATER_HEATER.code.toLowerCase(), WATER_HEATER.name.toLowerCase()] : [];
+
+/**
+ * Water heaters inspected in the window, each once, on the first day somebody
+ * looked at it (worked it on a visit completed that day, or named it in an
+ * inspection performed that day), and what each counts as: core's
+ * `reporting.heaterCaptureOf` written again in SQL. A replacement counts when
+ * the register records the unit replaced on or after that day on a job of ours
+ * that was not cancelled; the exclusion is a recommendation on it still
+ * declined, on or after that day, coded as booked with another company.
+ */
+const heatersSeen = (pick: "replaced" | "denominator" | "booked_elsewhere" | "unknown_age"): Records => (from, to, zone) => sql`
+  with seen as (
+    select va.equipment_id::text as equipment_id, (v.completed_at at time zone ${zone})::date as d
+    from public.visit_asset va
+    join public.visit v on v.id = va.visit_id
+    where va.deleted_at is null and v.deleted_at is null
+      and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+      and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+    union all
+    select a->>'equipmentId', i.performed_on
+    from public.inspection i
+    cross join lateral jsonb_array_elements(i.answers) as a
+    where i.performed_on is not null
+      and i.performed_on >= ${from}::date and i.performed_on <= ${to}::date
+      and a->>'equipmentId' is not null
+  ),
+  firsts as (select equipment_id, min(d) as inspected_on from seen group by equipment_id),
+  judged as (
+    select e.id, e.tag, e.category, e.serial_number, e.installed_on, f.inspected_on,
+           case
+             when e.installed_on is null then 'unknown_age'
+             when e.installed_on >= f.inspected_on - interval '10 years' then 'young'
+             when exists (
+               select 1 from public.equipment_move m
+               join public.job j on j.id = m.job_id
+               where m.equipment_id = e.id and m.reason = 'replaced' and m.moved_on >= f.inspected_on
+                 and j.deleted_at is null and j.status <> 'cancelled'
+             ) then 'replaced'
+             when exists (
+               select 1 from public.deficiency d
+               where d.equipment_id = e.id and d.deleted_at is null and d.status = 'declined'
+                 and d.decline_code = 'booked_elsewhere' and d.declined_on >= f.inspected_on
+             ) then 'booked_elsewhere'
+             else 'open'
+           end as verdict
+    from firsts f
+    join public.equipment e on e.id::text = f.equipment_id
+    where lower(e.category) = any(${sql.param(HEATER_CATEGORIES)}::text[])
+  )
+  select 'equipment'::text as kind, x.id::text as id,
+         concat(coalesce(x.tag || ' ', ''), x.category, coalesce(', serial ' || x.serial_number, ''),
+                coalesce(', put in ' || to_char(x.installed_on, 'YYYY'), ', no install date')) as label,
+         x.inspected_on::text as on_day, 1::numeric as value, '/equipment/' || x.id as href
+  from judged x
+  where x.verdict = any(${sql.param(pick === "denominator" ? ["replaced", "open"] : [pick])}::text[])
+`;
+
+/**
+ * WHAT A TRADE PACK MARKS, read from the company's own trade pack: the codes of
+ * its job types and price book items marked for a KPI (`JobTypeMark`,
+ * `ItemMark`), matched against the codes the pack seeded. A pack that marks
+ * nothing gives an empty list, and the figure has no calls.
+ */
+const markedJobTypes = (trade: string, mark: "troubleshooting" | "drain"): string[] =>
+  (packById(trade)?.jobTypes ?? []).filter((t) => (t.marks ?? []).includes(mark)).map((t) => t.code);
+const markedItems = (trade: string, mark: "troubleshooting" | "drain_upsell"): string[] =>
+  (packById(trade)?.priceBook ?? []).filter((i) => (i.marks ?? []).includes(mark)).map((i) => i.code);
+
+/**
+ * TROUBLESHOOTING CALLS, core's `reporting.troubleshootingOf` written again in
+ * SQL. A call is a job of a type the trade pack marks as troubleshooting,
+ * counted once, in the window its first visit that was done was finished. It
+ * converted when, on that visit, work was recorded other than the pack's
+ * charges for finding the fault, or the customer approved an estimate on the
+ * job between the visit's arrival and its finish. The last answer on the job's
+ * reports to where the fault was decides the exclusion.
+ */
+const troubleshootingCalls = (pick: "converted" | "denominator" | "excluded"): Records => (from, to, zone, trade) => sql`
+  with calls as (
+    select j.id, j.number, j.summary, c.name as customer, fv.id as visit_id, fv.arrived_at, fv.completed_at
+    from public.job j
+    join public.job_type jt on jt.id = j.job_type_id
+    join public.customer c on c.id = j.customer_id
+    cross join lateral (
+      select v.id, v.arrived_at, v.completed_at
+      from public.visit v
+      where v.job_id = j.id and v.deleted_at is null and v.completed_at is not null
+        and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+      order by v.completed_at, v.id
+      limit 1
+    ) fv
+    where j.deleted_at is null
+      and jt.code = any(${sql.param(markedJobTypes(trade, "troubleshooting"))}::text[])
+      and jt.revenue_class::text <> 'internal'
+      and fv.completed_at >= ${dayStart(from, zone)} and fv.completed_at < ${dayAfter(to, zone)}
+  ),
+  judged as (
+    select x.*,
+           case
+             when (
+               select f.value_text
+               from public.service_report r
+               join public.service_report_field f on f.report_id = r.id
+               where r.job_id = x.id and f.key = ${reporting.FAULT_LOCATION}
+               order by f.recorded_at desc, f.created_at desc
+               limit 1
+             ) = ${reporting.FAULT_ELSEWHERE} then 'excluded'
+             when exists (
+               select 1
+               from public.job_line jl
+               left join public.price_book_item_version piv on piv.id = jl.price_book_item_version_id
+               left join public.price_book_item pi on pi.id = piv.item_id
+               where jl.visit_id = x.visit_id and jl.deleted_at is null
+                 and (pi.code is null or not (pi.code = any(${sql.param(markedItems(trade, "troubleshooting"))}::text[])))
+             ) then 'converted'
+             when x.arrived_at is not null and exists (
+               select 1 from public.estimate e
+               where e.job_id = x.id and e.deleted_at is null
+                 and e.status::text in ('approved', 'converted')
+                 and e.decided_at >= x.arrived_at and e.decided_at <= x.completed_at
+             ) then 'converted'
+             else 'not_converted'
+           end as verdict
+    from calls x
+  )
+  select 'job'::text as kind, x.id::text as id, concat('#', x.number, ' ', x.summary, ', ', x.customer) as label,
+         to_char(x.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/jobs/' || x.id as href
+  from judged x
+  where x.verdict = any(${sql.param(pick === "denominator" ? ["converted", "not_converted"] : [pick])}::text[])
+`;
+
+/**
+ * DRAIN CALLS, core's `reporting.drainCallOf` written again in SQL. A drain call
+ * is a completed job of a type the trade pack marks as a drain call. It produced
+ * an upsell when it, or a job raised from it (`parent_job_id`), carries a line
+ * of an item the pack marks as the camera inspection, the lining or the
+ * excavation, or an estimate the customer approved whose chosen option does. A
+ * repeat is another drain job at the same address finished in the thirty days
+ * before, on the same unit when both name one.
+ */
+const drainCalls = (pick: "converted" | "denominator" | "repeat"): Records => (from, to, zone, trade) => {
+  const upsell = sql.param(markedItems(trade, "drain_upsell"));
+  return sql`
+  with calls as (
+    select j.id, j.number, j.summary, j.property_id, j.equipment_id, j.completed_at, c.name as customer
+    from public.job j
+    join public.job_type jt on jt.id = j.job_type_id
+    join public.customer c on c.id = j.customer_id
+    where j.deleted_at is null and j.completed_at is not null
+      and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+      and jt.code = any(${sql.param(markedJobTypes(trade, "drain"))}::text[])
+      and jt.revenue_class::text <> 'internal'
+  ),
+  judged as (
+    select x.*,
+           case
+             when exists (
+               select 1 from public.job o
+               join public.job_type ot on ot.id = o.job_type_id
+               where o.id <> x.id and o.deleted_at is null and o.property_id = x.property_id
+                 and ot.code = any(${sql.param(markedJobTypes(trade, "drain"))}::text[])
+                 and o.completed_at < x.completed_at
+                 and o.completed_at >= x.completed_at - make_interval(days => ${reporting.DRAIN_REPEAT_DAYS})
+                 and (o.equipment_id is null or x.equipment_id is null or o.equipment_id = x.equipment_id)
+             ) then 'repeat'
+             when exists (
+               select 1
+               from public.job w
+               join public.job_line jl on jl.job_id = w.id and jl.deleted_at is null
+               join public.price_book_item_version piv on piv.id = jl.price_book_item_version_id
+               join public.price_book_item pi on pi.id = piv.item_id
+               where (w.id = x.id or (w.parent_job_id = x.id and w.deleted_at is null and w.status <> 'cancelled'))
+                 and pi.code = any(${upsell}::text[])
+             ) or exists (
+               select 1
+               from public.job w
+               join public.estimate e on e.job_id = w.id and e.deleted_at is null
+                 and e.status::text in ('approved', 'converted')
+               join public.estimate_line el on el.option_id = e.selected_option_id
+               join public.price_book_item_version piv on piv.id = el.price_book_item_version_id
+               join public.price_book_item pi on pi.id = piv.item_id
+               where (w.id = x.id or (w.parent_job_id = x.id and w.deleted_at is null and w.status <> 'cancelled'))
+                 and pi.code = any(${upsell}::text[])
+             ) then 'converted'
+             else 'not_converted'
+           end as verdict
+    from calls x
+  )
+  select 'job'::text as kind, x.id::text as id, concat('#', x.number, ' ', x.summary, ', ', x.customer) as label,
+         to_char(x.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         1::numeric as value, '/jobs/' || x.id as href
+  from judged x
+  where x.verdict = any(${sql.param(pick === "denominator" ? ["converted", "not_converted"] : [pick])}::text[])
+`;
+};
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1667,26 +1908,45 @@ export const CATALOGUE: Record<string, Entry> = {
       "Mobilisation recorded separately. `job.production_quantity` and on-site "
       + "minutes are both here, and the definition EXCLUDES mobilisation on the "
       + "first day as well as drive time. Travel is a timeclock kind and "
-      + "mobilisation is not, so a two day build would read as slower than a one "
-      + "day one for no reason the crew controls.",
+      + "mobilisation is not (`time_entry_kind` has travel, on site, shop and "
+      + "the kinds of leave), so the hours a crew spent unloading and setting up "
+      + "on a build's first day are on site hours, and a two day build would "
+      + "read as slower than a one day one for no reason the crew controls. "
+      + "Recording it means a punch kind the phone offers, with payroll paying it "
+      + "as on site time, which nothing has yet.",
   },
 
   cancel_rate_route: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Who cancelled a visit, and when. The definition is stops cancelled inside "
-      + "the notice window and EXCLUDES visits the company cancelled itself. A "
-      + "customer cancelling from their portal link is now recorded "
-      + "(`visit_change_request`, with when they asked), but a customer who rings "
-      + "and asks the office to cancel is recorded exactly like the company "
-      + "cancelling for rain: `visit.status` says cancelled and nothing says by "
-      + "whom, nor when: a visit keeps no time it was cancelled (only a job "
-      + "does). Counting only the portal's half would undercount, and counting "
-      + "every cancellation would read a week of rain as customers leaving. "
-      + "Recording it means every path that cancels a visit (the office, a job "
-      + "cancelled with its visits, a portal request, a plan's skipped visit) "
-      + "saying who asked and when, which none of them does yet.",
+    measure: {
+      /**
+       * "Stops cancelled or skipped inside the notice window divided by stops
+       * scheduled, reported per route and per weekday. EXCLUDES visits the
+       * company cancelled for weather or staffing, which are a separate and
+       * more serious number."
+       *
+       * WHAT IT NEEDED, and what changed: who cancelled a visit, and when.
+       * Every path that cancels a visit now says both (`visit.cancelled_by`,
+       * `cancelled_at`, the time the customer asked, and the company's notice
+       * window frozen on it, `visit-cancellations.ts`), and a guard test fails
+       * when a new path forgets.
+       *
+       * A STOP is a visit with a window in the window, on customer work. LATE
+       * is the customer calling it off with less notice than the window asked
+       * for, or after it began (skipped at the door). The company's own
+       * cancellations are out of both halves and counted beside; a visit
+       * called off with nobody saying who (before this was kept) is out of
+       * both and counted beside as not known, never guessed at. Each record
+       * names its route and weekday.
+       */
+      numerator: { label: "stops the customer called off inside the notice window", records: stopsCalledOff("late") },
+      denominator: { label: "stops scheduled, other than those the company called off", records: stopsCalledOff("scheduled") },
+      besides: {
+        excluded: { label: "stops the company called off itself, left out", records: stopsCalledOff("company") },
+        unknown: { label: "stops called off with nobody saying who, left out", records: stopsCalledOff("unknown") },
+      },
+    },
   },
 
   chemical_cost_per_stop: {
@@ -1695,11 +1955,14 @@ export const CATALOGUE: Record<string, Entry> = {
     needs:
       "A product application tied to the product register. Service reports "
       + "record what was applied (`service_report_field.product_name`, quantity "
-      + "and unit, the EPA number) but by name rather than as a price book item, "
-      + "so nothing values it, and the definition values product from the "
-      + "register and EXCLUDES devices, bait stations and monitors, which are "
-      + "capital. Valuing it from what was issued to a truck instead would make "
-      + "this a purchasing number rather than a cost per stop.",
+      + "and unit, the EPA number), typed on the phone by name rather than chosen "
+      + "as a price book item, so nothing values it, and the definition values "
+      + "product from the register and EXCLUDES devices, bait stations and "
+      + "monitors, which are capital. The trade pack marks added since (a "
+      + "troubleshooting call, a drain upsell) mark no product as chemistry. "
+      + "Valuing it from what was issued to a truck instead would make this a "
+      + "purchasing number rather than a cost per stop, and matching the typed "
+      + "name to an item would be reading words for a meaning.",
   },
 
   supply_cost_pct: {
@@ -1773,43 +2036,100 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   diag_conversion: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Which trade owned the fault. The same visit half is now measurable (an "
-      + "estimate's signature has a time and the visit has its arrival and "
-      + "completion), but the definition EXCLUDES calls where the fault was in "
-      + "equipment another trade owns, 'which the electrician was never going to "
-      + "close', and nothing on a job or a visit records that. Those calls are a "
-      + "large share of troubleshooting, so the number would read low for a "
-      + "reason the technicians do not control. Nor does the electrical pack mark "
-      + "which of its job types is a troubleshooting call: `revenue_class` puts "
-      + "it among all `service` work.",
+    measure: {
+      /**
+       * "Troubleshooting calls that produced approved repair work on the same
+       * visit, divided by all troubleshooting calls. Excludes calls where the
+       * fault was found in equipment another trade owns, which the
+       * electrician was never going to close."
+       *
+       * WHAT IT NEEDED, and what changed: which job types are troubleshooting
+       * calls, and which trade owned the fault. The electrical pack now marks
+       * its troubleshooting call and the charges for finding a fault (pack
+       * version 2, `marks`), and its service report asks where the fault was,
+       * from three answers, one of them "In equipment another trade owns",
+       * which the technician gives on the phone.
+       *
+       * A call is counted once, in the window its first visit that was done
+       * was finished. It converted when the customer approved an estimate on
+       * the job between that visit's arrival and its finish, or repair work
+       * (anything but the pack's charges for finding the fault) was recorded
+       * on the visit. An approval on a visit nobody timed cannot be placed and
+       * does not convert it. A call whose report says the fault was another
+       * trade's is out of both halves and counted beside.
+       */
+      numerator: { label: "troubleshooting calls that turned into repair work on the visit", records: troubleshootingCalls("converted") },
+      denominator: { label: "troubleshooting calls, other than those left out", records: troubleshootingCalls("denominator") },
+      besides: {
+        excluded: { label: "calls where the fault was in equipment another trade owns, left out", records: troubleshootingCalls("excluded") },
+      },
+    },
   },
 
   drain_conversion: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "A finer job type class than `revenue_class`. The definition is drain jobs "
-      + "that produced a camera inspection, a lining or an excavation, and both "
-      + "halves are `service` work: the pack would have to mark which of its own "
-      + "job types and price book items are the upsell.",
+    measure: {
+      /**
+       * "Drain jobs that produced a camera inspection, a lining or an
+       * excavation, divided by all drain jobs. Excludes repeat visits on the
+       * same line within thirty days, because counting the rework as a second
+       * conversion flatters the number."
+       *
+       * WHAT IT NEEDED, and what changed: which job types are drain calls and
+       * which items are the upsell, both `service` work to `revenue_class`. The
+       * plumbing pack now marks its drain call and its camera inspection,
+       * lining and excavation (pack version 2, `marks`).
+       *
+       * A drain call is counted in the window it was completed. It produced
+       * the upsell when it, or a job raised from it, carries a line of one of
+       * those items, or an estimate the customer approved whose chosen option
+       * does. A return to the same line (the same address, the same unit when
+       * both name one) inside thirty days of an earlier drain job is out of
+       * both halves and counted beside.
+       */
+      numerator: { label: "drain calls that produced a camera inspection, a lining or an excavation", records: drainCalls("converted") },
+      denominator: { label: "drain calls, other than returns to the same line", records: drainCalls("denominator") },
+      besides: {
+        excluded: { label: "returns to the same line inside thirty days, left out", records: drainCalls("repeat") },
+      },
+    },
   },
 
   wh_attach: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Whether the customer has already booked the replacement with somebody "
-      + "else. Both halves are now recorded: an inspection names the unit it "
-      + "looked at, `installed_on` gives the age, and the register records a "
-      + "replacement as a move with that reason. The definition EXCLUDES units "
-      + "the customer has already scheduled with someone else, 'so the ones "
-      + "nobody followed up on stay visible', and a declined recommendation "
-      + "records why in free text (`deficiency.decline_reason`), so those units "
-      + "cannot be told apart without reading words for a reason, which this "
-      + "catalogue never does.",
+    measure: {
+      /**
+       * "Water heaters replaced divided by water heaters recorded as over ten
+       * years old and inspected in the period. Excludes units the customer
+       * has already scheduled with someone else, so the ones nobody followed
+       * up on stay visible."
+       *
+       * WHAT IT NEEDED, and what changed: whether the customer had already
+       * booked the replacement with somebody else. A declined recommendation
+       * now carries why as a code (`deficiency.decline_code`), and
+       * `booked_elsewhere` is the one this reads; the words beside it are
+       * still never read for a reason.
+       *
+       * A heater is counted ONCE, on the first day in the window somebody
+       * inspected or worked on it, and is over ten years old by its install
+       * date on that day. It is caught when the register records it replaced
+       * on or after that day on a job of ours, so a month's figure rises as
+       * the replacements it led to are done. One with no install date is out
+       * of both halves and counted beside as not known; one declined as
+       * booked elsewhere, and not replaced by us after all, is out of both and
+       * counted beside.
+       */
+      numerator: { label: "old water heaters inspected that we replaced", records: heatersSeen("replaced") },
+      denominator: { label: "water heaters over ten years old inspected, other than those booked elsewhere", records: heatersSeen("denominator") },
+      besides: {
+        excluded: { label: "old water heaters the customer had booked with another company, left out", records: heatersSeen("booked_elsewhere") },
+        unknown: { label: "water heaters inspected with no install date recorded, left out", records: heatersSeen("unknown_age") },
+      },
+    },
   },
 
   backflow_recert: {

@@ -4,7 +4,7 @@ import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, ConflictError, NotFoundError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 /**
@@ -320,4 +320,20 @@ export async function setIdleMinutes(_previous: unknown, form: FormData) {
   }
   revalidatePath("/settings/website");
   return { done: true, message: "Saved." };
+}
+
+/**
+ * How much notice a customer must give before cancelling. A customer who
+ * cancels with less counts as a late cancellation; a visit already called off
+ * keeps the window it was called off under.
+ */
+export async function setCancelNotice(_previous: FormState, form: FormData): Promise<FormState> {
+  const hours = Number(field(form, "hours") ?? "");
+  if (!Number.isInteger(hours)) return refused(form, "Give the notice in whole hours.");
+  const result = await attempt(form, async () => {
+    const saved = await visitCancellations.setNotice(await ctx(), { hours });
+    return { message: `Saved. A customer who cancels less than ${saved.hours} hours before the visit counts as a late cancellation from now on.` };
+  });
+  revalidatePath("/settings");
+  return result;
 }

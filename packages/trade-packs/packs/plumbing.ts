@@ -18,7 +18,8 @@ import type { TradePackInput } from "../src/schema";
 export const plumbing: TradePackInput = {
   id: "plumbing",
   name: "Plumbing",
-  version: 1,
+  /** Version 2 marks the drain call and the camera, lining and excavation it can turn into, for drain call conversion. */
+  version: 2,
   summary:
     "Residential and light commercial plumbing. Service, drains and sewer, water heaters, water treatment and backflow testing, with fixture and appliance history that follows the property.",
   status:
@@ -27,7 +28,7 @@ export const plumbing: TradePackInput = {
   jobTypes: [
     { code: "diag", name: "Diagnostic", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 60, requiredSkills: ["plumbing-service"], color: "#0B57D0" },
     { code: "repair", name: "Service repair", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 120, requiredSkills: ["plumbing-service"] },
-    { code: "drain", name: "Drain and sewer", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 90, requiredSkills: ["drain-tech"], color: "#6B3FA0" },
+    { code: "drain", name: "Drain and sewer", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 90, requiredSkills: ["drain-tech"], color: "#6B3FA0", marks: ["drain"] },
     { code: "wh", name: "Water heater replacement", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 240, requiredSkills: ["plumbing-service"] },
     { code: "backflow", name: "Backflow assembly test", capacityModel: "technician_dispatch", revenueClass: "recurring", defaultDurationMinutes: 45, requiredSkills: ["backflow-tester"], color: "#0F7B6C" },
     // Repipe is the one plumbing job sold by the fixture rather than by the
@@ -47,7 +48,7 @@ export const plumbing: TradePackInput = {
     { code: "DRAIN-PULL", name: "Drain clearing, toilet pulled and reset", category: "Drains", price: "449.00", cost: "48.00", laborMinutes: 150, taxClass: "service", warrantyMonths: 1 },
     { code: "DRAIN-MAIN", name: "Main line clearing", category: "Drains", price: "489.00", cost: "36.00", laborMinutes: 150, taxClass: "service", warrantyMonths: 1 },
     { code: "HYDRO-JET", name: "Hydro jetting, main line", category: "Drains", price: "949.00", cost: "180.00", laborMinutes: 240, taxClass: "service", description: "High pressure cleaning of the full line, with a camera pass before and after so you can see what came out." },
-    { code: "CAMERA-INSPECT", name: "Sewer camera inspection with recording", category: "Drains", price: "329.00", cost: "18.00", laborMinutes: 90, taxClass: "service" },
+    { code: "CAMERA-INSPECT", name: "Sewer camera inspection with recording", category: "Drains", price: "329.00", cost: "18.00", laborMinutes: 90, taxClass: "service", marks: ["drain_upsell"] },
 
     { code: "WH-40-GAS", name: "40 gallon gas water heater, installed", kind: "equipment", category: "Water heaters", price: "2190.00", cost: "890.00", laborMinutes: 240, taxClass: "equipment", warrantyMonths: 72, description: "New heater, new flex connectors, new shutoff, expansion tank where the system needs one, haul away of the old unit, permit where the jurisdiction requires one." },
     { code: "WH-50-GAS", name: "50 gallon gas water heater, installed", kind: "equipment", category: "Water heaters", price: "2490.00", cost: "1020.00", laborMinutes: 240, taxClass: "equipment", warrantyMonths: 72 },
@@ -77,8 +78,8 @@ export const plumbing: TradePackInput = {
     { code: "GAS-TEST", name: "Gas line pressure test", category: "Gas", price: "289.00", laborMinutes: 90, taxClass: "service" },
     { code: "GAS-LINE-FT", name: "Gas line run, per foot", kind: "material", category: "Gas", price: "38.00", cost: "9.00", taxClass: "material" },
 
-    { code: "SEWER-SPOT", name: "Sewer spot repair, excavated", category: "Sewer", price: "3890.00", cost: "1240.00", laborMinutes: 600, taxClass: "service", warrantyMonths: 24 },
-    { code: "SEWER-LINER-FT", name: "Sewer line lining, per foot", category: "Sewer", price: "168.00", cost: "62.00", taxClass: "service", warrantyMonths: 120 },
+    { code: "SEWER-SPOT", name: "Sewer spot repair, excavated", category: "Sewer", price: "3890.00", cost: "1240.00", laborMinutes: 600, taxClass: "service", warrantyMonths: 24, marks: ["drain_upsell"] },
+    { code: "SEWER-LINER-FT", name: "Sewer line lining, per foot", category: "Sewer", price: "168.00", cost: "62.00", taxClass: "service", warrantyMonths: 120, marks: ["drain_upsell"] },
     { code: "REPIPE-FIXTURE", name: "Whole home repipe in PEX, per fixture", category: "Repipe", price: "890.00", cost: "310.00", taxClass: "service", warrantyMonths: 120, description: "Priced by fixture count because that is what drives the labour, not by square footage." },
 
     { code: "BF-TEST", name: "Backflow prevention assembly test", category: "Backflow", price: "149.00", cost: "28.00", laborMinutes: 45, taxClass: "service", description: "Test of the assembly with a calibrated gauge, and the completed report prepared for the water authority that holds the record." },

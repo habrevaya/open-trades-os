@@ -79,6 +79,8 @@ test("Cancelling a job offers to cancel its visits still to come, and leaves the
   await owner.getByText("Cancel this job").click();
   const tick = owner.getByLabel(/Also cancel its visit still to come/);
   await expect(tick).toBeChecked();
+  /** Who asked is required with the visits: the cancellation rate counts the customer's and not the company's. */
+  await owner.getByLabel("Who asked to call it off").selectOption("customer");
   await owner.getByRole("button", { name: "Cancel the job" }).click();
   await expect(owner.getByText("Cancel this job")).toHaveCount(0);
 

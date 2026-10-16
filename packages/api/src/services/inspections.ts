@@ -628,11 +628,16 @@ export async function setDeficiencyStatus(
     id: string;
     status: "open" | "quoted" | "approved" | "scheduled" | "corrected" | "declined" | "deferred" | "void";
     reason?: string;
+    /** Why the customer said no, as a code, with `declined` only. */
+    declineCode?: insp.DeclineCode;
     jobId?: string | null;
     on?: string;
   },
 ) {
   return guardedWrite(ctx, "compliance:write", async (tx) => {
+    if (input.declineCode !== undefined && input.status !== "declined") {
+      throw new ConflictError("Why the customer said no goes with declining the finding.");
+    }
     const [before] = await tx.select().from(schema.deficiency)
       .where(and(
         eq(schema.deficiency.id, input.id),
@@ -647,7 +652,13 @@ export async function setDeficiencyStatus(
       );
     }
 
-    const reason = input.reason?.trim() || null;
+    /**
+     * A code says why in a word the figures can read, and is the reason in
+     * words when none are given: "Already booked with another company" is
+     * the sentence somebody wants in writing, as much as a typed one.
+     */
+    const reason = input.reason?.trim()
+      || (input.status === "declined" && input.declineCode ? insp.DECLINE_CODE_WORDS[input.declineCode] : null);
     if ((input.status === "declined" || input.status === "void") && !reason) {
       throw new ConflictError(
         `A ${input.status} finding needs a reason. A customer who declined a safety finding is the `
@@ -662,12 +673,12 @@ export async function setDeficiencyStatus(
       ...(input.status === "corrected"
         ? { correctedOn: on, correctedByJobId: input.jobId ?? before.correctedByJobId }
         : {}),
-      ...(input.status === "declined" ? { declinedOn: on, declineReason: reason } : {}),
+      ...(input.status === "declined" ? { declinedOn: on, declineReason: reason, declineCode: input.declineCode ?? null } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.deficiency.id, input.id)).returning();
 
     await audit(tx, ctx, "deficiency.status", "deficiency", input.id,
-      { status: before.status }, { status: input.status, reason });
+      { status: before.status }, { status: input.status, reason, ...(input.declineCode ? { declineCode: input.declineCode } : {}) });
 
     return { id: input.id, status: after!.status };
   });
@@ -1219,6 +1230,7 @@ export const handlers = {
       id: string;
       status: "open" | "quoted" | "approved" | "scheduled" | "corrected" | "declined" | "deferred" | "void";
       reason?: string | undefined;
+      declineCode?: insp.DeclineCode | undefined;
       jobId?: string | null | undefined;
       on?: string | undefined;
     },
@@ -1226,6 +1238,7 @@ export const handlers = {
     id: input.id,
     status: input.status,
     ...(input.reason !== undefined ? { reason: input.reason } : {}),
+    ...(input.declineCode !== undefined ? { declineCode: input.declineCode } : {}),
     ...(input.jobId !== undefined ? { jobId: input.jobId } : {}),
     ...(input.on !== undefined ? { on: input.on } : {}),
   }),

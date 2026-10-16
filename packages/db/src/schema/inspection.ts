@@ -185,6 +185,24 @@ export const deficiencyStatus = pgEnum("deficiency_status", [
 export const deficiencySeverity = pgEnum("deficiency_severity", ["critical", "major", "minor", "advisory"]);
 
 /**
+ * WHY THE CUSTOMER SAID NO, AS A CODE.
+ *
+ * The words stay (`decline_reason`); the code is what a figure may read.
+ * Plumbing's water heater capture leaves out "units the customer has already
+ * scheduled with someone else, so the ones nobody followed up on stay
+ * visible", and "we've got Joe coming Tuesday" in a text box cannot be told
+ * apart from "too dear" without reading words for a meaning, which no figure
+ * here does. Null on a decline written before the code was kept, or by an API
+ * caller that gave only words: that decline excludes nothing.
+ *
+ *   price             too dear
+ *   not_now           not now, maybe later
+ *   booked_elsewhere  already booked with another company
+ *   other             something else, said in the words
+ */
+export const deficiencyDeclineCode = pgEnum("deficiency_decline_code", ["price", "not_now", "booked_elsewhere", "other"]);
+
+/**
  * A finding that needs correcting. Both a compliance liability and a sales
  * opportunity, which is why it carries a status chain through quoting and
  * scheduling rather than sitting in a notes field.
@@ -254,6 +272,7 @@ export const deficiency = pgTable("deficiency", {
   quotedAmount: money("quoted_amount"),
   declinedOn: date("declined_on"),
   declineReason: text("decline_reason"),
+  declineCode: deficiencyDeclineCode("decline_code"),
   ...sourceRef,
   ...timestamps,
 }, (t) => ({

@@ -278,8 +278,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "backflow_recert",
       "budget_hour_variance",
       "callback_rate",
+      "cancel_rate_route",
       "churn",
       "close_rate",
+      "diag_conversion",
+      "drain_conversion",
       "drive_time_pct",
       "first_time_fix",
       "hauls_per_truck_day",
@@ -306,6 +309,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "route_density",
       "stops_per_day",
       "supply_cost_pct",
+      "wh_attach",
     ]);
 
     const elsewhere = KEYS.filter((key) => CATALOGUE[key]!.state === "elsewhere").sort();
@@ -345,9 +349,18 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * before the positions it reads are deleted. `redo_rate` made thirty six
      * when it turned out a job's coverage already says why a return was free:
      * rework on our own work and our own warranty are our fault, goodwill for
-     * a bin that was not out is not.
+     * a bin that was not out is not. `cancel_rate_route` made thirty seven
+     * when every path that cancels a visit began saying who asked (the
+     * customer or the company) and when, with the company's notice window
+     * frozen on the visit. `wh_attach` made thirty eight when a declined
+     * recommendation could say why as a code, "already booked with another
+     * company" among them. `diag_conversion` made thirty nine when the
+     * electrical pack marked its troubleshooting call and its charges, and its
+     * service report asked where the fault was. `drain_conversion` made forty
+     * when the plumbing pack marked its drain call and the camera, lining and
+     * excavation it can turn into.
      */
-    expect(computed.length + elsewhere.length).toBe(36);
+    expect(computed.length + elsewhere.length).toBe(40);
     expect(KEYS.length).toBe(47);
   });
 });

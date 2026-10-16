@@ -4,7 +4,7 @@ import { schema } from "@opentradesos/db";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customFields, equipment, inTenant, properties as propertyService, stockUnits, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, inspection as insp } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
@@ -13,7 +13,7 @@ import { formatDay, formatIn } from "@/lib/dates";
 import { JOB_STATUS, JOB_TONE, label, tone, enumText } from "@/lib/labels";
 import { attributeLines, keptAsTheyAre } from "@/lib/unit-attributes";
 import { followUp } from "../../customers/warranties/actions";
-import { editUnit, moveUnit } from "./actions";
+import { declineFinding, editUnit, moveUnit } from "./actions";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
 
@@ -392,7 +392,32 @@ export default async function EquipmentPage({
                 <Chip tone={d.severity === "critical" ? "danger" : d.severity === "major" ? "warning" : "neutral"}>{enumText(d.severity)}</Chip>
                 <span>{enumText(d.status)}</span>
                 {d.code ? <span className="font-mono text-xs text-ink-500">{d.code}</span> : null}
+                <span className="text-ink-700">{d.description}</span>
                 <span className="text-ink-500">{formatIn(d.createdAt, tz, { month: "short", day: "numeric", year: "numeric" })}</span>
+                {d.status === "declined" && (
+                  <span className="text-ink-700">
+                    The customer said no{d.declineCode ? `: ${insp.DECLINE_CODE_WORDS[d.declineCode]}` : ""}
+                    {d.declineReason && (!d.declineCode || d.declineReason !== insp.DECLINE_CODE_WORDS[d.declineCode]) ? ` ("${d.declineReason}")` : ""}
+                  </span>
+                )}
+                {/*
+                  Saying no, and why, from a fixed list. "Already booked with
+                  another company" takes an old water heater out of the
+                  capture figure; the words never do.
+                */}
+                {can(user.actor, "compliance:write") && ["open", "quoted", "deferred"].includes(d.status) && (
+                  <details className="w-full">
+                    <summary className="cursor-pointer text-sm text-ink-700 underline underline-offset-4">The customer said no</summary>
+                    <ActionForm action={declineFinding} submit="Record it" className="mt-2 flex flex-wrap items-end gap-3"
+                                hidden={{ id: d.id, unitId: unit.id }}>
+                      <Select label="Why" name="declineCode" required defaultValue="" className="block w-72" options={[
+                        { value: "", label: "Choose" },
+                        ...insp.DECLINE_CODES.map((code) => ({ value: code, label: insp.DECLINE_CODE_WORDS[code] })),
+                      ]} />
+                      <TextField label="Their words, if any" name="reason" className="block w-72" />
+                    </ActionForm>
+                  </details>
+                )}
               </li>
             ))}
           </ul>

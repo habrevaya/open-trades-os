@@ -166,6 +166,11 @@ export const getEquipmentHistory = defineRoute({
       severity: z.string(),
       code: z.string().nullable(),
       createdAt: z.string(),
+      /** What was found, and on a declined one why the customer said no, in words and as a code. */
+      description: z.string().optional(),
+      declinedOn: z.string().nullable().optional(),
+      declineReason: z.string().nullable().optional(),
+      declineCode: z.enum(["price", "not_now", "booked_elsewhere", "other"]).nullable().optional(),
     })),
     /** Readings the service reports took on this unit, newest first. */
     readings: z.array(z.object({

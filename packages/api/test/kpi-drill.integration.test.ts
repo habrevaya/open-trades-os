@@ -346,7 +346,7 @@ run("the records behind every computed KPI", () => {
       expect(checked, key).toContain(`${key}:numerator`);
       expect(checked, key).toContain(`${key}:denominator`);
     }
-  });
+  }, 60_000);
 
   it("opens each record on its own screen", async () => {
     await spread();

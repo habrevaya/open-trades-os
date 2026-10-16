@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty six of the forty seven are answered: thirty two computed here, four
-by M22's fleet report. The other eleven each name what they still lack.
+Forty of the forty seven are answered: thirty six computed here, four by
+M22's fleet report. The other seven each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -121,8 +121,10 @@ the ones somebody makes a hiring decision on.
   unlocked the supply cost share of revenue (below).
 - **A finer job type class.** `job_revenue_class` was added for these and
   unlocked five. A trade's own upsell path (a drain job that became a lining, a
-  troubleshooting call that converted on the visit) needs the pack to mark which
-  of its own job types and price book items are the upsell.
+  troubleshooting call that converted on the visit) needed the pack to mark which
+  of its own job types and price book items are the upsell, and the packs do now
+  (M02), which unlocked drain call conversion and, with the question of where
+  the fault was, troubleshooting conversion (below).
 
 ### The two that were unlocked, and what they leave out
 
@@ -403,6 +405,127 @@ revenue, no coverage recorded) is not counted, because nothing says it was our
 fault, and it is not hidden: how many there are is said beside the figure and
 opens on the jobs, so the office can say which they were.
 
+### Cancellation rate by route, and who called a visit off
+
+Cleaning's **cancellation rate by route** is "stops cancelled or skipped inside
+the notice window divided by stops scheduled, reported per route and per
+weekday", and it EXCLUDES "visits the company cancelled for weather or
+staffing, which are a separate and more serious number". A cancelled visit
+said neither who nor when: a customer ringing at seven and the owner calling
+off a rained out day were the same row. Every path that cancels a visit now
+says both (M09): the office calling off one visit, a job cancelled with its
+visits (M10), a customer's request from their link (the customer, asked when
+they sent it), and a visit brought in from history. The company's notice
+window (Settings, "Late cancellations", a day unless it says otherwise) is
+frozen on each visit when it is called off.
+
+- A **stop** is a visit with a window in the window, on customer work (every
+  class but internal), whatever became of it.
+- **Late** is the customer calling it off with less notice than the window
+  frozen on it, measured from when they asked to the start of its window, or
+  after the window began (turned away at the door). Exactly the notice asked
+  for is in time. A visit called off late and done anyway, on a phone that
+  missed the cancellation, is still a late cancellation.
+- A stop the **company** called off is out of both halves and counted beside.
+- A stop called off with **nobody saying who** (before this was recorded, or by
+  an API caller that did not say) is out of both halves and counted beside as
+  not known, never read as either.
+- Each record names the stop's route (or its crew, with no route) and its
+  weekday. The figure is the company's; the split per route and per weekday is
+  read off the records, not drawn as a breakdown.
+
+The rule is core's `reporting.cancellationOf`, with unit tests, written again
+in SQL, and `kpi-cancel-rate.integration.test.ts` checks a month worked out by
+hand, puts the same stops through both, and checks every path that cancels a
+visit records who and when; `visit-cancellation-paths.test.ts` reads the
+service layer and fails when a new path cancels a visit without saying who.
+
+### Drain call conversion, from what the plumbing pack marks
+
+Plumbing's **drain call conversion** is "drain jobs that produced a camera
+inspection, a lining or an excavation, divided by all drain jobs", and it
+EXCLUDES "repeat visits on the same line within thirty days, because counting the
+rework as a second conversion flatters the number". Both halves are `service`
+work to `revenue_class`; the plumbing pack (version two, M02) now marks its
+drain call and its camera inspection, lining and excavation items.
+
+- A **drain call** is a completed job of a type the company's trade pack marks as
+  a drain call, in the window it was completed.
+- It **produced** the upsell when it, or a job raised from it and not cancelled,
+  carries a line of one of the marked items, or an estimate the customer
+  approved whose chosen option does. An option the customer did not choose
+  produced nothing.
+- A **return** is a drain call at an address that had another drain job finished
+  in the thirty days before it, on the same unit when both name one (two jobs on
+  different laterals are two lines). It is out of both halves and counted beside;
+  the earlier job is counted as itself.
+
+The rule is core's `reporting.drainCallOf`, with unit tests, written again in
+SQL, and `kpi-drain-conversion.integration.test.ts` checks a month worked out by
+hand, puts the same jobs through both, and reads the marks from the pack.
+
+### Troubleshooting conversion, and where the fault was
+
+Electrical's **troubleshooting conversion** is "troubleshooting calls that
+produced approved repair work on the same visit, divided by all troubleshooting
+calls", and it EXCLUDES "calls where the fault was found in equipment another
+trade owns, which the electrician was never going to close". `revenue_class`
+put a troubleshooting call among all `service` work, and nothing recorded whose
+equipment the fault was in. The electrical pack (version two, M02) now marks its
+troubleshooting call and its charges for finding a fault, and its service report
+asks "Where the fault was": in our electrical work, in equipment another trade
+owns, or no fault found. The technician answers it on the phone's readings, and
+the office reads the answer on the visit's page.
+
+- A **call** is a job of a type the company's trade pack marks as
+  troubleshooting, counted once, in the window its first visit that was done was
+  finished.
+- It **converted** when, on that visit, the customer approved an estimate on the
+  job between the visit's arrival and its finish, or work was recorded on the
+  visit other than the pack's charges for finding the fault (a breaker fitted, a
+  neutral tightened). An approval on a visit nobody timed cannot be placed, so
+  only work recorded on it converts it; an approval on a later visit is not the
+  same visit.
+- A call whose report's last answer is "In equipment another trade owns" is out
+  of both halves and counted beside.
+
+The rule is core's `reporting.troubleshootingOf`, with unit tests, written again
+in SQL, and `kpi-troubleshooting.integration.test.ts` checks a month worked out
+by hand, puts the same calls through both, and checks the pack's template asks
+the question.
+
+### Water heater opportunity capture, and why the customer said no
+
+Plumbing's **water heater opportunity capture** is "water heaters replaced
+divided by water heaters recorded as over ten years old and inspected in the
+period", and it EXCLUDES "units the customer has already scheduled with someone
+else, so the ones nobody followed up on stay visible". Both halves were already
+recorded (a visit's units worked and an inspection's answers name the unit, the
+install date gives its age, the register records a replacement), but why a
+customer declined a recommendation was words. A decline now carries a code
+(M33), and "already booked with another company" is the one this reads.
+
+- A water heater is a unit whose kind is the plumbing pack's water heater, by
+  code or name. It is counted **once**, on the first day in the window somebody
+  worked on it on a completed visit or named it in an inspection, and is old when
+  its install date is more than ten years before that day.
+- **Caught** is the register recording it replaced, on or after that day, on a
+  job of ours that was not cancelled. A month's figure rises as the
+  replacements it led to are done, which is the point of a capture rate. A
+  replacement recorded with no job of ours named might be somebody else's and is
+  not counted as caught.
+- An old heater with a finding still declined, on or after that day, as booked
+  with another company, and not replaced by us after all, is out of both halves
+  and counted beside.
+- A heater inspected with **no install date** is out of both halves and counted
+  beside as not known, so a register with no ages does not read as a company
+  with no old heaters.
+
+The rule is core's `reporting.heaterCaptureOf`, with unit tests, written again in
+SQL, and `kpi-heater-capture.integration.test.ts` checks a month worked out by
+hand, puts the same heaters through both, checks a decline keeps its code, and
+fails if the pack stops declaring the water heater.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -502,7 +625,8 @@ they come to disagree.
 Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
-assembly due a retest, a crew's day, a permitted job, a person's route day. The scorecard's number is the sum of those rows, and
+assembly due a retest, a crew's day, a permitted job, a person's route day, a
+scheduled stop, an old water heater inspected, a troubleshooting call, a drain call. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -880,12 +1004,43 @@ prefix off.
 
 ## What is not built
 
-Eleven of the forty seven declared KPIs cannot be computed, and each one
+Seven of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the eleven has its datum yet (above, "The
+since they were written and none of the seven has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
+
+Drain call conversion reads the drain call and the upsell items the company's
+trade pack marks, by code: a camera inspection sold under an item the company
+made itself is not counted. A job that names no unit is read as being on the same
+line as any drain job at its address, which leaves it out as a return rather than
+letting it count twice. A camera, lining or excavation done on a new job that was
+not raised from the drain call is not linked to it.
+
+Troubleshooting conversion reads the job types and charges the company's trade
+pack marks, by the codes it seeded: a troubleshooting job type made by hand under
+another code is not a call. A call whose technician never answered where the
+fault was is counted, never left out; a report answered before the electrical
+pack's version two asked has no answer. Repair work done on the visit counts as
+approved by being done; a customer who agreed out loud to work booked for later,
+with no estimate signed on the visit, is not converted.
+
+Water heater capture knows a customer booked elsewhere only from a finding on
+the unit declined with that code: a "they said no" on the phone is an estimate's,
+which names no unit, and a decline in words only excludes nothing, so such a
+heater stays in the bottom half. A replacement counts as ours only when the
+register's record of it names one of our jobs. A heater whose install date was
+never recorded is counted beside the figure, not in it.
+
+The cancellation rate by route is one company figure: the route and weekday of
+each stop are on its records, and the scorecard draws no breakdown by either.
+It judges lateness by the company's one notice window, not one per job type or
+plan. A visit is not called off from the phone, so a team turned away at the
+door is recorded by the office; a cancellation recorded before who asked was
+kept, or by an API caller that did not say, is counted beside the figure as not
+known. A visit with the customer not there (`no_show`) counts as a kept stop,
+not a skipped one, because nobody called it off.
 
 First time fix leaves out a part hold only when it names a purchase order in
 this product that went to the supplier, so a part bought over the counter and

@@ -21,14 +21,19 @@ import type { TradePackInput } from "../src/schema";
 export const electrical: TradePackInput = {
   id: "electrical",
   name: "Electrical",
-  version: 1,
+  /**
+   * Version 2 marks the troubleshooting call and its charges, and asks on the
+   * service report where the fault was, which troubleshooting conversion
+   * reads to leave out a fault in equipment another trade owns.
+   */
+  version: 2,
   summary:
     "Residential and light commercial electrical. Troubleshooting, device and lighting work, panel and service upgrades, EV charging and standby power, with a panel and circuit register that lives with the property.",
   status:
     "Price book, job types, checklists, readings and KPIs are complete. Project work is only partly covered: assemblies can be priced as line items but there is no takeoff, no schedule of values and no progress billing, so bid spec jobs still need a second system. Certified payroll is captured from the timeclock but the state specific report formats are not written. Utility interconnection for solar and battery is out of scope.",
 
   jobTypes: [
-    { code: "diag", name: "Troubleshooting", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 60, requiredSkills: ["electrical-service"], color: "#0B57D0" },
+    { code: "diag", name: "Troubleshooting", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 60, requiredSkills: ["electrical-service"], color: "#0B57D0", marks: ["troubleshooting"] },
     { code: "repair", name: "Service repair", capacityModel: "technician_dispatch", revenueClass: "service", defaultDurationMinutes: 120, requiredSkills: ["electrical-service"] },
     { code: "panel", name: "Panel or service upgrade", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 480, requiredSkills: ["electrical-service", "panel-work"], color: "#6B3FA0" },
     { code: "ev", name: "EV charger installation", capacityModel: "technician_dispatch", revenueClass: "install", defaultDurationMinutes: 240, requiredSkills: ["electrical-service"] },
@@ -40,9 +45,9 @@ export const electrical: TradePackInput = {
   ],
 
   priceBook: [
-    { code: "DIAG-STD", name: "Troubleshooting, first hour", category: "Service", price: "149.00", cost: "0", laborMinutes: 60, taxClass: "service", description: "Systematic fault finding with a written report of what was tested and what was found. Applied to the repair if you go ahead today." },
-    { code: "DIAG-ADD", name: "Troubleshooting, each additional half hour", category: "Service", price: "79.00", laborMinutes: 30, taxClass: "service" },
-    { code: "DIAG-AH", name: "After hours troubleshooting", category: "Service", price: "249.00", laborMinutes: 60, taxClass: "service" },
+    { code: "DIAG-STD", name: "Troubleshooting, first hour", category: "Service", price: "149.00", cost: "0", laborMinutes: 60, taxClass: "service", description: "Systematic fault finding with a written report of what was tested and what was found. Applied to the repair if you go ahead today.", marks: ["troubleshooting"] },
+    { code: "DIAG-ADD", name: "Troubleshooting, each additional half hour", category: "Service", price: "79.00", laborMinutes: 30, taxClass: "service", marks: ["troubleshooting"] },
+    { code: "DIAG-AH", name: "After hours troubleshooting", category: "Service", price: "249.00", laborMinutes: 60, taxClass: "service", marks: ["troubleshooting"] },
     { code: "SAFETY-INSPECT", name: "Whole home electrical safety inspection", category: "Service", price: "249.00", cost: "0", laborMinutes: 120, taxClass: "service", description: "Panel, grounding, device and protection review with a written report, photographs and a prioritised list of what to address." },
     { code: "PLAN-RES", name: "Electrical service plan, annual", category: "Agreements", price: "179.00", cost: "84.00", taxClass: "service", description: "Annual safety inspection, panel thermal scan, priority scheduling, no after hours rate and fifteen percent off repairs." },
 
@@ -142,6 +147,10 @@ export const electrical: TradePackInput = {
     { key: "panel_temp_rise", label: "Rise above ambient at the hottest connection", kind: "numeric", unit: "F", trend: true },
     { key: "gfci_trip_ms", label: "GFCI trip time", kind: "measurement", unit: "ms", trend: true },
     { key: "receptacle_wiring", label: "Receptacle wiring condition", kind: "select", options: ["Correct", "Open ground", "Open neutral", "Reversed polarity", "Hot and ground reversed", "No power"] },
+    // Where a troubleshooting call ended up. A fault in the furnace's board or
+    // the utility's meter is one the electrician was never going to close, and
+    // troubleshooting conversion leaves those calls out on this answer.
+    { key: "fault_location", label: "Where the fault was", kind: "select", options: ["In our electrical work", "In equipment another trade owns", "No fault found"], customerVisible: false },
   ],
 
   checklists: [

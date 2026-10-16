@@ -90,6 +90,15 @@ something different every time it is run for the same month end.
 customer who declined a safety finding is the single sentence somebody will want in
 writing later, and a blank there is the record that was not kept.
 
+**Why they said no is a code as well as words.** A decline can say why from a
+fixed list (too dear, not now, already booked with another company, something
+else), `declineCode` on `POST /v1/inspection-deficiencies/{id}/status`, and the
+code stands as the reason when no words are given. "The customer said no" beside
+each open finding on the unit's page (`/equipment/{id}`, M04) asks for one. The
+words are kept beside it and never read for a meaning: plumbing's water heater
+capture (M21) leaves out a unit whose finding was declined as already booked
+with another company, and reads only the code for that.
+
 **A price with no evidence behind it is refused.** The proposal builder refuses a
 finding with no observation and a remedy with no rationale, and the refusal names
 the findings so somebody can go and attach the photo or the reading they took. That
@@ -243,4 +252,8 @@ authority's form asks for; no authority's own form is rendered, and nothing file
 a submission. Inspections filed before the checkpoints were kept print the
 programme's current prompts and say so. Resolving a
 deficiency does not automatically create the job that fixes it: the estimate is
-written and converting it is M07's path.
+written and converting it is M07's path. A finding is declined, with its
+code, from the unit's page or the API; the backlog page and the phone do not
+decline one, and a "they said no" on the phone is the estimate's, which names no
+unit. A decline written before codes were kept, or with words only, has no
+code.
