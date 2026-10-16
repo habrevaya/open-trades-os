@@ -64,6 +64,14 @@ export interface ReportView {
 
 export interface AccountExtras {
   blocks: cp.PortalBlock[];
+  /**
+   * The plan pages this customer can choose between, oldest agreement first:
+   * only when they are a member of two or more plans that each have a page of
+   * their own, otherwise empty, because there is nothing to choose.
+   */
+  pages: PlanPage[];
+  /** The plan whose page `blocks` is, or null when it is the company's. */
+  page: string | null;
   /** Every past visit, newest first, with what the company shared about it. */
   history: {
     visitId: string;
@@ -157,18 +165,20 @@ export async function defaultLayouts(tx: Database, organizationId: string) {
   return { layouts, blocks: rows };
 }
 
+/** One plan's page a customer can open: the plan, by name. */
+export interface PlanPage { planId: string; name: string }
+
 /**
- * The layout of a plan this customer is a member of, when that plan has one of
- * its own: the blocks of the layout of the plan of their oldest active
- * agreement that has a layout. A member is a customer with an agreement that is
+ * The plan pages of the plans this customer is a member of, oldest agreement
+ * first, one for each plan. A member is a customer with an agreement that is
  * active or past due (pending has not started, and a paused, lapsed or
- * cancelled one is no longer a membership). With several plans the oldest
- * agreement wins, so a customer never flips between two layouts from one visit
- * to the next. Null for everyone else, who see the company's layout.
+ * cancelled one is no longer a membership). A plan with no page of its own is
+ * not listed: its members see the company's page.
  */
-export async function planLayoutBlocks(tx: Database, organizationId: string, customerId: string) {
-  const [found] = await tx.select({ layoutId: schema.portalLayout.id })
+export async function memberPages(tx: Database, organizationId: string, customerId: string): Promise<PlanPage[]> {
+  const rows = await tx.select({ planId: schema.agreement.planId, name: schema.agreementPlan.name })
     .from(schema.agreement)
+    .innerJoin(schema.agreementPlan, eq(schema.agreementPlan.id, schema.agreement.planId))
     .innerJoin(schema.portalLayout, and(
       eq(schema.portalLayout.agreementPlanId, schema.agreement.planId),
       eq(schema.portalLayout.organizationId, organizationId),
@@ -177,23 +187,51 @@ export async function planLayoutBlocks(tx: Database, organizationId: string, cus
       eq(schema.agreement.customerId, customerId),
       inArray(schema.agreement.status, ["active", "past_due"]),
     ))
-    .orderBy(asc(schema.agreement.startedOn), asc(schema.agreement.createdAt))
-    .limit(1);
-  if (!found) return null;
-  const blocks = await tx.select().from(schema.portalBlock)
-    .where(eq(schema.portalBlock.layoutId, found.layoutId))
-    .orderBy(asc(schema.portalBlock.sortOrder));
-  return blocks.length > 0 ? blocks : null;
+    .orderBy(asc(schema.agreement.startedOn), asc(schema.agreement.createdAt));
+  const seen = new Set<string>();
+  return rows.filter((r) => (seen.has(r.planId) ? false : (seen.add(r.planId), true)));
 }
 
 /**
- * The portal layout as this customer's page draws it: their plan's own when
- * they are a member of a plan that has one, otherwise the company's.
+ * The layout of a plan this customer is a member of, when that plan has one of
+ * its own: the blocks of the page they asked for among their member pages, and
+ * with none asked for (or one that is not theirs) the page of the plan of their
+ * oldest agreement, so a customer never flips between two pages from one visit
+ * to the next. Null for everyone else, who see the company's layout.
+ *
+ * WHAT THE CUSTOMER ASKS FOR IS ONLY A CHOICE AMONG THEIR OWN PAGES. The plan
+ * id is looked up in the list built from their own agreements, so an id that is
+ * not there (another company's plan, a plan they are not a member of, one with
+ * no page, or nothing at all) is the page they would have had anyway.
  */
-async function layoutOf(tx: Database, organizationId: string, customerId: string) {
-  const own = await planLayoutBlocks(tx, organizationId, customerId);
-  const blocks = own ?? (await defaultLayouts(tx, organizationId)).blocks;
-  return cp.composeBlocks(blocks.map((r) => ({ kind: r.kind, title: r.title, config: r.config, visible: r.visible })));
+export async function planLayoutBlocks(tx: Database, organizationId: string, customerId: string, wanted?: string | null) {
+  const pages = await memberPages(tx, organizationId, customerId);
+  const chosen = pages.find((p) => p.planId === wanted) ?? pages[0];
+  if (!chosen) return null;
+  const [layout] = await tx.select({ id: schema.portalLayout.id }).from(schema.portalLayout)
+    .where(and(eq(schema.portalLayout.organizationId, organizationId), eq(schema.portalLayout.agreementPlanId, chosen.planId)))
+    .limit(1);
+  if (!layout) return null;
+  const blocks = await tx.select().from(schema.portalBlock)
+    .where(eq(schema.portalBlock.layoutId, layout.id))
+    .orderBy(asc(schema.portalBlock.sortOrder));
+  return blocks.length > 0 ? { blocks, pages, planId: chosen.planId } : null;
+}
+
+/**
+ * The portal layout as this customer's page draws it: the page of a plan they
+ * are a member of when that plan has one (the one they chose, else the oldest
+ * agreement's), otherwise the company's.
+ */
+async function layoutOf(tx: Database, organizationId: string, customerId: string, wanted?: string | null) {
+  const own = await planLayoutBlocks(tx, organizationId, customerId, wanted);
+  const blocks = own?.blocks ?? (await defaultLayouts(tx, organizationId)).blocks;
+  return {
+    blocks: cp.composeBlocks(blocks.map((r) => ({ kind: r.kind, title: r.title, config: r.config, visible: r.visible }))),
+    /** Offered only when there is a choice to make. */
+    pages: own && own.pages.length > 1 ? own.pages : [],
+    page: own?.planId ?? null,
+  };
 }
 
 /** Published reports for some visits, customer visible fields only. */
@@ -368,9 +406,9 @@ const shown = (value: unknown): string | null => {
 };
 
 export async function accountExtras(
-  tx: Database, organizationId: string, customerId: string,
+  tx: Database, organizationId: string, customerId: string, options: { plan?: string | null | undefined } = {},
 ): Promise<AccountExtras> {
-  const blocks = await layoutOf(tx, organizationId, customerId);
+  const { blocks, pages, page } = await layoutOf(tx, organizationId, customerId, options.plan);
   const wants = (kind: cp.PortalBlockKind) => blocks.some((b) => b.kind === kind);
 
   /* ---- the visits that happened ---------------------------------------- */
@@ -572,7 +610,7 @@ export async function accountExtras(
   const technicians = [...new Set(history.map((h) => h.technicianName).filter((n): n is string => n !== null))].slice(0, 6);
 
   return {
-    blocks, history, equipment, readings, checklist, photos, files, payments, planVisits, recommendations,
+    blocks, pages, page, history, equipment, readings, checklist, photos, files, payments, planVisits, recommendations,
     contact: { phone: main?.e164 ?? null, technicians },
   };
 }

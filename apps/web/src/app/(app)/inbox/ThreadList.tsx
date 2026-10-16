@@ -9,6 +9,8 @@ export interface ThreadRow {
   lastMessagePreview: string | null;
   awaitingReply: boolean;
   unread: number;
+  /** The customer closed this chat from their account. */
+  closedByCustomer?: boolean;
   /** `webchat` for a website chat, whose address is not a number anybody can ring. */
   channel?: string;
 }
@@ -42,6 +44,7 @@ export function ThreadList({ threads, timezone }: { threads: ThreadRow[]; timezo
                 )}
                 {thread.awaitingReply && <Chip tone="warning">Needs a reply</Chip>}
                 {thread.unread > 0 && <Chip tone="info">{thread.unread} unread</Chip>}
+                {thread.closedByCustomer && <Chip tone="neutral">Closed by the customer</Chip>}
               </div>
               {/* One line. A preview that wraps is a list that scrolls. */}
               <p className="mt-1 truncate text-sm text-ink-700">

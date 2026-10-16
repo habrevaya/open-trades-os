@@ -61,7 +61,8 @@ export default async function PortalLayoutPage({ searchParams }: { searchParams:
             ? "Members of this plan see this page. Everyone else sees the company's page."
             : "Members of this plan see the company's page, the same as everyone. Change anything below and save to give them a page of their own, starting from the company's."}
           {" "}A member is a customer with an active or past due agreement on the plan. A customer on more than one plan
-          with its own page sees the page of the plan they have had longest.
+          with its own page opens on the page of the plan they have had longest and can switch to the others from a line
+          under their name.
         </p>
       ) : (
         <p className="mt-2 max-w-2xl text-sm text-ink-700">

@@ -27,9 +27,12 @@ export default async function AccountPage({
   const query = await searchParams;
   const returned = typeof query["redirect_status"] === "string" ? query["redirect_status"] : null;
 
+  /** Which of their plan pages, when they have more than one. A value that is not a plan of theirs is the usual page. */
+  const plan = typeof query["plan"] === "string" && /^[0-9a-f-]{36}$/i.test(query["plan"]) ? query["plan"] : undefined;
+
   let account: AccountViewData;
   try {
-    account = await portalAccount.viewAccount(getDb(), { token });
+    account = await portalAccount.viewAccount(getDb(), { token, ...(plan ? { plan } : {}) });
   } catch {
     notFound();
   }
@@ -47,6 +50,7 @@ export default async function AccountPage({
         photoHref={(photoId) => `/c/${token}/photos/${photoId}`}
         estimatePdfHref={(estimateId) => `/c/${token}/estimates/${estimateId}/pdf`}
         fileHref={(fileId) => `/c/${token}/files/${fileId}`}
+        planHref={(planId) => `/c/${token}?plan=${planId}`}
         referral={referral ? <ReferralBlock referral={referral} /> : null}
         pay={(invoice) => (
           <PayInvoice

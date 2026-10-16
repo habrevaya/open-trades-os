@@ -70,7 +70,12 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
         </p>
       )}
 
-      {fromAccount && (
+      {fromAccount && thread.customerClosedAt && (
+        <p className="mt-2 text-sm font-medium text-ink-900">
+          The customer closed this chat on {formatIn(new Date(thread.customerClosedAt), user.organizationTimezone)}. If they write again, it opens a new one.
+        </p>
+      )}
+      {fromAccount && !thread.customerClosedAt && (
         <p className="mt-2 text-sm text-ink-700">
           {thread.customerNotice ?? "They are told by email or text when you answer, once until they read it."}
         </p>

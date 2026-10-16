@@ -1,0 +1,2 @@
+ALTER TABLE "ai_chat_session" ADD COLUMN "customer_notice_held_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ai_chat_session_held_notice_idx" ON "ai_chat_session" USING btree ("organization_id") WHERE "ai_chat_session"."customer_notice_held_at" is not null;

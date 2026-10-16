@@ -30,6 +30,8 @@ export const ConversationSummary = z.object({
   /** Whether the last thing said came from them. */
   awaitingReply: z.boolean(),
   unread: z.number().int(),
+  /** The customer closed this chat from their account. False on every other conversation. */
+  closedByCustomer: z.boolean(),
 });
 
 export const listConversations = defineRoute({
@@ -93,6 +95,8 @@ export const getConversation = defineRoute({
      * told). Null on every other thread, and before anyone has answered.
      */
     customerNotice: z.string().nullable(),
+    /** When the customer closed this chat from their account, or null: not closed by them, or not an account chat. */
+    customerClosedAt: Iso.nullable(),
     canReply: z.boolean(),
     /** Why not, as a code and in words, when a reply would be refused. */
     blockedReason: z.string().nullable(),

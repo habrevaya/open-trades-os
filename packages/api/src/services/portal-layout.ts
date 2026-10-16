@@ -32,8 +32,9 @@ import { defaultLayouts } from "./portal-blocks";
  * stands, is saved whole, and is never the company's default, so the page
  * everyone else sees is read without it and a pack upgrade never touches it.
  * Taking it away puts the plan's members back on the company's layout. A
- * customer on more than one plan with a layout sees the one of their oldest
- * active agreement.
+ * customer on more than one plan with a layout lands on the one of their oldest
+ * active agreement and is offered the others to choose (`memberPages` in
+ * `portal-blocks.ts`).
  */
 
 export interface LayoutView {

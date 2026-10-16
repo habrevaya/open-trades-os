@@ -1057,7 +1057,7 @@ export const handlers = {
   verifyPortalCode: portalSignIn.handlers.verifyPortalCode,
   signOutOfPortal: portalSignIn.handlers.signOutOfPortal,
   openPortalRecord: portalSignIn.handlers.openPortalRecord,
-  viewPortalAccount: (db: Database, input: { token: string }) => portalAccount.viewAccount(db, input),
+  viewPortalAccount: (db: Database, input: { token: string; plan?: string | undefined }) => portalAccount.viewAccount(db, input),
   payPortalAccountInvoice: (
     db: Database, input: { token: string; invoiceId: string; tip?: string | undefined }, meta?: RequestMeta,
   ) => portalAccount.startInvoicePayment(db, input, meta),
@@ -1098,6 +1098,7 @@ export const handlers = {
   removePortalFile: portalFiles.handlers.removePortalFile,
   getPortalChat: portalChat.handlers.getPortalChat,
   sayInPortalChat: portalChat.handlers.sayInPortalChat,
+  closePortalChat: portalChat.handlers.closePortalChat,
   getPortalChatUnread: portalChat.handlers.getPortalChatUnread,
   getPortalChatPicture: portalChat.handlers.getPortalChatPicture,
   payTips: payroll.handlers.payTips,

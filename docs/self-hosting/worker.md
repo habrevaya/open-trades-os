@@ -82,6 +82,26 @@ to the after-pass hooks (texts, email, webhooks, accounting) even if it had no
 events, so the email goes on that pass. The email hook is new with this: queued
 email used to wait for `POST /v1/email/send-queued`.
 
+## Chat answer notices held by quiet hours
+
+A customer whose account chat the office answered inside the company's quiet
+hours, who could only be told by text, is not dropped: the notice is kept on the
+chat and each pass looks for companies holding one, through
+`app.held_chat_notice_organizations`, which only the `background` role may call.
+At most once a minute per process, and only once the company's quiet hours have
+ended, the notice is asked again from the start (consent, STOP, the setting, the
+customer's number) and sent, unless the customer read the chat meanwhile. One
+older than two days is dropped. The text and email it queues leave on the same
+pass. Turn it off with `chatNotices: false` on the pass.
+
+| What happens | What the pass does |
+|---|---|
+| Quiet hours are still on | Nothing; the notice stays kept |
+| The customer opened the chat meanwhile | Dropped, with the reason on the chat |
+| A STOP, a missing number or the setting turned off | Dropped, with the reason on the chat |
+| It was held more than two days ago | Dropped, with the reason on the chat |
+| The send throws | The reason is written on the chat and the notice is dropped; the rest carry on |
+
 ## Records past their retention
 
 Once a day per company, the pass removes records past a retention rule that the

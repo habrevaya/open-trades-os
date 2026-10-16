@@ -115,6 +115,13 @@ const ReportView = z.object({
  * out, in order, and what each draws.
  */
 export const AccountExtras = z.object({
+  /**
+   * The plan pages the customer can choose between, oldest agreement first. Empty unless they are a member of
+   * two or more plans that each have a page of their own, because otherwise there is nothing to choose.
+   */
+  pages: z.array(z.object({ planId: Uuid, name: z.string() })),
+  /** The plan whose page `blocks` is, or null when it is the company's. */
+  page: Uuid.nullable(),
   blocks: z.array(z.object({
     kind: z.enum([
       "visit_timeline", "service_report", "readings_trend", "equipment_register",
@@ -173,11 +180,18 @@ export const viewPortalAccount = defineRoute({
   path: "/v1/portal/account",
   summary: "The customer's whole account",
   description:
-    "Homes, work, visits, invoices with what is owed, estimates, plans and deposits, from a customer scope token: a sign in or an account link. Built field by field from what the customer may see; no cost, no margin, no internal note, no other customer.",
+    "Homes, work, visits, invoices with what is owed, estimates, plans and deposits, from a customer scope token: a sign in or an account link. Built field by field from what the customer may see; no cost, no margin, no internal note, no other customer. A customer who is a member of two or more plans that each have a page of their own is offered those pages in `extras.pages` and lands on the oldest agreement's; `plan` draws another of theirs. A plan that is not theirs is the page they would have had.",
   module: "M05",
   permissions: [],
   authorization: "grant",
-  input: z.object({ token: Token }),
+  input: z.object({
+    token: Token,
+    /**
+     * Which of the customer's plan pages to draw, when they are a member of more than one plan with a page of its
+     * own (`extras.pages`). Only a choice among their own: a plan that is not theirs gives the page they would have had.
+     */
+    plan: Uuid.optional(),
+  }),
   output: z.object({
     organizationName: z.string(),
     customerName: z.string(),

@@ -548,7 +548,25 @@ already shows them. What happened is written on the chat ("Told by text.", "Told
 by email (Not texted: they replied STOP...)", or why nobody could be told) and
 shown above the thread in the inbox and as `customerNotice` on
 `GET /v1/conversations/{id}`. It is never an error for the person replying: the
-reply is sent whatever happens to the notice. A customer who taps the link without being signed
+reply is sent whatever happens to the notice.
+
+**A notice held by quiet hours goes when they end.** When the only way to tell
+the customer was a text (they have no email address, or the email could not go
+either) and the company's quiet hours stopped it, the notice is kept
+(`ai_chat_session.customer_notice_held_at`), and the chat says "Waiting for your
+quiet hours to end" with the rest of the reason. The worker looks every minute
+and, once the hours have ended, asks everything again as it stands that morning:
+the number and consent, the STOP list, the setting, whether the customer read the
+chat. It is then sent exactly like any notice, once, and "Told by text." replaces
+the waiting line. It is not sent when the customer opened the chat meanwhile
+(**Not told: they read the chat before your quiet hours ended.**), when the
+company turned the notice off, when a STOP or a missing number now stops it, or
+when it has waited more than two days because the worker was down or the window
+was long (an answer that old is not news). Any of those is written on the chat
+and the notice is not tried again by itself. Several answers in one night are one
+notice, and it is still once until they read it. Only a text stopped by the hours
+is kept: a number that replied STOP, or no number or address at all, is the same
+tomorrow, and is written on the chat as before. A customer who taps the link without being signed
 in goes to the sign in page (`/portal/{slug}?next=chat`) and, once in, to the chat
 itself; nothing but that one name is read from the address. The customer's account page marks
 what is waiting: **Chat with us (1 new answer)** and a line saying the company
@@ -556,6 +574,24 @@ answered, from `GET /v1/portal/chat/unread` (asking does not mark anything read)
 The notice is on for every company until somebody turns it off at **Chat
 answers** on `/settings/portal` (`chatReplyNotice` on `PATCH /v1/portal-settings`,
 `settings:write`).
+
+**Closing the chat.** **Close this chat** on the chat page (`POST /v1/portal/chat/close`,
+from a sign in only) ends the conversation the customer has open, whoever has it, the
+assistant or a person. The customer's page shows "You closed your last chat. Write below
+to start a new one." and an empty thread; the next message they write opens a new
+conversation, with the assistant's greeting again when the assistant answers, and the
+closed one is left exactly as it was. In the inbox the conversation is closed, the
+thread says "The customer closed this chat on {day and time}. If they write again, it
+opens a new one." (`customerClosedAt` on `GET /v1/conversations/{id}`), the list marks it
+**Closed by the customer** (`closedByCustomer` on `GET /v1/conversations`, which also
+answers `status=closed`), and a reply into it is refused in words, because a reply would
+have nowhere to go. Closing hides nothing from the office: what the customer wrote stays
+unread, and its task stays open, until a person opens the conversation, so a customer who
+writes "the furnace is out" and closes the page is not lost. Closing marks the chat read,
+drops a notice that quiet hours were holding for it, and writes `portal.chat_closed` on the
+audit log naming the sign in (and the contact, when a contact signed in as the customer).
+Closing a chat that is closed, or before there was one, changes nothing. Twelve a minute
+per customer, like writing.
 
 ### Readings in a narrow band
 
@@ -617,9 +653,25 @@ visit.
 Who sees it: a customer with an active or past due agreement on the plan. A
 pending agreement has not started, and a paused, lapsed or cancelled one is no
 longer a membership, so those customers see the company's page. A customer
-on several plans that have a page of their own sees the page of the plan of
+on several plans that have a page of their own lands on the page of the plan of
 their oldest active agreement, so the page does not change from one visit to
-the next. Everyone else sees the company's layout, and a customer's page is
+the next, and is offered the others: a line under their name, **Your plans**,
+lists each plan by name (one entry for a plan however many agreements they hold on
+it, oldest agreement first) with the one they are on marked, and choosing another
+opens that plan's page with its own blocks, order and headings
+(`/c/{token}?plan={planId}`, `/portal/{slug}/account?plan={planId}`, and `plan` on
+`GET /v1/portal/account`, which also gives `extras.pages` and `extras.page`).
+Which page they last looked at is not remembered: the next visit lands on the
+oldest agreement's again. They are offered the line only when there is a choice,
+that is two or more plans of theirs with a page; a second plan with no page of
+its own is the company's page, which they are not offered, since it is not a
+plan's. The plan in the address only chooses among their own pages: another
+company's plan, a plan they are not a member of, a plan whose page was taken away
+and a made up id all draw the page they would have had, and say nothing about it,
+so the address cannot be used to read a plan's page they are not a member of.
+Everything else on the account that is not a block (the plans' visits, the
+agreements, the invoices) is the customer's whole account on every page. Everyone
+else sees the company's layout, and a customer's page is
 drawn the same way at `/c/{token}`, `/portal/{slug}/account` and in
 `GET /v1/portal/account`. A plan's page is never the company's default and
 never a trade pack's, so a pack upgrade never reads or writes it and the
@@ -840,6 +892,7 @@ in from, and which codes failed, are the office's business.
 | `POST /v1/portal/files/{id}/remove` | nothing: a sign in only |
 | `GET /v1/portal/chat` | nothing: a sign in only (asking marks the chat read) |
 | `POST /v1/portal/chat/messages` | nothing: a sign in only, counted per customer |
+| `POST /v1/portal/chat/close` | nothing: a sign in only, counted per customer |
 | `GET /v1/portal/chat/unread` | nothing: a sign in only |
 | `GET /v1/portal/chat/pictures/{messageId}/{index}` | nothing: a sign in only, a message in the customer's own chat |
 | `POST /v1/attachments/{id}/seen` | `document:read` |
@@ -906,7 +959,7 @@ its own: the company's paper form has to carry the words the screen shows, and
 the office confirms that it does. One scan stands behind one card. The words,
 for the phone script and for the form, are the product's and the company
 cannot edit them. A layout is the company's, or a plan's for its
-members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer on several plans sees only the oldest one's, a block's
+members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer's choice of plan page is not remembered and the company's own page is not one of the choices, a block's
 settings (which readings a trend shows) are not changed on the screen, and
 there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises no task and sends nobody a notice: the office sees it when it opens the job and the technician on the visit. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, on the web or on the phone (the phone reads a file with its own sign in, which is not opening it from the job's page, so it never marks it seen). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling
@@ -926,14 +979,17 @@ crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,
 and nothing puts it on the board until somebody does. The chat from the account
 takes photos (not PDFs, which go through "Send us a photo or a PDF"), and the
-customer cannot close or clear a chat or take a picture back; the automated
-assistant, once a person has answered, does not take the conversation back, and
+customer cannot clear a chat or take a picture back, and cannot read a chat they
+closed again (the office keeps it; their page starts empty). Only the customer closes
+a chat: the office has no button for it, and a chat nobody closes stays open for good.
+The automated assistant, once a person has answered, does not take the conversation back, and
 never answers a message with a picture. The notice that the office answered is
-sent once and not retried on its own: when it cannot go (a number that replied
-STOP and no email address, the company's quiet hours and no email address, no
-email or mobile number on the record, or no email connection), the reason is on
-the chat in the inbox, nothing is sent later, and the next answer tries again;
-the mark on the account page is the only other sign. The notice does not carry
+sent once and, apart from the one quiet hours held (above), not retried on its
+own: when it cannot go (a number that replied STOP and no email address, no email
+or mobile number on the record, or no email connection), the reason is on the
+chat in the inbox, nothing is sent later, and the next answer tries again; the
+mark on the account page is the only other sign. A held notice is sent only by a
+running worker: with none running, it waits. The notice does not carry
 the answer, only a link. The mark is a count, not the answers; a
 customer of a company that turned the notice off sees the mark and is told
 nothing. It is the customer's main contact's preference that decides text or
