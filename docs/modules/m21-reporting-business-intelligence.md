@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty seven of the forty seven are answered: thirty three computed here, four
-by M22's fleet report. The other ten each name what they still lack.
+Thirty eight of the forty seven are answered: thirty four computed here, four
+by M22's fleet report. The other nine each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -436,6 +436,32 @@ with unit tests, written again in SQL, and
 the same plans through both, and checks the geocoder writing the street from
 its own parts, once per address, never over a typed one.
 
+### Fresh water per stop, and the reading it waited on
+
+The trash bin trade's **fresh water per stop** is "fresh water used divided by
+completed stops, per truck", because a truck drifting upward is a nozzle or a
+burner going and shows here before it shows in a complaint. Nothing recorded
+water. A truck's day now has the fresh water its driver read off the tank (M22,
+`truck_water_day`), on the phone at the end of the day (`truck.water`, M11) or
+typed by the office on `/fleet/water`.
+
+- **A truck's stops** on a day are the visits completed that day, in the
+  company's calendar, by whoever had it checked out (sent to them by name or
+  with a crew they are on), a multi bin stop being one visit.
+- **Only truck days with both count.** A day with stops and no reading is left
+  out of both halves and counted beside as not read, never as no water; a
+  reading on a day the truck completed no stop (a tank flushed in the yard) is
+  left out of both and counted beside.
+- **Per truck.** Each record of either half is one truck, its water over its
+  own stops with the truck's own gallons a stop in its words ("Truck 2: 25
+  gallons over 3 stops, 8.3 a stop"), opening on that truck's days on
+  `/fleet/water`; the number is the trucks' together.
+
+The rule is core's `reporting.waterPerStopOf`, with unit tests, written again
+in SQL, and `kpi-water-per-stop.integration.test.ts` checks a month worked out
+by hand, puts the same truck days through both, and records a reading from the
+office and from the phone.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -536,12 +562,13 @@ Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
 assembly due a retest, a crew's day, a permitted job, a person's route day, a
-street served. The scorecard's number is the sum of those rows, and
+street served, a truck. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
 agreement, a visit, a customer, the week's timesheets (a crew's day and a
-route day open on them too), the unit, or an address on the street.
+route day open on them too), the unit, an address on the street, or the
+truck's days of water.
 
 It is refused, in words, rather than trimmed, in three cases. The figure is the
 whole company's, so somebody whose scope is narrower (a technician who sees their
@@ -914,11 +941,11 @@ prefix off.
 
 ## What is not built
 
-Ten of the forty seven declared KPIs cannot be computed, and each one
+Nine of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the ten has its datum yet (above, "The
+since they were written and none of the nine has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
 
 Homes per served street is only as complete as the streets recorded: an
@@ -927,6 +954,12 @@ hand, has none until the office types it, and is counted beside the figure
 until then. "Oak St" and "Oak Street" typed by hand are two streets; the screen
 offers the town's streets to pick from rather than guessing they are one.
 Which customers are commercial is the customer's type, not the plan's.
+
+Fresh water per stop is only as good as the gauge the driver reads: there is no
+flow meter connection, and a truck's stops are counted only for a person who
+had it checked out that day, so a truck nobody checked out has no stops and a
+stop by somebody holding no truck is on no truck. A stop done by two people on
+two trucks counts on both.
 
 First time fix leaves out a part hold only when it names a purchase order in
 this product that went to the supplier, so a part bought over the counter and

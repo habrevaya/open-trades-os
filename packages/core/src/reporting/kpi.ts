@@ -51,6 +51,10 @@ import { streetKey } from "../geo/index.js";
  *   A ROUTE DAY'S MILES. Driven between stops, never to the first or home from
  *   the last, and not counted at all when the phone's positions have a gap.
  *
+ *   FRESH WATER PER STOP, PER TRUCK. A truck's water on the days it both
+ *   had a reading and completed stops, over those stops, and nothing guessed
+ *   for a day missing either.
+ *
  *   HOMES PER SERVED STREET. Active subscriptions over the distinct streets
  *   they are on, commercial stops left out and an address whose street is not
  *   recorded left out of both halves rather than guessed from its line.
@@ -734,4 +738,56 @@ export function streetDensityOf(subscriptions: readonly StreetSubscription[]): {
     streets.add(key);
   }
   return { subscriptions: counted, streets: streets.size, commercial, unknown };
+}
+
+/* ------------------------------------------------------ fresh water per stop */
+
+export interface WaterTruckDay {
+  /** The truck: a company vehicle. */
+  truck: string;
+  /** The fresh water its driver read for the day, or null when nobody did. */
+  gallons: number | null;
+  /**
+   * The stops completed that day by whoever had the truck: visits completed,
+   * sent to them by name or with a crew they are on, a multi bin stop being
+   * one visit.
+   */
+  stops: number;
+}
+
+/**
+ * "Fresh water used divided by completed stops, per truck."
+ *
+ * A TRUCK DAY COUNTS ONLY WHEN IT HAS BOTH: a reading and a completed stop.
+ * A day with stops and no reading is LEFT OUT OF BOTH HALVES and counted
+ * beside as not read, because counted at nothing it would make the truck look
+ * thrifty; a reading on a day the truck completed no stop (a tank flushed in
+ * the yard) is left out of both and counted beside, because there are no
+ * stops to share it.
+ *
+ * PER TRUCK, and the company's figure is the trucks' together: each truck's
+ * own water over its own stops is returned beside it, which is the
+ * comparison the number exists for.
+ */
+export function waterPerStopOf(days: readonly WaterTruckDay[]): {
+  gallons: number; stops: number;
+  byTruck: Map<string, { gallons: number; stops: number }>;
+  notRead: number; noStops: number;
+} {
+  const byTruck = new Map<string, { gallons: number; stops: number }>();
+  let gallons = 0;
+  let stops = 0;
+  let notRead = 0;
+  let noStops = 0;
+  for (const day of days) {
+    if (day.gallons === null) { if (day.stops > 0) notRead += 1; continue; }
+    if (day.stops <= 0) { noStops += 1; continue; }
+    gallons += day.gallons;
+    stops += day.stops;
+    const truck = byTruck.get(day.truck) ?? { gallons: 0, stops: 0 };
+    truck.gallons += day.gallons;
+    truck.stops += day.stops;
+    byTruck.set(day.truck, truck);
+  }
+  return { gallons, stops, byTruck, notRead, noStops };
 }

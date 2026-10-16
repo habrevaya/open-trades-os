@@ -13,6 +13,7 @@ import * as inspections from "./inspections";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
+import * as truckWater from "./truck-water";
 import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
@@ -1203,6 +1204,8 @@ async function effect(
       return fieldSales.recordExpense(tx, ctx, op);
     case "notice.read":
       return fieldSales.noticeOperation(tx, ctx, op);
+    case "truck.water":
+      return truckWater.waterOperation(tx, ctx, op, await technicianForDevice(tx, op.deviceId));
 
     default:
       /**

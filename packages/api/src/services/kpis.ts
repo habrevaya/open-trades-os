@@ -358,6 +358,9 @@ const KIND_NEEDS: Record<string, Permission> = {
   route_day: "visit:dispatch",
   /** A street served, which opens on one of the addresses on it. */
   street: "property:read",
+  /** A truck's water and stops, and one of its days: the fleet's. */
+  truck: "asset:read",
+  truck_day: "asset:read",
 };
 
 const KIND_WORDS: Record<string, string> = {
@@ -365,6 +368,7 @@ const KIND_WORDS: Record<string, string> = {
   technician_day: "timesheets", crew_day: "timesheets", time: "timesheets", deficiency: "the equipment register", equipment: "the equipment register",
   route_day: "each person's route days, made from where they drove",
   street: "the streets you serve",
+  truck: "the fleet", truck_day: "the fleet",
 };
 
 /**

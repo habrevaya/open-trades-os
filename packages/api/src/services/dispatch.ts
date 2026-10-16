@@ -24,6 +24,7 @@ import { heldOnTechnician, MemberHoldRefusedError } from "./booking";
 import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
+import * as truckWater from "./truck-water";
 import * as customObjects from "./custom-objects";
 import * as files from "./files";
 import * as customerNotes from "./customer-notes";
@@ -922,7 +923,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
      */
     const revision = (await computeRevision(
       tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId), rows.map((r) => r.customerId),
-    )) + await fieldSales.expensesRevision(tx, device.technicianId);
+    )) + await fieldSales.expensesRevision(tx, device.technicianId)
+      + await truckWater.waterRevision(tx, device.technicianId);
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
       return {
@@ -1053,6 +1055,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       talks: await safetyTalks.talksForField(tx, ctx, device.technicianId),
       abilities: await fieldSales.abilitiesFor(tx, ctx),
       expenses: await fieldSales.expensesFor(tx, device.technicianId),
+      /** Yesterday and the first day asked for: a reading is made at the end of a day, or the morning after. */
+      trucks: await truckWater.trucksForField(tx, device.technicianId, time.addDays(input.from, -1), input.from),
     };
   });
 }

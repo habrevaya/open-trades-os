@@ -269,7 +269,7 @@ const ORDER = [
    * customer pays for, or with `equipment`, which is the customer's own.
    */
   "asset_cost", "asset_compliance", "asset_maintenance_plan",
-  "asset_meter_reading", "asset_custody", "company_asset",
+  "asset_meter_reading", "truck_water_day", "asset_custody", "company_asset",
   /** A truck points at its kind, so the kind goes after the trucks. */
   "truck_kind",
   /** A lead's messages and the inbox's emails point at the offer; the offer at its connector. */

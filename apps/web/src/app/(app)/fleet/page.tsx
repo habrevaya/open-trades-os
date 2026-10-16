@@ -53,7 +53,8 @@ export default async function FleetPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
-      <PageHeader title="Fleet" count={register.assets.length} />
+      <PageHeader title="Fleet" count={register.assets.length}
+                  action={<a href="/fleet/water" className="text-sm text-blue-600 underline underline-offset-4">Fresh water by truck</a>} />
 
       <h2 className="mt-6 text-base font-semibold">Expiring</h2>
       <ComplianceList alerts={outlook.alerts} missing={outlook.missing} />

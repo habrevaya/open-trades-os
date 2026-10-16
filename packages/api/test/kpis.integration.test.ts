@@ -307,6 +307,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "stops_per_day",
       "street_density",
       "supply_cost_pct",
+      "water_per_stop",
     ]);
 
     const elsewhere = KEYS.filter((key) => CATALOGUE[key]!.state === "elsewhere").sort();
@@ -349,8 +350,10 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * a bin that was not out is not. `street_density` made thirty seven when a
      * property kept its street apart from the street line, from the
      * geocoder's own parts or typed, never read out of the line.
+     * `water_per_stop` made thirty eight when a truck's day got the fresh
+     * water its driver read off the tank, on the phone or from the office.
      */
-    expect(computed.length + elsewhere.length).toBe(37);
+    expect(computed.length + elsewhere.length).toBe(38);
     expect(KEYS.length).toBe(47);
   });
 });

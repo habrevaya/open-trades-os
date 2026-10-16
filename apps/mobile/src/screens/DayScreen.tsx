@@ -1,13 +1,14 @@
+import { useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
-  arrivalWindow, dateOf, statusLabel, todayIn, addressOf, type DayVisit,
+  arrivalWindow, checkGallons, dateOf, statusLabel, todayIn, addressOf, type DayTruck, type DayVisit,
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { syncLine } from "../lib/status";
 import { pushLine } from "../lib/push";
 import { locationLine } from "../lib/location";
 import { dayHeading } from "../lib/format";
-import { Button, Card, Notice } from "../components/ui";
+import { Button, Card, Field, Notice } from "../components/ui";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -102,6 +103,8 @@ export function DayScreen({ nav }: { nav: Navigate }) {
 
       <TalksToSign nav={nav} />
 
+      {(view?.day.trucks ?? []).filter((t) => t.days.includes(today)).map((t) => <TruckWater key={t.assetId} truck={t} today={today} />)}
+
       <OnSiteTools nav={nav} />
 
       {view === null ? null : visits.length === 0 ? (
@@ -172,6 +175,41 @@ function OnSiteTools({ nav }: { nav: Navigate }) {
         </View>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * THE FRESH WATER THE TRUCK USED TODAY, read off the tank or the fill meter
+ * at the end of the day. Shown for a truck checked out to this person today,
+ * with what is already recorded; saving again replaces it. Sent when there is
+ * a signal, like everything else.
+ */
+function TruckWater({ truck, today }: { truck: DayTruck; today: string }) {
+  const field = useField();
+  const recorded = truck.water.find((w) => w.onDay === today) ?? null;
+  const [gallons, setGallons] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const save = async () => {
+    const checked = checkGallons(gallons);
+    if (!checked.ok) { setProblem(checked.problem); return; }
+    setProblem(null);
+    await field.record("truck.water", truck.assetId, { field: today, onDay: today, gallons: checked.gallons });
+    setGallons("");
+  };
+  return (
+    <Card>
+      <Text style={type.heading}>{truck.label}: fresh water today</Text>
+      <Text style={type.soft}>
+        {recorded
+          ? `${Number(recorded.gallons)} gallons recorded${recorded.waiting ? ", waiting to send" : ""}.`
+          : "Not recorded yet. Read the tank gauge or the fill meter at the end of the day."}
+      </Text>
+      <Field label="Gallons used today" value={gallons} onChangeText={setGallons} keyboardType="decimal-pad" placeholder="410" />
+      {problem ? <Notice tone="red">{problem}</Notice> : null}
+      <View style={{ marginTop: space.sm }}>
+        <Button label={recorded ? "Save a new reading" : "Save the reading"} onPress={() => void save()} />
+      </View>
+    </Card>
   );
 }
 

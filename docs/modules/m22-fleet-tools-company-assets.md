@@ -462,6 +462,37 @@ unit ever ran still resolves to its number, which is the difference between an
 answerable tonnage query and an unanswerable one. Refused while it is on a
 site.
 
+## Fresh water by truck
+
+The trash bin trade's fresh water per stop is a truck's fresh water over its
+stops, per truck, because one truck drifting upward is a nozzle or a burner
+going. Nothing recorded water: a meter reading is a counter a machine wears out
+by, and the per stop "water used" reading on a service report is a guess at one
+bin. So a company vehicle's day has its fresh water (`truck_water_day`): the
+gallons the tank gauge or the fill meter says it used that day in the company's
+calendar, one figure per truck per day.
+
+- **The driver reads it on the phone** at the end of the day, for a truck
+  checked out to them that day (`truck.water`, M11).
+- **The office types or corrects it** on "Fresh water by truck", linked from
+  the top of `Fleet` (`/fleet/water`): each truck's last two weeks, a day per row with the stops
+  completed that day by whoever had it, the gallons and the gallons a stop, and
+  a form to record a reading; "Take off" removes one read on the wrong truck.
+  `GET /v1/truck-water` lists the days (`asset:read`), `PUT
+  /v1/assets/{assetId}/water/{day}` records one and `DELETE
+  /v1/assets/{assetId}/water/{day}` takes one off (`asset:write`, as a meter
+  reading is). Every change is on the audit log.
+- **Between two readings of one day the later one stands**, by when it was
+  read, so a correction lands and a phone that synced late with an older
+  reading does not undo it.
+- **Refused**: anything but a vehicle, a truck retired by that day, a day still
+  to come, a figure that is not a number of gallons, and more than five
+  thousand gallons, which no truck uses in a day.
+- **A truck's stops** are not recorded here, because they are known: the visits
+  completed that day by whoever had it checked out (custody, half open, so on
+  a handover day it is the next driver's), sent to them by name or with a crew
+  they are on. A day with stops and no reading is shown as not read.
+
 ## The container screen
 
 `Fleet > Containers`. A child of Fleet rather than a filter on it, because the
@@ -532,4 +563,5 @@ this product's own board first.
   haul.
 - **Three of the eight KPIs**, listed above with what each one needs.
 - **No telematics.** Cost per hour and per mile on a company asset are only as
-  good as what somebody enters.
+  good as what somebody enters, and so is a truck's water: a reading is what
+  the driver read off the gauge, and a flow meter is not connected.

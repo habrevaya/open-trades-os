@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty three of the forty seven are computed here, four are
- * M22's, and the ten that are not each name what they still lack.)
+ * (They are read now. Thirty four of the forty seven are computed here, four are
+ * M22's, and the nine that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -63,8 +63,9 @@ export type Format = "percent" | "money" | "number" | "duration";
  * Every records query returns the same six columns:
  *
  *   kind     job, estimate, agreement, visit, customer, technician_day,
- *            crew_day, time, deficiency, equipment, route_day or street: what
- *            the row is, which decides who may see it listed
+ *            crew_day, time, deficiency, equipment, route_day, street, truck
+ *            or truck_day: what the row is, which decides who may see it
+ *            listed
  *   id       the record's id, as text
  *   label    what to call it on a list
  *   on_day   the date it falls on in the window, as YYYY-MM-DD
@@ -273,6 +274,79 @@ const truckDays = (): Records => (from, to, zone) => sql`
   join public.technician t on t.id = days.technician_id
   where ${onATruck(sql`days.technician_id`, sql`days.d`)}
 `;
+
+/**
+ * A TRUCK'S DAYS, for fresh water per stop: each company vehicle and day in
+ * the window with the stops completed that day by whoever had it checked out,
+ * and the water its driver read (`truck_water_day`), a day with either.
+ *
+ * Who had a truck is the custody record, half open like every custody period,
+ * so on the day it is handed over it is the next driver's. A stop is a visit
+ * completed that day in the company's calendar that the holder was sent on by
+ * name or with a crew they are on, which is how a route day reads "their
+ * visits", and a multi bin stop is one visit. A retired truck has no day after
+ * its retirement. Core's `reporting.waterPerStopOf` is the rule these days are
+ * put through, and `kpi-water-per-stop.integration.test.ts` holds the two
+ * together. Exported, because the office's water screen lists the same days.
+ */
+export const truckDaysSql = (from: string, to: string, zone: string) => sql`
+  with held as (
+    select distinct ca.id as asset_id, ac.custodian_id as technician_id, d.day::date as day
+    from public.asset_custody ac
+    join public.company_asset ca on ca.id = ac.asset_id
+    cross join lateral generate_series(
+      greatest(ac.held_from, ${from}::date)::timestamp,
+      least(coalesce(ac.held_until - 1, ${to}::date), ${to}::date)::timestamp,
+      interval '1 day') as d(day)
+    where ac.custodian_kind = 'technician' and ca.kind = 'vehicle'
+      and (ca.retired_on is null or ca.retired_on > d.day::date)
+  ),
+  stops as (
+    select h.asset_id, h.day, count(distinct v.id)::int as stops
+    from held h
+    join public.visit v on v.deleted_at is null and v.status = 'completed'
+      and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+      and (v.completed_at at time zone ${zone})::date = h.day
+    where exists (select 1 from public.visit_assignment va where va.visit_id = v.id and va.technician_id = h.technician_id)
+       or exists (select 1 from public.crew_member cm where cm.crew_id = v.crew_id and cm.technician_id = h.technician_id)
+    group by h.asset_id, h.day
+  ),
+  read as (
+    select w.id, w.asset_id, w.on_day, w.gallons, w.source
+    from public.truck_water_day w
+    where w.on_day >= ${from}::date and w.on_day <= ${to}::date
+  )
+  select coalesce(s.asset_id, r.asset_id) as asset_id, ca.label,
+         to_char(coalesce(s.day, r.on_day), 'YYYY-MM-DD') as day,
+         coalesce(s.stops, 0) as stops, r.gallons::text as gallons, r.source, r.id as reading_id
+  from stops s
+  full join read r on r.asset_id = s.asset_id and r.on_day = s.day
+  join public.company_asset ca on ca.id = coalesce(s.asset_id, r.asset_id)
+  order by ca.label, day
+`;
+
+/** Fresh water per stop's records: each truck's counted days added up, or a day left out. See `water_per_stop`. */
+const waterPerStop = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to, zone) => pick === "numerator" || pick === "denominator"
+  ? sql`
+    select 'truck'::text as kind, x.asset_id::text as id,
+           concat(x.label, ': ', trim_scale(sum(x.gallons::numeric)), ' gallons over ', sum(x.stops),
+                  case when sum(x.stops) = 1 then ' stop, ' else ' stops, ' end,
+                  round(sum(x.gallons::numeric) / sum(x.stops), 1), ' a stop') as label,
+           max(x.day) as on_day,
+           ${pick === "numerator" ? sql`sum(x.gallons::numeric)` : sql`sum(x.stops)::numeric`} as value,
+           '/fleet/water?truck=' || x.asset_id as href
+    from (${truckDaysSql(from, to, zone)}) as x
+    where x.gallons is not null and x.stops > 0
+    group by x.asset_id, x.label`
+  : sql`
+    select 'truck_day'::text as kind, concat(x.asset_id, ':', x.day) as id,
+           ${pick === "unknown"
+             ? sql`concat(x.label, ', ', to_char(x.day::date, 'Mon FMDD'), ': ', x.stops, case when x.stops = 1 then ' stop' else ' stops' end, ', no water read')`
+             : sql`concat(x.label, ', ', to_char(x.day::date, 'Mon FMDD'), ': ', trim_scale(x.gallons::numeric), ' gallons and no stop')`} as label,
+           x.day as on_day, 1::numeric as value,
+           '/fleet/water?truck=' || x.asset_id as href
+    from (${truckDaysSql(from, to, zone)}) as x
+    where ${pick === "unknown" ? sql`x.gallons is null and x.stops > 0` : sql`x.gallons is not null and x.stops = 0`}`;
 
 /** The haul events of the pack: a delivery, a pickup, a swap, a dump and return, a relocation. */
 const HAULS = ["delivery", "pickup", "swap", "dump-return", "relocate"];
@@ -2171,15 +2245,37 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   water_per_stop: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "A water reading per truck. The definition is fresh water used divided by "
-      + "completed stops, per truck, and nothing records water: "
-      + "`asset_meter_reading` takes a reading on a company asset and no reading "
-      + "kind is declared for a tank. The point of the number is a truck drifting "
-      + "upward before it shows in a complaint, so a fleet-wide figure would miss "
-      + "the one truck.",
+    measure: {
+      /**
+       * "Fresh water used divided by completed stops, per truck. A truck
+       * drifting upward is usually a nozzle or a burner problem, and it shows
+       * here before it shows in a complaint."
+       *
+       * WHAT IT NEEDED: a water reading per truck. Nothing recorded water: the
+       * per stop "water used" reading on a report is a guess at one bin, and a
+       * meter reading is a counter a machine wears out by. A truck's day now
+       * has its fresh water (`truck_water_day`, M22), read off the tank by the
+       * driver on the phone or typed by the office, and a truck's stops are the
+       * visits completed by whoever had it checked out that day.
+       *
+       * PER TRUCK. Each record is one truck, its water over its own stops and
+       * the truck's own gallons a stop in its words, so the one truck drifting
+       * is a line of its own; the number is the trucks' together.
+       *
+       * ONLY DAYS WITH BOTH COUNT. A truck day with stops and no reading is
+       * left out of both halves and counted beside as not read, never as no
+       * water; a reading on a day the truck completed no stop is left out and
+       * counted beside too.
+       */
+      numerator: { label: "gallons of fresh water used on truck days with a reading", records: waterPerStop("numerator") },
+      denominator: { label: "stops completed on those truck days", records: waterPerStop("denominator") },
+      besides: {
+        unknown: { label: "Truck days with stops and no water read, left out of both halves", records: waterPerStop("unknown") },
+        excluded: { label: "Water read on a day the truck completed no stop, left out of both halves", records: waterPerStop("excluded") },
+      },
+    },
   },
 
   /* --------------------------------------------------------- elsewhere */

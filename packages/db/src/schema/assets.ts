@@ -1,5 +1,5 @@
 import {
-  pgTable, pgEnum, uuid, text, integer, boolean, jsonb, date, index, uniqueIndex,
+  pgTable, pgEnum, uuid, text, integer, boolean, jsonb, date, index, uniqueIndex, timestamp,
 } from "drizzle-orm/pg-core";
 import { pk, timestamps, money, currency } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -489,4 +489,50 @@ export const assetCost = pgTable("asset_cost", {
   ...timestamps,
 }, (t) => ({
   assetIdx: index("asset_cost_asset_idx").on(t.organizationId, t.assetId, t.incurredOn),
+}));
+
+// ---------------------------------------------------------------------------
+// Fresh water by truck
+// ---------------------------------------------------------------------------
+
+/**
+ * THE FRESH WATER A TRUCK USED ON A DAY, as its driver read it.
+ *
+ * The trash bin trade's "fresh water per stop" is fresh water used divided by
+ * completed stops, PER TRUCK, because a truck drifting upward is a nozzle or a
+ * burner going and it shows here before it shows in a complaint. A fleet wide
+ * figure would hide the one truck. Nothing recorded water: the per stop
+ * "water used" reading on a service report is a guess at one bin, and a meter
+ * reading is a counter the machine wears out by. This is the tank: what the
+ * gauge or the fill meter says the truck used that day, one figure per truck
+ * per day in the company's calendar, read by the driver on the phone or typed
+ * by the office.
+ *
+ * ONE PER TRUCK PER DAY, held by an index. A second reading of the same day
+ * replaces the first when it was read later (`recorded_at`, the moment it was
+ * read, which is the phone's own clock for a reading made with no signal), so
+ * a correction lands and a late arriving older one does not undo it. Each
+ * change is on the audit log; taking one off is a delete, audited, because a
+ * reading on the wrong truck is not a reading of anything.
+ */
+export const truckWaterDay = pgTable("truck_water_day", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The truck: a company asset of kind `vehicle`, which the service checks. */
+  assetId: uuid("asset_id").notNull().references(() => companyAsset.id, { onDelete: "cascade" }),
+  /** The day, in the company's calendar. */
+  onDay: date("on_day").notNull(),
+  /** Gallons of fresh water used, never negative. */
+  gallons: money("gallons").notNull(),
+  /** `phone` or `office`. */
+  source: text("source").notNull(),
+  /** The driver whose phone read it, when it came from a phone. */
+  technicianId: uuid("technician_id"),
+  recordedByUserId: uuid("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** When it was read. Between two readings of one truck's day, the later one stands. */
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  note: text("note"),
+  ...timestamps,
+}, (t) => ({
+  dayIdx: uniqueIndex("truck_water_day_idx").on(t.organizationId, t.assetId, t.onDay),
 }));

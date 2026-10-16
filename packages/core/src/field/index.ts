@@ -74,6 +74,8 @@ export const OPERATION_KINDS = [
   "expense.record",
   // A notice opened on the phone, so the bell in a browser stops counting it.
   "notice.read",
+  // The fresh water a truck used on a day, read off its tank by the driver who had it.
+  "truck.water",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -214,6 +216,14 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * makes it wrong, and two phones opening the same notice agree. Always applies.
    */
   "notice.read": "append",
+
+  /**
+   * A truck's fresh water for a day sets one figure, so the most recent reading
+   * by occurrence time wins and an older one arriving late is superseded. The
+   * payload names the day as its `field`, because a reading of Tuesday and one
+   * of Wednesday on the same truck are two values, not one edited twice.
+   */
+  "truck.water": "edit",
 };
 
 export interface FieldOperation {

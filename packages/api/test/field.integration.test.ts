@@ -835,6 +835,7 @@ run("every operation does something", () => {
     "service_report", "service_report_field", "field_upload", "portal_event", "payment",
     "inspection", "estimate", "invoice", "task", "task_checklist_item", "cash_tip", "expense",
     "staff_notice",
+    "truck_water_day",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -873,6 +874,12 @@ run("every operation does something", () => {
       (organization_id, user_id, kind, source_key, title, entity_type, entity_id, href)
       values (${ORG}, ${USER}, 'task_assigned', ${`tap:${uuid()}`}, 'A task for you', 'task', ${task!.id}, ${`/tasks/${task!.id}`})
       returning id`;
+
+    /** A truck checked out to this phone's person today, whose fresh water they read at the end of the day. */
+    const [waterTruck] = await raw`insert into public.company_asset (organization_id, kind, label)
+      values (${ORG}, 'vehicle', ${`Truck ${uuid().slice(0, 6)}`}) returning id`;
+    await raw`insert into public.asset_custody (organization_id, asset_id, custodian_kind, custodian_id, held_from)
+      values (${ORG}, ${waterTruck!.id}, 'technician', ${technicianId}, ${companyToday()})`;
 
     const cases: Array<{
       kind: (typeof field.OPERATION_KINDS)[number];
@@ -921,6 +928,7 @@ run("every operation does something", () => {
         amount: "42.50", spentOn: companyToday(), description: "Capacitor from the supply house",
       } },
       { kind: "notice.read", subjectId: bell!.id, payload: {} },
+      { kind: "truck.water", subjectId: waterTruck!.id, payload: { field: companyToday(), onDay: companyToday(), gallons: "410" } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 
@@ -960,7 +968,7 @@ run("every operation does something", () => {
     const silent = inert.filter((k) => !logOnly.has(k));
 
     /** The selling and closing kinds really land here, so their effect is what is being watched. */
-    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.tick", "task.close", "tip.record", "expense.record", "notice.read"]) {
+    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.tick", "task.close", "tip.record", "expense.record", "notice.read", "truck.water"]) {
       expect(landed.get(kind), kind).toBe("applied");
     }
 
