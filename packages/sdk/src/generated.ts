@@ -8016,6 +8016,10 @@ export interface GetEquipmentHistoryOutput {
     severity: string;
     code: string | null;
     createdAt: string;
+    description?: string;
+    declinedOn?: string | null;
+    declineReason?: string | null;
+    declineCode?: "price" | "not_now" | "booked_elsewhere" | "other" | null;
   }>;
   readings: Array<{
     id: string;
@@ -23615,6 +23619,7 @@ export interface SetCustomerTagsOutput {
 export interface SetDeficiencyStatusInput {
   status: "open" | "quoted" | "approved" | "scheduled" | "corrected" | "declined" | "deferred" | "void";
   reason?: string;
+  declineCode?: "price" | "not_now" | "booked_elsewhere" | "other";
   jobId?: string | null;
   on?: string;
 }

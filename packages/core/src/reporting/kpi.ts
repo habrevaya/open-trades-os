@@ -50,6 +50,10 @@ import { distanceKm } from "../location/index.js";
  *   A ROUTE DAY'S MILES. Driven between stops, never to the first or home from
  *   the last, and not counted at all when the phone's positions have a gap.
  *
+ *   A WATER HEATER CAUGHT. An old heater we looked at that we went on to
+ *   replace, with the ones the customer had booked with somebody else left
+ *   out.
+ *
  *   A LATE CANCELLATION. A stop the customer called off with less notice than
  *   the company asks for, judged by when they asked and the notice window in
  *   force then, with the company's own cancellations left out.
@@ -742,4 +746,57 @@ export function cancellationOf(stop: CancelStop): "kept" | "late" | "in_time" | 
   if (stop.cancelledBy === "company") return "company";
   const due = stop.windowStart.getTime() - stop.noticeHours * 3_600_000;
   return stop.cancelledAt.getTime() > due ? "late" : "in_time";
+}
+
+/* ------------------------------------------------ water heater opportunity capture */
+
+export interface HeaterSeen {
+  /** When it was put in, as a date; null when nobody recorded it. */
+  installedOn: string | null;
+  /** The first day in the window somebody inspected or worked on it. */
+  inspectedOn: string;
+  /** Recorded as replaced, each with the day and whether the record names one of our jobs. */
+  replacements: ReadonlyArray<{ movedOn: string; byUs: boolean }>;
+  /** Recommendations on it the customer declined and still stand declined. */
+  declines: ReadonlyArray<{ declinedOn: string; code: string | null }>;
+}
+
+/** A date ten years before another, as Postgres counts it: the 29th of February falls back to the 28th. */
+export function tenYearsBefore(day: string): string {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  const last = new Date(Date.UTC(y - 10, m, 0)).getUTCDate();
+  return `${String(y - 10).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+/**
+ * What one water heater inspected in the window counts as.
+ *
+ * "Water heaters replaced divided by water heaters recorded as over ten years
+ * old and inspected in the period. Excludes units the customer has already
+ * scheduled with someone else, so the ones nobody followed up on stay
+ * visible."
+ *
+ *   `unknown_age`        no install date recorded, so nothing says it is over
+ *                        ten. Out of both halves and counted beside, because
+ *                        a register with no ages would otherwise read as a
+ *                        company with no old heaters.
+ *   `young`              ten years old or less on the day it was inspected.
+ *   `replaced`           over ten, and replaced on a job of ours on or after
+ *                        that day. In both halves. A replacement recorded with
+ *                        no job of ours named might be somebody else's and is
+ *                        not counted as caught.
+ *   `booked_elsewhere`   over ten, not replaced by us, and a recommendation on
+ *                        it declined, on or after that day, because the
+ *                        customer had booked the work with another company.
+ *                        Out of both halves and counted beside.
+ *   `open`               over ten and none of those: the one nobody followed
+ *                        up on, in the bottom half, visible.
+ */
+export function heaterCaptureOf(unit: HeaterSeen):
+  "unknown_age" | "young" | "replaced" | "booked_elsewhere" | "open" {
+  if (unit.installedOn === null) return "unknown_age";
+  if (unit.installedOn >= tenYearsBefore(unit.inspectedOn)) return "young";
+  if (unit.replacements.some((r) => r.byUs && r.movedOn >= unit.inspectedOn)) return "replaced";
+  if (unit.declines.some((d) => d.code === "booked_elsewhere" && d.declinedOn >= unit.inspectedOn)) return "booked_elsewhere";
+  return "open";
 }

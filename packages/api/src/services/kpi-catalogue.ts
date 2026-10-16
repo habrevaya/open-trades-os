@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty three of the forty seven are computed here, four are
- * M22's, and the ten that are not each name what they still lack.)
+ * (They are read now. Thirty four of the forty seven are computed here, four are
+ * M22's, and the nine that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -991,6 +991,70 @@ const stopsCalledOff = (pick: "late" | "scheduled" | "company" | "unknown"): Rec
     }[pick])}
 `;
 
+/**
+ * THE WATER HEATER THE PLUMBING PACK DECLARES, read from the pack (its code and
+ * its name, either of which a unit's category may be) rather than typed again.
+ * `kpi-heater-capture.integration.test.ts` fails if the pack stops declaring it.
+ */
+const WATER_HEATER = packById("plumbing")?.equipmentCategories.find((c) => c.code === "water-heater");
+export const HEATER_CATEGORIES = WATER_HEATER ? [WATER_HEATER.code.toLowerCase(), WATER_HEATER.name.toLowerCase()] : [];
+
+/**
+ * Water heaters inspected in the window, each once, on the first day somebody
+ * looked at it (worked it on a visit completed that day, or named it in an
+ * inspection performed that day), and what each counts as: core's
+ * `reporting.heaterCaptureOf` written again in SQL. A replacement counts when
+ * the register records the unit replaced on or after that day on a job of ours
+ * that was not cancelled; the exclusion is a recommendation on it still
+ * declined, on or after that day, coded as booked with another company.
+ */
+const heatersSeen = (pick: "replaced" | "denominator" | "booked_elsewhere" | "unknown_age"): Records => (from, to, zone) => sql`
+  with seen as (
+    select va.equipment_id::text as equipment_id, (v.completed_at at time zone ${zone})::date as d
+    from public.visit_asset va
+    join public.visit v on v.id = va.visit_id
+    where va.deleted_at is null and v.deleted_at is null
+      and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+      and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+    union all
+    select a->>'equipmentId', i.performed_on
+    from public.inspection i
+    cross join lateral jsonb_array_elements(i.answers) as a
+    where i.performed_on is not null
+      and i.performed_on >= ${from}::date and i.performed_on <= ${to}::date
+      and a->>'equipmentId' is not null
+  ),
+  firsts as (select equipment_id, min(d) as inspected_on from seen group by equipment_id),
+  judged as (
+    select e.id, e.tag, e.category, e.serial_number, e.installed_on, f.inspected_on,
+           case
+             when e.installed_on is null then 'unknown_age'
+             when e.installed_on >= f.inspected_on - interval '10 years' then 'young'
+             when exists (
+               select 1 from public.equipment_move m
+               join public.job j on j.id = m.job_id
+               where m.equipment_id = e.id and m.reason = 'replaced' and m.moved_on >= f.inspected_on
+                 and j.deleted_at is null and j.status <> 'cancelled'
+             ) then 'replaced'
+             when exists (
+               select 1 from public.deficiency d
+               where d.equipment_id = e.id and d.deleted_at is null and d.status = 'declined'
+                 and d.decline_code = 'booked_elsewhere' and d.declined_on >= f.inspected_on
+             ) then 'booked_elsewhere'
+             else 'open'
+           end as verdict
+    from firsts f
+    join public.equipment e on e.id::text = f.equipment_id
+    where lower(e.category) = any(${sql.param(HEATER_CATEGORIES)}::text[])
+  )
+  select 'equipment'::text as kind, x.id::text as id,
+         concat(coalesce(x.tag || ' ', ''), x.category, coalesce(', serial ' || x.serial_number, ''),
+                coalesce(', put in ' || to_char(x.installed_on, 'YYYY'), ', no install date')) as label,
+         x.inspected_on::text as on_day, 1::numeric as value, '/equipment/' || x.id as href
+  from judged x
+  where x.verdict = any(${sql.param(pick === "denominator" ? ["replaced", "open"] : [pick])}::text[])
+`;
+
 /* ------------------------------------------------------------- the entries */
 
 export const CATALOGUE: Record<string, Entry> = {
@@ -1850,18 +1914,37 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   wh_attach: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Whether the customer has already booked the replacement with somebody "
-      + "else. Both halves are now recorded: an inspection names the unit it "
-      + "looked at, `installed_on` gives the age, and the register records a "
-      + "replacement as a move with that reason. The definition EXCLUDES units "
-      + "the customer has already scheduled with someone else, 'so the ones "
-      + "nobody followed up on stay visible', and a declined recommendation "
-      + "records why in free text (`deficiency.decline_reason`), so those units "
-      + "cannot be told apart without reading words for a reason, which this "
-      + "catalogue never does.",
+    measure: {
+      /**
+       * "Water heaters replaced divided by water heaters recorded as over ten
+       * years old and inspected in the period. Excludes units the customer
+       * has already scheduled with someone else, so the ones nobody followed
+       * up on stay visible."
+       *
+       * WHAT IT NEEDED, and what changed: whether the customer had already
+       * booked the replacement with somebody else. A declined recommendation
+       * now carries why as a code (`deficiency.decline_code`), and
+       * `booked_elsewhere` is the one this reads; the words beside it are
+       * still never read for a reason.
+       *
+       * A heater is counted ONCE, on the first day in the window somebody
+       * inspected or worked on it, and is over ten years old by its install
+       * date on that day. It is caught when the register records it replaced
+       * on or after that day on a job of ours, so a month's figure rises as
+       * the replacements it led to are done. One with no install date is out
+       * of both halves and counted beside as not known; one declined as
+       * booked elsewhere, and not replaced by us after all, is out of both and
+       * counted beside.
+       */
+      numerator: { label: "old water heaters inspected that we replaced", records: heatersSeen("replaced") },
+      denominator: { label: "water heaters over ten years old inspected, other than those booked elsewhere", records: heatersSeen("denominator") },
+      besides: {
+        excluded: { label: "old water heaters the customer had booked with another company, left out", records: heatersSeen("booked_elsewhere") },
+        unknown: { label: "water heaters inspected with no install date recorded, left out", records: heatersSeen("unknown_age") },
+      },
+    },
   },
 
   backflow_recert: {

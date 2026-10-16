@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Thirty seven of the forty seven are answered: thirty three computed here, four
-by M22's fleet report. The other ten each name what they still lack.
+Thirty eight of the forty seven are answered: thirty four computed here, four
+by M22's fleet report. The other nine each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -438,6 +438,38 @@ hand, puts the same stops through both, and checks every path that cancels a
 visit records who and when; `visit-cancellation-paths.test.ts` reads the
 service layer and fails when a new path cancels a visit without saying who.
 
+### Water heater opportunity capture, and why the customer said no
+
+Plumbing's **water heater opportunity capture** is "water heaters replaced
+divided by water heaters recorded as over ten years old and inspected in the
+period", and it EXCLUDES "units the customer has already scheduled with someone
+else, so the ones nobody followed up on stay visible". Both halves were already
+recorded (a visit's units worked and an inspection's answers name the unit, the
+install date gives its age, the register records a replacement), but why a
+customer declined a recommendation was words. A decline now carries a code
+(M33), and "already booked with another company" is the one this reads.
+
+- A water heater is a unit whose kind is the plumbing pack's water heater, by
+  code or name. It is counted **once**, on the first day in the window somebody
+  worked on it on a completed visit or named it in an inspection, and is old when
+  its install date is more than ten years before that day.
+- **Caught** is the register recording it replaced, on or after that day, on a
+  job of ours that was not cancelled. A month's figure rises as the
+  replacements it led to are done, which is the point of a capture rate. A
+  replacement recorded with no job of ours named might be somebody else's and is
+  not counted as caught.
+- An old heater with a finding still declined, on or after that day, as booked
+  with another company, and not replaced by us after all, is out of both halves
+  and counted beside.
+- A heater inspected with **no install date** is out of both halves and counted
+  beside as not known, so a register with no ages does not read as a company
+  with no old heaters.
+
+The rule is core's `reporting.heaterCaptureOf`, with unit tests, written again in
+SQL, and `kpi-heater-capture.integration.test.ts` checks a month worked out by
+hand, puts the same heaters through both, checks a decline keeps its code, and
+fails if the pack stops declaring the water heater.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -538,7 +570,7 @@ Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
 assembly due a retest, a crew's day, a permitted job, a person's route day, a
-scheduled stop. The scorecard's number is the sum of those rows, and
+scheduled stop, an old water heater inspected. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -916,12 +948,19 @@ prefix off.
 
 ## What is not built
 
-Ten of the forty seven declared KPIs cannot be computed, and each one
+Nine of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the ten has its datum yet (above, "The
+since they were written and none of the nine has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
+
+Water heater capture knows a customer booked elsewhere only from a finding on
+the unit declined with that code: a "they said no" on the phone is an estimate's,
+which names no unit, and a decline in words only excludes nothing, so such a
+heater stays in the bottom half. A replacement counts as ours only when the
+register's record of it names one of our jobs. A heater whose install date was
+never recorded is counted beside the figure, not in it.
 
 The cancellation rate by route is one company figure: the route and weekday of
 each stop are on its records, and the scorecard draws no breakdown by either.

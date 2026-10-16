@@ -1,0 +1,2 @@
+CREATE TYPE "public"."deficiency_decline_code" AS ENUM('price', 'not_now', 'booked_elsewhere', 'other');--> statement-breakpoint
+ALTER TABLE "deficiency" ADD COLUMN "decline_code" "deficiency_decline_code";

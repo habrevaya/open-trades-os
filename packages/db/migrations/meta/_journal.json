@@ -1002,6 +1002,13 @@
       "when": 1792106543634,
       "tag": "0142_kind_iron_fist",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1792108197946,
+      "tag": "0143_gigantic_gargoyle",
+      "breakpoints": true
     }
   ]
 }

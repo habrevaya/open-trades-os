@@ -160,7 +160,9 @@ register shows neither form.
 and who to ring, when it was installed and how old it is, what it is part of
 and what is inside it, its warranty with parts and labour apart (and the
 follow up button), its service history, the inspections that named it, the
-faults found on it, the readings service reports took on it (newest first, out
+faults found on it (each with what was found, and "The customer said no" beside
+an open one, which records why from a fixed list, M33), the readings service
+reports took on it (newest first, out
 of range ones marked), its photographs, and where it has been. Every link to a
 unit (the register, the warranty list, a visit's units, a job about it, a
 follow up task, a KPI's records) opens here rather than on its address.

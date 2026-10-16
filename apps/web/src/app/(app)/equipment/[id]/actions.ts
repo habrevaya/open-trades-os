@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { equipment, ConflictError } from "@opentradesos/api/services";
+import { equipment, inspections, ConflictError } from "@opentradesos/api/services";
 import { moveEquipment, updateEquipment } from "@opentradesos/api/contracts";
-import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { attempt, field, parsed, refused, type FormState } from "@/lib/actions";
 import { parseAttributeLines } from "@/lib/unit-attributes";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
@@ -97,5 +97,29 @@ export async function moveUnit(_previous: FormState, form: FormData): Promise<Fo
     };
   });
   revalidatePath(`/equipment/${id}`);
+  return state;
+}
+
+/**
+ * The customer said no to a finding on this unit, and why, from a fixed
+ * list, with their own words if there are any. The code is what the water
+ * heater capture reads: a unit the customer has booked with another company
+ * is left out of it, and nothing reads the words for that.
+ */
+export async function declineFinding(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  const unitId = field(form, "unitId") ?? "";
+  const code = field(form, "declineCode");
+  if (code !== "price" && code !== "not_now" && code !== "booked_elsewhere" && code !== "other") {
+    return refused(form, "Say why they said no.");
+  }
+  const words = field(form, "reason");
+  const state = await attempt(form, async () => {
+    await inspections.setDeficiencyStatus(await ctx(), {
+      id, status: "declined", declineCode: code, ...(words ? { reason: words } : {}),
+    });
+    return { message: "Recorded as declined." };
+  });
+  if (state?.done) revalidatePath(`/equipment/${unitId}`);
   return state;
 }

@@ -855,6 +855,10 @@ export async function history(ctx: ServiceContext, input: { id: string }) {
       severity: schema.deficiency.severity,
       code: schema.deficiency.code,
       createdAt: schema.deficiency.createdAt,
+      description: schema.deficiency.description,
+      declinedOn: schema.deficiency.declinedOn,
+      declineReason: schema.deficiency.declineReason,
+      declineCode: schema.deficiency.declineCode,
     }).from(schema.deficiency)
       .where(and(
         eq(schema.deficiency.organizationId, ctx.actor.organizationId),

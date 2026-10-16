@@ -307,6 +307,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "route_density",
       "stops_per_day",
       "supply_cost_pct",
+      "wh_attach",
     ]);
 
     const elsewhere = KEYS.filter((key) => CATALOGUE[key]!.state === "elsewhere").sort();
@@ -349,9 +350,11 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * a bin that was not out is not. `cancel_rate_route` made thirty seven
      * when every path that cancels a visit began saying who asked (the
      * customer or the company) and when, with the company's notice window
-     * frozen on the visit.
+     * frozen on the visit. `wh_attach` made thirty eight when a declined
+     * recommendation could say why as a code, "already booked with another
+     * company" among them.
      */
-    expect(computed.length + elsewhere.length).toBe(37);
+    expect(computed.length + elsewhere.length).toBe(38);
     expect(KEYS.length).toBe(47);
   });
 });

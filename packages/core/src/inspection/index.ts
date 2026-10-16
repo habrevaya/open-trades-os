@@ -1362,3 +1362,22 @@ export function backlogStanding(
 
   return { itemKey: deficiency.itemKey, severity: deficiency.severity, ageDays, respondWithinDays: within, overdue, statement };
 }
+
+/* ------------------------------------------------- why the customer said no */
+
+/**
+ * Why a customer declined a finding, as a code a figure may read. The words
+ * are kept beside it; this is the part that is never read for a meaning.
+ * Plumbing's water heater capture leaves out a unit the customer has already
+ * booked with somebody else, and only `booked_elsewhere` says so.
+ */
+export const DECLINE_CODES = ["price", "not_now", "booked_elsewhere", "other"] as const;
+export type DeclineCode = (typeof DECLINE_CODES)[number];
+
+/** Each code as the office says it, and as the decline's words when none are given. */
+export const DECLINE_CODE_WORDS: Record<DeclineCode, string> = {
+  price: "Too dear",
+  not_now: "Not now, maybe later",
+  booked_elsewhere: "Already booked with another company",
+  other: "Something else",
+};
