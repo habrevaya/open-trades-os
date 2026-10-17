@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
-  projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordInvoice, recordPayment, recordWater, tipChoices,
+  projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordHaulTime, recordInvoice, recordPayment, recordWater, tipChoices,
   type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptReceipt, type KeptSignature, type PriceBookEntry,
   type QueuedOperation, type UploadTransport, checkExpenseDraft,
 } from "@opentradesos/field-client";
@@ -15,6 +15,7 @@ import { preparePhoto, prepareSignature } from "@/lib/photo";
 import { Ask, CashTip, InvoicePanel, SellPanel, TasksPanel, type SellHandlers } from "./Sell";
 import { ExpensesPanel } from "./Expenses";
 import { TruckWaterPanel } from "./TruckWater";
+import { HaulsPanel } from "./Hauls";
 import { InspectionRun, type VisitInspection } from "./InspectionRun";
 import { inspectionPayload, type FieldInspectionProgram } from "@opentradesos/field-client";
 
@@ -37,7 +38,7 @@ type Visit = Snapshot["visits"][number];
  */
 export function Day({
   date, deviceId, lastSequence, visits, openTimeEntry, technicianName, timezone, inspectionPrograms = [],
-  priceBook = [], abilities, tasks = [], expenses = [], trucks = [], today,
+  priceBook = [], abilities, tasks = [], expenses = [], trucks = [], hauls = [], today,
 }: {
   date: string;
   deviceId: string;
@@ -59,6 +60,8 @@ export function Day({
   expenses?: Snapshot["expenses"];
   /** The trucks checked out to this person yesterday and today, with the water read. */
   trucks?: NonNullable<Snapshot["trucks"]>;
+  /** The container hauls on this person's stops, with the drop and tip times recorded. */
+  hauls?: NonNullable<Snapshot["hauls"]>;
   /** The company's date today, which a receipt defaults to. */
   today: string;
 }) {
@@ -369,10 +372,10 @@ export function Day({
   );
 
   const projected = useMemo(() => projectDay({
-    snapshot: { revision: 0, unchanged: false, visits, priceBook, openTimeEntry, tasks, expenses, trucks } as FieldSnapshot,
+    snapshot: { revision: 0, unchanged: false, visits, priceBook, openTimeEntry, tasks, expenses, trucks, hauls } as FieldSnapshot,
     operations: pendingOps,
     applied: landed && landed.basis === visits ? landed.operations : [],
-  }), [visits, priceBook, openTimeEntry, tasks, expenses, trucks, pendingOps, landed]);
+  }), [visits, priceBook, openTimeEntry, tasks, expenses, trucks, hauls, pendingOps, landed]);
   const projectedVisit = (id: string) => projected.visits.find((v) => v.id === id);
   const can: FieldAbilities = abilities ?? {
     writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
@@ -503,6 +506,17 @@ export function Day({
                            onSave={(gallons) => perform((phone) => recordWater(phone.queue, { assetId: truck.assetId, onDay: today, gallons }))} />
         </div>
       ))}
+
+      {projected.hauls.length > 0 && (
+        <div className="px-4 pb-4">
+          <HaulsPanel hauls={projected.hauls} zone={timezone}
+                      stopName={(visitId) => {
+                        const visit = visits.find((v) => v.id === visitId);
+                        return visit ? [visit.customer.name, visit.property.addressLine1].filter(Boolean).join(", ") : "a stop";
+                      }}
+                      onSave={(input) => perform((phone) => recordHaulTime(phone.queue, input))} />
+        </div>
+      )}
 
       {can.tasks && (
         <div className="px-4 pb-4">

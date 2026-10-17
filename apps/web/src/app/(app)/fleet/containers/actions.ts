@@ -4,7 +4,8 @@ import { attempt, field, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { rentals } from "@opentradesos/api/services";
+import { ConflictError, haulTimes, rentals } from "@opentradesos/api/services";
+import { time } from "@opentradesos/core";
 
 export type ContainerState = FormState;
 
@@ -25,7 +26,10 @@ const number = (form: FormData, key: string): number | undefined => {
  * for while the container is still on site.
  */
 export async function act(_previous: ContainerState, form: FormData): Promise<ContainerState> {
-  const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
+  const user = await requireSetupUser();
+  const ctx = { actor: user.actor, db: getDb() };
+  /** Times typed on this board are the company's clock, the one every time on it is shown in. */
+  const zone = user.organizationTimezone;
   const op = String(form.get("op") ?? "");
   const id = String(form.get("id") ?? "");
 
@@ -38,12 +42,41 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
           size: field(form, "size") ?? null,
         });
         return;
-      case "out":
-        await rentals.tagOutOfService(ctx, { id, reason: String(form.get("reason") ?? "") });
+      case "out": {
+        const since = localInstant(field(form, "since"), zone);
+        await rentals.tagOutOfService(ctx, { id, reason: String(form.get("reason") ?? ""), ...(since ? { at: since } : {}) });
         return;
-      case "in":
-        await rentals.returnToService(ctx, { id });
+      }
+      case "in": {
+        const back = localInstant(field(form, "back"), zone);
+        await rentals.returnToService(ctx, { id, ...(back ? { at: back } : {}) });
         return;
+      }
+      case "hold": {
+        const since = localInstant(field(form, "since"), zone);
+        await haulTimes.holdForCustomer(ctx, {
+          assetId: id, reason: String(form.get("reason") ?? ""), ...(since ? { startsAt: since } : {}),
+        });
+        return;
+      }
+      case "end-hold": {
+        const at = localInstant(field(form, "at"), zone);
+        await haulTimes.endHold(ctx, { id, ...(at ? { endsAt: at } : {}) });
+        return;
+      }
+      case "drop-time": {
+        const day = String(form.get("day") ?? "");
+        const at = localInstant(field(form, "time") ? `${day}T${field(form, "time")}` : undefined, zone);
+        if (!at) throw new ConflictError("Type the time the can was put down.");
+        await haulTimes.recordPlacement(ctx, { id, deliveredAt: at });
+        return;
+      }
+      case "tip": {
+        const at = localInstant(field(form, "tippedAt"), zone);
+        if (!at) throw new ConflictError("Type the day and time the load was emptied.");
+        await haulTimes.recordTip(ctx, { id, tippedAt: at });
+        return;
+      }
       case "retire":
         await rentals.retireAsset(ctx, { id });
         return;
@@ -56,7 +89,7 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
            * day's drops at five in the evening would otherwise have every hire
            * start at five, and every short rental would be a day short.
            */
-          ...(field(form, "deliveredAt") ? { deliveredAt: atNoon(field(form, "deliveredAt")!) } : {}),
+          ...placement(field(form, "deliveredAt"), field(form, "deliveredTime"), zone, "deliveredAt", "deliveredOn"),
           includedDays: number(form, "includedDays") ?? null,
           dailyRate: field(form, "dailyRate") ?? null,
           overageRate: field(form, "overageRate") ?? null,
@@ -76,16 +109,18 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
           facilityId: field(form, "facilityId") ?? null,
           /** Unticked means the can came back needing work, not that it vanished. */
           backInService: form.get("backInService") !== null,
+          ...(localInstant(field(form, "tippedAt"), zone) ? { tippedAt: localInstant(field(form, "tippedAt"), zone)! } : {}),
         });
         return;
       case "swap":
         await rentals.swap(ctx, {
           id,
           replacementAssetId: String(form.get("replacementAssetId") ?? ""),
-          ...(field(form, "at") ? { at: atNoon(field(form, "at")!) } : {}),
+          ...placement(field(form, "at"), field(form, "atTime"), zone, "at", "on"),
           tons: field(form, "tons") ?? null,
           ticketNumber: field(form, "ticketNumber") ?? null,
           facilityId: field(form, "facilityId") ?? null,
+          ...(localInstant(field(form, "tippedAt"), zone) ? { tippedAt: localInstant(field(form, "tippedAt"), zone)! } : {}),
         });
         return;
       default:
@@ -95,6 +130,26 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
 
   if (state?.done) revalidatePath("/fleet/containers");
   return state;
+}
+
+/**
+ * A drop's day and, when typed, its time. With a time it is the moment the can
+ * was put down, in the company's clock; with only a day it is sent as a day,
+ * which the hire keeps as one and never gives an hour. Neither is now.
+ */
+function placement<A extends string, D extends string>(
+  day: string | undefined, clock: string | undefined, zone: string, instantKey: A, dayKey: D,
+): Partial<Record<A | D, string>> {
+  if (!day) return {};
+  const at = clock ? localInstant(`${day}T${clock}`, zone) : undefined;
+  return (at ? { [instantKey]: at } : { [dayKey]: day }) as Partial<Record<A | D, string>>;
+}
+
+/** `2026-06-08T14:10` from a datetime box (or a day and a time put together), as an instant in the company's zone. */
+function localInstant(value: string | undefined, zone: string): string | undefined {
+  const match = value ? /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(value) : null;
+  if (!match) return undefined;
+  return time.instantOfLocal(match[1]!, Number(match[2]) * 60 + Number(match[3]), zone).toISOString();
 }
 
 /**

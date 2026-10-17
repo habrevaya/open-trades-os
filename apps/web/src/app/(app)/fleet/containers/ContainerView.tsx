@@ -17,6 +17,8 @@ export interface ContainerRow {
   status: string;
   currentAddress: string | null;
   active: boolean;
+  /** What is keeping it off the road now: a repair, or a hold a customer asked for, with since when. */
+  holds?: Array<{ id: string; kind: "repair" | "customer"; startsAt: string | null; reason: string }>;
 }
 
 export interface HireRow {
@@ -25,7 +27,11 @@ export interface HireRow {
   assetSize: string | null;
   propertyAddress: string | null;
   deliveredAt: string | null;
+  /** Whether the delivery is the moment the can was put down, or only its day. */
+  deliveredTimeKnown?: boolean;
   pickedUpAt: string | null;
+  /** When the full can was emptied at the facility, once recorded. */
+  tippedAt?: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -140,10 +146,11 @@ export function Numbers({ report }: { report: Report }) {
  * utilisation denominator and an owner looking at a low rate needs to see it.
  */
 export function Register({
-  containers, controls,
+  containers, controls, zone = "UTC",
 }: {
   containers: ContainerRow[];
   controls?: ((container: ContainerRow) => ReactNode) | undefined;
+  zone?: string;
 }) {
   if (containers.length === 0) {
     return (
@@ -170,6 +177,19 @@ export function Register({
             {container.currentAddress ? (
               <span className="ml-2">{container.currentAddress}</span>
             ) : null}
+            {/*
+              A hold a customer asked for, said on the row with since when, so
+              nobody sends that can to somebody else. A repair already says
+              itself in the chip; its start is said beside it.
+            */}
+            {(container.holds ?? []).map((hold) => (
+              <span key={hold.id} className="ml-2 text-sm text-ink-700">
+                {hold.kind === "customer" ? <Chip tone="warning">Held for a customer</Chip> : null}
+                <span className="ml-1">
+                  {hold.startsAt ? `since ${moment(hold.startsAt, zone)}` : "since before repairs were recorded"}: {hold.reason}
+                </span>
+              </span>
+            ))}
           </Td>
           {controls ? <Td>{controls(container)}</Td> : null}
         </tr>
@@ -190,10 +210,11 @@ export function Register({
  * at a quarter of the truth.
  */
 export function Hires({
-  hires, controls,
+  hires, controls, zone = "UTC",
 }: {
   hires: HireRow[];
   controls?: ((hire: HireRow) => ReactNode) | undefined;
+  zone?: string;
 }) {
   if (hires.length === 0) {
     return <Empty title="Nothing out on hire">A delivery opens a hire and puts the can on a site.</Empty>;
@@ -213,7 +234,20 @@ export function Hires({
             {hire.previousRentalId ? <Chip tone="neutral" className="ml-2">Swap</Chip> : null}
           </Td>
           <Td>{hire.propertyAddress ?? "a property"}</Td>
-          <Td className="tabular-nums">{day(hire.deliveredAt)}</Td>
+          <Td className="tabular-nums">
+            {day(hire.deliveredAt, zone)}
+            {/*
+              The time the can was put down when somebody recorded it, and says
+              so when they did not: a delivery recorded as a day has no hour,
+              and the turnaround counts it beside its figure rather than at a
+              midday nobody chose.
+            */}
+            {hire.deliveredAt && hire.deliveredTimeKnown === true
+              ? <span className="ml-1 text-ink-700">{clock(hire.deliveredAt, zone)}</span>
+              : hire.deliveredAt && hire.deliveredTimeKnown === false
+                ? <span className="ml-1 text-ink-500">no time</span>
+                : null}
+          </Td>
           <Td className="text-right tabular-nums">
             {hire.daysSoFar === null ? "" : hire.daysSoFar}
             {hire.includedDays === null ? null : (
@@ -233,6 +267,7 @@ export function Hires({
                 ? <span className="text-ink-500">Still out</span>
                 : <span className="text-amber-700">No ticket</span>}
             {hire.weightTons ? <span className="ml-2 tabular-nums">{hire.weightTons} t</span> : null}
+            {hire.tippedAt ? <span className="ml-2 text-ink-700">emptied {moment(hire.tippedAt, zone)}</span> : null}
           </Td>
           {controls ? <Td>{controls(hire)}</Td> : null}
         </tr>
@@ -308,5 +343,18 @@ const METER: Record<string, string> = {
 };
 const meter = (value: string) => METER[value] ?? value;
 
-/** A date without a time, because a hire is counted in calendar days. */
-const day = (iso: string | null) => (iso === null ? "" : iso.slice(0, 10));
+/**
+ * A date without a time, because a hire is counted in calendar days: the
+ * company's day, because a can dropped at nine in the evening in Austin is
+ * that day's and the next in UTC.
+ */
+const day = (iso: string | null, zone: string) =>
+  (iso === null ? "" : new Date(iso).toLocaleDateString("en-CA", { timeZone: zone }));
+
+/** "9:40 AM", in the company's clock. */
+const clock = (iso: string, zone: string) =>
+  new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone });
+
+/** "Jun 8, 2:10 PM", in the company's clock. */
+export const moment = (iso: string, zone: string) =>
+  `${new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: zone })}, ${clock(iso, zone)}`;
