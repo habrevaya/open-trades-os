@@ -28,7 +28,7 @@ import {
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
-  safety, retention, holidays, permitInspections, truckWater, businessHours, numberHours, afterHours, safetyTalks,
+  safety, retention, holidays, permitInspections, truckWater, haulTimes, businessHours, numberHours, afterHours, safetyTalks,
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
@@ -845,6 +845,8 @@ export const handlers = {
   ...permitInspections.handlers,
   // Each truck's fresh water by day, read by fresh water per stop (M22, M21)
   ...truckWater.handlers,
+  // When a can was emptied and put down, and when it was out for repair or held, read by turnaround (M22, M21)
+  ...haulTimes.handlers,
   // The week's hours, the company's and each branch's own (M02)
   listBusinessHours: businessHours.handlers.listBusinessHours,
   clearBranchHours: businessHours.handlers.clearBranchHours,

@@ -62,6 +62,7 @@ const DID: Record<string, string> = {
   "expense.record": "Money you paid for the company",
   "notice.read": "Marking a notice as read",
   "truck.water": "The fresh water your truck used",
+  "haul.time": "The time you dropped or emptied a container on",
 };
 
 /**

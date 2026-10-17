@@ -373,6 +373,21 @@ export interface FieldSnapshot {
   expenses?: FieldExpense[] | undefined;
   /** The trucks this person had yesterday and today, with the water read. Absent from older servers. */
   trucks?: FieldTruck[] | undefined;
+  /** The container hauls on this person's stops, with the drop and tip times recorded. Absent from older servers. */
+  hauls?: FieldHaul[] | undefined;
+}
+
+/**
+ * A container haul on one of this person's stops: the can put down there
+ * (`drop`, a delivery's or the empty a swap left) and the full can taken to
+ * the facility from there (`tip`, a collection's or the one a swap took), with
+ * the times already recorded.
+ */
+export interface FieldHaul {
+  visitId: string;
+  leg: "delivery" | "pickup" | "swap";
+  drop: { rentalId: string; container: string; deliveredAt: string | null; timeKnown: boolean } | null;
+  tip: { rentalId: string; container: string; tippedAt: string | null } | null;
 }
 
 export interface CodeRequestResult {

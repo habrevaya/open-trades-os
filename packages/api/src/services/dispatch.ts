@@ -25,6 +25,7 @@ import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
 import * as truckWater from "./truck-water";
+import * as haulTimes from "./haul-times";
 import * as customObjects from "./custom-objects";
 import * as files from "./files";
 import * as customerNotes from "./customer-notes";
@@ -924,7 +925,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
     const revision = (await computeRevision(
       tx, rows.map((r) => r.visit.id), rows.map((r) => r.jobId), rows.map((r) => r.customerId),
     )) + await fieldSales.expensesRevision(tx, device.technicianId)
-      + await truckWater.waterRevision(tx, device.technicianId);
+      + await truckWater.waterRevision(tx, device.technicianId)
+      + await haulTimes.haulRevision(tx, rows.map((r) => r.visit.id));
 
     if (input.sinceRevision !== undefined && input.sinceRevision === revision) {
       return {
@@ -1057,6 +1059,10 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       expenses: await fieldSales.expensesFor(tx, device.technicianId),
       /** Yesterday and the first day asked for: a reading is made at the end of a day, or the morning after. */
       trucks: await truckWater.trucksForField(tx, device.technicianId, time.addDays(input.from, -1), input.from),
+      /** The drop and the tip of every container haul on these stops, for the driver to time. */
+      hauls: await haulTimes.haulsForField(tx, rows.map((r) => ({
+        id: r.visit.id, rentalId: r.visit.rentalId, rentalEvent: r.visit.rentalEvent,
+      }))),
     };
   });
 }

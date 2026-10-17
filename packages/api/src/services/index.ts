@@ -211,6 +211,8 @@ export * as safetyTalks from "./safety-talks";
 /** The city's inspections of a permitted job, and whose work a fail was about (M23, M21). */
 export * as permitInspections from "./permit-inspections";
 export * as truckWater from "./truck-water";
+/** When a can was emptied and put down, and its repairs and customer holds as periods (M22, M21). */
+export * as haulTimes from "./haul-times";
 /** Each person's route day, stops and miles between them, kept after the positions are gone (M21, M11). */
 export * as routeDays from "./route-days";
 /** Consumer financing, the costing rates, the company budget and manual journals (M13, M15, M14). */

@@ -41,7 +41,16 @@ const RentalView = z.object({
    */
   propertyAddress: z.string().nullable(),
   deliveredAt: z.string().nullable(),
+  /**
+   * Whether `deliveredAt` is the moment the can was put down. False for a
+   * delivery recorded as a day (kept at midday) and for every hire from before
+   * the time was kept: the turnaround counts such a placement beside its figure
+   * and never gives it an hour.
+   */
+  deliveredTimeKnown: z.boolean(),
   pickedUpAt: z.string().nullable(),
+  /** When the full can was emptied at the facility: not the pickup, not the scale ticket's weighbridge time. */
+  tippedAt: z.string().datetime().nullable(),
   open: z.boolean(),
   daysSoFar: z.number().int().nullable(),
   includedDays: z.number().int().nullable(),
@@ -122,7 +131,16 @@ export const listRentableAssets = defineRoute({
     limit: z.number().int().min(1).max(500).default(200),
   }),
   output: z.object({
-    data: z.array(AssetView.extend({ currentAddress: z.string().nullable() })),
+    data: z.array(AssetView.extend({
+      currentAddress: z.string().nullable(),
+      /** What is keeping the unit off the road now: a repair, or a hold a customer asked for, with since when. */
+      holds: z.array(z.object({
+        id: Uuid,
+        kind: z.enum(["repair", "customer"]),
+        startsAt: z.string().datetime().nullable(),
+        reason: z.string(),
+      })),
+    })),
   }),
 });
 
@@ -135,7 +153,12 @@ export const tagAssetOutOfService = defineRoute({
   module: "M22",
   permissions: ["asset:write"],
   idempotent: true,
-  input: z.object({ id: Uuid, reason: z.string().min(1).max(500) }),
+  input: z.object({
+    id: Uuid,
+    reason: z.string().min(1).max(500),
+    /** When it went out for repair, when not now. The repair is kept as a period from then until it is back in service. */
+    at: z.string().datetime().optional(),
+  }),
   output: AssetView,
 });
 
@@ -143,11 +166,11 @@ export const returnAssetToService = defineRoute({
   method: "post",
   path: "/v1/rentable-assets/{id}/in-service",
   summary: "Put a repaired unit back in the fleet",
-  description: "Back to available, which puts it back in the utilisation denominator.",
+  description: "Back to available, which puts it back in the utilisation denominator, and closes the repair period it was tagged out with, at `at` or now.",
   module: "M22",
   permissions: ["asset:write"],
   idempotent: true,
-  input: z.object({ id: Uuid }),
+  input: z.object({ id: Uuid, at: z.string().datetime().optional() }),
   output: AssetView,
 });
 
@@ -179,7 +202,10 @@ export const deliverRental = defineRoute({
     assetId: Uuid,
     propertyId: Uuid,
     jobId: Uuid.nullable().optional(),
+    /** The moment the can was put down. Without it (and without `deliveredOn`) the hire opens now. */
     deliveredAt: z.string().datetime().optional(),
+    /** Only the day it was put down, when nobody knows the time: kept at midday, and counted beside the turnaround. Not with `deliveredAt`. */
+    deliveredOn: z.string().date().optional(),
     includedDays: z.number().int().min(0).max(3650).nullable().optional(),
     dailyRate: MoneyString.nullable().optional(),
     overageRate: MoneyString.nullable().optional(),
@@ -219,6 +245,8 @@ export const pickUpRental = defineRoute({
     backInService: z.boolean().optional(),
     /** A facility recorded on `/v1/disposal-facilities`. Its name replaces `facility`. A closed one is refused. */
     facilityId: Uuid.nullable().optional(),
+    /** When the load was emptied at the facility, when it is known now. It can be recorded later with `PUT /v1/rentals/{id}/tipped-at`. */
+    tippedAt: z.string().datetime().nullable().optional(),
   }),
   output: RentalView,
 });
@@ -242,6 +270,10 @@ export const swapRental = defineRoute({
     materialType: z.string().max(100).nullable().optional(),
     /** A facility recorded on `/v1/disposal-facilities` for the full can. Its name replaces `facility`. */
     facilityId: Uuid.nullable().optional(),
+    /** Only the day of the swap, when nobody knows the time. Not with `at`. */
+    on: z.string().date().optional(),
+    /** When the full can was emptied at the facility, when it is known now. */
+    tippedAt: z.string().datetime().nullable().optional(),
   }),
   output: z.object({ closed: RentalView, opened: RentalView }),
 });

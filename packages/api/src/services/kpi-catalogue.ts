@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Forty of the forty seven are computed here, four are
- * M22's, and the three that are not each name what they still lack.)
+ * (They are read now. Forty one of the forty seven are computed here, four
+ * are M22's, and the two that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -445,6 +445,70 @@ const disposalHauls = (pick: "numerator" | "denominator" | "unknown" | "excluded
       excluded: sql`r.disposal_fee is not null and inv.lines = 0`,
     }[pick]}
 `;
+
+/**
+ * Turnaround's records: each placement of a can in the window that had a haul
+ * before it, judged by core's `reporting.turnaroundOf`. The haul before is the
+ * can's previous hire by delivery (a collection recorded as a day sits at
+ * midday, and a can put back out that morning must not skip back a hire), and
+ * its tip is where the hours start. A placement whose time is only a day, a
+ * haul whose tip nobody recorded, and times that run backwards are not known;
+ * a can out for repair or held for a customer at any moment in between is left
+ * out, whole, as the definition says. See `turnaround_hours`.
+ */
+const turnarounds = (pick: "numerator" | "denominator" | "unknown" | "excluded"): Records => (from, to, zone) => {
+  const at = (column: string) => sql`to_char(${sql.raw(column)} at time zone ${zone}, 'Mon FMDD, FMHH12:MI AM')`;
+  return sql`
+  with placed as (
+    select n.id, n.asset_id, n.delivered_at, n.delivered_time_known, h.tipped_at
+    from public.rental n
+    join lateral (
+      select p.tipped_at, p.picked_up_at from public.rental p
+      where p.asset_id = n.asset_id and p.id <> n.id and p.delivered_at < n.delivered_at
+      order by p.delivered_at desc limit 1
+    ) as h on h.picked_up_at is not null
+    where n.delivered_at >= ${dayStart(from, zone)} and n.delivered_at < ${dayAfter(to, zone)}
+  ),
+  judged as (
+    select pl.*,
+      case
+        when not pl.delivered_time_known then 'placed_day_only'
+        when pl.tipped_at is null then 'no_tip'
+        when pl.delivered_at < pl.tipped_at then 'times_disagree'
+        when exists (select 1 from public.container_hold ch
+                     where ch.asset_id = pl.asset_id and ch.kind = 'repair'
+                       and (ch.starts_at is null or ch.starts_at < pl.delivered_at)
+                       and (ch.ends_at is null or ch.ends_at > pl.tipped_at)) then 'repair'
+        when exists (select 1 from public.container_hold ch
+                     where ch.asset_id = pl.asset_id and ch.kind = 'customer'
+                       and (ch.starts_at is null or ch.starts_at < pl.delivered_at)
+                       and (ch.ends_at is null or ch.ends_at > pl.tipped_at)) then 'customer_hold'
+        else 'counted'
+      end as verdict
+    from placed pl
+  )
+  select 'haul'::text as kind, j.id::text as id,
+         concat(${containerName("ra")}, ': ',
+           case j.verdict
+             when 'placed_day_only' then concat('placed ', to_char(j.delivered_at at time zone ${zone}, 'Mon FMDD'), ', time not recorded')
+             when 'no_tip' then concat('placed ', ${at("j.delivered_at")}, ', emptied at a time not recorded')
+             when 'times_disagree' then concat('placed ', ${at("j.delivered_at")}, ', recorded emptied after that')
+             else concat('emptied ', ${at("j.tipped_at")}, ', placed ', ${at("j.delivered_at")},
+                         case j.verdict when 'repair' then ', out for repair in between'
+                                        when 'customer_hold' then ', held for a customer in between' else '' end)
+           end) as label,
+         to_char(j.delivered_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         ${pick === "numerator" ? sql`(extract(epoch from (j.delivered_at - j.tipped_at)) / 3600)::numeric` : sql`1::numeric`} as value,
+         '/fleet/containers' as href
+  from judged j
+  join public.rentable_asset ra on ra.id = j.asset_id
+  where ${{
+    numerator: sql`j.verdict = 'counted'`,
+    denominator: sql`j.verdict = 'counted'`,
+    unknown: sql`j.verdict in ('placed_day_only', 'no_tip', 'times_disagree')`,
+    excluded: sql`j.verdict in ('repair', 'customer_hold')`,
+  }[pick]}`;
+};
 
 /** The haul events of the pack: a delivery, a pickup, a swap, a dump and return, a relocation. */
 const HAULS = ["delivery", "pickup", "swap", "dump-return", "relocate"];
@@ -2811,21 +2875,40 @@ export const CATALOGUE: Record<string, Entry> = {
     },
   },
   turnaround_hours: {
-    state: "needs",
+    state: "computed",
     format: "duration",
-    needs:
-      "Three times nothing records to the hour. The moment a can was emptied at the "
-      + "facility: a pickup records the scale ticket's number and weight, which is the "
-      + "weighbridge and not the tip, and a ticket file is read to the day. The moment "
-      + "the can was placed on the next site: the containers board takes a delivery as a "
-      + "day (kept at midday), so hours from it would be hours from a guess, and only a "
-      + "hire raised through the API with its own instant has one. And the days a can "
-      + "was held at a customer's request, which the definition leaves out and nothing "
-      + "marks, beside the days it was out for repair, which are kept only as the can's "
-      + "current state with no history. Using the pickup time instead would include the "
-      + "drive and the queue at the gate and report a worse figure than the fleet "
-      + "achieves. Revenue now names the haul (revenue per container month), which "
-      + "answers none of the three.",
+    measure: {
+      /**
+       * "Hours from a container being emptied at the facility to it being
+       * placed on the next customer site. EXCLUDES cans routed to the yard for
+       * repair and cans held at customer request, since neither is a dispatch
+       * failure."
+       *
+       * WHAT IT NEEDED: three times nothing recorded. The tip: a haul now has
+       * the moment its full can was emptied (`rental.tipped_at`), from the
+       * driver's phone or the office when the ticket arrives, never the pickup
+       * or the weighbridge. The drop: a hire now says whether its delivery is
+       * the moment the can was put down (`delivered_time_known`), from the
+       * board's time or the phone. And the exclusions as history: a repair and
+       * a customer hold are periods (`container_hold`), not the can's state
+       * today.
+       *
+       * A placement counts in the window it was put down, against the tip of
+       * the can's previous hire. A placement recorded only as a day (every
+       * hire from before the time was kept, and the board's day when nobody
+       * gives a time), a haul whose tip nobody recorded, and times that run
+       * backwards are LEFT OUT OF BOTH HALVES and counted beside as not known,
+       * never given an hour. A can out for repair or held for a customer at
+       * any moment between its tip and its placement is left out, whole, and
+       * counted beside: the definition excludes the can, not hours of it.
+       */
+      numerator: { label: "hours from emptied to placed, over the placements counted", records: turnarounds("numerator") },
+      denominator: { label: "placements with both times recorded", records: turnarounds("denominator") },
+      besides: {
+        unknown: { label: "Placements with a time not recorded (a delivery recorded as a day, or no tip time), left out of both halves", records: turnarounds("unknown") },
+        excluded: { label: "Placements of a can out for repair or held for a customer in between, left out of both halves", records: turnarounds("excluded") },
+      },
+    },
   },
 };
 

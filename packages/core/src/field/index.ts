@@ -76,6 +76,8 @@ export const OPERATION_KINDS = [
   "notice.read",
   // The fresh water a truck used on a day, read off its tank by the driver who had it.
   "truck.water",
+  // The moment a driver put a container down on a site, or emptied one at the facility.
+  "haul.time",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -224,6 +226,14 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * of Wednesday on the same truck are two values, not one edited twice.
    */
   "truck.water": "edit",
+
+  /**
+   * The moment a can was put down or emptied sets one time on the hire, so the
+   * most recent tap by occurrence time wins. The payload names which of the
+   * two as its `field` (`placed` or `tipped`), because the drop and the tip of
+   * one hire are two values, not one edited twice.
+   */
+  "haul.time": "edit",
 };
 
 export interface FieldOperation {

@@ -836,6 +836,7 @@ run("every operation does something", () => {
     "inspection", "estimate", "invoice", "task", "task_checklist_item", "cash_tip", "expense",
     "staff_notice",
     "truck_water_day",
+    "rental",
   ] as const;
 
   async function fingerprint(): Promise<string> {
@@ -880,6 +881,14 @@ run("every operation does something", () => {
       values (${ORG}, 'vehicle', ${`Truck ${uuid().slice(0, 6)}`}) returning id`;
     await raw`insert into public.asset_custody (organization_id, asset_id, custodian_kind, custodian_id, held_from)
       values (${ORG}, ${waterTruck!.id}, 'technician', ${technicianId}, ${companyToday()})`;
+
+    /** A container hire this phone's person collects, whose load they emptied at the facility. */
+    const [haulCan] = await raw`insert into public.rentable_asset (organization_id, asset_type, identifier)
+      values (${ORG}, 'roll_off_container', ${`C-${uuid().slice(0, 8)}`}) returning id`;
+    const [haul] = await raw`insert into public.rental (organization_id, asset_id, property_id, delivered_at)
+      values (${ORG}, ${haulCan!.id}, ${propertyId}, now() - interval '3 days') returning id`;
+    const collection = await makeVisit();
+    await raw`update public.visit set rental_id = ${haul!.id}, rental_event = 'pickup' where id = ${collection.visitId}`;
 
     const cases: Array<{
       kind: (typeof field.OPERATION_KINDS)[number];
@@ -929,6 +938,7 @@ run("every operation does something", () => {
       } },
       { kind: "notice.read", subjectId: bell!.id, payload: {} },
       { kind: "truck.water", subjectId: waterTruck!.id, payload: { field: companyToday(), onDay: companyToday(), gallons: "410" } },
+      { kind: "haul.time", subjectId: haul!.id, payload: { field: "tipped", at: new Date(Date.now() - 3_600_000).toISOString() } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 
@@ -968,7 +978,7 @@ run("every operation does something", () => {
     const silent = inert.filter((k) => !logOnly.has(k));
 
     /** The selling and closing kinds really land here, so their effect is what is being watched. */
-    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.tick", "task.close", "tip.record", "expense.record", "notice.read", "truck.water"]) {
+    for (const kind of ["estimate.create", "estimate.approve", "estimate.decline", "invoice.raise", "task.claim", "task.tick", "task.close", "tip.record", "expense.record", "notice.read", "truck.water", "haul.time"]) {
       expect(landed.get(kind), kind).toBe("applied");
     }
 

@@ -372,7 +372,29 @@ export const rental = pgTable("rental", {
   assetId: uuid("asset_id").notNull().references(() => rentableAsset.id),
   propertyId: uuid("property_id").notNull().references(() => property.id),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  /**
+   * Whether `delivered_at` is the moment the can was put down, or only its day.
+   *
+   * The containers board took a delivery as a day and kept it at midday, which
+   * bills the right container days and says nothing about the hour. The pack's
+   * turnaround is hours from a can emptied at the facility to it placed on the
+   * next site, and hours from a midday nobody chose would be hours from a
+   * guess. False for every hire recorded before this was kept, because nobody
+   * can now say which of them had a real time; such a placement is counted
+   * beside the turnaround figure, never given an hour.
+   */
+  deliveredTimeKnown: boolean("delivered_time_known").notNull().default(false),
   pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
+  /**
+   * When the full can was emptied at the facility, from the driver's phone or
+   * typed by the office when the ticket arrives.
+   *
+   * Not the pickup (that includes the drive and the queue at the gate) and not
+   * the scale ticket's weighbridge time, which is when the truck was weighed
+   * and is read from a facility's file only to the day. Null until somebody
+   * records it.
+   */
+  tippedAt: timestamp("tipped_at", { withTimezone: true }),
   /** Billing runs off the period, and the included window drives overage. */
   includedDays: integer("included_days"),
   dailyRate: money("daily_rate"),

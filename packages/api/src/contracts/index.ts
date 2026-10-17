@@ -98,6 +98,7 @@ import { retentionRoutes } from "./retention";
 import { holidayRoutes } from "./holidays";
 import { permitInspectionRoutes } from "./permit-inspections";
 import { truckWaterRoutes } from "./truck-water";
+import { haulTimeRoutes } from "./haul-times";
 import { numberHoursRoutes } from "./number-hours";
 import { afterHoursRoutes } from "./after-hours";
 import { safetyTalkRoutes } from "./safety-talks";
@@ -180,6 +181,7 @@ export * from "./retention";
 export * from "./holidays";
 export * from "./permit-inspections";
 export * from "./truck-water";
+export * from "./haul-times";
 export * from "./number-hours";
 export * from "./after-hours";
 export * from "./safety-talks";
@@ -343,6 +345,7 @@ export const routes = {
   ...holidayRoutes,
   ...permitInspectionRoutes,
   ...truckWaterRoutes,
+  ...haulTimeRoutes,
   ...numberHoursRoutes,
   ...afterHoursRoutes,
   ...safetyTalkRoutes,
