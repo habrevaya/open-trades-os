@@ -30270,6 +30270,272 @@
         ]
       }
     },
+    "/v1/container-holds": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listContainerHolds",
+        "summary": "When containers were out for repair or held for a customer",
+        "description": "Each period, newest first, with its start and end. A repair is opened by tagging a can out (or collecting it with `backInService` false) and closed by putting it back in service; a customer hold is opened and ended here. The turnaround between pickup and redelivery leaves out a can that spent any of its turnaround in one.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "open",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "When containers were out for repair or held for a customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListContainerHoldsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      }
+    },
+    "/v1/container-holds/{id}/end": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "endContainerHold",
+        "summary": "End a customer hold",
+        "description": "At `endsAt` or now. A repair is not ended here: it ends when the can is put back in service. Refused for a hold already ended. On the audit log.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndContainerHoldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "End a customer hold",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndContainerHoldOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/continuing-education/pending": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -110728,6 +110994,144 @@
         ]
       }
     },
+    "/v1/rentable-assets/{id}/holds": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "holdContainer",
+        "summary": "Hold a container for a customer who asked",
+        "description": "From `startsAt` (or now), until `endsAt` when it has already ended. A hold still running keeps a can in the yard, so it is refused for a can on a site; one that has ended is history and can be recorded after the fact. Two customer holds on one can at once are refused. Delivering the can ends a running hold. On the audit log.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldContainerInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Hold a container for a customer who asked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoldContainerOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/rentable-assets/{id}/in-service": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -110736,7 +111140,7 @@
       "post": {
         "operationId": "returnAssetToService",
         "summary": "Put a repaired unit back in the fleet",
-        "description": "Back to available, which puts it back in the utilisation denominator.\n\nRequires a session holding: asset:write.",
+        "description": "Back to available, which puts it back in the utilisation denominator, and closes the repair period it was tagged out with, at `at` or now.\n\nRequires a session holding: asset:write.",
         "tags": [
           "M22"
         ],
@@ -112376,6 +112780,144 @@
         ]
       }
     },
+    "/v1/rentals/{id}/delivered-at": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "recordRentalDrop",
+        "summary": "Record the time a can was put down",
+        "description": "For a delivery recorded as a day: the moment on that day the can was dropped. Only on the day already recorded, because the day is what the hire bills and a time cannot move it. A can left by a swap moves the swap with it. Refused before the can's last tip. On the audit log.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordRentalDropInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record the time a can was put down",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordRentalDropOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
     "/v1/rentals/{id}/invoice": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -112930,6 +113472,144 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SwapRentalOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
+    "/v1/rentals/{id}/tipped-at": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "recordRentalTip",
+        "summary": "Record when a haul's load was emptied at the facility",
+        "description": "The moment the full can was tipped, typed when the ticket arrives or corrected; null clears it. Not the pickup, which includes the drive and the queue at the gate, and not the scale ticket's weighbridge time. Refused when still to come, before the delivery, on a day before the collection, or after the can was already on its next site, so a turnaround cannot run backwards. The driver records the same from the phone. On the audit log.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordRentalTipInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record when a haul's load was emptied at the facility",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordRentalTipOutput"
                 }
               }
             }
@@ -173214,6 +173894,10 @@
             "type": "string",
             "format": "date-time"
           },
+          "deliveredOn": {
+            "type": "string",
+            "format": "date"
+          },
           "includedDays": {
             "type": [
               "integer",
@@ -173305,11 +173989,21 @@
               "null"
             ]
           },
+          "deliveredTimeKnown": {
+            "type": "boolean"
+          },
           "pickedUpAt": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "open": {
             "type": "boolean"
@@ -173507,7 +174201,9 @@
           "propertyId",
           "propertyAddress",
           "deliveredAt",
+          "deliveredTimeKnown",
           "pickedUpAt",
+          "tippedAt",
           "open",
           "daysSoFar",
           "includedDays",
@@ -175395,6 +176091,79 @@
           "explanation",
           "status",
           "link"
+        ]
+      },
+      "EndContainerHoldInput": {
+        "type": "object",
+        "properties": {
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EndContainerHoldOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetIdentifier": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "repair",
+              "customer"
+            ]
+          },
+          "startsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "assetIdentifier",
+          "kind",
+          "startsAt",
+          "endsAt",
+          "reason",
+          "customerId",
+          "customerName"
         ]
       },
       "EndContractBillingInput": {
@@ -188381,6 +189150,90 @@
                 "label",
                 "days",
                 "water"
+              ]
+            }
+          },
+          "hauls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "leg": {
+                  "type": "string",
+                  "enum": [
+                    "delivery",
+                    "pickup",
+                    "swap"
+                  ]
+                },
+                "drop": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "rentalId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "container": {
+                      "type": "string"
+                    },
+                    "deliveredAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "timeKnown": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "rentalId",
+                    "container",
+                    "deliveredAt",
+                    "timeKnown"
+                  ]
+                },
+                "tip": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "rentalId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "container": {
+                      "type": "string"
+                    },
+                    "tippedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "rentalId",
+                    "container",
+                    "tippedAt"
+                  ]
+                }
+              },
+              "required": [
+                "visitId",
+                "leg",
+                "drop",
+                "tip"
               ]
             }
           }
@@ -203768,11 +204621,21 @@
               "null"
             ]
           },
+          "deliveredTimeKnown": {
+            "type": "boolean"
+          },
           "pickedUpAt": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "open": {
             "type": "boolean"
@@ -203970,7 +204833,9 @@
           "propertyId",
           "propertyAddress",
           "deliveredAt",
+          "deliveredTimeKnown",
           "pickedUpAt",
+          "tippedAt",
           "open",
           "daysSoFar",
           "includedDays",
@@ -208552,6 +209417,101 @@
         "required": [
           "id",
           "state"
+        ]
+      },
+      "HoldContainerInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "HoldContainerOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetIdentifier": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "repair",
+              "customer"
+            ]
+          },
+          "startsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "assetIdentifier",
+          "kind",
+          "startsAt",
+          "endsAt",
+          "reason",
+          "customerId",
+          "customerName"
         ]
       },
       "ImportBudgetInput": {
@@ -215444,7 +216404,8 @@
                     "safety.sign",
                     "expense.record",
                     "notice.read",
-                    "truck.water"
+                    "truck.water",
+                    "haul.time"
                   ]
                 },
                 "subjectId": {
@@ -215654,6 +216615,81 @@
         },
         "required": [
           "connectors"
+        ]
+      },
+      "ListContainerHoldsOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "assetIdentifier": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "repair",
+                    "customer"
+                  ]
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "assetId",
+                "assetIdentifier",
+                "kind",
+                "startsAt",
+                "endsAt",
+                "reason",
+                "customerId",
+                "customerName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "ListContinuingEducationOutput": {
@@ -229724,6 +230760,41 @@
                     "string",
                     "null"
                   ]
+                },
+                "holds": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "repair",
+                          "customer"
+                        ]
+                      },
+                      "startsAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "kind",
+                      "startsAt",
+                      "reason"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -229736,7 +230807,8 @@
                 "currentPropertyId",
                 "purchaseCost",
                 "active",
-                "currentAddress"
+                "currentAddress",
+                "holds"
               ]
             }
           }
@@ -229878,11 +230950,21 @@
                     "null"
                   ]
                 },
+                "deliveredTimeKnown": {
+                  "type": "boolean"
+                },
                 "pickedUpAt": {
                   "type": [
                     "string",
                     "null"
                   ]
+                },
+                "tippedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
                 },
                 "open": {
                   "type": "boolean"
@@ -230080,7 +231162,9 @@
                 "propertyId",
                 "propertyAddress",
                 "deliveredAt",
+                "deliveredTimeKnown",
                 "pickedUpAt",
+                "tippedAt",
                 "open",
                 "daysSoFar",
                 "includedDays",
@@ -241633,6 +242717,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -241675,11 +242766,21 @@
               "null"
             ]
           },
+          "deliveredTimeKnown": {
+            "type": "boolean"
+          },
           "pickedUpAt": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "open": {
             "type": "boolean"
@@ -241877,7 +242978,9 @@
           "propertyId",
           "propertyAddress",
           "deliveredAt",
+          "deliveredTimeKnown",
           "pickedUpAt",
+          "tippedAt",
           "open",
           "daysSoFar",
           "includedDays",
@@ -250263,6 +251366,74 @@
           "invoiceId"
         ]
       },
+      "RecordRentalDropInput": {
+        "type": "object",
+        "properties": {
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "deliveredAt"
+        ]
+      },
+      "RecordRentalDropOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deliveredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deliveredTimeKnown": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "deliveredAt",
+          "deliveredTimeKnown"
+        ]
+      },
+      "RecordRentalTipInput": {
+        "type": "object",
+        "properties": {
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "tippedAt"
+        ]
+      },
+      "RecordRentalTipOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tippedAt"
+        ]
+      },
       "RecordReviewInput": {
         "type": "object",
         "properties": {
@@ -258438,7 +259609,12 @@
       },
       "ReturnAssetToServiceInput": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "ReturnAssetToServiceOutput": {
         "type": "object",
@@ -274163,6 +275339,17 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "on": {
+            "type": "string",
+            "format": "date"
+          },
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         },
         "required": [
@@ -274211,11 +275398,21 @@
                   "null"
                 ]
               },
+              "deliveredTimeKnown": {
+                "type": "boolean"
+              },
               "pickedUpAt": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "tippedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
               },
               "open": {
                 "type": "boolean"
@@ -274413,7 +275610,9 @@
               "propertyId",
               "propertyAddress",
               "deliveredAt",
+              "deliveredTimeKnown",
               "pickedUpAt",
+              "tippedAt",
               "open",
               "daysSoFar",
               "includedDays",
@@ -274479,11 +275678,21 @@
                   "null"
                 ]
               },
+              "deliveredTimeKnown": {
+                "type": "boolean"
+              },
               "pickedUpAt": {
                 "type": [
                   "string",
                   "null"
                 ]
+              },
+              "tippedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
               },
               "open": {
                 "type": "boolean"
@@ -274681,7 +275890,9 @@
               "propertyId",
               "propertyAddress",
               "deliveredAt",
+              "deliveredTimeKnown",
               "pickedUpAt",
+              "tippedAt",
               "open",
               "daysSoFar",
               "includedDays",
@@ -274833,7 +276044,8 @@
                     "safety.sign",
                     "expense.record",
                     "notice.read",
-                    "truck.water"
+                    "truck.water",
+                    "haul.time"
                   ]
                 },
                 "subjectId": {
@@ -275072,6 +276284,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [

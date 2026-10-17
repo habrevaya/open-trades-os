@@ -5752,6 +5752,7 @@ export interface DeliverRentalInput {
   propertyId: string;
   jobId?: string | null;
   deliveredAt?: string;
+  deliveredOn?: string;
   includedDays?: number | null;
   dailyRate?: string | null;
   overageRate?: string | null;
@@ -5769,7 +5770,9 @@ export interface DeliverRentalOutput {
   propertyId: string;
   propertyAddress: string | null;
   deliveredAt: string | null;
+  deliveredTimeKnown: boolean;
   pickedUpAt: string | null;
+  tippedAt: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -6182,6 +6185,22 @@ export interface EmailPurchaseOrderOutput {
   explanation: string | null;
   status: "draft" | "submitted" | "acknowledged" | "partially_received" | "received" | "cancelled";
   link: string;
+}
+
+export interface EndContainerHoldInput {
+  endsAt?: string;
+}
+
+export interface EndContainerHoldOutput {
+  id: string;
+  assetId: string;
+  assetIdentifier: string;
+  kind: "repair" | "customer";
+  startsAt: string | null;
+  endsAt: string | null;
+  reason: string;
+  customerId: string | null;
+  customerName: string | null;
 }
 
 export interface EndContractBillingInput {
@@ -8689,6 +8708,21 @@ export interface GetFieldSnapshotOutput {
       onDay: string;
       gallons: string;
     }>;
+  }>;
+  hauls?: Array<{
+    visitId: string;
+    leg: "delivery" | "pickup" | "swap";
+    drop: {
+      rentalId: string;
+      container: string;
+      deliveredAt: string | null;
+      timeKnown: boolean;
+    } | null;
+    tip: {
+      rentalId: string;
+      container: string;
+      tippedAt: string | null;
+    } | null;
   }>;
 }
 
@@ -11572,7 +11606,9 @@ export interface GetRentalOutput {
   propertyId: string;
   propertyAddress: string | null;
   deliveredAt: string | null;
+  deliveredTimeKnown: boolean;
   pickedUpAt: string | null;
+  tippedAt: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -12488,6 +12524,25 @@ export type HoldCallInput = Record<string, unknown>;
 export interface HoldCallOutput {
   id: string;
   state: "holding";
+}
+
+export interface HoldContainerInput {
+  reason: string;
+  customerId?: string | null;
+  startsAt?: string;
+  endsAt?: string | null;
+}
+
+export interface HoldContainerOutput {
+  id: string;
+  assetId: string;
+  assetIdentifier: string;
+  kind: "repair" | "customer";
+  startsAt: string | null;
+  endsAt: string | null;
+  reason: string;
+  customerId: string | null;
+  customerName: string | null;
 }
 
 export interface ImportBudgetInput {
@@ -13796,7 +13851,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water" | "haul.time";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -13835,6 +13890,20 @@ export interface ListConnectorsOutput {
       updatedAt: string | null;
       environmentVariable: string | null;
     }>;
+  }>;
+}
+
+export interface ListContainerHoldsOutput {
+  data: Array<{
+    id: string;
+    assetId: string;
+    assetIdentifier: string;
+    kind: "repair" | "customer";
+    startsAt: string | null;
+    endsAt: string | null;
+    reason: string;
+    customerId: string | null;
+    customerName: string | null;
   }>;
 }
 
@@ -16469,6 +16538,12 @@ export interface ListRentableAssetsOutput {
     purchaseCost: string | null;
     active: boolean;
     currentAddress: string | null;
+    holds: Array<{
+      id: string;
+      kind: "repair" | "customer";
+      startsAt: string | null;
+      reason: string;
+    }>;
   }>;
 }
 
@@ -16498,7 +16573,9 @@ export interface ListRentalsOutput {
     propertyId: string;
     propertyAddress: string | null;
     deliveredAt: string | null;
+    deliveredTimeKnown: boolean;
     pickedUpAt: string | null;
+    tippedAt: string | null;
     open: boolean;
     daysSoFar: number | null;
     includedDays: number | null;
@@ -18832,6 +18909,7 @@ export interface PickUpRentalInput {
   disposalFee?: string | null;
   backInService?: boolean;
   facilityId?: string | null;
+  tippedAt?: string | null;
 }
 
 export interface PickUpRentalOutput {
@@ -18842,7 +18920,9 @@ export interface PickUpRentalOutput {
   propertyId: string;
   propertyAddress: string | null;
   deliveredAt: string | null;
+  deliveredTimeKnown: boolean;
   pickedUpAt: string | null;
+  tippedAt: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -20522,6 +20602,25 @@ export interface RecordRentalChargeOutput {
   note: string | null;
   recordedAt: string;
   invoiceId: string | null;
+}
+
+export interface RecordRentalDropInput {
+  deliveredAt: string;
+}
+
+export interface RecordRentalDropOutput {
+  id: string;
+  deliveredAt: string;
+  deliveredTimeKnown: boolean;
+}
+
+export interface RecordRentalTipInput {
+  tippedAt: string | null;
+}
+
+export interface RecordRentalTipOutput {
+  id: string;
+  tippedAt: string | null;
 }
 
 export interface RecordReviewInput {
@@ -22277,7 +22376,9 @@ export interface RetryConversionSendOutput {
   state: string;
 }
 
-export type ReturnAssetToServiceInput = Record<string, unknown>;
+export interface ReturnAssetToServiceInput {
+  at?: string;
+}
 
 export interface ReturnAssetToServiceOutput {
   id: string;
@@ -25591,6 +25692,8 @@ export interface SwapRentalInput {
   facility?: string | null;
   materialType?: string | null;
   facilityId?: string | null;
+  on?: string;
+  tippedAt?: string | null;
 }
 
 export interface SwapRentalOutput {
@@ -25602,7 +25705,9 @@ export interface SwapRentalOutput {
     propertyId: string;
     propertyAddress: string | null;
     deliveredAt: string | null;
+    deliveredTimeKnown: boolean;
     pickedUpAt: string | null;
+    tippedAt: string | null;
     open: boolean;
     daysSoFar: number | null;
     includedDays: number | null;
@@ -25641,7 +25746,9 @@ export interface SwapRentalOutput {
     propertyId: string;
     propertyAddress: string | null;
     deliveredAt: string | null;
+    deliveredTimeKnown: boolean;
     pickedUpAt: string | null;
+    tippedAt: string | null;
     open: boolean;
     daysSoFar: number | null;
     includedDays: number | null;
@@ -25699,7 +25806,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water" | "haul.time";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -25748,6 +25855,7 @@ export interface SyncReviewsOutput {
 
 export interface TagAssetOutOfServiceInput {
   reason: string;
+  at?: string;
 }
 
 export interface TagAssetOutOfServiceOutput {
@@ -29540,6 +29648,10 @@ export interface EmailPurchaseOrderParams {
   id: string;
 }
 
+export interface EndContainerHoldParams {
+  id: string;
+}
+
 export interface EndContractBillingParams {
   contractId: string;
 }
@@ -30308,6 +30420,10 @@ export interface HoldCallParams {
   id: string;
 }
 
+export interface HoldContainerParams {
+  id: string;
+}
+
 export interface ImportBudgetParams {
   year: number;
 }
@@ -30520,6 +30636,12 @@ export interface ListConflictsInput {
 
 export interface ListConnectorsInput {
   capability?: string;
+}
+
+export interface ListContainerHoldsInput {
+  assetId?: string;
+  open?: boolean;
+  limit?: number;
 }
 
 export interface ListContinuingEducationInput {
@@ -31642,6 +31764,14 @@ export interface RecordRefundParams {
 }
 
 export interface RecordRentalChargeParams {
+  id: string;
+}
+
+export interface RecordRentalDropParams {
+  id: string;
+}
+
+export interface RecordRentalTipParams {
   id: string;
 }
 
@@ -32935,6 +33065,7 @@ export interface OperationTypes {
   editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
   emailCustomerStatement: { input: EmailCustomerStatementParams & EmailCustomerStatementInput; output: EmailCustomerStatementOutput };
   emailPurchaseOrder: { input: EmailPurchaseOrderParams & EmailPurchaseOrderInput; output: EmailPurchaseOrderOutput };
+  endContainerHold: { input: EndContainerHoldParams & EndContainerHoldInput; output: EndContainerHoldOutput };
   endContractBilling: { input: EndContractBillingParams & EndContractBillingInput; output: EndContractBillingOutput };
   endCustomerPortalSessions: { input: EndCustomerPortalSessionsParams & EndCustomerPortalSessionsInput; output: EndCustomerPortalSessionsOutput };
   endTechnicianSkill: { input: EndTechnicianSkillParams & EndTechnicianSkillInput; output: EndTechnicianSkillOutput };
@@ -33137,6 +33268,7 @@ export interface OperationTypes {
   handOverAsset: { input: HandOverAssetParams & HandOverAssetInput; output: HandOverAssetOutput };
   handOverOnCall: { input: HandOverOnCallInput; output: HandOverOnCallOutput };
   holdCall: { input: HoldCallParams & HoldCallInput; output: HoldCallOutput };
+  holdContainer: { input: HoldContainerParams & HoldContainerInput; output: HoldContainerOutput };
   importBudget: { input: ImportBudgetParams & ImportBudgetInput; output: ImportBudgetOutput };
   importCustomRecords: { input: ImportCustomRecordsParams & ImportCustomRecordsInput; output: ImportCustomRecordsOutput };
   importSpend: { input: ImportSpendInput; output: ImportSpendOutput };
@@ -33200,6 +33332,7 @@ export interface OperationTypes {
   listComplianceDocuments: { input: ListComplianceDocumentsInput; output: ListComplianceDocumentsOutput };
   listConflicts: { input: ListConflictsInput; output: ListConflictsOutput };
   listConnectors: { input: ListConnectorsInput; output: ListConnectorsOutput };
+  listContainerHolds: { input: ListContainerHoldsInput; output: ListContainerHoldsOutput };
   listContinuingEducation: { input: ListContinuingEducationInput; output: ListContinuingEducationOutput };
   listContractRises: { input: ListContractRisesInput; output: ListContractRisesOutput };
   listContracts: { input: ListContractsInput; output: ListContractsOutput };
@@ -33500,6 +33633,8 @@ export interface OperationTypes {
   recordRecurringCompletion: { input: RecordRecurringCompletionParams & RecordRecurringCompletionInput; output: RecordRecurringCompletionOutput };
   recordRefund: { input: RecordRefundParams & RecordRefundInput; output: RecordRefundOutput };
   recordRentalCharge: { input: RecordRentalChargeParams & RecordRentalChargeInput; output: RecordRentalChargeOutput };
+  recordRentalDrop: { input: RecordRentalDropParams & RecordRentalDropInput; output: RecordRentalDropOutput };
+  recordRentalTip: { input: RecordRentalTipParams & RecordRentalTipInput; output: RecordRentalTipOutput };
   recordReview: { input: RecordReviewInput; output: RecordReviewOutput };
   recordServiceRouteStopServiced: { input: RecordServiceRouteStopServicedParams & RecordServiceRouteStopServicedInput; output: RecordServiceRouteStopServicedOutput };
   recordSpend: { input: RecordSpendInput; output: RecordSpendOutput };
@@ -34107,6 +34242,7 @@ export const OPERATIONS = {
   editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   emailCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   emailPurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
+  endContainerHold: { method: "POST", path: "/v1/container-holds/{id}/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   endContractBilling: { method: "POST", path: "/v1/contracts/{contractId}/billing/end", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   endCustomerPortalSessions: { method: "POST", path: "/v1/customers/{id}/portal-sessions/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:revoke"] },
   endTechnicianSkill: { method: "POST", path: "/v1/technician-skills/{id}/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -34309,6 +34445,7 @@ export const OPERATIONS = {
   handOverAsset: { method: "POST", path: "/v1/assets/{assetId}/hand-over", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:checkout"] },
   handOverOnCall: { method: "POST", path: "/v1/on-call/handover", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   holdCall: { method: "POST", path: "/v1/calls/{id}/hold", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
+  holdContainer: { method: "POST", path: "/v1/rentable-assets/{id}/holds", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   importBudget: { method: "POST", path: "/v1/budgets/{year}/import", pathParams: ["year"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   importCustomRecords: { method: "POST", path: "/v1/custom-objects/{key}/import", pathParams: ["key"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
   importSpend: { method: "POST", path: "/v1/marketing/spend/import", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -34372,6 +34509,7 @@ export const OPERATIONS = {
   listComplianceDocuments: { method: "GET", path: "/v1/compliance/documents", pathParams: [], queryParams: ["subjectType","subjectId","kind","includeReplaced","withinDays"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
   listConflicts: { method: "GET", path: "/v1/field/conflicts", pathParams: [], queryParams: ["cursor","limit","includeResolved"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["visit:read"] },
   listConnectors: { method: "GET", path: "/v1/connectors", pathParams: [], queryParams: ["capability"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
+  listContainerHolds: { method: "GET", path: "/v1/container-holds", pathParams: [], queryParams: ["assetId","open","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listContinuingEducation: { method: "GET", path: "/v1/technicians/{technicianId}/continuing-education", pathParams: ["technicianId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listContractRises: { method: "GET", path: "/v1/contracts/{contractId}/escalation/rises", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listContracts: { method: "GET", path: "/v1/contracts", pathParams: [], queryParams: ["customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
@@ -34672,6 +34810,8 @@ export const OPERATIONS = {
   recordRecurringCompletion: { method: "POST", path: "/v1/recurring-schedules/{id}/completed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordRefund: { method: "POST", path: "/v1/payments/{id}/refunds", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   recordRentalCharge: { method: "POST", path: "/v1/rentals/{id}/charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  recordRentalDrop: { method: "PUT", path: "/v1/rentals/{id}/delivered-at", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  recordRentalTip: { method: "PUT", path: "/v1/rentals/{id}/tipped-at", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordReview: { method: "POST", path: "/v1/reviews", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   recordServiceRouteStopServiced: { method: "POST", path: "/v1/service-routes/stops/{id}/serviced", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordSpend: { method: "POST", path: "/v1/marketing/spend", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
@@ -37156,6 +37296,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * End a customer hold.
+   *
+   * POST /v1/container-holds/{id}/end. Needs asset:write.
+   */
+  endContainerHold(input: EndContainerHoldParams & EndContainerHoldInput, options?: CallOptions): Promise<EndContainerHoldOutput> {
+    return this.call("endContainerHold", input, options);
+  }
+
+  /**
    * End a contract's fixed fee on a last day.
    *
    * POST /v1/contracts/{contractId}/billing/end. Needs contract:write.
@@ -38974,6 +39123,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Hold a container for a customer who asked.
+   *
+   * POST /v1/rentable-assets/{id}/holds. Needs asset:write.
+   */
+  holdContainer(input: HoldContainerParams & HoldContainerInput, options?: CallOptions): Promise<HoldContainerOutput> {
+    return this.call("holdContainer", input, options);
+  }
+
+  /**
    * Load a year's budget from a spreadsheet.
    *
    * POST /v1/budgets/{year}/import. Needs finance:configure.
@@ -39538,6 +39696,15 @@ export abstract class GeneratedOperations {
    */
   listConnectors(input: ListConnectorsInput = {} as ListConnectorsInput, options?: CallOptions): Promise<ListConnectorsOutput> {
     return this.call("listConnectors", input, options);
+  }
+
+  /**
+   * When containers were out for repair or held for a customer.
+   *
+   * GET /v1/container-holds. Needs asset:read.
+   */
+  listContainerHolds(input: ListContainerHoldsInput = {} as ListContainerHoldsInput, options?: CallOptions): Promise<ListContainerHoldsOutput> {
+    return this.call("listContainerHolds", input, options);
   }
 
   /**
@@ -42238,6 +42405,24 @@ export abstract class GeneratedOperations {
    */
   recordRentalCharge(input: RecordRentalChargeParams & RecordRentalChargeInput, options?: CallOptions): Promise<RecordRentalChargeOutput> {
     return this.call("recordRentalCharge", input, options);
+  }
+
+  /**
+   * Record the time a can was put down.
+   *
+   * PUT /v1/rentals/{id}/delivered-at. Needs asset:write.
+   */
+  recordRentalDrop(input: RecordRentalDropParams & RecordRentalDropInput, options?: CallOptions): Promise<RecordRentalDropOutput> {
+    return this.call("recordRentalDrop", input, options);
+  }
+
+  /**
+   * Record when a haul's load was emptied at the facility.
+   *
+   * PUT /v1/rentals/{id}/tipped-at. Needs asset:write.
+   */
+  recordRentalTip(input: RecordRentalTipParams & RecordRentalTipInput, options?: CallOptions): Promise<RecordRentalTipOutput> {
+    return this.call("recordRentalTip", input, options);
   }
 
   /**

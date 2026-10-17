@@ -121,6 +121,18 @@ five. Where a job id is given, the job's first unassigned stop is pointed at
 the hire and marked as the delivery leg, which is what tells the board whether
 the driver is dropping or collecting.
 
+**The moment, or only the day, and the hire says which.** `deliveredAt` is the
+moment the can was put down (and with neither field, now, recorded as it
+happens); `deliveredOn` is only the day, kept at midday in the company's clock
+so it bills the same container days, and the hire records that its hour is
+nobody's (`deliveredTimeKnown` false). Every hire from before this was kept is
+a day only, because nobody can now say which had a real time. The board takes a
+time beside the day ("Time dropped"), and a delivery recorded as a day gets its
+hour later with "Save drop time" on its row or from the driver's phone
+(`PUT /v1/rentals/{id}/delivered-at`), on the day recorded and never another,
+because the day is what the hire bills. A swap is the same: `at` is its
+moment, `on` only its day, and the empty can it leaves is placed then.
+
 A hire with no job behind it is ordinary and is the standing container on a
 commercial site. Nothing invents a visit for it.
 
@@ -136,6 +148,38 @@ taken from one site and dropped at another is a pickup and a delivery.
 leaves the unit tagged out, which is the ordinary case rather than an edge one:
 the pickup checklist's last line is to record the condition and tag it out if
 it needs repair.
+
+### When the load was emptied
+
+`tippedAt` on a pickup or a swap, or `PUT /v1/rentals/{id}/tipped-at` later
+(null clears it), is the moment the full can was emptied at the facility: from
+the driver's phone, or typed by the office when the ticket arrives ("Save time
+emptied" on a collected hire's row, `asset:write`). It is neither the
+collection, which includes the drive and the queue at the gate, nor the scale
+ticket's weighbridge time, which a facility's file gives only to the day. A
+haul still on the board may have one, because the driver tips the load before
+the office records the collection. Refused in words: a time still to come, one
+before the delivery, one on a day before the collection, and one after the can
+was already on its next site; a delivery before the can's last tip is refused
+the same way, so a turnaround can never run backwards. Both times are on the
+audit log with where they came from.
+
+### Repairs and customer holds, from when to when
+
+The out of service tag is what a can is now. A repair is also a period
+(`container_hold`): tagging a can out opens one (from `at`, or now, with the
+reason), collecting it with "back in service" unticked opens one from the
+collection, and putting it back in service closes it (`at`, or now). A can
+already tagged out when this history began has a repair with no start, said
+rather than guessed. A **customer hold** is the office keeping a can for
+somebody who asked ("Hold for a customer" on the register row, with who asked
+and why and since when, `POST /v1/rentable-assets/{id}/holds`): one still
+running is refused for a can on a site, one that has already ended can be
+recorded after the fact with its end, two on one can at once are refused, and
+it ends with "End the hold" (`POST /v1/container-holds/{id}/end`) or when the
+can is delivered. `GET /v1/container-holds` lists them, and "Repairs and holds"
+on `/fleet/containers` shows the last thirty. All `asset:write` to change,
+`asset:read` to look, and on the audit log.
 
 ### What it owes
 
@@ -397,15 +441,16 @@ and the office names the haul a job's own line bills (M10), so a hire sold at a
 flat price on its job is a can's revenue too. The facility's fee recorded on the
 haul is the cost. M21 says what each counts and leaves out.
 
-The last, `turnaround_hours`, is absent rather than approximated: it is hours
-from emptied to placed, and neither end is recorded to the hour. A pickup keeps
-the scale ticket, which is the weighbridge and not the tip; the board takes a
-delivery as a day (kept at midday, for the reason under "The container screen").
-It also leaves out the cans held at a customer's request, which nothing marks,
-and the cans sent for repair, whose out of service tag is the can's current state
-with no history of when it was put on and taken off.
-A KPI computed from the nearest available number is one an owner makes a fleet
-purchase on.
+The last, `turnaround_hours`, is on the scorecard too, because both ends are
+now recorded to the minute and both exclusions as history: the tip and the
+drop above, and the repairs and customer holds as periods. Each placement of a
+can counts the hours from the tip of its previous hire; a placement recorded
+only as a day, or a haul whose tip nobody recorded, is counted beside the figure
+and never given an hour, and a can out for repair or held for a customer at any
+moment between the two is left out, whole. M21 says what it counts and leaves
+out. A KPI computed from the nearest available number (the collection instead
+of the tip, midday instead of the drop) is one an owner makes a fleet purchase
+on, which is why none of them is used.
 
 ## Permissions
 
@@ -439,6 +484,9 @@ most real use:
 
 - `POST /v1/rentable-assets` once per unit.
 - `POST /v1/rentals`, then `/swap` or `/pickup`.
+- `PUT /v1/rentals/{id}/delivered-at` and `PUT /v1/rentals/{id}/tipped-at` for
+  the drop and the tip, `POST /v1/rentable-assets/{id}/holds` and
+  `GET /v1/container-holds` for the holds.
 - `GET /v1/rentals?open=true` for what is out and where.
 - `GET /v1/fleet-report`.
 
@@ -530,10 +578,22 @@ A collected hire with no scale ticket is called out rather than left blank,
 because the ticket is the support behind the largest line on the invoice and the
 largest line in the cost of goods.
 
-**Dates posted at midday UTC, not midnight.** A date box gives a calendar day and
-the service wants an instant. Sent as `T00:00:00Z` it lands on the previous
-evening anywhere west of Greenwich and starts the hire a day early, which is
-exactly the off-by-one a container day is defined to avoid.
+**A day with a time, or a day on its own.** A delivery and a swap take a time
+beside the day ("Time dropped", "Time swapped"), read in the company's clock.
+With no time the day is sent as a day and kept at midday in the company's clock,
+never at midnight: a date as `T00:00:00Z` lands on the previous evening anywhere
+west of Greenwich and starts the hire a day early, which is exactly the off by
+one a container day is defined to avoid. The hire's row says the time it was
+put down, or "no time" for a day only, with "Save drop time" beside it; a
+collected hire with no tip time has "Save time emptied", and the ticket column
+says when the load was emptied. A collection's own date is still a day kept at
+midday UTC, because nothing reads its hour.
+
+**Holds on the register.** A can held for a customer says so on its row with
+since when, beside "End the hold"; a can out for repair says since when beside
+its chip. "Tag out" and "Back in service" take an optional time for a repair
+recorded after the fact. "Repairs and holds" under the register lists the last
+thirty periods.
 
 The hire list carries the site's street and city rather than a property id, which
 this release added. The asset list already answered "where is it" that way with a
@@ -568,7 +628,19 @@ this product's own board first.
   billed as one invoice cannot be raised until its last can is collected: the
   cans already collected are invoiced by changing the hire to one invoice per
   haul.
-- **One of the eight KPIs**, turnaround, listed above with what it needs.
+- **Turnaround's times are only as good as what is recorded.** A delivery
+  recorded as a day, every hire from before the time was kept among them, is
+  counted beside the figure until somebody says when the can was put down, on
+  its row or from the phone; nothing reads a visit's completion as the drop. A
+  can collected empty and never tipped has no tip, so the next placement is
+  counted beside as not known; there is no way to say "came back empty". The
+  phone times a stop's haul only once the office has recorded the hire on it
+  (a drop off booked before the can was chosen shows nothing to time), and a
+  time typed on the phone is the phone's own clock. A customer hold names the
+  customer only through the API: the board asks who asked and why in words.
+  A hold or a repair running at any moment between a tip and the next drop
+  leaves the whole turnaround out, not the hours it ran: the conservative
+  reading of "EXCLUDES cans held", which the product owner has not ruled on.
 - **No telematics.** Cost per hour and per mile on a company asset are only as
   good as what somebody enters, and so is a truck's water: a reading is what
   the driver read off the gauge, and a flow meter is not connected.

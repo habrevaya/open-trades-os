@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
-  arrivalWindow, checkGallons, dateOf, statusLabel, todayIn, addressOf, type DayTruck, type DayVisit,
+  arrivalWindow, checkGallons, dateOf, haulClock, statusLabel, todayIn, addressOf, type DayHaul, type DayTruck, type DayVisit,
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { syncLine } from "../lib/status";
@@ -104,6 +104,10 @@ export function DayScreen({ nav }: { nav: Navigate }) {
       <TalksToSign nav={nav} />
 
       {(view?.day.trucks ?? []).filter((t) => t.days.includes(today)).map((t) => <TruckWater key={t.assetId} truck={t} today={today} />)}
+
+      {(view?.day.hauls ?? []).map((h) => (
+        <Haul key={h.visitId} haul={h} zone={zone} stop={visits.find((v) => v.id === h.visitId) ?? null} />
+      ))}
 
       <OnSiteTools nav={nav} />
 
@@ -210,6 +214,65 @@ function TruckWater({ truck, today }: { truck: DayTruck; today: string }) {
         <Button label={recorded ? "Save a new reading" : "Save the reading"} onPress={() => void save()} />
       </View>
     </Card>
+  );
+}
+
+/**
+ * WHEN A CAN WAS PUT DOWN, AND WHEN A FULL ONE WAS EMPTIED, on a container
+ * stop. "Now" when it happens, or the time typed if it was earlier today. Not
+ * when the can was loaded and not when the truck crossed the scale: the
+ * turnaround between pickup and redelivery is the hours from one to the
+ * other. Sent when there is a signal, like everything else.
+ */
+const LEG: Record<DayHaul["leg"], string> = { delivery: "Drop off", pickup: "Collection", swap: "Swap" };
+
+function Haul({ haul, zone, stop }: { haul: DayHaul; zone: string; stop: DayVisit | null }) {
+  return (
+    <Card>
+      <Text style={type.heading}>{LEG[haul.leg]}: {stop ? stop.customer.name : "a stop"}</Text>
+      {stop ? <Text style={type.soft}>{addressOf(stop)}</Text> : null}
+      {haul.drop ? (
+        <HaulMoment label={`Container ${haul.drop.container} dropped`} zone={zone}
+                    recorded={haul.drop.timeKnown ? haul.drop.deliveredAt : null} waiting={haul.drop.waiting}
+                    rentalId={haul.drop.rentalId} visitId={haul.visitId} moment="placed" />
+      ) : null}
+      {haul.tip ? (
+        <HaulMoment label={`Container ${haul.tip.container} emptied at the facility`} zone={zone}
+                    recorded={haul.tip.tippedAt} waiting={haul.tip.waiting}
+                    rentalId={haul.tip.rentalId} visitId={haul.visitId} moment="tipped" />
+      ) : null}
+    </Card>
+  );
+}
+
+function HaulMoment({ label, zone, recorded, waiting, rentalId, visitId, moment }: {
+  label: string; zone: string; recorded: string | null; waiting: boolean;
+  rentalId: string; visitId: string; moment: "placed" | "tipped";
+}) {
+  const field = useField();
+  const [typed, setTyped] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const save = async () => {
+    const checked = haulClock(typed);
+    if (!checked.ok) { setProblem(checked.problem); return; }
+    setProblem(null);
+    await field.record("haul.time", rentalId, { field: moment, at: checked.at.toISOString(), visitId });
+    setTyped("");
+  };
+  return (
+    <View style={{ marginTop: space.sm }}>
+      <Text style={type.body}>
+        {label}:{" "}
+        {recorded
+          ? `${new Date(recorded).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone })}${waiting ? ", waiting to send" : ""}`
+          : "not recorded yet"}
+      </Text>
+      <Field label="Time, if not now" value={typed} onChangeText={setTyped} placeholder="14:30" />
+      {problem ? <Notice tone="red">{problem}</Notice> : null}
+      <View style={{ marginTop: space.sm }}>
+        <Button label={typed.trim() ? "Save this time" : "Now"} onPress={() => void save()} />
+      </View>
+    </View>
   );
 }
 

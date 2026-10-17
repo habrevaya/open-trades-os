@@ -73,6 +73,8 @@ const REFUSED: Record<string, Refused> = {
   tax_rate_version_day_idx: { file: "tax.ts", how: "check", says: "already has a percentage from" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */
   rentable_asset_identifier_idx: { file: "rentals.ts", how: "catch" },
+  /** A second repair or customer hold opened on one can at once, from two people pressing at the same moment. */
+  container_hold_open_idx: { file: "haul-times.ts", how: "catch" },
   company_asset_identifier_idx: { file: "assets.ts", how: "catch" },
   truck_kind_name_idx: { file: "trucks.ts", how: "catch" },
   /** A second default facility, from two people making one the default at once. */

@@ -259,6 +259,16 @@ export interface DayView {
   expenses: DayExpense[];
   /** The trucks this person had yesterday and today, with the water read: the server's, with this phone's laid over. */
   trucks: DayTruck[];
+  /** The container hauls on this person's stops, with the drop and tip times: the server's, with this phone's laid over. */
+  hauls: DayHaul[];
+}
+
+/** A haul on a stop, with a time recorded on this phone and not sent yet marked `waiting`. */
+export interface DayHaul {
+  visitId: string;
+  leg: "delivery" | "pickup" | "swap";
+  drop: { rentalId: string; container: string; deliveredAt: string | null; timeKnown: boolean; waiting: boolean } | null;
+  tip: { rentalId: string; container: string; tippedAt: string | null; waiting: boolean } | null;
 }
 
 export interface DayTruck {
@@ -334,6 +344,11 @@ export function projectDay(input: {
   const trucks: DayTruck[] = (input.snapshot?.trucks ?? []).map((t) => ({
     ...t, days: [...t.days], water: t.water.map((w) => ({ ...w, waiting: false })),
   }));
+  const hauls: DayHaul[] = (input.snapshot?.hauls ?? []).map((h) => ({
+    visitId: h.visitId, leg: h.leg,
+    drop: h.drop ? { ...h.drop, waiting: false } : null,
+    tip: h.tip ? { ...h.tip, waiting: false } : null,
+  }));
 
   const landed = new Set((input.applied ?? []).map((op) => op.clientId));
   const ordered = [...(input.applied ?? []), ...input.operations]
@@ -408,6 +423,21 @@ export function projectDay(input: {
         .sort((a, b) => a.onDay.localeCompare(b.onDay));
       continue;
     }
+    if (op.kind === "haul.time") {
+      /** The phone's time over the server's: the later tap stands, and this one is later than what was fetched. */
+      const at = op.payload["at"];
+      if (typeof at !== "string") continue;
+      for (const haul of hauls) {
+        const { drop, tip } = haul;
+        if (op.payload["field"] === "placed" && drop && drop.rentalId === op.subjectId) {
+          haul.drop = { ...drop, deliveredAt: at, timeKnown: true, waiting };
+        }
+        if (op.payload["field"] === "tipped" && tip && tip.rentalId === op.subjectId) {
+          haul.tip = { ...tip, tippedAt: at, waiting };
+        }
+      }
+      continue;
+    }
     if (op.kind === "safety.sign") {
       const talk = talks.find((t) => t.meetingId === op.subjectId);
       if (!talk) continue;
@@ -453,6 +483,7 @@ export function projectDay(input: {
     talks,
     expenses,
     trucks,
+    hauls,
   };
 }
 
@@ -464,7 +495,8 @@ export function projectDay(input: {
 export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payload">): string | undefined {
   if (op.kind === "service_report.set_field" || op.kind === "service_report.submit"
     || op.kind === "inspection.record" || op.kind === "estimate.create" || op.kind === "estimate.approve"
-    || op.kind === "estimate.decline" || op.kind === "invoice.raise" || op.kind === "equipment.record") {
+    || op.kind === "estimate.decline" || op.kind === "invoice.raise" || op.kind === "equipment.record"
+    || op.kind === "haul.time") {
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }

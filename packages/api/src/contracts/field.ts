@@ -19,6 +19,7 @@ export const OperationKind = z.enum([
   "expense.record",
   "notice.read",
   "truck.water",
+  "haul.time",
 ]);
 
 export const OperationStatus = z.enum([
@@ -585,6 +586,22 @@ export const getFieldSnapshot = defineRoute({
       label: z.string(),
       days: z.array(z.string().date()),
       water: z.array(z.object({ onDay: z.string().date(), gallons: z.string() })),
+    })).optional(),
+    /**
+     * The container hauls on this person's stops, so the driver records the
+     * moment a can was put down (`drop`) and the moment a full one was
+     * emptied at the facility (`tip`) with no signal (`haul.time`). A
+     * delivery has a drop, a collection a tip, and a swap both once the
+     * office has recorded it. Absent from older servers and on an unchanged
+     * poll.
+     */
+    hauls: z.array(z.object({
+      visitId: Uuid,
+      leg: z.enum(["delivery", "pickup", "swap"]),
+      drop: z.object({
+        rentalId: Uuid, container: z.string(), deliveredAt: z.string().datetime().nullable(), timeKnown: z.boolean(),
+      }).nullable(),
+      tip: z.object({ rentalId: Uuid, container: z.string(), tippedAt: z.string().datetime().nullable() }).nullable(),
     })).optional(),
   }),
 });

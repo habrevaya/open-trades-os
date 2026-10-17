@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Forty four of the forty seven are answered: forty computed here, four by
-M22's fleet report. The other three each name what they still lack.
+Forty five of the forty seven are answered: forty one computed here, four by
+M22's fleet report. The other two each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -625,6 +625,53 @@ and `reporting.disposalHaulOf`, with unit tests, written again in SQL, and
 puts the same lines and hauls through both, and checks a hire's invoice naming
 the haul on every line.
 
+### Turnaround between pickup and redelivery, and the three times it waited on
+
+The dumpster pack's **turnaround between pickup and redelivery** is "hours from
+a container being emptied at the facility to it being placed on the next
+customer site", and it EXCLUDES "cans routed to the yard for repair and cans
+held at customer request, since neither is a dispatch failure". Nothing
+recorded either end to the hour: a pickup kept the scale ticket, which is the
+weighbridge and not the tip, and the board took a delivery as a day at
+midday. And the exclusions were the can's state today, with no history. Now
+(M22):
+
+- **The tip.** A haul has the moment its full can was emptied (`tipped_at`),
+  tapped on the driver's phone (`haul.time`, M11) or typed on the board when
+  the ticket arrives. Never the collection and never the weighbridge.
+- **The drop.** A hire says whether its delivery is the moment the can was put
+  down (`delivered_time_known`): the board takes a time with the day, the phone
+  taps it, and a delivery recorded only as a day stays one.
+- **The holds.** A repair (tagged out and back) and a customer hold (kept for
+  somebody who asked) are periods with a start and an end (`container_hold`).
+
+What it counts:
+
+- A **placement** is a hire of a can put down in the window, in the company's
+  calendar, that had a hire of the same can before it, collected. The can's
+  previous hire is found by delivery, not by collection, because a collection
+  recorded as a day sits at midday and a can put back out that morning must
+  not skip back a hire. A can's first placement is no turnaround.
+- Its **hours** run from the previous hire's tip to this placement.
+- **Not known**, left out of both halves and counted beside: a placement
+  recorded only as a day (every hire from before the time was kept among
+  them), a previous haul whose tip nobody recorded, and times that run
+  backwards (which recording refuses, so only data from elsewhere can have
+  them). Never given an hour.
+- **Left out**, and counted beside: a can out for repair or held for a
+  customer at any moment between the tip and the placement, the whole
+  turnaround and not the hours of the hold, because the definition excludes
+  the can. A repair already running when the history began started before
+  anything measured.
+
+The numerator's records are each placement with its hours ("Container 101 (20
+yd): emptied Jun 2, 2:00 PM, placed Jun 3, 9:30 AM"), the denominator's the same
+placements one each, opening on the container fleet. The rule is core's
+`reporting.turnaroundOf`, with unit tests, written again in SQL, and
+`kpi-turnaround.integration.test.ts` checks a month worked out by hand, puts
+the same placements through both, and records the drop, the tip and the holds
+from the office and the tip and the drop from the phone.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -725,9 +772,9 @@ Every half of every computed KPI is written as the list of records it counts,
 each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
 assembly due a retest, a crew's day, a permitted job, a person's route day, a
-scheduled stop, an old water heater inspected, a troubleshooting call, a drain call. The scorecard's number is the sum of those rows, and
-
-street served, a truck, a container, a haul. The scorecard's number is the sum of those rows, and
+scheduled stop, an old water heater inspected, a troubleshooting call, a drain
+call, a street served, a truck, a container, a haul (a placement of a can, for
+turnaround). The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -1106,12 +1153,12 @@ prefix off.
 
 ## What is not built
 
-Three of the forty seven declared KPIs cannot be computed, and each one
+Two of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the three has its datum yet (above, "The
-unavailable list"); none is computed from something near it instead.
+since they were written and neither has its datum yet (above, "The
+unavailable list"); neither is computed from something near it instead.
 
 Drain call conversion reads the drain call and the upsell items the company's
 trade pack marks, by code: a camera inspection sold under an item the company
@@ -1169,11 +1216,17 @@ register does not hold. A disposal fee is what was recorded on the haul; the fee
 worked out from a ticket's weight at the facility's rate is an estimate and is
 not read.
 
-The dumpster pack's turnaround between pickup and redelivery stays unanswered:
-it is hours from a can emptied at the facility to it placed on the next site,
-and neither moment is recorded to the hour (the board takes a delivery as a
-day), nor are the days a can was held for a customer or out for repair. Recording
-them is a change to how a haul and a delivery are written, not to this report.
+Turnaround between pickup and redelivery is only as complete as the times
+recorded: a delivery recorded as a day (every hire from before the time was
+kept among them) and a haul whose tip nobody recorded are counted beside the
+figure, never given an hour, so a company's first months read "Not this window"
+or a figure over only the placements timed since. A can collected empty and
+never tipped has no tip, and its next placement is counted beside as not known.
+A repair or a customer hold running at any moment between a tip and the next
+drop leaves the whole turnaround out rather than the hours it ran; that is the
+conservative reading of "EXCLUDES cans held", and the product owner has not
+ruled on it. A hold is only what the office records: a can kept back for a
+customer with no hold recorded counts as a slow turnaround.
 
 First time fix leaves out a part hold only when it names a purchase order in
 this product that went to the supplier, so a part bought over the counter and

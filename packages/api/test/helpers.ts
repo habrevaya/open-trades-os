@@ -254,6 +254,8 @@ const ORDER = [
   "retention_hold", "retention_purge_run",
   "retention_policy", "regulatory_submission",
   "recurring_schedule", "route_stop", "route", "crew_member", "crew",
+  /** A repair or a customer's hold is a period of a container, so it goes before the container. */
+  "container_hold",
   /** A charge found on a haul points at the hire and at the fee it was priced from. */
   "rental_charge",
   "rental",

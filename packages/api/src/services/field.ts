@@ -14,6 +14,7 @@ import * as location from "./location";
 import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
 import * as truckWater from "./truck-water";
+import * as haulTimes from "./haul-times";
 import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
@@ -1206,6 +1207,8 @@ async function effect(
       return fieldSales.noticeOperation(tx, ctx, op);
     case "truck.water":
       return truckWater.waterOperation(tx, ctx, op, await technicianForDevice(tx, op.deviceId));
+    case "haul.time":
+      return haulTimes.haulTimeOperation(tx, ctx, op, await technicianForDevice(tx, op.deviceId));
 
     default:
       /**

@@ -312,6 +312,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "stops_per_day",
       "street_density",
       "supply_cost_pct",
+      "turnaround_hours",
       "water_per_stop",
       "wh_attach",
     ]);
@@ -370,9 +371,13 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * water its driver read off the tank, on the phone or from the office.
      * `revenue_per_container_month` and `disposal_cost_pct` made forty four when a
      * hire's invoice named the haul each line bills and the office could name
-     * the haul a job's own line bills.
+     * the haul a job's own line bills. `turnaround_hours` made forty five when
+     * a haul recorded the moment its can was emptied at the facility, a
+     * delivery the moment the can was put down rather than a day at midday,
+     * and a repair and a customer hold were kept as periods with a start and
+     * an end.
      */
-    expect(computed.length + elsewhere.length).toBe(44);
+    expect(computed.length + elsewhere.length).toBe(45);
     expect(KEYS.length).toBe(47);
   });
 });

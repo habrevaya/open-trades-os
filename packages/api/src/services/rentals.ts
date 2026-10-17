@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { facilityOf, feeFigure } from "./disposal-facilities";
+import { assertPlacedAfterTip, closeRepair, openRepair, recordTipWithin, releaseOnDelivery } from "./haul-times";
 
 /**
  * A TRADE PACK THAT SHIPPED, AND THE THING IT RENTS
@@ -159,10 +160,23 @@ export function listAssets(ctx: ServiceContext, input: {
       .map((row) => row.currentPropertyId)
       .filter((id): id is string => id !== null));
 
+    /**
+     * What is keeping each can off the road right now, with since when: a
+     * repair or a customer's hold. The history is `GET /v1/container-holds`.
+     */
+    const running = rows.length === 0 ? [] : await tx.select({
+      id: schema.containerHold.id, assetId: schema.containerHold.assetId, kind: schema.containerHold.kind,
+      startsAt: schema.containerHold.startsAt, reason: schema.containerHold.reason,
+    }).from(schema.containerHold)
+      .where(and(inArray(schema.containerHold.assetId, rows.map((row) => row.id)), isNull(schema.containerHold.endsAt)));
+
     return {
       data: rows.map((row) => ({
         ...assetView(row),
         currentAddress: row.currentPropertyId ? places.get(row.currentPropertyId) ?? null : null,
+        holds: running.filter((h) => h.assetId === row.id).map((h) => ({
+          id: h.id, kind: h.kind, startsAt: h.startsAt?.toISOString() ?? null, reason: h.reason,
+        })),
       })),
     };
   });
@@ -202,7 +216,7 @@ async function moveAsset(
  * is the ordinary case: the pickup checklist's last line is to record the
  * condition and tag it out if it needs repair.
  */
-export function tagOutOfService(ctx: ServiceContext, input: { id: string; reason: string }) {
+export function tagOutOfService(ctx: ServiceContext, input: { id: string; reason: string; at?: string | undefined }) {
   return guardedWrite(ctx, "asset:write", async (tx) => {
     const row = await assetWithin(tx, ctx, input.id);
     const reason = input.reason.trim();
@@ -213,18 +227,44 @@ export function tagOutOfService(ctx: ServiceContext, input: { id: string; reason
       );
     }
     await moveAsset(tx, ctx, row, "out_of_service", null);
+    /**
+     * A REPAIR IS A PERIOD, not only a state. The status says the can is out
+     * today; the turnaround for last month has to know it was out then, and
+     * since when, so the repair is opened here and closed when it goes back.
+     */
+    await openRepair(tx, ctx, row.id, pastOrNow(input.at, "That repair"), reason);
     await audit(tx, ctx, "rentable_asset.out_of_service", "rentable_asset", row.id, row, { reason });
     return assetView(await assetWithin(tx, ctx, input.id));
   });
 }
 
-export function returnToService(ctx: ServiceContext, input: { id: string }) {
+export function returnToService(ctx: ServiceContext, input: { id: string; at?: string | undefined }) {
   return guardedWrite(ctx, "asset:write", async (tx) => {
     const row = await assetWithin(tx, ctx, input.id);
     await moveAsset(tx, ctx, row, "available", null);
+    await closeRepair(tx, ctx, row.id, pastOrNow(input.at, "That return to service"), await timezoneOf(tx, ctx.actor.organizationId));
     await audit(tx, ctx, "rentable_asset.in_service", "rentable_asset", row.id, row, null);
     return assetView(await assetWithin(tx, ctx, input.id));
   });
+}
+
+/** An instant somebody gave, or the clock; never one still to come beyond a phone's few minutes of drift. */
+function pastOrNow(at: string | undefined, what: string): Date {
+  if (!at) return new Date();
+  const parsed = new Date(at);
+  if (Number.isNaN(parsed.getTime())) throw new ConflictError(`${what} is not a time.`);
+  if (parsed.getTime() > Date.now() + 10 * 60_000) throw new ConflictError(`${what} has not come yet. Record it when it happens.`);
+  return parsed;
+}
+
+/**
+ * Midday on a day in the company's clock: a delivery recorded as a day. The
+ * hour is no one's, which `delivered_time_known` says; midday keeps the day
+ * the same in every zone, which is all the billing reads.
+ */
+function middayOf(day: string, zone: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new ConflictError(`"${day}" is not a day.`);
+  return time.instantOfLocal(day, 12 * 60, zone);
 }
 
 /**
@@ -270,8 +310,10 @@ export interface DeliverInput {
   propertyId: string;
   /** The job this hire belongs to, when it has one. */
   jobId?: string | null | undefined;
-  /** Opens the hire at this instant rather than at the clock. */
+  /** Opens the hire at this instant rather than at the clock: the moment the can was put down. */
   deliveredAt?: string | undefined;
+  /** Opens the hire on this day, with no time recorded. Not with `deliveredAt`. */
+  deliveredOn?: string | undefined;
   includedDays?: number | null | undefined;
   dailyRate?: string | null | undefined;
   overageRate?: string | null | undefined;
@@ -310,14 +352,30 @@ export function deliver(ctx: ServiceContext, input: DeliverInput) {
 
     if (input.disposalPassThrough === true && input.perTonRate != null) throw new ConflictError(TWICE);
 
-    const deliveredAt = input.deliveredAt ? new Date(input.deliveredAt) : new Date();
+    /**
+     * THE MOMENT, OR ONLY THE DAY, and the hire says which. An instant given
+     * (or the clock, recording it as it happens) is the moment the can was
+     * put down; a day is a day, kept at midday for the billing and never read
+     * as an hour by the turnaround.
+     */
+    if (input.deliveredAt && input.deliveredOn) {
+      throw new ConflictError("Give the moment the can was put down, or only the day, not both.");
+    }
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const timeKnown = input.deliveredOn === undefined;
+    const deliveredAt = input.deliveredOn !== undefined
+      ? middayOf(input.deliveredOn, zone)
+      : input.deliveredAt ? new Date(input.deliveredAt) : new Date();
+    await assertPlacedAfterTip(tx, { assetId: asset.id, placedAt: deliveredAt, timeKnown, zone, except: null });
     await moveAsset(tx, ctx, asset, "on_site", input.propertyId);
+    await releaseOnDelivery(tx, ctx, asset.id, deliveredAt);
 
     const [row] = await tx.insert(schema.rental).values({
       organizationId: ctx.actor.organizationId,
       assetId: input.assetId,
       propertyId: input.propertyId,
       deliveredAt,
+      deliveredTimeKnown: timeKnown,
       includedDays: input.includedDays ?? null,
       dailyRate: input.dailyRate ?? null,
       overageRate: input.overageRate ?? null,
@@ -398,6 +456,8 @@ export interface PickUpInput {
   disposalFee?: string | null | undefined;
   /** False when the can went straight to the repair bay. */
   backInService?: boolean | undefined;
+  /** When the full can was emptied at the facility, when it is known: not the pickup, not the weighbridge. */
+  tippedAt?: string | null | undefined;
   /**
    * The facility the load went to, when it is one the company has recorded.
    * Its name is written as the haul's facility, replacing any typed.
@@ -434,10 +494,12 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
     }
     assertTons(input.tons, "net");
     assertTons(input.divertedTons, "diverted");
+    await assertNotAfterTip(tx, ctx, hire, pickedUpAt);
 
     const facility = await tippedAt(tx, ctx, input.facilityId);
     const asset = await assetWithin(tx, ctx, hire.assetId);
     await moveAsset(tx, ctx, asset, input.backInService === false ? "out_of_service" : "available", null);
+    if (input.backInService === false) await openRepair(tx, ctx, asset.id, pickedUpAt, "Came back from a site needing repair");
 
     const [row] = await tx.update(schema.rental).set({
       pickedUpAt,
@@ -452,6 +514,9 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
     }).where(eq(schema.rental.id, input.id)).returning();
 
     await audit(tx, ctx, "rental.pickup", "rental", input.id, hire, row);
+    if (input.tippedAt) {
+      return rentalViewWithin(tx, ctx, await recordTipWithin(tx, ctx, { id: input.id, tippedAt: new Date(input.tippedAt), source: "office" }));
+    }
     return rentalViewWithin(tx, ctx, row!);
   });
 }
@@ -468,6 +533,22 @@ async function tippedAt(tx: Database, ctx: ServiceContext, facilityId: string | 
     throw new ConflictError(`${facility.name} has been closed on Disposal facilities. Choose where the load went, or reopen it first.`);
   }
   return facility;
+}
+
+/**
+ * A collection recorded after the driver's phone already said the load was
+ * tipped must not be on a later day than the tip: the can was emptied after it
+ * left the site, never before.
+ */
+async function assertNotAfterTip(tx: Database, ctx: ServiceContext, hire: typeof schema.rental.$inferSelect, at: Date) {
+  if (!hire.tippedAt) return;
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  if (time.dateIn(at, zone) > time.dateIn(hire.tippedAt, zone)) {
+    throw new ConflictError(
+      `The load was recorded emptied at the facility on ${time.dateIn(hire.tippedAt, zone)}, before this collection. `
+      + "Correct the tip time or the collection day.",
+    );
+  }
 }
 
 function assertTons(value: string | null | undefined, which: "net" | "diverted") {
@@ -492,6 +573,10 @@ export interface SwapInput {
   materialType?: string | null | undefined;
   /** The recorded facility the full can went to. Its name replaces any typed. */
   facilityId?: string | null | undefined;
+  /** The day of the swap, with no time recorded. Not with `at`. */
+  on?: string | undefined;
+  /** When the full can was emptied at the facility, when it is known. */
+  tippedAt?: string | null | undefined;
 }
 
 /**
@@ -521,18 +606,25 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       );
     }
 
-    const at = input.at ? new Date(input.at) : new Date();
+    if (input.at && input.on) throw new ConflictError("Give the moment of the swap, or only the day, not both.");
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    /** The empty can is put down at the swap, so the swap's time is its placement's, known or only a day. */
+    const timeKnown = input.on === undefined;
+    const at = input.on !== undefined ? middayOf(input.on, zone) : input.at ? new Date(input.at) : new Date();
     if (hire.deliveredAt && at.getTime() < hire.deliveredAt.getTime()) {
       throw new ConflictError("That swap is before the delivery it would close.");
     }
     assertTons(input.tons, "net");
+    await assertNotAfterTip(tx, ctx, hire, at);
     const facility = await tippedAt(tx, ctx, input.facilityId);
 
     const outgoing = await assetWithin(tx, ctx, hire.assetId);
     const incoming = await assetWithin(tx, ctx, input.replacementAssetId);
 
+    await assertPlacedAfterTip(tx, { assetId: incoming.id, placedAt: at, timeKnown, zone, except: null });
     await moveAsset(tx, ctx, outgoing, "available", null);
     await moveAsset(tx, ctx, incoming, "on_site", hire.propertyId);
+    await releaseOnDelivery(tx, ctx, incoming.id, at);
 
     const [closed] = await tx.update(schema.rental).set({
       pickedUpAt: at,
@@ -555,6 +647,7 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       assetId: input.replacementAssetId,
       propertyId: hire.propertyId,
       deliveredAt: at,
+      deliveredTimeKnown: timeKnown,
       includedDays: hire.includedDays,
       dailyRate: hire.dailyRate,
       overageRate: hire.overageRate,
@@ -566,8 +659,11 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
     }).returning();
 
     await audit(tx, ctx, "rental.swap", "rental", opened!.id, closed, opened);
+    const full = input.tippedAt
+      ? await recordTipWithin(tx, ctx, { id: input.id, tippedAt: new Date(input.tippedAt), source: "office" })
+      : closed!;
     return {
-      closed: await rentalViewWithin(tx, ctx, closed!),
+      closed: await rentalViewWithin(tx, ctx, full),
       opened: await rentalViewWithin(tx, ctx, opened!),
     };
   });
@@ -653,7 +749,11 @@ async function rentalViewWithin(
     propertyId: row.propertyId,
     propertyAddress: places.get(row.propertyId) ?? null,
     deliveredAt: row.deliveredAt?.toISOString() ?? null,
+    /** Whether `deliveredAt` is the moment the can was put down, or only its day (kept at midday). */
+    deliveredTimeKnown: row.deliveredTimeKnown,
     pickedUpAt: row.pickedUpAt?.toISOString() ?? null,
+    /** When the full can was emptied at the facility, once somebody recorded it. */
+    tippedAt: row.tippedAt?.toISOString() ?? null,
     /** Open when it has not been collected, whatever the dates say. */
     open: row.pickedUpAt === null,
     /**
@@ -812,11 +912,10 @@ export interface FleetReport {
  * (`kpi-catalogue.ts`): `hauls_per_truck_day`, because who drives is the
  * custody of a vehicle with a kind of truck and the days worked are the
  * timeclock's, and `revenue_per_container_month` and `disposal_cost_pct`,
- * because they read invoice lines that name the haul they bill. The last,
- * `turnaround_hours`, needs the moment a can was emptied at the facility, which
- * nothing records, and the cans held at a customer's request, which it must
- * leave out. It is absent rather than approximated, because a KPI computed from
- * the nearest available number is one an owner makes a fleet purchase on.
+ * because they read invoice lines that name the haul they bill, and
+ * `turnaround_hours`, because it reads the moments a can was emptied and put
+ * down and the periods it was out for repair or held for a customer
+ * (`haul-times.ts`), none of which a report over a window of hires holds.
  *
  * EVERY EXCLUSION THE PACK NAMES IS IMPLEMENTED AND TESTED, because each one is
  * the way the metric is usually got wrong.
@@ -1082,9 +1181,9 @@ async function startsFor(
 export const handlers = {
   addRentableAsset: (ctx: ServiceContext, input: AssetInput) => addAsset(ctx, input),
   listRentableAssets: listAssets,
-  tagAssetOutOfService: (ctx: ServiceContext, input: { id: string; reason: string }) =>
+  tagAssetOutOfService: (ctx: ServiceContext, input: { id: string; reason: string; at?: string | undefined }) =>
     tagOutOfService(ctx, input),
-  returnAssetToService: (ctx: ServiceContext, input: { id: string }) => returnToService(ctx, input),
+  returnAssetToService: (ctx: ServiceContext, input: { id: string; at?: string | undefined }) => returnToService(ctx, input),
   retireRentableAsset: (ctx: ServiceContext, input: { id: string }) => retireAsset(ctx, input),
   deliverRental: (ctx: ServiceContext, input: DeliverInput) => deliver(ctx, input),
   pickUpRental: (ctx: ServiceContext, input: PickUpInput) => pickUp(ctx, input),

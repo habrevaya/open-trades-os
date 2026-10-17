@@ -1,12 +1,12 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { rentals, rentalBilling, properties, inTenant, disposalFacilities } from "@opentradesos/api/services";
+import { rentals, rentalBilling, properties, inTenant, disposalFacilities, haulTimes } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
 import { Empty, PageHeader } from "@/components/Table";
 import { todayIn } from "@/lib/dates";
-import { Numbers, Register, Hires, Overage } from "./ContainerView";
+import { Numbers, Register, Hires, Overage, moment } from "./ContainerView";
 import { ActionForm } from "./ActionForm";
 import { ActionForm as SaidForm, Select, TextField } from "@/components/ActionForm";
 import { Money } from "@opentradesos/ui";
@@ -85,10 +85,13 @@ export default async function ContainersPage(
   /** A hire whose overage somebody asked to see, by id in the query string. */
   const priced = one("overage");
 
-  const [fleet, hires] = await Promise.all([
+  const [fleet, hires, holds] = await Promise.all([
     rentals.listAssets(ctx, { limit: 500 }),
     rentals.listRentals(ctx, { limit: 200 }),
+    haulTimes.listHolds(ctx, { limit: 30 }),
   ]);
+  /** The company's day an instant falls on, for a drop time set on the day the delivery was recorded. */
+  const localDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: zone });
 
   /**
    * The report is a separate call and a separate failure. A backwards window is
@@ -192,8 +195,29 @@ export default async function ContainersPage(
       </div>
       <Hires
         hires={hires.data}
+        zone={zone}
         controls={(hire) => (
           <div className="flex flex-wrap gap-2">
+            {/*
+              A delivery recorded as a day has no hour, and the turnaround
+              counts it beside its figure until somebody says when the can was
+              put down. Only the time is asked: the day is what the hire bills.
+            */}
+            {writes && hire.deliveredAt && !hire.deliveredTimeKnown && (
+              <ActionForm op="drop-time" label="Save drop time" quiet hidden={{ id: hire.id, day: localDay(hire.deliveredAt) }}>
+                <input name="time" type="time" required className={input} aria-label={`Time dropped on ${localDay(hire.deliveredAt)}`} />
+              </ActionForm>
+            )}
+            {/*
+              When the load was emptied at the facility: the driver taps it on
+              the phone, or the office types it when the ticket arrives. Not the
+              collection, which includes the drive and the queue at the gate.
+            */}
+            {writes && !hire.open && !hire.tippedAt && (
+              <ActionForm op="tip" label="Save time emptied" quiet hidden={{ id: hire.id }}>
+                <input name="tippedAt" type="datetime-local" required className={input} aria-label="Emptied at the facility" />
+              </ActionForm>
+            )}
             {hire.open && writes && (
               <ActionForm op="pickup" label="Collect" quiet hidden={{ id: hire.id }}>
                 <input name="pickedUpAt" type="date" className={input} aria-label="Collected on" />
@@ -209,6 +233,7 @@ export default async function ContainersPage(
                 <input name="ticketNumber" placeholder="Ticket"
                        aria-label="Ticket for the collection" className={`${input} w-24`} />
                 {facilityPick("Facility the load went to")}
+                <input name="tippedAt" type="datetime-local" className={input} aria-label="Load emptied at" />
                 {/*
                   Checked by default, because a can almost always goes back into
                   the yard. The unchecked case is the one that matters: a unit
@@ -229,11 +254,13 @@ export default async function ContainersPage(
                   ))}
                 </select>
                 <input name="at" type="date" className={input} aria-label="Swapped on" />
+                <input name="atTime" type="time" className={input} aria-label="Time swapped" />
                 <input name="tons" inputMode="decimal" placeholder="Net tons"
                        aria-label="Net tons on the full can" className={`${input} w-24`} />
                 <input name="ticketNumber" placeholder="Ticket"
                        aria-label="Ticket for the swap" className={`${input} w-24`} />
                 {facilityPick("Facility the full can went to")}
+                <input name="tippedAt" type="datetime-local" className={input} aria-label="Full can emptied at" />
               </ActionForm>
             )}
             {!hire.open && (
@@ -410,6 +437,7 @@ export default async function ContainersPage(
       <h2 className="mt-10 text-base font-semibold">The register</h2>
       <Register
         containers={fleet.data}
+        zone={zone}
         controls={writes ? (container) => (
           <div className="flex flex-wrap gap-2">
             {container.status === "available" && addresses.length > 0 && (
@@ -422,6 +450,12 @@ export default async function ContainersPage(
                   ))}
                 </select>
                 <input name="deliveredAt" type="date" className={input} aria-label="Delivered on" />
+                {/*
+                  The time the can was put down. Left empty with a day, the hire
+                  keeps the day only: it bills the same, and the turnaround
+                  counts it beside the figure rather than guess an hour.
+                */}
+                <input name="deliveredTime" type="time" className={input} aria-label="Time dropped" />
                 <input name="includedDays" inputMode="numeric" placeholder="Days incl." className={`${input} w-24`} />
                 <input name="dailyRate" inputMode="decimal" placeholder="Day rate" className={`${input} w-24`} />
                 <input name="overageRate" inputMode="decimal" placeholder="Over/day" className={`${input} w-24`} />
@@ -437,18 +471,64 @@ export default async function ContainersPage(
               </ActionForm>
             )}
             {container.status === "out_of_service"
-              ? <ActionForm op="in" label="Back in service" quiet hidden={{ id: container.id }} />
+              ? (
+                <ActionForm op="in" label="Back in service" quiet hidden={{ id: container.id }}>
+                  <input name="back" type="datetime-local" className={input} aria-label={`Back in service at, ${container.identifier}`} />
+                </ActionForm>
+              )
               : (
                 <ActionForm op="out" label="Tag out" quiet hidden={{ id: container.id }}>
                   <input name="reason" required placeholder="Why" className={`${input} w-40`} />
+                  <input name="since" type="datetime-local" className={input} aria-label={`Out for repair since, ${container.identifier}`} />
                 </ActionForm>
               )}
+            {/*
+              Held for a customer who asked for this can. The time it starts
+              and ends is kept, because the turnaround leaves out a can held
+              between its tip and its next drop, and a hold nobody ended would
+              leave it out for ever.
+            */}
+            {container.status === "available" && !(container.holds ?? []).some((h) => h.kind === "customer") && (
+              <ActionForm op="hold" label="Hold for a customer" quiet hidden={{ id: container.id }}>
+                <input name="reason" required placeholder="Who asked, and why" className={`${input} w-48`}
+                       aria-label={`Who asked for ${container.identifier} to be held`} />
+                <input name="since" type="datetime-local" className={input} aria-label={`Held since, ${container.identifier}`} />
+              </ActionForm>
+            )}
+            {(container.holds ?? []).filter((h) => h.kind === "customer").map((h) => (
+              <ActionForm key={h.id} op="end-hold" label="End the hold" quiet hidden={{ id: h.id }} />
+            ))}
             {container.status !== "on_site" && (
               <ActionForm op="retire" label="Retire" quiet hidden={{ id: container.id }} />
             )}
           </div>
         ) : undefined}
       />
+
+      <section className="mt-8" aria-labelledby="holds">
+        <h2 id="holds" className="text-base font-semibold">Repairs and holds</h2>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          When each can was out for repair or held because a customer asked, from when to when. The turnaround between
+          pickup and redelivery on the trade scorecard leaves out a can that spent any of its turnaround in one.
+        </p>
+        {holds.data.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-500">None recorded yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1 text-sm">
+            {holds.data.map((h) => (
+              <li key={h.id}>
+                <span className="font-mono font-medium">{h.assetIdentifier}</span>
+                <span className="ml-2">{h.kind === "repair" ? "Out for repair" : `Held for ${h.customerName ?? "a customer"}`}:</span>
+                <span className="ml-1 text-ink-700">{h.reason}.</span>
+                <span className="ml-1 text-ink-500">
+                  {h.startsAt ? `From ${moment(h.startsAt, zone)}` : "From before repairs were recorded"}
+                  {h.endsAt ? ` to ${moment(h.endsAt, zone)}` : ", still running"}.
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {writes && (
         <section className="mt-8">

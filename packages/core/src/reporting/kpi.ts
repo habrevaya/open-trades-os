@@ -79,6 +79,10 @@ import { streetKey } from "../geo/index.js";
  *   HOMES PER SERVED STREET. Active subscriptions over the distinct streets
  *   they are on, commercial stops left out and an address whose street is not
  *   recorded left out of both halves rather than guessed from its line.
+ *
+ *   A CONTAINER'S TURNAROUND. Hours from the can emptied at the facility to
+ *   it placed on the next site, both moments recorded to the minute, with a
+ *   can out for repair or held for a customer in between left out.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -1091,4 +1095,59 @@ export function disposalHaulOf(haul: { fee: number | null; revenue: number | und
   if (haul.fee === null) return { counted: false, why: "no_fee" };
   if (haul.revenue === undefined) return { counted: false, why: "not_invoiced" };
   return { counted: true, cost: haul.fee, revenue: haul.revenue };
+}
+
+/* ------------------------------------------------------ a container's turnaround */
+
+/** A period a container was kept off the road: out for repair, or held because a customer asked. */
+export interface ContainerHold {
+  kind: "repair" | "customer";
+  /** Null for a repair already running when the history began: before anything measured. */
+  startsAt: Date | null;
+  /** Null while it is still running. */
+  endsAt: Date | null;
+}
+
+export type TurnaroundVerdict =
+  | { counted: true; hours: number }
+  | { counted: false; why: "placed_day_only" | "no_tip" | "times_disagree" | "repair" | "customer_hold" };
+
+/**
+ * ONE PLACEMENT OF A CAN, AND THE HOURS SINCE IT WAS LAST EMPTIED.
+ *
+ * "Hours from a container being emptied at the facility to it being placed on
+ * the next customer site. EXCLUDES cans routed to the yard for repair and cans
+ * held at customer request, since neither is a dispatch failure."
+ *
+ * Both ends must be moments somebody recorded. A placement recorded only as a
+ * day (the board's midday, or any hire from before the time was kept) and a
+ * haul whose tip nobody recorded are LEFT OUT OF BOTH HALVES and counted
+ * beside as not known: an hour from a midday nobody chose is a guess, and the
+ * pickup is not the tip, because it includes the drive and the queue at the
+ * gate. Times that run backwards (placed before it was emptied) are not known
+ * either rather than a negative turnaround.
+ *
+ * Only then the exclusions, and they are of the CAN, whole, as the definition
+ * says, not hours taken off: any repair or customer hold running at any moment
+ * between the tip and the placement leaves the turnaround out. One that ended
+ * by the tip, or began at or after the placement, is outside it. A repair with
+ * no start began before anything measured.
+ */
+export function turnaroundOf(input: {
+  tippedAt: Date | null;
+  placedAt: Date;
+  placedTimeKnown: boolean;
+  holds: readonly ContainerHold[];
+}): TurnaroundVerdict {
+  if (!input.placedTimeKnown) return { counted: false, why: "placed_day_only" };
+  if (input.tippedAt === null) return { counted: false, why: "no_tip" };
+  const from = input.tippedAt.getTime();
+  const to = input.placedAt.getTime();
+  if (to < from) return { counted: false, why: "times_disagree" };
+  const during = (kind: ContainerHold["kind"]) => input.holds.some((h) => h.kind === kind
+    && (h.startsAt === null || h.startsAt.getTime() < to)
+    && (h.endsAt === null || h.endsAt.getTime() > from));
+  if (during("repair")) return { counted: false, why: "repair" };
+  if (during("customer")) return { counted: false, why: "customer_hold" };
+  return { counted: true, hours: (to - from) / 3_600_000 };
 }

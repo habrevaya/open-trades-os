@@ -19,6 +19,7 @@ export * from "./equipment";
 export * from "./talks";
 export * from "./expense";
 export * from "./truck-water";
+export * from "./haul-time";
 export * from "./task";
 export * from "./customer-files";
 export * from "./customer-notes";
