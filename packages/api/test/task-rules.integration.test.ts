@@ -290,6 +290,20 @@ run("escalating late tasks", () => {
       .rejects.toThrow(PermissionError);
   });
 
+  it("refuses a reporting line that makes a loop, two people or more, naming them", async () => {
+    await rules.setReportsTo(owner(), { userId: TECH, reportsToUserId: MANAGER });
+    await expect(rules.setReportsTo(owner(), { userId: MANAGER, reportsToUserId: TECH }))
+      .rejects.toThrow("That would make a loop. Mona Manager would report to Sam Tech, and Sam Tech reports to Mona Manager. Change one of those lines first.");
+    await rules.setReportsTo(owner(), { userId: MANAGER, reportsToUserId: CSR });
+    await expect(rules.setReportsTo(owner(), { userId: CSR, reportsToUserId: TECH }))
+      .rejects.toThrow("That would make a loop. Cass Csr would report to Sam Tech, Sam Tech reports to Mona Manager, and Mona Manager reports to Cass Csr. Change one of those lines first.");
+    const [row] = await raw`select reports_to_user_id from public.membership where organization_id = ${ORG} and user_id = ${CSR}`;
+    expect(row!.reports_to_user_id).toBeNull();
+    // Moving somebody up the same chain, or clearing a line, is not a loop.
+    await rules.setReportsTo(owner(), { userId: TECH, reportsToUserId: CSR });
+    await rules.setReportsTo(owner(), { userId: TECH, reportsToUserId: null });
+  });
+
   it("runs from the worker's pass across companies", async () => {
     await rules.createRule(owner(), { name: "Four hours", afterHours: 4, target: "person", targetUserId: CSR });
     await rules.createTemplate(owner(), { title: "Daily", frequency: "daily", startsOn: "2026-01-01" });

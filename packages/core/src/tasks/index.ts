@@ -506,3 +506,51 @@ export function closeVerdict(input: {
 
 /** The most items one task's checklist may hold. A list longer than this is a procedure document. */
 export const MAX_CHECKLIST_ITEMS = 50;
+
+/* ------------------------------------------------------- reporting lines */
+
+/**
+ * Whether setting a reporting line would make a loop, and who is in it.
+ *
+ * `lines` is each person's current manager (a user id to a user id, or null).
+ * Setting `userId` to report to `managerId` makes a loop when walking up from
+ * the manager comes back to `userId`: A to B and B to A, or A to B, B to C and
+ * C to A. The people returned are in the order they report: the person, then
+ * their new manager, then each step up until the last one, who reports to the
+ * person. Null when there is no loop.
+ *
+ * The walk keeps what it has visited, so a loop that an older edit left in
+ * the data (and that does not include `userId`) ends the walk instead of
+ * going round for ever, and is not blamed on this change.
+ */
+export function reportingLoop(
+  lines: ReadonlyMap<string, string | null>, userId: string, managerId: string,
+): string[] | null {
+  const path = [userId, managerId];
+  const seen = new Set(path);
+  let next = lines.get(managerId) ?? null;
+  while (next) {
+    if (next === userId) return path;
+    if (seen.has(next)) return null;
+    seen.add(next);
+    path.push(next);
+    next = lines.get(next) ?? null;
+  }
+  return null;
+}
+
+/**
+ * The sentence that names a loop, in the order people report.
+ *
+ * "Ana would report to Ben, and Ben reports to Ana." or, for a longer one,
+ * "Ana would report to Ben, Ben reports to Cy, and Cy reports to Ana." The
+ * names come from the caller, so a person with no name is shown by their email.
+ */
+export function describeReportingLoop(names: readonly string[]): string {
+  const [first, ...rest] = names;
+  if (!first || rest.length === 0) return "That would make a loop.";
+  const steps = rest.map((name, i) => `${i === 0 ? first : names[i]} ${i === 0 ? "would report" : "reports"} to ${name}`);
+  steps.push(`${names[names.length - 1]} reports to ${first}`);
+  const last = steps.pop();
+  return `That would make a loop. ${steps.join(", ")}, and ${last}. Change one of those lines first.`;
+}

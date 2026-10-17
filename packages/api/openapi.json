@@ -114429,7 +114429,7 @@
       "post": {
         "operationId": "setReportingLine",
         "summary": "Say who somebody answers to",
-        "description": "`reportsToUserId: null` records that nobody is. Setting a value is idempotent by nature.\n\nRequires a session holding: user:write.",
+        "description": "`reportsToUserId: null` records that nobody is. Setting a value is idempotent by nature. Refused with a `409` when the person would be their own manager, when the manager has left, or when the line would make a loop (A to B and B to A, or longer), the message naming the people in it.\n\nRequires a session holding: user:write.",
         "tags": [
           "M34"
         ],

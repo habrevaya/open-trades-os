@@ -152,6 +152,20 @@ export async function setReportsTo(
     }
     mustBeActive(people, input.reportsToUserId, "A manager");
 
+    if (input.reportsToUserId) {
+      // Two people saved at once, each as the other's manager, would each see no loop in the data
+      // the other has not written yet. One lock per company makes the second one look again.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`reporting-lines:${ctx.actor.organizationId}`}))`);
+      const fresh = await directory(tx, ctx.actor.organizationId);
+      const loop = taskRules.reportingLoop(
+        new Map([...fresh.values()].map((p) => [p.userId, p.reportsToUserId])),
+        input.userId, input.reportsToUserId,
+      );
+      if (loop) {
+        throw new ConflictError(taskRules.describeReportingLoop(loop.map((id) => nameOf(fresh, id) ?? "Somebody")));
+      }
+    }
+
     await tx.update(schema.membership)
       .set({ reportsToUserId: input.reportsToUserId, updatedAt: new Date() })
       .where(and(

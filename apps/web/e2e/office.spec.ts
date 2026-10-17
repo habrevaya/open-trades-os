@@ -218,6 +218,47 @@ test("who a person reports to is on their own page, and follows the escalation s
   await expect(owner.getByTestId("reports-to")).toContainText("Nobody recorded");
 });
 
+test("a reporting line that would loop is refused in words on both screens and in the API", async ({ owner }) => {
+  const roster = await owner.request.get("/api/v1/roster");
+  const active = ((await roster.json()) as { people: { membershipId: string; name: string | null; email: string; active: boolean }[] })
+    .people.filter((p) => p.active);
+  expect(active.length).toBeGreaterThan(1);
+  const lines = ((await (await owner.request.get("/api/v1/reporting-lines")).json()) as { people: { userId: string; name: string }[] }).people;
+  const both = (p: typeof active[number]) => ({ ...p, userId: lines.find((l) => l.name === (p.name ?? p.email))!.userId });
+  const [a, b] = [both(active[0]!), both(active[1]!)];
+  const aName = a.name ?? a.email;
+  const bName = b.name ?? b.email;
+  const set = (userId: string, reportsToUserId: string | null) =>
+    owner.request.post("/api/v1/reporting-lines", { data: { userId, reportsToUserId } });
+
+  try {
+    expect((await set(a.userId, b.userId)).ok()).toBe(true);
+
+    // The escalation screen.
+    await owner.goto("/tasks/escalation");
+    const select = owner.getByLabel(`Manager of ${bName}`);
+    await select.selectOption({ label: aName });
+    await select.locator("xpath=ancestor::form").getByRole("button", { name: "Save" }).click();
+    const refusal = `${bName} would report to ${aName}, and ${aName} reports to ${bName}.`;
+    await expect(owner.getByRole("alert").filter({ hasText: "That would make a loop" })).toContainText(refusal);
+
+    // The person's own page.
+    await owner.goto(`/people/${b.membershipId}`);
+    const page = owner.getByLabel(`Manager of ${bName}`);
+    await page.selectOption({ label: aName });
+    await page.locator("xpath=ancestor::form").getByRole("button", { name: "Save" }).click();
+    await expect(owner.getByRole("alert").filter({ hasText: "That would make a loop" })).toContainText(refusal);
+
+    // The API, which is what both of them post to.
+    const refused = await set(b.userId, a.userId);
+    expect(refused.status()).toBe(409);
+    expect(JSON.stringify(await refused.json())).toContain("That would make a loop");
+  } finally {
+    await set(a.userId, null);
+    await set(b.userId, null);
+  }
+});
+
 test("an estimate past its date is expired, off the unsold list, and still open to a yes", async ({ owner }) => {
   const name = `Ellis Expired ${run}`;
   const customerId = await newCustomer(owner, {
