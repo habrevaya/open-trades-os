@@ -261,6 +261,18 @@ export interface AddMileageRateOutput {
     perMile: string;
   }>;
   mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
 }
 
 export interface AddMyEmergencyContactInput {
@@ -339,6 +351,71 @@ export interface AddOnboardingTemplateItemOutput {
   sortOrder: number;
   staffDocumentId: string | null;
   documentTitle: string | null;
+}
+
+export interface AddPerDiemPlaceInput {
+  name: string;
+  state?: string | null;
+  city?: string | null;
+  from: string;
+  perDay: string;
+}
+
+export interface AddPerDiemPlaceOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
+}
+
+export interface AddPerDiemPlaceRateInput {
+  from: string;
+  perDay: string;
+}
+
+export interface AddPerDiemPlaceRateOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
 }
 
 export interface AddPortalFileInput {
@@ -9187,6 +9264,7 @@ export interface GetJobExpensesOutput {
     jobNumber: number;
     day: string;
     amount: string;
+    placeName: string | null;
     note: string | null;
     paidIn: {
       id: string;
@@ -10340,6 +10418,18 @@ export interface GetPayExtrasOutput {
     perMile: string;
   }>;
   mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
 }
 
 export interface GetPaymentsStatusOutput {
@@ -14730,6 +14820,12 @@ export interface ListExpensesOutput {
   }>;
   waiting: number;
   perDiemRate: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+  }>;
 }
 
 export interface ListExpiringCertificationsOutput {
@@ -15616,6 +15712,7 @@ export interface ListMyExpensesOutput {
     jobNumber: number;
     day: string;
     amount: string;
+    placeName: string | null;
     note: string | null;
     paidIn: {
       id: string;
@@ -15914,6 +16011,7 @@ export interface ListPerDiemOutput {
     jobNumber: number;
     day: string;
     amount: string;
+    placeName: string | null;
     note: string | null;
     paidIn: {
       id: string;
@@ -20349,13 +20447,19 @@ export interface RecordPerDiemInput {
   jobNumber?: number;
   from: string;
   to: string;
+  placeId?: string | null;
   note?: string | null;
 }
 
 export interface RecordPerDiemOutput {
   recorded: string[];
   alreadyHad: string[];
-  rate: string;
+  rate: string | null;
+  place?: string;
+  amounts?: Array<{
+    day: string;
+    amount: string;
+  }>;
 }
 
 export interface RecordPermitInspectionInput {
@@ -21272,6 +21376,18 @@ export interface RemoveMileageRateOutput {
     perMile: string;
   }>;
   mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
 }
 
 export type RemoveMyEmergencyContactInput = Record<string, unknown>;
@@ -21306,6 +21422,34 @@ export type RemovePerDiemInput = Record<string, unknown>;
 export interface RemovePerDiemOutput {
   id: string;
   removed: true;
+}
+
+export type RemovePerDiemPlaceRateInput = Record<string, unknown>;
+
+export interface RemovePerDiemPlaceRateOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
 }
 
 export type RemovePermitInspectionInput = Record<string, unknown>;
@@ -22117,6 +22261,34 @@ export interface RetireJobWorkflowOutput {
     registeredAt: string;
     changedAt: string;
   };
+}
+
+export type RetirePerDiemPlaceInput = Record<string, unknown>;
+
+export interface RetirePerDiemPlaceOutput {
+  perDiemRate: string | null;
+  tipSplit: "even" | "hours" | "lead";
+  rules: Array<{
+    rule: "even" | "hours" | "lead";
+    label: string;
+  }>;
+  mileageRates: Array<{
+    from: string;
+    perMile: string;
+  }>;
+  mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
 }
 
 export type RetirePricingRuleInput = Record<string, unknown>;
@@ -24355,6 +24527,18 @@ export interface SetPayExtrasOutput {
     perMile: string;
   }>;
   mileageRateToday: string | null;
+  perDiemPlaces: Array<{
+    id: string;
+    name: string;
+    state: string | null;
+    city: string | null;
+    rates: Array<{
+      from: string;
+      perDay: string;
+    }>;
+    rateToday: string | null;
+    retired: boolean;
+  }>;
 }
 
 export interface SetPlanPortalLayoutInput {
@@ -29072,6 +29256,10 @@ export interface AddNumberHolidayParams {
   id: string;
 }
 
+export interface AddPerDiemPlaceRateParams {
+  id: string;
+}
+
 export interface AddProjectPhaseParams {
   projectId: string;
 }
@@ -31770,6 +31958,11 @@ export interface RemovePerDiemParams {
   id: string;
 }
 
+export interface RemovePerDiemPlaceRateParams {
+  id: string;
+  from: string;
+}
+
 export interface RemovePermitInspectionParams {
   id: string;
 }
@@ -31901,6 +32094,10 @@ export interface RetireEquipmentParams {
 
 export interface RetireJobWorkflowParams {
   key: string;
+}
+
+export interface RetirePerDiemPlaceParams {
+  id: string;
 }
 
 export interface RetirePricingRuleParams {
@@ -32719,6 +32916,8 @@ export interface OperationTypes {
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
   addNumberHoliday: { input: AddNumberHolidayParams & AddNumberHolidayInput; output: AddNumberHolidayOutput };
   addOnboardingTemplateItem: { input: AddOnboardingTemplateItemInput; output: AddOnboardingTemplateItemOutput };
+  addPerDiemPlace: { input: AddPerDiemPlaceInput; output: AddPerDiemPlaceOutput };
+  addPerDiemPlaceRate: { input: AddPerDiemPlaceRateParams & AddPerDiemPlaceRateInput; output: AddPerDiemPlaceRateOutput };
   addPortalFile: { input: AddPortalFileInput; output: AddPortalFileOutput };
   addProjectPhase: { input: AddProjectPhaseParams & AddProjectPhaseInput; output: AddProjectPhaseOutput };
   addPurchaseApprovalRule: { input: AddPurchaseApprovalRuleInput; output: AddPurchaseApprovalRuleOutput };
@@ -33541,6 +33740,7 @@ export interface OperationTypes {
   removeNumberHoliday: { input: RemoveNumberHolidayParams & RemoveNumberHolidayInput; output: RemoveNumberHolidayOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
   removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
+  removePerDiemPlaceRate: { input: RemovePerDiemPlaceRateParams & RemovePerDiemPlaceRateInput; output: RemovePerDiemPlaceRateOutput };
   removePermitInspection: { input: RemovePermitInspectionParams & RemovePermitInspectionInput; output: RemovePermitInspectionOutput };
   removePlanPortalLayout: { input: RemovePlanPortalLayoutParams & RemovePlanPortalLayoutInput; output: RemovePlanPortalLayoutOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
@@ -33589,6 +33789,7 @@ export interface OperationTypes {
   retireAsset: { input: RetireAssetParams & RetireAssetInput; output: RetireAssetOutput };
   retireEquipment: { input: RetireEquipmentParams & RetireEquipmentInput; output: RetireEquipmentOutput };
   retireJobWorkflow: { input: RetireJobWorkflowParams & RetireJobWorkflowInput; output: RetireJobWorkflowOutput };
+  retirePerDiemPlace: { input: RetirePerDiemPlaceParams & RetirePerDiemPlaceInput; output: RetirePerDiemPlaceOutput };
   retirePricingRule: { input: RetirePricingRuleParams & RetirePricingRuleInput; output: RetirePricingRuleOutput };
   retireRentableAsset: { input: RetireRentableAssetParams & RetireRentableAssetInput; output: RetireRentableAssetOutput };
   retireReportType: { input: RetireReportTypeParams & RetireReportTypeInput; output: RetireReportTypeOutput };
@@ -33891,6 +34092,8 @@ export const OPERATIONS = {
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   addNumberHoliday: { method: "POST", path: "/v1/phone-numbers/{id}/holidays", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   addOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  addPerDiemPlace: { method: "POST", path: "/v1/payroll/per-diem-places", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
+  addPerDiemPlaceRate: { method: "POST", path: "/v1/payroll/per-diem-places/{id}/rates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addPortalFile: { method: "POST", path: "/v1/portal/files", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   addProjectPhase: { method: "POST", path: "/v1/projects/{projectId}/phases", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   addPurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -34713,6 +34916,7 @@ export const OPERATIONS = {
   removeNumberHoliday: { method: "DELETE", path: "/v1/phone-numbers/{id}/holidays/{holidayId}", pathParams: ["id","holidayId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
+  removePerDiemPlaceRate: { method: "POST", path: "/v1/payroll/per-diem-places/{id}/rates/{from}/removal", pathParams: ["id","from"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removePermitInspection: { method: "DELETE", path: "/v1/permit-inspections/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   removePlanPortalLayout: { method: "POST", path: "/v1/agreement-plans/{id}/portal-layout/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -34761,6 +34965,7 @@ export const OPERATIONS = {
   retireAsset: { method: "POST", path: "/v1/assets/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireEquipment: { method: "POST", path: "/v1/equipment/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   retireJobWorkflow: { method: "DELETE", path: "/v1/plugins/job-workflows/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  retirePerDiemPlace: { method: "POST", path: "/v1/payroll/per-diem-places/{id}/retirement", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   retirePricingRule: { method: "DELETE", path: "/v1/plugins/pricing-rules/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   retireRentableAsset: { method: "DELETE", path: "/v1/rentable-assets/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireReportType: { method: "DELETE", path: "/v1/plugins/report-types/{key}", pathParams: ["key"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
@@ -35209,6 +35414,24 @@ export abstract class GeneratedOperations {
    */
   addOnboardingTemplateItem(input: AddOnboardingTemplateItemInput, options?: CallOptions): Promise<AddOnboardingTemplateItemOutput> {
     return this.call("addOnboardingTemplateItem", input, options);
+  }
+
+  /**
+   * Add a place where a day away is worth something else.
+   *
+   * POST /v1/payroll/per-diem-places. Needs payroll:configure.
+   */
+  addPerDiemPlace(input: AddPerDiemPlaceInput, options?: CallOptions): Promise<AddPerDiemPlaceOutput> {
+    return this.call("addPerDiemPlace", input, options);
+  }
+
+  /**
+   * Set what a day away at a place is worth, from a day.
+   *
+   * POST /v1/payroll/per-diem-places/{id}/rates. Needs payroll:configure.
+   */
+  addPerDiemPlaceRate(input: AddPerDiemPlaceRateParams & AddPerDiemPlaceRateInput, options?: CallOptions): Promise<AddPerDiemPlaceRateOutput> {
+    return this.call("addPerDiemPlaceRate", input, options);
   }
 
   /**
@@ -42610,6 +42833,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a place's day rate off.
+   *
+   * POST /v1/payroll/per-diem-places/{id}/rates/{from}/removal. Needs payroll:configure.
+   */
+  removePerDiemPlaceRate(input: RemovePerDiemPlaceRateParams & RemovePerDiemPlaceRateInput, options?: CallOptions): Promise<RemovePerDiemPlaceRateOutput> {
+    return this.call("removePerDiemPlaceRate", input, options);
+  }
+
+  /**
    * Take off an inspection recorded by mistake.
    *
    * DELETE /v1/permit-inspections/{id}. Needs job:write.
@@ -43039,6 +43271,15 @@ export abstract class GeneratedOperations {
    */
   retireJobWorkflow(input: RetireJobWorkflowParams & RetireJobWorkflowInput, options?: CallOptions): Promise<RetireJobWorkflowOutput> {
     return this.call("retireJobWorkflow", input, options);
+  }
+
+  /**
+   * Stop using a place.
+   *
+   * POST /v1/payroll/per-diem-places/{id}/retirement. Needs payroll:configure.
+   */
+  retirePerDiemPlace(input: RetirePerDiemPlaceParams & RetirePerDiemPlaceInput, options?: CallOptions): Promise<RetirePerDiemPlaceOutput> {
+    return this.call("retirePerDiemPlace", input, options);
   }
 
   /**

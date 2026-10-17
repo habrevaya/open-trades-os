@@ -1030,6 +1030,13 @@
       "when": 1792192640625,
       "tag": "0146_ambiguous_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1792196250569,
+      "tag": "0147_smiling_jack_power",
+      "breakpoints": true
     }
   ]
 }

@@ -102,6 +102,31 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
         await payExtras.removeMileageRate(ctx, { from: field(form, "from") ?? "" });
         return { message: "Taken off. Claims already made keep the rate they were worked out at." };
 
+      case "placeAdd": {
+        await payExtras.addPerDiemPlace(ctx, {
+          name: field(form, "name") ?? "",
+          city: field(form, "city") ?? null,
+          state: field(form, "state") ?? null,
+          from: field(form, "from") ?? "",
+          perDay: field(form, "perDay") ?? "",
+        });
+        return { message: "Added. A day away recorded there from its first day is worked out at this rate." };
+      }
+
+      case "placeRateAdd":
+        await payExtras.addPerDiemPlaceRate(ctx, {
+          id: String(form.get("id") ?? ""), from: field(form, "from") ?? "", perDay: field(form, "perDay") ?? "",
+        });
+        return { message: "Saved. Days recorded there from then on are worked out at this rate. Days already recorded keep theirs." };
+
+      case "placeRateRemove":
+        await payExtras.removePerDiemPlaceRate(ctx, { id: String(form.get("id") ?? ""), from: String(form.get("from") ?? "") });
+        return { message: "Taken off. Days already recorded keep the rate they were worked out at." };
+
+      case "placeRetire":
+        await payExtras.retirePerDiemPlace(ctx, { id: String(form.get("id") ?? "") });
+        return { message: "No longer used. Days already recorded there keep its name and their rate." };
+
       case "classify":
         await laborSettings.setClassification(ctx, {
           technicianId: String(form.get("technicianId") ?? ""),

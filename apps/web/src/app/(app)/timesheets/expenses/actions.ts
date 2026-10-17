@@ -43,18 +43,24 @@ export async function decide(_previous: FormState, form: FormData): Promise<Form
 export async function perDiem(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
     const jobNumber = field(form, "jobNumber");
+    /** Empty works the place out from the job's address, "standard" is the one rate on purpose, anything else is a place. */
+    const where = field(form, "placeId");
     const done = await expenses.recordPerDiem(await ctx(), parsed(recordPerDiem.input, {
       technicianId: field(form, "technicianId") ?? "",
       ...(jobNumber ? { jobNumber: Number(jobNumber) } : {}),
       from: field(form, "from") ?? "",
       to: field(form, "to") ?? field(form, "from") ?? "",
+      ...(where === undefined ? {} : { placeId: where === "standard" ? null : where }),
       note: field(form, "note") ?? null,
     }));
     const days = done.recorded.length;
     const had = done.alreadyHad.length;
-    return {
-      message: `${days === 0 ? "No new days" : `${days} ${days === 1 ? "day" : "days"} recorded`} at ${done.rate}${had > 0 ? `. ${had} already had one and were left as they were` : ""}.`,
-    };
+    const counted = days === 0 ? "No new days" : `${days} ${days === 1 ? "day" : "days"} recorded`;
+    // At a place the rate can change inside the span, so the list below says what each day came to.
+    const at = done.place
+      ? ` in ${done.place}${done.rate ? ` at ${done.rate}` : " at more than one rate, shown below"}`
+      : ` at ${done.rate}`;
+    return { message: `${counted}${days === 0 ? "" : at}${had > 0 ? `. ${had} already had one and were left as they were` : ""}.` };
   });
   if (state?.done) refresh();
   return state;

@@ -131,7 +131,7 @@ export default async function MyExpensesPage() {
           <ul className="mt-2 space-y-1 text-sm">
             {own.perDiems.map((d) => (
               <li key={d.id}>
-                {formatDay(d.day, zone)}, job {d.jobNumber}: <Money value={d.amount} />
+                {formatDay(d.day, zone)}, job {d.jobNumber}{d.placeName ? `, ${d.placeName}` : ""}: <Money value={d.amount} />
                 <span className="text-ink-500">{d.paidIn ? `, with ${d.paidIn.label}` : ""}</span>
               </li>
             ))}

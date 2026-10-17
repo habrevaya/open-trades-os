@@ -241,7 +241,7 @@ export default async function PayRulesPage() {
           How a tip a customer leaves is shared between the people on the job, and what a day away from
           home is worth. A change applies from the next tip and the next day recorded: tips already shared
           and days already recorded keep what they were worked out at. The office records the days away on
-          Expenses.
+          Expenses. This is the one rate for a day away where no place below applies.
         </p>
         <Facts>
           <Fact label="Tips are shared">{extras.rules.find((r) => r.rule === extras.tipSplit)?.label ?? null}</Fact>
@@ -260,6 +260,77 @@ export default async function PayRulesPage() {
               place and the day. That check is yours. Leave the box empty to pay none.
             </p>
           </ActionForm>
+        ) : null}
+      </section>
+
+      <section className="mt-10" aria-labelledby="places-heading">
+        <h2 id="places-heading" className="text-base font-semibold">Days away by place</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          A day away can be worth more in some places than at home. Add a place with what a day there is worth
+          from a date, and the office picks it when they record the days. If the job&rsquo;s address is in a city
+          you list here, that place is picked for them. A place with no city is only ever picked by hand, and a
+          city you have not listed is never guessed at: they are asked to choose. A day keeps the place and the
+          rate it was worked out at, so nothing here changes days already recorded. A day away is paid with no
+          tax taken from it, which is only right within what the tax authority allows for that place and day.
+          That check is yours. It is not posted to the books.
+        </p>
+        {extras.perDiemPlaces.length === 0 ? (
+          <p className="mt-3 text-sm text-ink-700">No places yet, so every day away is worth the one rate above.</p>
+        ) : (
+          <Table label="Places" head={<><Th>Place</Th><Th>Where</Th><Th className="text-right">A day today</Th><Th>Rates</Th><Th>{""}</Th></>}>
+            {extras.perDiemPlaces.map((p) => (
+              <tr key={p.id}>
+                <Td className="font-medium">
+                  {p.name}
+                  {p.retired ? <span className="block"><Chip>No longer used</Chip></span> : null}
+                </Td>
+                <Td className="text-ink-700">{[p.city, p.state].filter(Boolean).join(", ") || "Chosen by hand"}</Td>
+                <Td className="text-right tabular-nums">{p.rateToday ? <Money value={p.rateToday} /> : "None yet"}</Td>
+                <Td>
+                  <ul className="space-y-1 text-sm">
+                    {[...p.rates].reverse().map((rate) => (
+                      <li key={rate.from} className="flex flex-wrap items-center gap-2">
+                        <span><Money value={rate.perDay} /> from {formatDay(rate.from, zone)}</span>
+                        {configures && !p.retired ? (
+                          <ActionForm action={act} submit={`Take off ${p.name}'s rate from ${formatDay(rate.from, zone)}`} tone="quiet"
+                                      hidden={{ op: "placeRateRemove", id: p.id, from: rate.from }} />
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </Td>
+                <Td>
+                  {configures && !p.retired ? (
+                    <details>
+                      <summary className="cursor-pointer text-sm text-blue-600">Change or stop using</summary>
+                      <ActionForm action={act} submit={`Add a rate for ${p.name}`} className="mt-3 space-y-3"
+                                  hidden={{ op: "placeRateAdd", id: p.id }}>
+                        <TextField label={`New day rate for ${p.name} (dollars)`} name="perDay" inputMode="decimal" required />
+                        <TextField label={`Starting on, for ${p.name}`} name="from" type="date" required defaultValue={today} />
+                      </ActionForm>
+                      <ActionForm action={act} submit={`Stop using ${p.name}`} tone="danger" className="mt-4"
+                                  hidden={{ op: "placeRetire", id: p.id }} />
+                    </details>
+                  ) : null}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {configures ? (
+          <details className="mt-4 rounded-md border border-steel-200 p-4" open>
+            {/* Always open, so the answer to "Add the place" is on the screen when it comes back. */}
+            <summary className="cursor-pointer text-sm font-medium">Add a place</summary>
+            <ActionForm action={act} submit="Add the place" hidden={{ op: "placeAdd" }}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <TextField label="Name of the place" name="name" required maxLength={80} placeholder="Austin" />
+                <TextField label="A day there is worth (dollars)" name="perDay" required inputMode="decimal" placeholder="85.00" />
+                <TextField label="City, so jobs there pick it (optional)" name="city" maxLength={80} placeholder="Austin" />
+                <TextField label="State, two letters (optional)" name="state" maxLength={2} placeholder="TX" />
+                <TextField label="Worth that from" name="from" type="date" required defaultValue={today} />
+              </div>
+            </ActionForm>
+          </details>
         ) : null}
       </section>
 

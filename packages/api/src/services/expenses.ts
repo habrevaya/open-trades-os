@@ -74,6 +74,8 @@ export interface PerDiemView {
   jobNumber: number;
   day: string;
   amount: string;
+  /** The place whose rate it was worked out at (M17), or null for a day at the company's one standard rate. */
+  placeName: string | null;
   note: string | null;
   paidIn: { id: string; label: string; closed: boolean } | null;
 }
@@ -364,7 +366,12 @@ export async function list(ctx: ServiceContext, input: ExpenseFilter = {}) {
       .from(schema.expense)
       .where(and(eq(schema.expense.organizationId, ctx.actor.organizationId), eq(schema.expense.status, "pending"), inScope(ctx)));
     const settings = await settingsWithin(tx, ctx.actor.organizationId);
-    return { expenses, waiting, perDiemRate: settings.perDiemRate };
+    return {
+      expenses, waiting, perDiemRate: settings.perDiemRate,
+      perDiemPlaces: settings.perDiemPlaces.filter((p) => !p.retired)
+        .map((p) => ({ id: p.id, name: p.name, state: p.state, city: p.city }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
   });
 }
 
@@ -518,6 +525,7 @@ async function perDiemViews(
       jobNumber,
       day: perDiem.day,
       amount: perDiem.amount,
+      placeName: perDiem.placeName,
       note: perDiem.note,
       paidIn: period ? { id: period.id, label: period.label, closed: period.closedAt !== null } : null,
     };
@@ -539,6 +547,11 @@ export interface PerDiemInput {
   /** The first and last day away, both included. */
   from: string;
   to: string;
+  /**
+   * Where they were. Left out, it is worked out from the job's address when the company has places;
+   * a place's id names one; null says the company's one standard rate on purpose.
+   */
+  placeId?: string | null | undefined;
   note?: string | null | undefined;
 }
 
@@ -547,17 +560,30 @@ export interface PerDiemResult {
   recorded: string[];
   /** Days that already had one for this person, left as they were. */
   alreadyHad: string[];
-  /** What one day is worth, as it stood when these were recorded. */
-  rate: string;
+  /**
+   * What one day is worth, as it stood when these were recorded: the standard rate, or the place's
+   * rate on the first day recorded. Null when the place's rate changed inside the span, or when no
+   * day was newly recorded at a place, so there is no one figure to give; `amounts` has each day.
+   */
+  rate: string | null;
+  /** The place the days were worked out at. Present only for days worked out at a place, absent for the standard rate. */
+  place?: string;
+  /** What each newly recorded day was worked out at. Present only with `place`. */
+  amounts?: { day: string; amount: string }[];
 }
 
 /**
- * Record the company's rate for each day somebody was away on a job.
+ * Record what each day somebody was away on a job is worth.
  *
- * The rate is the company's current one and is frozen onto each day. A day that
- * already has one for this person is left alone and named, so asking again for
- * a longer stretch adds the new days and nothing twice. A day inside a pay
- * period that has been closed is refused outright: the file for it has gone.
+ * Without places that is the company's one rate, as it stands. With places, each day is worked
+ * out at the rate in force on that day at the place: the one chosen, or the one whose city is the
+ * job's address's city. A job in a city no place names is never guessed at: the office is asked to
+ * choose a place or the standard rate. The rate is frozen onto each day, with the place's name.
+ *
+ * One entry is one place. A trip that crosses places is recorded as separate entries, each with its
+ * own days, and a day that already has one for this person is left alone and named, so the second
+ * entry cannot overwrite the first. A day inside a pay period that has been closed is refused
+ * outright: the file for it has gone.
  */
 export async function recordPerDiem(ctx: ServiceContext, input: PerDiemInput): Promise<PerDiemResult> {
   return guardedWrite(ctx, "expense:approve", async (tx) => {
@@ -568,19 +594,28 @@ export async function recordPerDiem(ctx: ServiceContext, input: PerDiemInput): P
     if (!days.ok) throw new ConflictError(days.reason);
 
     const settings = await settingsWithin(tx, ctx.actor.organizationId);
-    if (!settings.perDiemRate) {
+    const places = settings.perDiemPlaces.filter((p) => !p.retired);
+    if (input.placeId === undefined && !settings.perDiemRate && places.length === 0) {
       throw new ConflictError("No per diem rate is set. Say what a day away is worth on Pay rules first.");
     }
     const [person] = await tx.select({ id: schema.technician.id }).from(schema.technician)
       .where(and(eq(schema.technician.id, input.technicianId), personInScope(ctx, input.technicianId))).limit(1);
     if (!person) throw new NotFoundError("Technician");
     if (!input.jobId && input.jobNumber === undefined) throw new ConflictError("Say which job they were away on.");
-    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+    const [job] = await tx.select({
+      id: schema.job.id, number: schema.job.number, city: schema.property.city, state: schema.property.state,
+    }).from(schema.job)
+      .innerJoin(schema.property, eq(schema.property.id, schema.job.propertyId))
       .where(and(
         input.jobId ? eq(schema.job.id, input.jobId) : eq(schema.job.number, input.jobNumber!),
         isNull(schema.job.deletedAt),
       )).limit(1);
     if (!job) throw new ConflictError(input.jobId ? "That job is not here." : `There is no job ${input.jobNumber}.`);
+
+    const place = await placeFor(places, settings.perDiemPlaces, input.placeId, job, settings.perDiemRate !== null);
+    if (place === null && !settings.perDiemRate) {
+      throw new ConflictError("No standard rate is set, so choose a place for these days, or set the standard rate on Pay rules.");
+    }
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const find = await periodFinder(tx, ctx.actor.organizationId);
@@ -598,28 +633,75 @@ export async function recordPerDiem(ctx: ServiceContext, input: PerDiemInput): P
       ));
     const alreadyHad = new Set(had.map((r) => r.day));
     const fresh = days.days.filter((d) => !alreadyHad.has(d));
+
+    /** Each new day at the rate in force that day. A day with none is refused by name, and nothing is recorded. */
+    const amounts = fresh.map((day) => {
+      if (!place) return { day, amount: settings.perDiemRate! };
+      const amount = px.perDiemRateOn(place, day);
+      if (!amount) {
+        const first = place.rates[0]?.from;
+        throw new ConflictError(first
+          ? `${place.name} has no rate for ${day}: its first rate starts ${first}. Add one that starts earlier, or leave that day out.`
+          : `${place.name} has no rate yet. Add one on Pay rules first.`);
+      }
+      return { day, amount };
+    });
+
     if (fresh.length > 0) {
-      await tx.insert(schema.perDiem).values(fresh.map((day) => ({
+      await tx.insert(schema.perDiem).values(amounts.map(({ day, amount }) => ({
         organizationId: ctx.actor.organizationId,
         technicianId: input.technicianId,
         jobId: job.id,
         day,
-        amount: settings.perDiemRate!,
+        amount,
+        placeId: place?.id ?? null,
+        placeName: place?.name ?? null,
         recordedByUserId: ctx.actor.userId,
         note: input.note?.trim() ? input.note.trim().slice(0, 300) : null,
       })));
       await audit(tx, ctx, "per_diem.recorded", "technician", input.technicianId, null, {
-        jobId: job.id, days: fresh, rate: settings.perDiemRate,
+        jobId: job.id, days: fresh, rate: place ? null : settings.perDiemRate,
+        place: place ? { id: place.id, name: place.name } : null, amounts,
       });
     }
+    const distinct = new Set(amounts.map((a) => a.amount));
     const answer: PerDiemResult = {
       recorded: fresh,
       alreadyHad: days.days.filter((d) => alreadyHad.has(d)),
-      rate: settings.perDiemRate,
+      rate: place ? (distinct.size === 1 ? amounts[0]!.amount : null) : settings.perDiemRate!,
+      ...(place ? { place: place.name, amounts } : {}),
     };
     await remember(tx, ctx, "per_diem_batch", null, answer);
     return answer;
   });
+}
+
+/**
+ * The place a day away is worked out at, or null for the standard rate.
+ *
+ * A place named by id must be one in use. Left unnamed, a company with no places has only the
+ * standard rate; a company with places has the job's address's city looked up, and a city no place
+ * names (or two that do) is a question for the office rather than a guess, in words.
+ */
+async function placeFor(
+  inUse: readonly px.PerDiemPlace[], all: readonly px.PerDiemPlace[], chosen: string | null | undefined,
+  job: { number: number; city: string; state: string }, hasStandard: boolean,
+): Promise<px.PerDiemPlace | null> {
+  if (chosen === null) return null;
+  if (chosen !== undefined) {
+    const named = all.find((p) => p.id === chosen);
+    if (!named) throw new ConflictError("That place is not on the list.");
+    if (named.retired) throw new ConflictError(`${named.name} is no longer used. Choose another place.`);
+    return named;
+  }
+  if (inUse.length === 0) return null;
+  const match = px.placeForAddress(inUse, job);
+  if (match.kind === "one") return match.place;
+  const where = `${job.city}, ${job.state}`;
+  if (match.kind === "several") {
+    throw new ConflictError(`More than one place matches ${where}, where job ${job.number} is: ${match.places.map((p) => p.name).join(", ")}. Choose which one.`);
+  }
+  throw new ConflictError(`No place on the list is ${where}, where job ${job.number} is. Choose where they were${hasStandard ? ", or choose the standard rate" : ""}.`);
 }
 
 export async function listPerDiem(

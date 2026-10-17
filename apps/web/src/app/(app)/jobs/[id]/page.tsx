@@ -436,7 +436,7 @@ export default async function JobPage({ params, searchParams }: {
             ))}
             {paidOut.perDiems.map((d) => (
               <li key={d.id}>
-                {d.technicianName}: a day away, {d.day} <Money value={d.amount} />
+                {d.technicianName}: a day away{d.placeName ? ` in ${d.placeName}` : ""}, {d.day} <Money value={d.amount} />
               </li>
             ))}
           </ul>

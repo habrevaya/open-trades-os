@@ -85895,6 +85895,558 @@
         ]
       }
     },
+    "/v1/payroll/per-diem-places": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addPerDiemPlace",
+        "summary": "Add a place where a day away is worth something else",
+        "description": "A `name`, optionally a `state` (two letters) and a `city`, and what a day there is worth from a day (`perDay`, dollars and cents, at most 1000.00; `from`, the first day it applies). A day away recorded against a job is worked out at the place's rate in force on that day (`POST /v1/per-diem`). Only a place with a city is picked for a job by itself, from the job's address; a state alone or a name alone is chosen by a person. Two places in use cannot share a name. The same place sent again with the same first rate is the first one back. A statement about what people are owed, so `payroll:configure`. A day away is paid with no tax taken, which is only right within the allowance the tax authority sets for the place and the day, and that is the company's to check. Not posted to the ledger.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPerDiemPlaceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a place where a day away is worth something else",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddPerDiemPlaceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/per-diem-places/{id}/rates": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addPerDiemPlaceRate",
+        "summary": "Set what a day away at a place is worth, from a day",
+        "description": "Days recorded from then on at the place are worked out at this rate; days already recorded keep theirs. A day that already has a rate for the place is refused: take it off first. A place that is no longer used cannot be given one. `payroll:configure`.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPerDiemPlaceRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Set what a day away at a place is worth, from a day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddPerDiemPlaceRateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/per-diem-places/{id}/rates/{from}/removal": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removePerDiemPlaceRate",
+        "summary": "Take a place's day rate off",
+        "description": "Takes off the rate that starts on `from`. Days already recorded keep the rate they were worked out at; days recorded from then on use the rate before it, or are refused when there is none. Taking off a day that has no rate changes nothing. `payroll:configure`.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemovePerDiemPlaceRateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a place's day rate off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovePerDiemPlaceRateOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/per-diem-places/{id}/retirement": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "retirePerDiemPlace",
+        "summary": "Stop using a place",
+        "description": "The place is no longer offered, matched from a job's address or given a rate. Days already recorded at it keep its name and what they were worked out at. Retiring one already retired changes nothing. A place is retired, not deleted, and a new place may take its name. `payroll:configure`.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetirePerDiemPlaceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop using a place",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirePerDiemPlaceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
     "/v1/payroll/periods": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -88069,7 +88621,7 @@
       "post": {
         "operationId": "recordPerDiem",
         "summary": "Record the company's rate for each day somebody was away on a job",
-        "description": "From the first day to the last, both included, at most 31. The rate is the company's current one (`POST /v1/payroll/pay-extras`) and is kept on each day, so a later change does not reprice it. A day that already has one for that person is left as it was and named in `alreadyHad`. A day inside a pay period that has been closed is refused. Paid through payroll as `per_diem`, with no tax taken, and counted in the job's cost.\n\nRequires a session holding: expense:approve.",
+        "description": "From the first day to the last, both included, at most 31. Where the company has no places, the rate is its one standard rate (`POST /v1/payroll/pay-extras`). Where it has places (`POST /v1/payroll/per-diem-places`), `placeId` names the place, or is left out to take the place whose city is the job's address's city; a job in a city no place names, or two places that both name it, is refused and the caller asked to choose, never guessed. `placeId: null` says the standard rate on purpose. Each day is worked out at the rate in force on that day at the place and kept with the place's name, so a later change does not reprice it; a day the place has no rate for is refused by name and nothing is recorded. One call is one place: a trip that crosses places is recorded as separate calls, each with its own days. A day that already has one for that person is left as it was and named in `alreadyHad`. A day inside a pay period that has been closed is refused. Paid through payroll as `per_diem`, with no tax taken, and counted in the job's cost.\n\nRequires a session holding: expense:approve.",
         "tags": [
           "M17"
         ],
@@ -145185,6 +145737,72 @@
               "string",
               "null"
             ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
           }
         },
         "required": [
@@ -145192,7 +145810,8 @@
           "tipSplit",
           "rules",
           "mileageRates",
-          "mileageRateToday"
+          "mileageRateToday",
+          "perDiemPlaces"
         ]
       },
       "AddMyEmergencyContactInput": {
@@ -145651,6 +146270,344 @@
           "sortOrder",
           "staffDocumentId",
           "documentTitle"
+        ]
+      },
+      "AddPerDiemPlaceInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 80
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "perDay": {
+            "type": "string",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "name",
+          "from",
+          "perDay"
+        ]
+      },
+      "AddPerDiemPlaceOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
+          }
+        },
+        "required": [
+          "perDiemRate",
+          "tipSplit",
+          "rules",
+          "mileageRates",
+          "mileageRateToday",
+          "perDiemPlaces"
+        ]
+      },
+      "AddPerDiemPlaceRateInput": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "perDay": {
+            "type": "string",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "from",
+          "perDay"
+        ]
+      },
+      "AddPerDiemPlaceRateOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
+          }
+        },
+        "required": [
+          "perDiemRate",
+          "tipSplit",
+          "rules",
+          "mileageRates",
+          "mileageRateToday",
+          "perDiemPlaces"
         ]
       },
       "AddPortalFileInput": {
@@ -191512,6 +192469,12 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "placeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "note": {
                   "type": [
                     "string",
@@ -191550,6 +192513,7 @@
                 "jobNumber",
                 "day",
                 "amount",
+                "placeName",
                 "note",
                 "paidIn"
               ]
@@ -197211,6 +198175,72 @@
               "string",
               "null"
             ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
           }
         },
         "required": [
@@ -197218,7 +198248,8 @@
           "tipSplit",
           "rules",
           "mileageRates",
-          "mileageRateToday"
+          "mileageRateToday",
+          "perDiemPlaces"
         ]
       },
       "GetPaymentsStatusOutput": {
@@ -220408,12 +221439,46 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city"
+              ]
+            }
           }
         },
         "required": [
           "expenses",
           "waiting",
-          "perDiemRate"
+          "perDiemRate",
+          "perDiemPlaces"
         ]
       },
       "ListExpiringCertificationsOutput": {
@@ -225197,6 +226262,12 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "placeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "note": {
                   "type": [
                     "string",
@@ -225235,6 +226306,7 @@
                 "jobNumber",
                 "day",
                 "amount",
+                "placeName",
                 "note",
                 "paidIn"
               ]
@@ -226682,6 +227754,12 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "placeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "note": {
                   "type": [
                     "string",
@@ -226720,6 +227798,7 @@
                 "jobNumber",
                 "day",
                 "amount",
+                "placeName",
                 "note",
                 "paidIn"
               ]
@@ -249356,6 +250435,13 @@
             "type": "string",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
+          "placeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "note": {
             "type": [
               "string",
@@ -249388,8 +250474,34 @@
             }
           },
           "rate": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "place": {
+            "type": "string"
+          },
+          "amounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "day",
+                "amount"
+              ]
+            }
           }
         },
         "required": [
@@ -253892,6 +255004,72 @@
               "string",
               "null"
             ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
           }
         },
         "required": [
@@ -253899,7 +255077,8 @@
           "tipSplit",
           "rules",
           "mileageRates",
-          "mileageRateToday"
+          "mileageRateToday",
+          "perDiemPlaces"
         ]
       },
       "RemoveMyEmergencyContactInput": {
@@ -254018,6 +255197,152 @@
         "required": [
           "id",
           "removed"
+        ]
+      },
+      "RemovePerDiemPlaceRateInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemovePerDiemPlaceRateOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
+          }
+        },
+        "required": [
+          "perDiemRate",
+          "tipSplit",
+          "rules",
+          "mileageRates",
+          "mileageRateToday",
+          "perDiemPlaces"
         ]
       },
       "RemovePermitInspectionInput": {
@@ -257718,6 +259043,152 @@
         },
         "required": [
           "plugin"
+        ]
+      },
+      "RetirePerDiemPlaceInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RetirePerDiemPlaceOutput": {
+        "type": "object",
+        "properties": {
+          "perDiemRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipSplit": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule",
+                "label"
+              ]
+            }
+          },
+          "mileageRates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "perMile": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "perMile"
+              ]
+            }
+          },
+          "mileageRateToday": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
+          }
+        },
+        "required": [
+          "perDiemRate",
+          "tipSplit",
+          "rules",
+          "mileageRates",
+          "mileageRateToday",
+          "perDiemPlaces"
         ]
       },
       "RetirePricingRuleInput": {
@@ -268552,6 +270023,72 @@
               "string",
               "null"
             ]
+          },
+          "perDiemPlaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "city": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      "perDay": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "perDay"
+                    ]
+                  }
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "retired": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "city",
+                "rates",
+                "rateToday",
+                "retired"
+              ]
+            }
           }
         },
         "required": [
@@ -268559,7 +270096,8 @@
           "tipSplit",
           "rules",
           "mileageRates",
-          "mileageRateToday"
+          "mileageRateToday",
+          "perDiemPlaces"
         ]
       },
       "SetPlanPortalLayoutInput": {

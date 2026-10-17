@@ -63,6 +63,8 @@ export const PerDiemView = z.object({
   jobNumber: z.number().int(),
   day: IsoDate,
   amount: MoneyString,
+  /** The place whose day rate it was worked out at (`POST /v1/payroll/per-diem-places`), or null for the company's one standard rate. */
+  placeName: z.string().nullable(),
   note: z.string().nullable(),
   paidIn: PaidIn.nullable(),
 });
@@ -140,8 +142,10 @@ export const listExpenses = defineRoute({
   output: z.object({
     expenses: z.array(ExpenseView),
     waiting: z.number().int(),
-    /** The company's rate for a day away, or null when none is set. */
+    /** The company's standard rate for a day away, or null when none is set. */
     perDiemRate: MoneyString.nullable(),
+    /** The places in use, which a day away can be recorded at (`POST /v1/per-diem`, `placeId`). Their rates are on `GET /v1/payroll/pay-extras`. */
+    perDiemPlaces: z.array(z.object({ id: Uuid, name: z.string(), state: z.string().nullable(), city: z.string().nullable() })),
   }),
 });
 
@@ -167,7 +171,7 @@ export const recordPerDiem = defineRoute({
   path: "/v1/per-diem",
   summary: "Record the company's rate for each day somebody was away on a job",
   description:
-    "From the first day to the last, both included, at most 31. The rate is the company's current one (`POST /v1/payroll/pay-extras`) and is kept on each day, so a later change does not reprice it. A day that already has one for that person is left as it was and named in `alreadyHad`. A day inside a pay period that has been closed is refused. Paid through payroll as `per_diem`, with no tax taken, and counted in the job's cost.",
+    "From the first day to the last, both included, at most 31. Where the company has no places, the rate is its one standard rate (`POST /v1/payroll/pay-extras`). Where it has places (`POST /v1/payroll/per-diem-places`), `placeId` names the place, or is left out to take the place whose city is the job's address's city; a job in a city no place names, or two places that both name it, is refused and the caller asked to choose, never guessed. `placeId: null` says the standard rate on purpose. Each day is worked out at the rate in force on that day at the place and kept with the place's name, so a later change does not reprice it; a day the place has no rate for is refused by name and nothing is recorded. One call is one place: a trip that crosses places is recorded as separate calls, each with its own days. A day that already has one for that person is left as it was and named in `alreadyHad`. A day inside a pay period that has been closed is refused. Paid through payroll as `per_diem`, with no tax taken, and counted in the job's cost.",
   module: "M17",
   permissions: ["expense:approve"],
   idempotent: true,
@@ -178,12 +182,19 @@ export const recordPerDiem = defineRoute({
     jobNumber: z.number().int().positive().optional(),
     from: IsoDate,
     to: IsoDate,
+    /** A place from `GET /v1/payroll/pay-extras`; null for the standard rate on purpose; left out to work it out from the job's address. */
+    placeId: Uuid.nullable().optional(),
     note: z.string().max(300).nullable().optional(),
   }),
   output: z.object({
     recorded: z.array(IsoDate),
     alreadyHad: z.array(IsoDate),
-    rate: MoneyString,
+    /** What one day was worth: the standard rate, or the place's rate on the first day recorded. Null when a place's rate changed inside the span or no day was newly recorded at a place: `amounts` has each day. */
+    rate: MoneyString.nullable(),
+    /** The place the days were worked out at. Present only when they were worked out at a place, absent for the standard rate. */
+    place: z.string().optional(),
+    /** What each newly recorded day was worked out at. Present only with `place`. */
+    amounts: z.array(z.object({ day: IsoDate, amount: MoneyString })).optional(),
   }),
 });
 
@@ -242,6 +253,20 @@ export const PayExtras = z.object({
   mileageRates: z.array(z.object({ from: IsoDate, perMile: z.string() })),
   /** The rate in force today in the company's zone, or null when none has started. */
   mileageRateToday: z.string().nullable(),
+  /** The places a day away is worth something other than `perDiemRate`, retired ones last. */
+  perDiemPlaces: z.array(z.object({
+    id: Uuid,
+    name: z.string(),
+    /** Two letters, or null. */
+    state: z.string().nullable(),
+    city: z.string().nullable(),
+    /** What a day there is worth, one line per starting day, oldest first. */
+    rates: z.array(z.object({ from: IsoDate, perDay: MoneyString })),
+    /** What a day there is worth today in the company's zone, or null when no rate has started. */
+    rateToday: MoneyString.nullable(),
+    /** No longer offered or matched. Days already recorded keep it. */
+    retired: z.boolean(),
+  })),
 });
 
 export const getPayExtras = defineRoute({
@@ -293,6 +318,64 @@ export const removeMileageRate = defineRoute({
   permissions: ["payroll:configure"],
   idempotent: true,
   input: z.object({ from: IsoDate }),
+  output: PayExtras,
+});
+
+export const addPerDiemPlace = defineRoute({
+  method: "post",
+  path: "/v1/payroll/per-diem-places",
+  summary: "Add a place where a day away is worth something else",
+  description:
+    "A `name`, optionally a `state` (two letters) and a `city`, and what a day there is worth from a day (`perDay`, dollars and cents, at most 1000.00; `from`, the first day it applies). A day away recorded against a job is worked out at the place's rate in force on that day (`POST /v1/per-diem`). Only a place with a city is picked for a job by itself, from the job's address; a state alone or a name alone is chosen by a person. Two places in use cannot share a name. The same place sent again with the same first rate is the first one back. A statement about what people are owed, so `payroll:configure`. A day away is paid with no tax taken, which is only right within the allowance the tax authority sets for the place and the day, and that is the company's to check. Not posted to the ledger.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({
+    name: z.string().min(1).max(80),
+    state: z.string().max(2).nullable().optional(),
+    city: z.string().max(80).nullable().optional(),
+    from: IsoDate,
+    perDay: z.string().max(20),
+  }),
+  output: PayExtras,
+});
+
+export const addPerDiemPlaceRate = defineRoute({
+  method: "post",
+  path: "/v1/payroll/per-diem-places/{id}/rates",
+  summary: "Set what a day away at a place is worth, from a day",
+  description:
+    "Days recorded from then on at the place are worked out at this rate; days already recorded keep theirs. A day that already has a rate for the place is refused: take it off first. A place that is no longer used cannot be given one. `payroll:configure`.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({ id: Uuid, from: IsoDate, perDay: z.string().max(20) }),
+  output: PayExtras,
+});
+
+export const removePerDiemPlaceRate = defineRoute({
+  method: "post",
+  path: "/v1/payroll/per-diem-places/{id}/rates/{from}/removal",
+  summary: "Take a place's day rate off",
+  description:
+    "Takes off the rate that starts on `from`. Days already recorded keep the rate they were worked out at; days recorded from then on use the rate before it, or are refused when there is none. Taking off a day that has no rate changes nothing. `payroll:configure`.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({ id: Uuid, from: IsoDate }),
+  output: PayExtras,
+});
+
+export const retirePerDiemPlace = defineRoute({
+  method: "post",
+  path: "/v1/payroll/per-diem-places/{id}/retirement",
+  summary: "Stop using a place",
+  description:
+    "The place is no longer offered, matched from a job's address or given a rate. Days already recorded at it keep its name and what they were worked out at. Retiring one already retired changes nothing. A place is retired, not deleted, and a new place may take its name. `payroll:configure`.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
   output: PayExtras,
 });
 
@@ -379,6 +462,6 @@ export const listMyCashTips = defineRoute({
 export const expenseRoutes = {
   recordExpense, addExpenseReceipt, listMyExpenses, listExpenses, decideExpense,
   recordPerDiem, listPerDiem, removePerDiem, getJobExpenses, getPayExtras, setPayExtras,
-  addMileageRate, removeMileageRate,
+  addMileageRate, removeMileageRate, addPerDiemPlace, addPerDiemPlaceRate, removePerDiemPlaceRate, retirePerDiemPlace,
   recordCashTipFor, correctCashTip, listCashTips, listMyCashTips,
 } as const;

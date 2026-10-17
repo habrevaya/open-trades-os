@@ -140,18 +140,39 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       <section className="mt-12" aria-labelledby="days-away">
         <h2 id="days-away" className="text-base font-semibold">Days away from home</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
-          {listing.perDiemRate
-            ? <>The company pays <Money value={listing.perDiemRate} /> for a day away. Record the days somebody was away on a job: it is paid with no tax taken, and counts in the job&apos;s cost.</>
+          {listing.perDiemRate || listing.perDiemPlaces.length > 0
+            ? <>
+              {listing.perDiemRate
+                ? <>The standard rate for a day away is <Money value={listing.perDiemRate} />.</>
+                : <>There is no standard rate, so every day away has to be at a place.</>}
+              {listing.perDiemPlaces.length > 0
+                ? <> Some places have a rate of their own, worked out for the day itself.</>
+                : null}
+              {" "}Record the days somebody was away on a job: it is paid with no tax taken, and counts in the job&apos;s cost.
+            </>
             : <>No rate is set, so no day away is paid. <Link href="/payroll/pay-rules" className="text-blue-600 underline underline-offset-4">Set what a day away is worth</Link> first.</>}
         </p>
 
-        {listing.perDiemRate ? (
+        {listing.perDiemRate || listing.perDiemPlaces.length > 0 ? (
           <ActionForm action={perDiem} submit="Record the days" className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-2">
             <Select label="Who was away" name="technicianId" required
                     options={[{ value: "", label: "Choose a person" }, ...people.filter((p) => p.active).map((p) => ({ value: p.id, label: p.displayName }))]} />
             <TextField label="Job number" name="jobNumber" inputMode="numeric" required placeholder="1042" />
             <TextField label="First day away" name="from" type="date" required max={today} />
             <TextField label="Last day away" name="to" type="date" max={today} />
+            {listing.perDiemPlaces.length > 0 ? (
+              <Select label="Where they were" name="placeId" className="block sm:col-span-2"
+                      options={[
+                        { value: "", label: "The city of the job's address" },
+                        ...listing.perDiemPlaces.map((p) => ({ value: p.id, label: [p.name, p.city || p.state ? `(${[p.city, p.state].filter(Boolean).join(", ")})` : ""].filter(Boolean).join(" ") })),
+                        ...(listing.perDiemRate ? [{ value: "standard", label: "Nowhere on the list: the standard rate" }] : []),
+                      ]} />
+            ) : null}
+            <p className="text-sm text-ink-700 sm:col-span-2">
+              {listing.perDiemPlaces.length > 0
+                ? "One entry is one place. If the trip moved from one place to another, record the days in each place on their own. A city on the job that is not on the list is never guessed at: you will be asked to choose."
+                : null}
+            </p>
             <TextField label="Note (optional)" name="note" maxLength={300} className="block sm:col-span-2" />
           </ActionForm>
         ) : null}
@@ -159,12 +180,13 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
         {days.length === 0 ? (
           <p className="mt-4 text-sm text-ink-700">No days away recorded yet.</p>
         ) : (
-          <Table label="Days away" head={<><Th>Who</Th><Th>Day</Th><Th>Job</Th><Th className="text-right">Amount</Th><Th>Goes out with</Th><Th>{""}</Th></>}>
+          <Table label="Days away" head={<><Th>Who</Th><Th>Day</Th><Th>Job</Th><Th>Where</Th><Th className="text-right">Amount</Th><Th>Goes out with</Th><Th>{""}</Th></>}>
             {days.map((d) => (
               <tr key={d.id}>
                 <Td className="font-medium">{d.technicianName}</Td>
                 <Td>{formatDay(d.day, zone)}</Td>
                 <Td><Link href={`/jobs/${d.jobId}`} className="text-blue-600 underline underline-offset-4">Job {d.jobNumber}</Link></Td>
+                <Td className="text-ink-700">{d.placeName ?? "Standard rate"}</Td>
                 <Td className="text-right tabular-nums"><Money value={d.amount} /></Td>
                 <Td className="text-ink-700">{d.paidIn ? `${d.paidIn.label}${d.paidIn.closed ? " (closed)" : ""}` : "No pay period covers it yet"}</Td>
                 <Td>
