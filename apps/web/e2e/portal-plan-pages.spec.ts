@@ -53,8 +53,8 @@ async function accountLinkFor(owner: Page, customerId: string): Promise<string> 
 }
 
 test("a customer on two plans chooses between their pages, and one plan gives no choice", async ({ owner, stranger }) => {
-  const first = `Gold Club ${run}`;
-  const second = `Silver Club ${run}`;
+  const first = `Gold Pages ${run}`;
+  const second = `Silver Pages ${run}`;
   const both = `Bo Both ${run}`;
   const single = `Sy Single ${run}`;
   const firstHeading = `Gold visit ${run}`;

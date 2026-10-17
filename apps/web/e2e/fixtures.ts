@@ -75,7 +75,15 @@ export const test = base.extend<Fixtures & { errors: string[] }>({
     }
   }, { timeout: 600_000 }],
   stranger: async ({ browser, baseURL, errors }, use) => {
-    const context = await browser.newContext({ baseURL });
+    /**
+     * A customer of their own, on an address of their own. The public routes
+     * count callers per address per hour (ten sign in codes, for one), and
+     * every spec runs from 127.0.0.1, so a whole run's customers would share
+     * one stranger's ceiling. The portal reads the first forwarded address,
+     * as it does behind a proxy, so each test's customer gets one.
+     */
+    const address = `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
+    const context = await browser.newContext({ baseURL, extraHTTPHeaders: { "x-forwarded-for": address } });
     await use(await open(context, errors));
     await context.close();
   },
