@@ -71,3 +71,100 @@ describe("the work order", () => {
     expect(read.text).not.toContain("Branch");
   });
 });
+
+/**
+ * WHAT WAS TAKEN ON THE PHONE
+ *
+ * The photographs under the visit they were taken at and the signature already drawn, at a
+ * printable size. The pictures are handed in already chosen for this copy and this reader.
+ */
+describe("the work order with what the phone took", () => {
+  /** A picture the page can draw: only its size and how it is filtered matter to the layout. */
+  const picture = (width: number, height: number): pdf.PdfImage =>
+    ({ width, height, colorSpace: "DeviceRGB", filter: "DCTDecode", extra: "", data: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) });
+  const withPictures = (over: Partial<pdf.WorkOrderPdfInput["visits"][number]> = {}, rest: Partial<pdf.WorkOrderPdfInput> = {}) => {
+    const base = order();
+    return order({
+      visits: [{
+        ...base.visits[0]!,
+        photos: [
+          { image: picture(4000, 3000), caption: "Before, Oct 6, 9:14 AM CDT" },
+          { image: picture(3000, 4000), caption: "After, Oct 6, 10:40 AM CDT" },
+        ],
+        signature: { image: picture(600, 200), caption: "Dana Ruiz signed Oct 6, 10:52 AM CDT" },
+        ...over,
+      }],
+      ...rest,
+    });
+  };
+
+  it("draws each photograph and the signature under its visit, with its words", () => {
+    const read = pdf.inspectPdf(pdf.workOrderPdf(withPictures()));
+    expect(read.problems).toEqual([]);
+    expect(read.images).toHaveLength(3);
+    for (const said of [
+      "Signed on the phone", "Dana Ruiz signed Oct 6, 10:52 AM CDT",
+      "Photographs from visit 1", "Before, Oct 6, 9:14 AM CDT", "After, Oct 6, 10:40 AM CDT",
+      // The paper lines are still there for anything not signed on the phone.
+      "Customer sign off", "Name in capitals",
+    ]) expect(read.text).toContain(said);
+    expect(read.text.indexOf("Photographs from visit 1")).toBeLessThan(read.text.indexOf("Customer sign off"));
+    expect(read.text.indexOf("Visit 1:")).toBeLessThan(read.text.indexOf("Photographs from visit 1"));
+  });
+
+  it("prints them at a size a person can use on paper, and no taller than the limit", () => {
+    // A tall photograph on a letter page is scaled to the limit, not the page.
+    const tall = picture(3000, 4000);
+    const size = pdf.fitWithin(tall, 500, pdf.WORK_ORDER_PHOTO_HEIGHT);
+    expect(size.height).toBeLessThanOrEqual(pdf.WORK_ORDER_PHOTO_HEIGHT);
+    expect(size.height).toBeGreaterThan(150);
+    const read = pdf.inspectPdf(pdf.workOrderPdf(withPictures({ signature: null })));
+    expect(read.images).toHaveLength(2);
+  });
+
+  it("says in a line when a picture is a kind the file cannot print, and keeps going", () => {
+    const read = pdf.inspectPdf(pdf.workOrderPdf(withPictures({
+      photos: [{ image: null, caption: "Before, Oct 6, 9:14 AM CDT" }, { image: picture(400, 300), caption: "After" }],
+      signature: null,
+    })));
+    expect(read.problems).toEqual([]);
+    expect(read.images).toHaveLength(1);
+    expect(read.text).toContain("Before, Oct 6, 9:14 AM CDT: this picture is on the job's page and is not a kind this file can print.");
+  });
+
+  it("starts a new page for a picture that does not fit rather than cutting it", () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({ image: picture(4000, 3000), caption: `Photo ${i + 1}` }));
+    const read = pdf.inspectPdf(pdf.workOrderPdf(withPictures({ photos: many, signature: null })));
+    expect(read.problems).toEqual([]);
+    expect(read.images).toHaveLength(6);
+    expect(read.pages.length).toBeGreaterThan(2);
+  });
+
+  it("prints the job's own photographs and the note about what was left off", () => {
+    const read = pdf.inspectPdf(pdf.workOrderPdf(withPictures({ photos: [], signature: null }, {
+      jobPhotos: [{ image: picture(800, 600), caption: "Outside unit" }],
+      photoNote: "Only photographs the customer may see are printed on the office copy.",
+    })));
+    expect(read.images).toHaveLength(1);
+    expect(read.text).toContain("Photographs on the job");
+    expect(read.text).toContain("Outside unit");
+    expect(read.text).toContain("Only photographs the customer may see are printed on the office copy.");
+  });
+
+  it("keeps the technician's copy free of money with pictures on it", () => {
+    const base = withPictures();
+    const read = pdf.inspectPdf(pdf.workOrderPdf({
+      ...base, prices: false, copy: "Printed for the technician",
+      parts: base.parts.map((p) => ({ ...p, unitPrice: null, lineTotal: null })),
+    }));
+    expect(read.images).toHaveLength(3);
+    expect(read.text).not.toContain("$");
+  });
+
+  it("prints exactly what it did before when nothing was taken", () => {
+    const read = pdf.inspectPdf(pdf.workOrderPdf(order()));
+    expect(read.images).toEqual([]);
+    expect(read.text).not.toContain("Signed on the phone");
+    expect(read.text).not.toContain("Photographs");
+  });
+});

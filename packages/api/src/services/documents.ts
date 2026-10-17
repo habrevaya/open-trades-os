@@ -2,11 +2,12 @@ import { deflateSync, inflateSync } from "node:zlib";
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or, type SQL } from "drizzle-orm";
 import { bytesOf, HELD } from "./files";
 import { schema, type Database } from "@opentradesos/db";
-import { branding as brand, money as m, pdf, reporting, time, work } from "@opentradesos/core";
+import { branding as brand, can, customerPortal as cp, money as m, pdf, reporting, time, work } from "@opentradesos/core";
 import { contactOf, guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
 import { invoiceScopeFilter, estimateScopeFilter, jobScopeFilter } from "./scope";
 import { InvalidGrantError, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
 import { proposalWithin } from "./proposals";
+import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import { buildStatement, type Statement } from "./statements";
 import type { ReportResult } from "./reports";
 
@@ -297,6 +298,116 @@ function windowIn(start: Date | null, end: Date | null, zone: string): string {
   return `${momentIn(start, zone)} to ${until}`;
 }
 
+/** The most photographs one work order prints, and the most picture bytes it reads, so a job with a hundred phone photographs is still a file somebody can print and email. */
+export const WORK_ORDER_MAX_PHOTOS = 24;
+export const WORK_ORDER_MAX_PHOTO_BYTES = 40 * 1024 * 1024;
+
+/**
+ * What the phone took on a job, ready to print under the visit it was taken at.
+ *
+ * A PHOTOGRAPH IS READ ONLY BY SOMEBODY WHO MAY OPEN ONE. The file route
+ * (`/files/...`) needs `document:read` on top of whatever reads the job, so
+ * the work order does too: a role that can read a job and not its documents
+ * is told photographs are not shown to it, never handed the pictures through a
+ * side door. The job's own scope has already narrowed which job this is.
+ *
+ * THE OFFICE COPY IS THE ONE HANDED TO THE CUSTOMER, so it prints what the
+ * customer's own job link would show them (`photoShown`: the ones somebody
+ * chose to share, or every one when the company shows them all), because a
+ * technician photographs a panel with the alarm code written on it as readily
+ * as a finished install. The technician's copy stays with the company and
+ * prints every photograph the company holds, bar what the customer sent in.
+ * The signature drawn on the phone is the customer's own and is on both.
+ *
+ * Only pictures this file can carry are drawn. One it cannot (a HEIC straight
+ * off a phone) is said in a line under its visit rather than dropped, and the
+ * count and size are capped, said in a note when they bite.
+ */
+async function phonePictures(
+  tx: Database, ctx: ServiceContext, input: { jobId: string; visitIds: string[]; forTechnician: boolean; zone: string },
+): Promise<{
+  photos: Map<string, pdf.WorkOrderPicture[]>;
+  signatures: Map<string, pdf.WorkOrderPicture>;
+  jobPhotos: pdf.WorkOrderPicture[];
+  note: string | null;
+}> {
+  const out = {
+    photos: new Map<string, pdf.WorkOrderPicture[]>(),
+    signatures: new Map<string, pdf.WorkOrderPicture>(),
+    jobPhotos: [] as pdf.WorkOrderPicture[],
+    note: null as string | null,
+  };
+  const rows = await tx.select().from(schema.attachment)
+    .where(and(
+      eq(schema.attachment.organizationId, ctx.actor.organizationId),
+      isNull(schema.attachment.deletedAt),
+      inArray(schema.attachment.kind, ["photo", "signature"]),
+      or(
+        and(eq(schema.attachment.entityType, "job"), eq(schema.attachment.entityId, input.jobId)),
+        input.visitIds.length > 0
+          ? and(eq(schema.attachment.entityType, "visit"), inArray(schema.attachment.entityId, input.visitIds))
+          : undefined,
+      ),
+    ))
+    .orderBy(asc(schema.attachment.createdAt), asc(schema.attachment.id));
+  const pictures = rows.filter((row) => row.contentType?.startsWith("image/"));
+  if (pictures.length === 0) return out;
+
+  if (!can(ctx.actor, "document:read")) {
+    out.note = "Photographs and signatures taken on the phone are not shown to your role.";
+    return out;
+  }
+
+  const settings = await portalSettingsWithin(tx, ctx.actor.organizationId);
+  const shown = pictures.filter((row) => row.kind === "signature" || input.forTechnician
+    || cp.photoShown(settings.jobPhotos, { kind: row.kind, sharedAt: row.sharedWithCustomerAt }));
+  const heldBack = pictures.filter((row) => row.kind === "photo").length - shown.filter((row) => row.kind === "photo").length;
+
+  /** The latest signature per visit is the one that counts: a customer who signed again meant the second. */
+  const lastSignature = new Map<string, typeof shown[number]>();
+  for (const row of shown) if (row.kind === "signature" && row.entityType === "visit") lastSignature.set(row.entityId, row);
+  const wanted = shown.filter((row) => row.kind === "photo" || lastSignature.get(row.entityId)?.id === row.id);
+
+  const files = await tx.select({ key: schema.storedFile.storageKey, ...HELD }).from(schema.storedFile)
+    .where(and(
+      inArray(schema.storedFile.storageKey, [...new Set(wanted.map((row) => row.storageKey))]),
+      isNull(schema.storedFile.deletedAt),
+    ));
+  const held = new Map(files.map((file) => [file.key, file]));
+
+  let photoCount = 0;
+  let bytesRead = 0;
+  let leftOut = 0;
+  for (const row of wanted) {
+    const isSignature = row.kind === "signature";
+    if (!isSignature && (photoCount >= WORK_ORDER_MAX_PHOTOS || bytesRead >= WORK_ORDER_MAX_PHOTO_BYTES)) { leftOut += 1; continue; }
+    const file = held.get(row.storageKey);
+    if (!file) continue;
+    const bytes = new Uint8Array(await bytesOf(file));
+    if (!isSignature) { photoCount += 1; bytesRead += bytes.length; }
+    const when = momentIn(row.createdAt, input.zone, true);
+    const picture: pdf.WorkOrderPicture = {
+      image: pdf.readImage(bytes, CODECS),
+      caption: isSignature
+        ? `Customer signed ${when}`
+        : `${row.phase ? row.phase[0]!.toUpperCase() + row.phase.slice(1) : "Photograph"}, ${when}`,
+    };
+    if (isSignature) out.signatures.set(row.entityId, picture);
+    else if (row.entityType === "visit") out.photos.set(row.entityId, [...(out.photos.get(row.entityId) ?? []), picture]);
+    else out.jobPhotos.push(picture);
+  }
+
+  const notes: string[] = [];
+  if (heldBack > 0) {
+    notes.push(`${heldBack === 1 ? "One photograph is" : `${heldBack} photographs are`} not printed on this copy because ${heldBack === 1 ? "it is" : "they are"} not marked to show the customer. The technician's copy has ${heldBack === 1 ? "it" : "them"}.`);
+  }
+  if (leftOut > 0) {
+    notes.push(`${leftOut === 1 ? "One more photograph is" : `${leftOut} more photographs are`} on the job's page and not printed here.`);
+  }
+  out.note = notes.length > 0 ? notes.join(" ") : null;
+  return out;
+}
+
 /**
  * A job as its work order prints it, for somebody who may read the job: the
  * same `job:read` and the same scope as the job page, so a technician who sees
@@ -308,6 +419,9 @@ function windowIn(start: Date | null, end: Date | null, zone: string): string {
  * gate code, or the technician's own notes: the office copy is the one
  * handed to a customer to sign, and the technician has the gate code and
  * their notes on their phone.
+ *
+ * Under each visit it also prints the photographs and the customer's
+ * signature taken on the phone, chosen by `phonePictures`.
  */
 export function workOrderPdf(
   ctx: ServiceContext, input: { id: string; forTechnician?: boolean | undefined },
@@ -377,6 +491,9 @@ export function workOrderPdf(
     const [org] = await tx.select({ currency: schema.organization.currency })
       .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
     const currency = org?.currency ?? "USD";
+    const phone = await phonePictures(tx, ctx, {
+      jobId: input.id, visitIds: visits.map((v) => v.id), forTechnician: Boolean(input.forTechnician), zone,
+    });
     const doc: pdf.WorkOrderPdfInput = {
       company: await companyOf(tx, organizationId),
       number: job.number,
@@ -403,7 +520,11 @@ export function workOrderPdf(
         arrived: visit.arrivedAt ? momentIn(visit.arrivedAt, zone) : null,
         completed: visit.completedAt ? momentIn(visit.completedAt, zone) : null,
         checklist: visit.checklist.map((item) => ({ label: item.label, required: item.required, done: item.doneAt !== null })),
+        photos: phone.photos.get(visit.id) ?? [],
+        signature: phone.signatures.get(visit.id) ?? null,
       })),
+      jobPhotos: phone.jobPhotos,
+      photoNote: phone.note,
       parts: lines.map((line) => ({
         name: line.name,
         description: line.description,

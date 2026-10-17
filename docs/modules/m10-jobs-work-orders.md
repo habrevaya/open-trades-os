@@ -241,7 +241,10 @@ phone, the address with the property's access and hazard notes, what the
 customer said and the job's description, each visit still going ahead with
 its window in the company's own clock, its status, who was sent (the lead
 first), when work started and finished, and its checklist with what is already
-done marked, then the parts and labour used with prices, and lines for the
+done marked, then the signature the customer drew on the phone ("Signed on the
+phone", with when) and the photographs taken at that visit (each with its phase,
+"Before" or "After", and when, in the company's clock, at most three inches tall so
+a page holds two), then the parts and labour used with prices, and lines for the
 customer's signature, their name, the date and the technician. "Print for the
 technician, without prices" (`?for=technician`) is the copy for the van: the
 same, read without a single price, so there is none to leave out by mistake.
@@ -254,6 +257,28 @@ for the rest. No copy prints what a part cost the company, the gate code or the
 technician's own notes, because the office copy is the one handed to a customer
 to sign, and the technician has the gate code and their notes on their phone.
 A cancelled visit is left off.
+
+**What the phone took.** The pictures are the attachments on the job and its visits
+(`kind` photo or signature, M23), printed under the visit they were taken at, a job's
+own photographs under "Photographs on the job". Three rules decide which are printed.
+First, a picture is printed only for somebody who may open one: the work order is
+`job:read` and the job's own scope, and a photograph also needs `document:read`, the
+permission `/files/...` asks for, so a role that reads jobs and not documents gets the
+work order with a line saying photographs and signatures are not shown to it and no
+picture. Second, the office copy is the one handed to the customer, so it prints the
+photographs the customer's own job link would show them (the ones somebody marked with
+`POST /v1/attachments/{id}/customer-sharing`, or every one when the company's portal
+setting shows them all) and says how many it held back, and the technician's copy, which
+stays with the company, prints every photograph; a technician photographs a panel with
+the alarm code written on it as readily as a finished install. The customer's drawn
+signature is theirs and is on both copies; when there are two on a visit the later is
+printed. Third, a file the customer sent in, a document and a picture on a cancelled
+visit are never printed. A picture this file cannot carry (a HEIC straight off a phone, a
+sixteen bit or interlaced PNG) is said in one line under its visit, with its caption,
+rather than dropped. At most 24 photographs and 40 MB of them are printed, and the page
+says how many more are on the job's page. The times are when the picture reached the
+server, which for one taken offline is when the phone synced. The paper signature lines
+are still printed, for anything not signed on the phone.
 
 ### See what it cost
 
@@ -343,9 +368,13 @@ to its type's and drop one of its type's with a reason, one skill at a time, wit
 last day: there is no "drop for every job of this type" (that is editing the type). The
 public booking page's count of free slots reads the job type's skills only, because there is no
 job yet to drop anything from. The work order PDF is printed from the job page
-and is not an API route; it carries no photographs and no signature already
-taken on the phone, only blank lines to sign on paper, and nothing signed on
-paper comes back into the job. Booking with a technician who
+and is not an API route. It prints the signature drawn on the phone as a picture and
+does not check it: a visit marked signed only by a link given to the API
+(`signatureUrl`) with no picture kept here is not fetched and not printed, and
+nothing signed on paper comes back into the job. A photograph is not printed on the
+office copy until somebody marks it for the customer, which is deliberate, so a
+photograph of a code is never handed over by accident, and there is no switch to print
+every photograph on the office copy other than the portal's "show every photograph". Booking with a technician who
 is refused has no override; book the visit unassigned and send them from the
 board. Cancelling a job does not cancel its visits unless the office ticks
 it; an API caller has to ask with `cancelVisits`, so an integration that

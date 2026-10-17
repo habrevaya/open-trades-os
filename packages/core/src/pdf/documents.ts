@@ -187,7 +187,22 @@ export interface WorkOrderPdfInput {
     arrived?: string | null | undefined;
     completed?: string | null | undefined;
     checklist: Array<{ label: string; required: boolean; done: boolean }>;
+    /**
+     * What was taken on the phone at this visit, already read and already chosen for this copy and
+     * this reader. An image is null for one this file cannot print (a HEIC, a sixteen bit PNG),
+     * which is said in a line rather than dropped.
+     */
+    photos?: WorkOrderPicture[] | undefined;
+    /** The customer's signature drawn on the phone, when one was taken. */
+    signature?: WorkOrderPicture | null | undefined;
   }>;
+  /** Photographs on the job itself rather than on one of its visits. */
+  jobPhotos?: WorkOrderPicture[] | undefined;
+  /**
+   * Said once, under the visits, when photographs were left off in whole or in part: the reader's
+   * role does not show them, the copy shows only what the customer may see, or a limit was reached.
+   */
+  photoNote?: string | null | undefined;
   /** What was used on the job. A price is null on the technician's copy. */
   parts: Array<{
     name: string; description: string | null; kind: string; quantity: string;
@@ -202,6 +217,19 @@ export interface WorkOrderPdfInput {
   copy: string;
   generatedAt: Date;
 }
+
+/** A photograph or signature on the work order: the picture, and the words under it. */
+export interface WorkOrderPicture {
+  /** Null for one this file cannot print. */
+  image: PdfImage | null;
+  /** "Before, Oct 6, 9:14 AM CDT": what it is and when, in the company's own clock. */
+  caption: string;
+}
+
+/** The tallest a photograph is printed, in points: about three inches, so a page holds two and they are legible on paper. */
+export const WORK_ORDER_PHOTO_HEIGHT = 216;
+/** The tallest a signature is printed, in points. */
+export const WORK_ORDER_SIGNATURE_HEIGHT = 64;
 
 const JOB_STATE: Record<string, string> = {
   lead: "Lead", estimating: "Being priced", scheduled: "Scheduled", in_progress: "Under way",
@@ -218,6 +246,15 @@ const PART_KIND: Record<string, string> = {
 };
 const worded = (map: Record<string, string>, value: string) =>
   map[value] ?? value.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+/** One picture with its words under it, or the line that says it cannot be printed. */
+function printPicture(flow: Flow, picture: WorkOrderPicture, maxHeight: number): void {
+  if (picture.image) {
+    flow.image(picture.image, { maxHeight, caption: picture.caption });
+  } else {
+    flow.paragraph(`${picture.caption}: this picture is on the job's page and is not a kind this file can print.`, { size: 9, color: MUTED });
+  }
+}
 
 export function workOrderPdf(input: WorkOrderPdfInput, options: RenderOptions = {}): Uint8Array {
   const number = documentNumber(input.numberPrefix, input.number);
@@ -273,7 +310,27 @@ export function workOrderPdf(input: WorkOrderPdfInput, options: RenderOptions = 
         visit.checklist.map((item) => [item.done ? "Done" : "", `${item.label}${item.required ? " (must be done)" : ""}`]),
       );
     }
+    if (visit.signature) {
+      flow.gap(6);
+      flow.ensure(WORK_ORDER_SIGNATURE_HEIGHT + 34);
+      flow.paragraph("Signed on the phone", { font: "bold", size: 9 });
+      printPicture(flow, visit.signature, WORK_ORDER_SIGNATURE_HEIGHT);
+    }
+    if (visit.photos && visit.photos.length > 0) {
+      flow.gap(6);
+      flow.paragraph(`Photographs from visit ${i + 1}`, { font: "bold", size: 9 });
+      for (const photo of visit.photos) printPicture(flow, photo, WORK_ORDER_PHOTO_HEIGHT);
+    }
   });
+  if (input.jobPhotos && input.jobPhotos.length > 0) {
+    flow.gap(10);
+    flow.paragraph("Photographs on the job", { font: "bold", size: 9 });
+    for (const photo of input.jobPhotos) printPicture(flow, photo, WORK_ORDER_PHOTO_HEIGHT);
+  }
+  if (input.photoNote) {
+    flow.gap(6);
+    flow.paragraph(input.photoNote, { size: 9, color: MUTED });
+  }
 
   flow.gap(12);
   flow.heading(input.prices ? "Parts and labour" : "Parts and labour used", 11);
