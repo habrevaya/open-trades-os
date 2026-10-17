@@ -876,6 +876,7 @@ export const handlers = {
   listCampaigns: campaigns.handlers.listCampaigns,
   previewCampaign: campaigns.handlers.previewCampaign,
   sendCampaign: campaigns.handlers.sendCampaign,
+  sendCampaignRest: campaigns.handlers.sendCampaignRest,
   campaignRecipients: campaigns.handlers.campaignRecipients,
   campaignResults: campaigns.handlers.campaignResults,
   describeUnsubscribe: unsubscribe.handlers.describeUnsubscribe,

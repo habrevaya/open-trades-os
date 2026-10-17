@@ -47,7 +47,9 @@ export const AudienceRule = z.discriminatedUnion("kind", [
 
 export const CampaignChannel = z.enum(["sms", "email"]);
 export const CampaignState = z.enum(["draft", "scheduled", "sending", "sent", "cancelled"]);
-export const RecipientState = z.enum(["pending", "queued", "skipped"]);
+/** `held` is kept back from a test for a person to send the winner to, and sent nothing yet. */
+export const RecipientState = z.enum(["pending", "queued", "skipped", "held"]);
+const Variant = z.enum(["a", "b", "c", "d"]);
 
 const Result = z.object({
   selected: z.number().int(),
@@ -55,6 +57,8 @@ const Result = z.object({
   skipped: z.number().int(),
   /** Reason to count. The worklist for the office, not diagnostics. */
   skippedBy: z.record(z.number().int()),
+  /** Kept back from a test for the winner, and sent nothing yet. */
+  held: z.number().int().optional(),
 });
 
 const CampaignView = z.object({
@@ -82,6 +86,16 @@ const CampaignView = z.object({
   /** The split as a sentence, or null with no test. */
   splitInWords: z.string().nullable(),
   abTest: z.boolean(),
+  /** The part of the list kept back from the test for the winner, in whole percent, or null for none. */
+  holdBackShare: z.number().int().nullable(),
+  /** The hold back as a sentence, or null with none. */
+  holdBackInWords: z.string().nullable(),
+  /** The version a person chose to send the held back part, once they have. */
+  restVersion: Variant.nullable(),
+  /** True when that version had won the test; false when nothing won and version A was sent. */
+  restWasWinner: z.boolean().nullable(),
+  restStartedAt: z.string().nullable(),
+  restFinishedAt: z.string().nullable(),
   utmCampaign: z.string(),
   messagingCampaignId: Uuid.nullable(),
   scheduledFor: z.string().nullable(),
@@ -152,6 +166,14 @@ export const createCampaign = defineRoute({
      * and the customer, so the same person gets the same version every run.
      */
     variantShares: z.array(z.number().int().min(1).max(99)).min(2).max(4).nullable().optional(),
+    /**
+     * The part of the list kept back from the test, whole percent, 5 to 95,
+     * on a campaign with a version B. Those people are sent nothing when the
+     * test goes; once it is judged a person sends them the winner (or version
+     * A when nothing won) with POST /v1/campaigns/{id}/rest. Absent, null or 0
+     * holds nobody back, the default.
+     */
+    holdBackShare: z.number().int().min(0).max(100).nullable().optional(),
     /** Defaulted from the name. Two fields that must agree are two spellings in a report. */
     utmCampaign: z.string().min(1).max(100).optional(),
     /** The registered carrier campaign, on SMS. Its throughput is what the send paces against. */
@@ -189,6 +211,8 @@ export const updateCampaign = defineRoute({
      * the change is refused rather than guessed at.
      */
     variantShares: z.array(z.number().int().min(1).max(99)).min(2).max(4).nullable().optional(),
+    /** The part held back for the winner, as on create. Null holds nobody back; a test taken off with a hold back kept is refused. */
+    holdBackShare: z.number().int().min(0).max(100).nullable().optional(),
     scheduledFor: z.string().datetime().nullable().optional(),
     messagingCampaignId: Uuid.nullable().optional(),
   }),
@@ -327,6 +351,36 @@ export const sendCampaign = defineRoute({
     skipped: z.number().int(),
     skippedBy: z.record(z.number().int()),
     remaining: z.number().int(),
+    /** Kept back from the test for the winner and sent nothing. */
+    held: z.number().int(),
+  }),
+});
+
+export const sendCampaignRest = defineRoute({
+  method: "post",
+  path: "/v1/campaigns/{id}/rest",
+  summary: "Send the winner to the part of the list held back from the test",
+  description:
+    "Only a person does this, never the clock: whether a result is good enough to act on is the owner's call. Allowed once the test has all gone out (the campaign is sent). `version` must be what the test says now: the named winner, or version A when nothing won, so a page loaded before the counts moved cannot send a version that no longer won. The first call fixes the version on the campaign; later calls (the next batch under a carrier's daily cap) must name the same one. Consent, STOP replies, unsubscribes and quiet hours are checked again for every person at send time, and somebody who no longer fits the rules or whose address has changed is skipped with that reason. Inside quiet hours nothing is written and the call is refused. One batch per call and safe to repeat. Links in the message carry utm_content=rest, so the rest's clicks are never counted in the test that chose it.",
+  module: "M19",
+  permissions: ["campaign:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    /** The version the person means to send. Refused unless it is the winner, or version A when nothing won. */
+    version: Variant,
+    /** The instant to judge quiet hours against. Defaults to now. */
+    at: z.string().datetime().optional(),
+  }),
+  output: z.object({
+    campaignId: Uuid,
+    version: Variant,
+    wasWinner: z.boolean(),
+    queued: z.number().int(),
+    skipped: z.number().int(),
+    skippedBy: z.record(z.number().int()),
+    /** Still held back, for the next batch when a carrier's daily cap stopped this one. */
+    remaining: z.number().int(),
   }),
 });
 
@@ -352,6 +406,8 @@ export const campaignRecipients = defineRoute({
       address: z.string(),
       /** The version of an A/B test this person was given. `a` on a campaign with no test. */
       variant: z.enum(["a", "b", "c", "d"]),
+      /** Kept back from the test for the winner. Their version is the one they were later sent, once they have been. */
+      heldBack: z.boolean(),
       state: RecipientState,
       skipReason: z.string().nullable(),
       skipExplanation: z.string().nullable(),
@@ -419,6 +475,26 @@ export const campaignResults = defineRoute({
       /** Null unless the difference is more than luck explains. */
       winner: z.enum(["a", "b", "c", "d"]).nullable(),
       headline: z.string(),
+      /** The part held back from the test, never counted in it. Null when the campaign held nobody back. */
+      rest: z.object({
+        share: z.number().int(),
+        /** Held back and sent nothing yet. */
+        waiting: z.number().int(),
+        sent: z.number().int(),
+        skipped: z.number().int(),
+        /** The version a person sent them, or null before anybody has. */
+        version: Variant.nullable(),
+        wasWinner: z.boolean().nullable(),
+        startedAt: z.string().nullable(),
+        finishedAt: z.string().nullable(),
+        /** People who arrived on the campaign's tag with utm_content=rest. */
+        clicks: z.number().int(),
+        booked: z.number().int(),
+        jobs: z.number().int(),
+        revenue: z.string(),
+        /** What may be sent to them now: the winner, or version A when nothing won. Null once a person has chosen. */
+        offer: z.object({ version: Variant, won: z.boolean(), sentence: z.string() }).nullable(),
+      }).nullable(),
     }).nullable(),
   }),
 });
@@ -471,6 +547,7 @@ export const campaignRoutes = {
   listCampaigns,
   previewCampaign,
   sendCampaign,
+  sendCampaignRest,
   campaignRecipients,
   campaignResults,
   describeUnsubscribe,

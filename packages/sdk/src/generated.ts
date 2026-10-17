@@ -1751,7 +1751,8 @@ export interface CampaignRecipientsOutput {
     customerName: string | null;
     address: string;
     variant: "a" | "b" | "c" | "d";
-    state: "pending" | "queued" | "skipped";
+    heldBack: boolean;
+    state: "pending" | "queued" | "skipped" | "held";
     skipReason: string | null;
     skipExplanation: string | null;
     messageId: string | null;
@@ -1779,6 +1780,12 @@ export interface CampaignResultsOutput {
     versions: number;
     splitInWords: string | null;
     abTest: boolean;
+    holdBackShare: number | null;
+    holdBackInWords: string | null;
+    restVersion: "a" | "b" | "c" | "d" | null;
+    restWasWinner: boolean | null;
+    restStartedAt: string | null;
+    restFinishedAt: string | null;
     utmCampaign: string;
     messagingCampaignId: string | null;
     scheduledFor: string | null;
@@ -1793,6 +1800,7 @@ export interface CampaignResultsOutput {
     queued: number;
     skipped: number;
     skippedBy: Record<string, number>;
+    held?: number;
   };
   reachRate: string | null;
   replies: number;
@@ -1827,6 +1835,25 @@ export interface CampaignResultsOutput {
     }>;
     winner: "a" | "b" | "c" | "d" | null;
     headline: string;
+    rest: {
+      share: number;
+      waiting: number;
+      sent: number;
+      skipped: number;
+      version: "a" | "b" | "c" | "d" | null;
+      wasWinner: boolean | null;
+      startedAt: string | null;
+      finishedAt: string | null;
+      clicks: number;
+      booked: number;
+      jobs: number;
+      revenue: string;
+      offer: {
+        version: "a" | "b" | "c" | "d";
+        won: boolean;
+        sentence: string;
+      } | null;
+    } | null;
   } | null;
 }
 
@@ -1893,6 +1920,12 @@ export interface CancelCampaignOutput {
   versions: number;
   splitInWords: string | null;
   abTest: boolean;
+  holdBackShare: number | null;
+  holdBackInWords: string | null;
+  restVersion: "a" | "b" | "c" | "d" | null;
+  restWasWinner: boolean | null;
+  restStartedAt: string | null;
+  restFinishedAt: string | null;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -1906,6 +1939,7 @@ export interface CancelCampaignOutput {
     queued: number;
     skipped: number;
     skippedBy: Record<string, number>;
+    held?: number;
   };
 }
 
@@ -2925,6 +2959,7 @@ export interface CreateCampaignInput {
   variantDBody?: string;
   variantDSubject?: string | null;
   variantShares?: number[] | null;
+  holdBackShare?: number | null;
   utmCampaign?: string;
   messagingCampaignId?: string | null;
 }
@@ -2948,6 +2983,12 @@ export interface CreateCampaignOutput {
   versions: number;
   splitInWords: string | null;
   abTest: boolean;
+  holdBackShare: number | null;
+  holdBackInWords: string | null;
+  restVersion: "a" | "b" | "c" | "d" | null;
+  restWasWinner: boolean | null;
+  restStartedAt: string | null;
+  restFinishedAt: string | null;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -2961,6 +3002,7 @@ export interface CreateCampaignOutput {
     queued: number;
     skipped: number;
     skippedBy: Record<string, number>;
+    held?: number;
   };
 }
 
@@ -7022,6 +7064,12 @@ export interface GetCampaignOutput {
   versions: number;
   splitInWords: string | null;
   abTest: boolean;
+  holdBackShare: number | null;
+  holdBackInWords: string | null;
+  restVersion: "a" | "b" | "c" | "d" | null;
+  restWasWinner: boolean | null;
+  restStartedAt: string | null;
+  restFinishedAt: string | null;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -7035,6 +7083,7 @@ export interface GetCampaignOutput {
     queued: number;
     skipped: number;
     skippedBy: Record<string, number>;
+    held?: number;
   };
 }
 
@@ -13525,6 +13574,12 @@ export interface ListCampaignsOutput {
     versions: number;
     splitInWords: string | null;
     abTest: boolean;
+    holdBackShare: number | null;
+    holdBackInWords: string | null;
+    restVersion: "a" | "b" | "c" | "d" | null;
+    restWasWinner: boolean | null;
+    restStartedAt: string | null;
+    restFinishedAt: string | null;
     utmCampaign: string;
     messagingCampaignId: string | null;
     scheduledFor: string | null;
@@ -13538,6 +13593,7 @@ export interface ListCampaignsOutput {
       queued: number;
       skipped: number;
       skippedBy: Record<string, number>;
+      held?: number;
     };
   }>;
 }
@@ -23083,6 +23139,22 @@ export interface SendCampaignOutput {
   skipped: number;
   skippedBy: Record<string, number>;
   remaining: number;
+  held: number;
+}
+
+export interface SendCampaignRestInput {
+  version: "a" | "b" | "c" | "d";
+  at?: string;
+}
+
+export interface SendCampaignRestOutput {
+  campaignId: string;
+  version: "a" | "b" | "c" | "d";
+  wasWinner: boolean;
+  queued: number;
+  skipped: number;
+  skippedBy: Record<string, number>;
+  remaining: number;
 }
 
 export interface SendChangeOrderInput {
@@ -26384,6 +26456,7 @@ export interface UpdateCampaignInput {
   variantDBody?: string | null;
   variantDSubject?: string | null;
   variantShares?: number[] | null;
+  holdBackShare?: number | null;
   scheduledFor?: string | null;
   messagingCampaignId?: string | null;
 }
@@ -26407,6 +26480,12 @@ export interface UpdateCampaignOutput {
   versions: number;
   splitInWords: string | null;
   abTest: boolean;
+  holdBackShare: number | null;
+  holdBackInWords: string | null;
+  restVersion: "a" | "b" | "c" | "d" | null;
+  restWasWinner: boolean | null;
+  restStartedAt: string | null;
+  restFinishedAt: string | null;
   utmCampaign: string;
   messagingCampaignId: string | null;
   scheduledFor: string | null;
@@ -26420,6 +26499,7 @@ export interface UpdateCampaignOutput {
     queued: number;
     skipped: number;
     skippedBy: Record<string, number>;
+    held?: number;
   };
 }
 
@@ -29218,7 +29298,7 @@ export interface BookBookingRequestParams {
 
 export interface CampaignRecipientsInput {
   id: string;
-  state?: "pending" | "queued" | "skipped";
+  state?: "pending" | "queued" | "skipped" | "held";
   limit?: number;
 }
 
@@ -32026,6 +32106,10 @@ export interface SendCampaignParams {
   id: string;
 }
 
+export interface SendCampaignRestParams {
+  id: string;
+}
+
 export interface SendChangeOrderParams {
   id: string;
 }
@@ -33632,6 +33716,7 @@ export interface OperationTypes {
   sellAgreement: { input: SellAgreementInput; output: SellAgreementOutput };
   sendArrivalNotice: { input: SendArrivalNoticeParams & SendArrivalNoticeInput; output: SendArrivalNoticeOutput };
   sendCampaign: { input: SendCampaignParams & SendCampaignInput; output: SendCampaignOutput };
+  sendCampaignRest: { input: SendCampaignRestParams & SendCampaignRestInput; output: SendCampaignRestOutput };
   sendChangeOrder: { input: SendChangeOrderParams & SendChangeOrderInput; output: SendChangeOrderOutput };
   sendCollectionReminder: { input: SendCollectionReminderParams & SendCollectionReminderInput; output: SendCollectionReminderOutput };
   sendEstimate: { input: SendEstimateParams & SendEstimateInput; output: SendEstimateOutput };
@@ -34804,6 +34889,7 @@ export const OPERATIONS = {
   sellAgreement: { method: "POST", path: "/v1/agreements", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   sendArrivalNotice: { method: "POST", path: "/v1/visits/{id}/on-my-way", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   sendCampaign: { method: "POST", path: "/v1/campaigns/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
+  sendCampaignRest: { method: "POST", path: "/v1/campaigns/{id}/rest", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   sendChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:send","portal:grant"] },
   sendCollectionReminder: { method: "POST", path: "/v1/ai/collections/reminders/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   sendEstimate: { method: "POST", path: "/v1/estimates/{id}/send", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:send","portal:grant"] },
@@ -43426,6 +43512,15 @@ export abstract class GeneratedOperations {
    */
   sendCampaign(input: SendCampaignParams & SendCampaignInput, options?: CallOptions): Promise<SendCampaignOutput> {
     return this.call("sendCampaign", input, options);
+  }
+
+  /**
+   * Send the winner to the part of the list held back from the test.
+   *
+   * POST /v1/campaigns/{id}/rest. Needs campaign:write.
+   */
+  sendCampaignRest(input: SendCampaignRestParams & SendCampaignRestInput, options?: CallOptions): Promise<SendCampaignRestOutput> {
+    return this.call("sendCampaignRest", input, options);
   }
 
   /**

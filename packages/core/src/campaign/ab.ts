@@ -364,3 +364,71 @@ export function judgeVersions(all: readonly VersionCounts[]): TestJudgement {
         : "No clear winner. The gaps are small enough that luck could explain them.",
   };
 }
+
+/* ------------------------------------------------- holding part of the list back */
+
+/**
+ * The most and the least of a list that may be held back from a test, in whole
+ * percent. Under five the held back part is too small to be worth the wait;
+ * over ninety five the test itself reaches too few to say anything.
+ */
+export const MIN_HOLD_BACK = 5;
+export const MAX_HOLD_BACK = 95;
+
+/**
+ * Whether a held back share makes sense: a whole percent between the bounds,
+ * and only on a test, because with one version there is no winner to send.
+ * Nothing (null, absent or zero) is no hold back, the default.
+ */
+export function checkHoldBack(
+  share: number | null | undefined, versions: number,
+): { ok: true; share: number | null } | { ok: false; message: string } {
+  if (share === null || share === undefined || share === 0) return { ok: true, share: null };
+  if (!Number.isInteger(share)) return { ok: false, message: "Hold back a whole percent of the list, like 80." };
+  if (versions < 2) {
+    return { ok: false, message: "Holding part of the list back is for a test. Write a second version first, or hold nobody back." };
+  }
+  if (share < MIN_HOLD_BACK || share > MAX_HOLD_BACK) {
+    return { ok: false, message: `Hold back between ${MIN_HOLD_BACK}% and ${MAX_HOLD_BACK}% of the list, so both the test and the rest reach enough people.` };
+  }
+  return { ok: true, share };
+}
+
+/**
+ * Whether a customer is in the held back part of one campaign.
+ *
+ * A hash of its own, with a prefix the version hash does not have, so who is
+ * held back says nothing about which version they would have got: the test
+ * part keeps the shares the office chose. Stable, like the version, so a send
+ * that carries on tomorrow holds back the same people.
+ */
+export function heldBackFor(campaignId: string, customerId: string, share: number | null | undefined): boolean {
+  if (!share || share <= 0) return false;
+  return hash32(`hold:${campaignId}:${customerId}`) % 100 < share;
+}
+
+/** "80% are held back. The test goes to the other 20%, and you send the winner to the 80% afterwards." */
+export function holdBackInWords(share: number | null | undefined): string | null {
+  if (!share) return null;
+  return `${share}% of the list is held back. The test goes to the other ${100 - share}%, and once it is judged you `
+    + `send the winner to the ${share}%. Nothing goes to them by itself.`;
+}
+
+/**
+ * What the held back part may be sent, from the test's judgement as it stands:
+ * the winner when there is one, and version A, the words the company already
+ * sends, when nothing won. Never a version that did not win, because the reason
+ * for holding people back was to send them what the test proved.
+ */
+export function restChoice(winner: Variant | null): { version: Variant; won: boolean; sentence: string } {
+  if (winner) {
+    return {
+      version: winner, won: true,
+      sentence: `${VARIANT_LABEL[winner]} won, by more than luck would explain.`,
+    };
+  }
+  return {
+    version: "a", won: false,
+    sentence: "No version won, so there is no winner to send. You can wait for more results, or send version A, the words you already use.",
+  };
+}
