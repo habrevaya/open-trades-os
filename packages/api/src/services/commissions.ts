@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { writePosting } from "./ledger";
 import { closedPeriodCovering } from "./payroll";
+import { refusingDuplicate } from "./duplicates";
 
 /**
  * COMMISSION
@@ -326,6 +327,8 @@ export interface SettleInput {
   splitNote?: string | undefined;
   /** The split the screen proposed, for the audit to say whether it was changed. */
   proposed?: readonly labor.CommissionShare[] | undefined;
+  /** The standing shares a split settled as proposed was made from, in words. Kept on the earning and in each part. */
+  standingNote?: string | undefined;
 }
 
 /**
@@ -409,7 +412,7 @@ async function prepare(tx: Database, ctx: ServiceContext, input: SettleInput) {
   }
 
   const plan = await resolvePlan(tx, ctx, input.planId);
-  const shares = await resolveShares(tx, ctx, invoice.jobId, input.shares);
+  const { shares, standingNote } = await resolveShares(tx, ctx, invoice.jobId, input.shares);
 
   /**
    * NET REVENUE, matching `ledger.postInvoice`: it credits revenue with the
@@ -471,12 +474,22 @@ async function prepare(tx: Database, ctx: ServiceContext, input: SettleInput) {
 
   const verdict = labor.computeCommission({ ...toCorePlan(plan), itemRule: rule }, event);
   if (!verdict.ok) throw new ConflictError(verdict.reason);
-  return { invoice, plan, shares, revenue, cost, occurredAt, verdict, rule, lines: lineRecords(verdict.lines, versions) };
+  return { invoice, plan, shares, revenue, cost, occurredAt, verdict, rule, lines: lineRecords(verdict.lines, versions), standingNote };
 }
 
 async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
-  const { invoice, plan, shares, revenue, cost, occurredAt, verdict, rule, lines } = await prepare(tx, ctx, input);
+  const prepared = await prepare(tx, ctx, input);
+  const { invoice, plan, shares, revenue, cost, occurredAt, verdict, rule, lines } = prepared;
   const note = input.splitNote?.trim() || null;
+  /**
+   * A split the office changed is explained by their reason; one settled as
+   * proposed with a standing share in it is explained by the standing shares,
+   * frozen here because a standing share can be stopped later.
+   */
+  const standing = note ? null : (input.standingNote ?? prepared.standingNote ?? null);
+  const said = (explanation: string) => (note
+    ? `${explanation} Shared this way by the office: ${note}`
+    : standing ? `${explanation} ${standing}` : explanation);
 
   const [row] = await tx.insert(schema.commissionEvent).values({
     organizationId: ctx.actor.organizationId,
@@ -493,6 +506,7 @@ async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
     occurredAt,
     explanation: verdict.explanation,
     splitNote: note,
+    standingNote: standing,
     itemRule: rule,
     lines,
     ledgerTransactionId: null,
@@ -508,7 +522,7 @@ async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
       weight: shares[index]!.weight,
       shareIndex: index,
       amount: m.toString(part.amount),
-      explanation: note ? `${part.explanation} Shared this way by the office: ${note}` : part.explanation,
+      explanation: said(part.explanation),
       occurredAt,
     });
   }
@@ -541,6 +555,7 @@ async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
       changed: !labor.sameSplit(input.proposed, shares.map((x) => ({ personId: x.technicianId, weight: x.weight }))),
     } : {}),
     ...(note ? { splitNote: note } : {}),
+    ...(standing ? { standingNote: standing } : {}),
   });
 
   return {
@@ -560,7 +575,7 @@ async function settleIn(tx: Database, ctx: ServiceContext, input: SettleInput) {
       technicianId: part.personId,
       weight: shares[index]!.weight,
       amount: m.toString(part.amount),
-      explanation: note ? `${part.explanation} Shared this way by the office: ${note}` : part.explanation,
+      explanation: said(part.explanation),
     })),
   };
 }
@@ -873,7 +888,7 @@ export interface SplitPerson {
   name: string;
   /** Assigned to one of the job's visits. */
   onJob: boolean;
-  /** Their weight in the even split proposed, or "0" for somebody the office added. */
+  /** Their weight in the split proposed (even, or shaped by standing shares), or "0" for somebody the office added. */
   proposedWeight: string;
   /** Their weight in the split shown. */
   weight: string;
@@ -897,8 +912,14 @@ export interface SplitProposal {
   total: string | null;
   explanation: string | null;
   people: SplitPerson[];
-  /** The split shown differs from the even one proposed, so settling it needs a reason. */
+  /** The split shown differs from the one proposed, so settling it needs a reason. */
   changed: boolean;
+  /** The standing shares that shaped the proposal. Empty when it is the even split. */
+  standing: { technicianId: string; name: string; percent: number; applies: "always" | "as_lead"; reason: string }[];
+  /** The proposal in words when a standing share shaped it. */
+  standingSentence: string | null;
+  /** Why standing shares on this job could not all be honoured, so the even split was proposed. */
+  standingConflict: string | null;
   /** Why it cannot be settled as shown, in a sentence, or null. */
   refusal: string | null;
   /**
@@ -916,6 +937,8 @@ export interface SplitProposal {
 
 export interface SettledSplit {
   eventId: string; total: string; occurredAt: Date; splitNote: string | null;
+  /** The standing shares it was settled as proposed with, in words, or null. */
+  standingNote: string | null;
   /** How it was worked out, in the words the people paid read. */
   explanation: string;
   itemRule: labor.ItemRateRule;
@@ -924,15 +947,54 @@ export interface SettledSplit {
 }
 
 /** The people on a job's visits, by name. Who a shared commission is proposed between. */
-async function peopleOnJob(tx: Database, jobId: string | null): Promise<{ technicianId: string; name: string }[]> {
+async function peopleOnJob(tx: Database, jobId: string | null): Promise<{ technicianId: string; name: string; isLead: boolean }[]> {
   if (!jobId) return [];
-  return tx.selectDistinct({ technicianId: schema.visitAssignment.technicianId, name: schema.technician.displayName })
+  return tx.select({
+    technicianId: schema.visitAssignment.technicianId,
+    name: schema.technician.displayName,
+    /** Led at least one of the job's visits, which is when a lead's standing share applies. */
+    isLead: sql<boolean>`bool_or(${schema.visitAssignment.isLead})`,
+  })
     .from(schema.visitAssignment)
     .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
     .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
     /** Not a visit recorded from history: what it earned was settled in the old system. */
     .where(and(eq(schema.visit.jobId, jobId), eq(schema.visit.fromHistory, false)))
+    .groupBy(schema.visitAssignment.technicianId, schema.technician.displayName)
     .orderBy(asc(schema.technician.displayName), asc(schema.visitAssignment.technicianId));
+}
+
+/** The standing shares in force for these people, with their names for the sentence. */
+async function standingFor(tx: Database, organizationId: string, technicianIds: readonly string[]): Promise<labor.StandingShare[]> {
+  if (technicianIds.length === 0) return [];
+  const rows = await tx.select({
+    technicianId: schema.commissionStandingShare.technicianId,
+    percent: schema.commissionStandingShare.percent,
+    applies: schema.commissionStandingShare.applies,
+    reason: schema.commissionStandingShare.reason,
+    name: schema.technician.displayName,
+  }).from(schema.commissionStandingShare)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.commissionStandingShare.technicianId))
+    .where(and(
+      eq(schema.commissionStandingShare.organizationId, organizationId),
+      inArray(schema.commissionStandingShare.technicianId, [...technicianIds]),
+      isNull(schema.commissionStandingShare.endedAt),
+    ));
+  return rows.map((row) => ({ personId: row.technicianId, percent: row.percent, applies: row.applies, reason: row.reason, name: row.name }));
+}
+
+/**
+ * The split proposed between the people on a job: even, or shaped by their
+ * standing shares. The one place the screen, settling from it and settling a
+ * page of them at once read it from, so all three propose the same split.
+ */
+async function proposedWithin(tx: Database, organizationId: string, jobId: string | null) {
+  const onJob = await peopleOnJob(tx, jobId);
+  const split = labor.proposeSplit(
+    onJob.map((p) => ({ personId: p.technicianId, isLead: p.isLead })),
+    await standingFor(tx, organizationId, onJob.map((p) => p.technicianId)),
+  );
+  return { onJob, split };
 }
 
 /**
@@ -967,8 +1029,8 @@ export async function proposal(
     if (!row) throw new NotFoundError("Invoice");
     const invoice = row.invoice;
 
-    const onJob = await peopleOnJob(tx, invoice.jobId);
-    const proposed = labor.evenShares(onJob.map((p) => p.technicianId));
+    const { onJob, split } = await proposedWithin(tx, ctx.actor.organizationId, invoice.jobId);
+    const proposed = split.shares;
     const given: ShareInput[] = input.shares && input.shares.length > 0
       ? input.shares.map((s) => ({ technicianId: s.technicianId, weight: s.weight }))
       : proposed.map((s) => ({ technicianId: s.personId, weight: s.weight }));
@@ -1043,6 +1105,11 @@ export async function proposal(
       explanation: worked?.verdict.explanation ?? null,
       people,
       changed: !labor.sameSplit(proposed, given.map((s) => ({ personId: s.technicianId, weight: s.weight }))),
+      standing: split.applied.map((rule) => ({
+        technicianId: rule.personId, name: rule.name ?? "", percent: rule.percent, applies: rule.applies, reason: rule.reason,
+      })),
+      standingSentence: split.sentence,
+      standingConflict: split.conflict,
       refusal: settled ? `Invoice ${work.documentNumber(invoice.numberPrefix, invoice.number)} has already earned its commission.` : refusal,
       itemRule: rule,
       itemRuleLabel: labor.ITEM_RATE_RULE[rule].label,
@@ -1063,6 +1130,7 @@ async function settledSplit(tx: Database, event: typeof schema.commissionEvent.$
     .orderBy(asc(schema.commissionEntry.shareIndex));
   return {
     eventId: event.id, total: event.total, occurredAt: event.occurredAt, splitNote: event.splitNote,
+    standingNote: event.standingNote,
     explanation: event.explanation,
     itemRule: labor.readItemRateRule({ itemRule: event.itemRule }),
     lines: event.lines,
@@ -1099,6 +1167,7 @@ export async function shared(ctx: ServiceContext): Promise<{
   waiting: SharedEarning[];
   settled: {
     invoiceId: string; invoiceNumber: string; total: string; occurredAt: Date; splitNote: string | null;
+    standingNote: string | null;
     parts: { technicianId: string; name: string; weight: string | null; amount: string }[];
   }[];
 }> {
@@ -1148,7 +1217,7 @@ export async function shared(ctx: ServiceContext): Promise<{
       const split = await settledSplit(tx, event.event);
       settled.push({
         invoiceId: event.event.invoiceId, invoiceNumber: work.documentNumber(event.prefix, event.number),
-        total: split.total, occurredAt: split.occurredAt, splitNote: split.splitNote, parts: split.parts,
+        total: split.total, occurredAt: split.occurredAt, splitNote: split.splitNote, standingNote: split.standingNote, parts: split.parts,
       });
     }
 
@@ -1212,13 +1281,16 @@ export async function settleSplit(
       throw new ConflictError("That invoice has already earned its commission, shared another way. Settling it again would pay it twice.");
     }
 
-    const proposed = labor.evenShares((await peopleOnJob(tx, invoice.jobId)).map((p) => p.technicianId));
+    const { split } = await proposedWithin(tx, ctx.actor.organizationId, invoice.jobId);
+    const proposed = split.shares;
     const changed = !labor.sameSplit(proposed, shares.map((s) => ({ personId: s.technicianId, weight: s.weight })));
     const reason = input.reason?.trim() ?? "";
     if (changed && reason === "") {
       throw new UnprocessableError("A reason for the split", [{
         path: "reason",
-        message: "This is not an even split between the people on the job. Say why, in a sentence the people paid will read.",
+        message: split.applied.length > 0
+          ? "This is not the split the standing shares propose. Say why, in a sentence the people paid will read."
+          : "This is not an even split between the people on the job. Say why, in a sentence the people paid will read.",
       }]);
     }
     const done = await settleIn(tx, ctx, {
@@ -1226,9 +1298,145 @@ export async function settleSplit(
       ...(input.planId ? { planId: input.planId } : {}),
       shares,
       proposed,
-      ...(changed ? { splitNote: reason } : {}),
+      ...(changed ? { splitNote: reason } : split.sentence ? { standingNote: split.sentence } : {}),
     });
     return { id: done.id, invoiceId: invoice.id, total: done.total, splitNote: changed ? reason : null, replayed: false as const };
+  });
+}
+
+/* ----------------------------------------------------- standing shares */
+
+export interface StandingShareView {
+  id: string;
+  technicianId: string;
+  name: string;
+  percent: number;
+  applies: "always" | "as_lead";
+  /** "Ray takes 30% of shared commission whenever they are on the job." */
+  inWords: string;
+  reason: string;
+  setAt: Date;
+  endedAt: Date | null;
+}
+
+const standingView = (row: {
+  id: string; technicianId: string; name: string; percent: number; applies: "always" | "as_lead";
+  reason: string; createdAt: Date; endedAt: Date | null;
+}): StandingShareView => ({
+  id: row.id, technicianId: row.technicianId, name: row.name, percent: row.percent, applies: row.applies,
+  inWords: `${row.name} takes ${row.percent}% of shared commission ${labor.STANDING_APPLIES[row.applies]}.`,
+  reason: row.reason, setAt: row.createdAt, endedAt: row.endedAt,
+});
+
+async function standingRows(tx: Database, organizationId: string, where: "live" | "ended" | { id: string }, limit = 100) {
+  const rows = await tx.select({
+    id: schema.commissionStandingShare.id,
+    technicianId: schema.commissionStandingShare.technicianId,
+    name: schema.technician.displayName,
+    percent: schema.commissionStandingShare.percent,
+    applies: schema.commissionStandingShare.applies,
+    reason: schema.commissionStandingShare.reason,
+    createdAt: schema.commissionStandingShare.createdAt,
+    endedAt: schema.commissionStandingShare.endedAt,
+  }).from(schema.commissionStandingShare)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.commissionStandingShare.technicianId))
+    .where(and(
+      eq(schema.commissionStandingShare.organizationId, organizationId),
+      typeof where === "object"
+        ? eq(schema.commissionStandingShare.id, where.id)
+        : where === "live" ? isNull(schema.commissionStandingShare.endedAt) : sql`${schema.commissionStandingShare.endedAt} is not null`,
+    ))
+    .orderBy(where === "live" ? asc(schema.technician.displayName) : sql`${schema.commissionStandingShare.endedAt} desc`)
+    .limit(limit);
+  return rows.map(standingView);
+}
+
+/**
+ * THE STANDING SHARES IN FORCE, and the last ones stopped. `commission:read`:
+ * anybody who can see a proposed split can see what shaped it.
+ */
+export async function standingShares(ctx: ServiceContext): Promise<{
+  live: StandingShareView[]; ended: StandingShareView[]; people: { technicianId: string; name: string }[];
+}> {
+  return guardedRead(ctx, "commission:read", async (tx) => ({
+    live: await standingRows(tx, ctx.actor.organizationId, "live"),
+    ended: await standingRows(tx, ctx.actor.organizationId, "ended", 20),
+    /** Everybody who can be given one, for the form. */
+    people: await tx.select({ technicianId: schema.technician.id, name: schema.technician.displayName })
+      .from(schema.technician)
+      .where(eq(schema.technician.organizationId, ctx.actor.organizationId))
+      .orderBy(asc(schema.technician.displayName)),
+  }));
+}
+
+/**
+ * GIVE SOMEBODY A STANDING SHARE OF THE COMMISSIONS THEY SHARE.
+ *
+ * `commission:configure`, as declaring a plan is: it decides who is owed what
+ * on every shared commission from now on. A share already in force for the
+ * same person is stopped, never edited, so what was proposed last month can
+ * still be explained. Sent again with what is already in force, it answers
+ * with that rather than writing a second row. Earnings already settled are
+ * not touched: they keep the split they were settled with.
+ */
+export async function setStandingShare(ctx: ServiceContext, input: {
+  technicianId: string; percent: number; applies: "always" | "as_lead"; reason: string;
+}): Promise<StandingShareView & { replayed: boolean }> {
+  return guardedWrite(ctx, "commission:configure", async (tx) => {
+    const org = ctx.actor.organizationId;
+    const checked = labor.checkStandingShare(input);
+    if (!checked.ok) throw new UnprocessableError("That standing share cannot be set", [{ path: "percent", message: checked.reason }]);
+    const [person] = await tx.select({ id: schema.technician.id }).from(schema.technician)
+      .where(and(eq(schema.technician.organizationId, org), eq(schema.technician.id, input.technicianId))).limit(1);
+    if (!person) throw new NotFoundError("Technician");
+
+    /** One writer at a time per person, so two offices setting a share at once cannot both stop the old one. */
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`standing-share:${org}:${input.technicianId}`}))`);
+    const [live] = await tx.select().from(schema.commissionStandingShare)
+      .where(and(
+        eq(schema.commissionStandingShare.organizationId, org),
+        eq(schema.commissionStandingShare.technicianId, input.technicianId),
+        isNull(schema.commissionStandingShare.endedAt),
+      )).limit(1);
+    const reason = input.reason.trim();
+    const viewOf = async (id: string) => (await standingRows(tx, org, { id }))[0]!;
+    if (live && live.percent === input.percent && live.applies === input.applies && live.reason === reason) {
+      return { ...(await viewOf(live.id)), replayed: true };
+    }
+    const now = new Date();
+    if (live) {
+      await tx.update(schema.commissionStandingShare)
+        .set({ endedAt: now, endedByUserId: ctx.actor.userId, updatedAt: now })
+        .where(eq(schema.commissionStandingShare.id, live.id));
+    }
+    const [row] = await refusingDuplicate(
+      "commission_standing_share_live_idx",
+      "This person already has a standing share in force. Stop it, or set the new one again.",
+      () => tx.insert(schema.commissionStandingShare).values({
+        organizationId: org, technicianId: input.technicianId, percent: input.percent,
+        applies: input.applies, reason, setByUserId: ctx.actor.userId,
+      }).returning(),
+    );
+    await audit(tx, ctx, "commission.standing_share_set", "commission_standing_share", row!.id, live ?? null, row);
+    return { ...(await viewOf(row!.id)), replayed: false };
+  });
+}
+
+/** STOP A STANDING SHARE. Proposals from now on leave it out; settled earnings keep what they were settled with. */
+export async function endStandingShare(ctx: ServiceContext, input: { id: string }): Promise<StandingShareView> {
+  return guardedWrite(ctx, "commission:configure", async (tx) => {
+    const org = ctx.actor.organizationId;
+    const [row] = await tx.select().from(schema.commissionStandingShare)
+      .where(and(eq(schema.commissionStandingShare.organizationId, org), eq(schema.commissionStandingShare.id, input.id))).limit(1);
+    if (!row) throw new NotFoundError("Standing share");
+    if (row.endedAt === null) {
+      const now = new Date();
+      const [ended] = await tx.update(schema.commissionStandingShare)
+        .set({ endedAt: now, endedByUserId: ctx.actor.userId, updatedAt: now })
+        .where(eq(schema.commissionStandingShare.id, row.id)).returning();
+      await audit(tx, ctx, "commission.standing_share_ended", "commission_standing_share", row.id, row, ended);
+    }
+    return (await standingRows(tx, org, { id: row.id }))[0]!;
   });
 }
 
@@ -1298,8 +1506,9 @@ async function resolvePlan(
 async function resolveShares(
   tx: Database, ctx: ServiceContext, jobId: string | null,
   given: readonly ShareInput[] | undefined,
-): Promise<ShareInput[]> {
+): Promise<{ shares: ShareInput[]; standingNote: string | null }> {
   let shares: ShareInput[];
+  let standingNote: string | null = null;
 
   if (given && given.length > 0) {
     shares = given.map((share) => ({ technicianId: share.technicianId, weight: share.weight }));
@@ -1310,10 +1519,14 @@ async function resolveShares(
         + "Name who the commission is for.",
       );
     }
-    const assigned = await tx.selectDistinct({ technicianId: schema.visitAssignment.technicianId })
+    const assigned = await tx.select({
+      technicianId: schema.visitAssignment.technicianId,
+      isLead: sql<boolean>`bool_or(${schema.visitAssignment.isLead})`,
+    })
       .from(schema.visitAssignment)
       .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
       .where(and(eq(schema.visit.jobId, jobId), eq(schema.visit.fromHistory, false)))
+      .groupBy(schema.visitAssignment.technicianId)
       .orderBy(asc(schema.visitAssignment.technicianId));
     if (assigned.length === 0) {
       throw new ConflictError(
@@ -1321,7 +1534,17 @@ async function resolveShares(
         + "Name the split.",
       );
     }
-    shares = assigned.map((row) => ({ technicianId: row.technicianId, weight: "1" }));
+    /**
+     * The split the screen would propose: even, or shaped by the standing
+     * shares of the people on the job, so settling without naming a split pays
+     * what the company declared rather than a split nobody chose.
+     */
+    const proposed = labor.proposeSplit(
+      assigned.map((row) => ({ personId: row.technicianId, isLead: row.isLead })),
+      await standingFor(tx, ctx.actor.organizationId, assigned.map((row) => row.technicianId)),
+    );
+    shares = proposed.shares.map((share) => ({ technicianId: share.personId, weight: share.weight }));
+    standingNote = proposed.sentence;
   }
 
   /**
@@ -1343,7 +1566,7 @@ async function resolveShares(
     throw new NotFoundError("Technician in that split");
   }
 
-  return shares;
+  return { shares, standingNote };
 }
 
 /**
@@ -1537,6 +1760,14 @@ export const handlers = {
     invoiceId: string; planId?: string | undefined;
     shares: readonly { technicianId: string; weight: string }[]; reason?: string | undefined;
   }) => settleSplit(ctx, input),
+
+  listCommissionStandingShares: (ctx: ServiceContext) => standingShares(ctx),
+
+  setCommissionStandingShare: (ctx: ServiceContext, input: {
+    technicianId: string; percent: number; applies: "always" | "as_lead"; reason: string;
+  }) => setStandingShare(ctx, input),
+
+  endCommissionStandingShare: (ctx: ServiceContext, input: { id: string }) => endStandingShare(ctx, input),
 
   listCommissionEarnings: (ctx: ServiceContext, input: {
     technicianId?: string | undefined; from?: string | undefined; to?: string | undefined;

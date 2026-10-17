@@ -78,6 +78,8 @@ const REFUSED: Record<string, Refused> = {
   /** A second default facility, from two people making one the default at once. */
   disposal_facility_default_idx: { file: "disposal-facilities.ts", how: "catch" },
   report_name_idx: { file: "reports.ts", how: "catch" },
+  /** A second standing share in force for one person, from two offices setting one at once: a proposal would have two answers. */
+  commission_standing_share_live_idx: { file: "commissions.ts", how: "catch" },
   delivery_schedule_statements_idx: { file: "delivery-schedules.ts", how: "catch" },
   dashboard_name_idx: { file: "dashboards.ts", how: "catch" },
   agreement_plan_code_idx: { file: "agreements.ts", how: "catch" },

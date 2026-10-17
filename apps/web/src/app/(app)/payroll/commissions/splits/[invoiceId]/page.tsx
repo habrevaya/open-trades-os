@@ -81,7 +81,9 @@ export default async function SplitPage({
         <section aria-label="How it was shared" className="mt-6">
           <p className="text-sm text-ink-700">
             This commission has been paid out: <Money value={proposal.settled.total} /> in all.
-            {" "}{proposal.settled.splitNote ? <>Why it was shared this way: {proposal.settled.splitNote}</> : "An even split."}
+            {" "}{proposal.settled.splitNote
+              ? <>Why it was shared this way: {proposal.settled.splitNote}</>
+              : proposal.settled.standingNote ?? "An even split."}
           </p>
           <Table label="How it was shared" head={<><Th>Who</Th><Th className="text-right">Share</Th><Th className="text-right">Paid</Th></>}>
             {proposal.settled.parts.map((p) => (
@@ -105,6 +107,13 @@ export default async function SplitPage({
             </p>
           )}
 
+          {proposal.standingSentence ? (
+            <p className="mt-3 text-sm text-ink-700" data-testid="standing-shares">{proposal.standingSentence}</p>
+          ) : null}
+          {proposal.standingConflict ? (
+            <p className="mt-3 rounded border border-amber-700 bg-amber-tint px-3 py-2 text-sm text-ink-700">{proposal.standingConflict}</p>
+          ) : null}
+
           <form method="get" action={`/payroll/commissions/splits/${invoiceId}`} className="mt-4">
             {proposal.plans.length > 1 ? (
               <label className="mb-3 block text-sm">
@@ -116,7 +125,7 @@ export default async function SplitPage({
               </label>
             ) : null}
             <Table label="Who gets what" head={
-              <><Th>Who</Th><Th className="text-right">Even split</Th><Th className="text-right">Share</Th><Th className="text-right">Gets</Th></>
+              <><Th>Who</Th><Th className="text-right">{proposal.standing.length > 0 ? "Proposed" : "Even split"}</Th><Th className="text-right">Share</Th><Th className="text-right">Gets</Th></>
             }>
               {proposal.people.map((p) => (
                 <tr key={p.technicianId}>
@@ -166,7 +175,11 @@ export default async function SplitPage({
                 {paid.map((p, i, all) => (
                   <span key={p.technicianId}>{i > 0 ? (i === all.length - 1 ? " and " : ", ") : ""}{p.name} <Money value={p.amount!} /></span>
                 ))}. Once settled, this is owed to them and goes on their next pay run.
-                {proposal.changed ? " This is not an even split between the people on the job, so say why. They will read it on their pay statement." : null}
+                {proposal.changed
+                  ? proposal.standing.length > 0
+                    ? " This is not the split the standing shares propose, so say why. They will read it on their pay statement."
+                    : " This is not an even split between the people on the job, so say why. They will read it on their pay statement."
+                  : null}
               </p>
               <ActionForm action={settleShared} submit="Settle this split" className="mt-3 space-y-3"
                           hidden={{ invoiceId, shares: encoded, ...(proposal.planId ? { planId: proposal.planId } : {}) }}>

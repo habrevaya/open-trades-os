@@ -284,8 +284,8 @@ plan, with no commission settled yet (`GET /v1/commissions/shared`,
 to more than one person, each person's part, and the reason given for the split.
 
 "Share it" opens `/payroll/commissions/splits/{invoiceId}`: what the invoice
-earns under the plan, and who gets what under the even split between the people
-on the job, worked out by core (`GET /v1/commissions/split-proposal`,
+earns under the plan, and who gets what under the split proposed between the
+people on the job (even, or shaped by their standing shares, below), worked out by core (`GET /v1/commissions/split-proposal`,
 `commission:read`, which writes nothing). The office changes the shares, adds
 somebody who was not on the visits (the person who sold it, say) or puts 0 to
 leave somebody out, and "Work it out" shows each part again through the same
@@ -303,7 +303,7 @@ at most six places, at least one share above zero.
 
 "Settle this split" (`POST /v1/commissions/splits`, `commission:configure`) is
 the same settling as `POST /v1/commissions`, with one more rule: **a split that
-is not the even one between the people on the job needs a reason.** The reason
+is not the one proposed between the people on the job needs a reason.** The reason
 is kept on the earning and written into each person's part ("Shared this way by
 the office: ..."), which is the sentence they read beside the commission on
 their own pay statement, and the audit records the split proposed beside the one
@@ -316,6 +316,49 @@ taken.** Only the split screen asks for a reason. `POST /v1/commissions` with
 named shares, which existed before the screen, still settles without one, so an
 integration that sends its own split keeps working; its earning is audited with
 its parts as it always was.
+
+### A standing share
+
+Somebody can always take the same part of a commission they share: the
+person who sells the systems always gets 30%, say, or a lead gets 40% of the
+jobs they lead. "Standing shares" on `/payroll/commissions/splits` lists the
+ones in force with the reason for each, and sets one: who, a whole percent
+from 1 to 99, "Only on jobs where they lead a visit" or whenever they are on
+the job, and why (`GET /v1/commissions/standing-shares` with
+`commission:read`, `POST /v1/commissions/standing-shares` with
+`commission:configure`). "Stop" ends one
+(`POST /v1/commissions/standing-shares/{id}/end`). A share is stopped, never
+edited: setting a new one for the same person stops the one before it, both
+are audited, and the last ones stopped are listed under the table. Sent again
+with what is already in force, the set answers with that.
+
+**It proposes; the office still decides.** When a shared commission is
+proposed, everybody on the job's visits with a standing share that applies
+gets it, and whatever is left is split evenly between the others, worked out
+by core (`labor.proposeSplit`, with unit tests) in whole number weights so the
+fractions stay exact: 30% beside two others is 90, 70 and 70, which is $24.00,
+$28.00 and $28.00 of $80.00. The split page says it in a sentence ("Standing
+shares: Ray Nunez takes 30% (He sells the systems). The remaining 70% is split
+evenly between the other 2 people."), and its column is "Proposed" rather than
+"Even split". Settling as proposed needs no reason; the sentence is kept on the
+earning (`commission_event.standing_note`) and written into each person's part,
+because a standing share can be stopped later and the earning has to keep
+saying why. The office can still change the split, within the same rules
+(nobody twice, a weight of at most six decimal places, one share above zero),
+and a split that is not the proposed one needs a reason, as before; its reason
+is then what each part says. `POST /v1/commissions` with no shares named takes
+the same proposal, so an earning settled over the API divides the way the
+screen would have proposed. Commissions already settled are never touched by
+setting or stopping a share.
+
+**Two judgements the product owner has not made, and the conservative reading
+taken.** When the standing shares on a job cannot all be honoured (they add up
+to 100% or more with somebody else on the job, who would get nothing, or
+everybody on the job has one and they do not add up to 100%), nothing is scaled
+or guessed: the even split is proposed and the page says why, and the office
+settles it as it sees fit. And a standing share applies only to people on the
+job's visits: somebody the office adds to a split by hand gets what the office
+types, and that is a change that needs a reason.
 
 ### What people paid for the company, and a day away
 
@@ -541,6 +584,9 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/commissions/shared` | `commission:read` |
 | `GET /v1/commissions/split-proposal` | `commission:read` |
 | `POST /v1/commissions/splits` | `commission:configure` |
+| `GET /v1/commissions/standing-shares` | `commission:read` |
+| `POST /v1/commissions/standing-shares` | `commission:configure` |
+| `POST /v1/commissions/standing-shares/{id}/end` | `commission:configure` |
 | `GET /v1/commissions/item-rule` | `commission:read` |
 | `POST /v1/commissions/item-rule` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
@@ -620,9 +666,12 @@ credit comes off every line in proportion, because a credit does not say which l
 was for; and lines that come to less than nothing pay nothing rather than reducing other
 commission. A commission
 several people share is settled from the split screen one invoice at a time:
-there is no settling a page of them at once, no standing rule per job type or
-per person (a salesperson's fixed share, say), and nothing settles a commission
-by itself when an invoice is paid. A split already settled is not changed on the
+there is no settling a page of them at once. A person can have a standing share
+that the split proposes, but there is no standing rule per job type, a standing
+share applies only to the people on the job's visits (somebody added by hand gets
+what the office types), and standing shares that cannot all be honoured propose
+the even split rather than being scaled. Nothing settles a commission by itself
+when an invoice is paid. A split already settled is not changed on the
 screen: the way to put one right is a reversal and settling again. Only the split
 screen asks for a reason for an uneven split; the older settling route does not. A person's own statement is gross pay: what the
 bureau withheld is on the bureau's statement, and this product never knows it.

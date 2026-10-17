@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { commissions } from "@opentradesos/api/services";
-import { settleCommissionSplit } from "@opentradesos/api/contracts";
+import { settleCommissionSplit, setCommissionStandingShare } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 /**
@@ -27,5 +27,37 @@ export async function settleShared(_previous: FormState, form: FormData): Promis
   });
   revalidatePath("/payroll/commissions/splits");
   revalidatePath(`/payroll/commissions/splits/${invoiceId}`);
+  return result;
+}
+
+/**
+ * Give somebody a standing share. The percent is typed as a whole number and
+ * checked by the module, which says what is wrong in its own words.
+ */
+export async function setStanding(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
+    const percent = (field(form, "percent") ?? "").replace(/%/g, "").trim();
+    const input = parsed(setCommissionStandingShare.input, {
+      technicianId: field(form, "technicianId") ?? "",
+      percent: /^\d+$/.test(percent) ? Number(percent) : Number.NaN,
+      applies: form.get("asLead") ? "as_lead" : "always",
+      reason: field(form, "reason") ?? "",
+    });
+    const done = await commissions.setStandingShare(ctx, input);
+    return { message: done.inWords };
+  });
+  revalidatePath("/payroll/commissions/splits");
+  return result;
+}
+
+/** Stop a standing share. Proposals from now on leave it out; what was settled stays settled. */
+export async function endStanding(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
+    await commissions.endStandingShare(ctx, { id: field(form, "id") ?? "" });
+    return { message: "Stopped." };
+  });
+  revalidatePath("/payroll/commissions/splits");
   return result;
 }

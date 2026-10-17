@@ -6226,6 +6226,20 @@ export interface EmailPurchaseOrderOutput {
   link: string;
 }
 
+export type EndCommissionStandingShareInput = Record<string, unknown>;
+
+export interface EndCommissionStandingShareOutput {
+  id: string;
+  technicianId: string;
+  name: string;
+  percent: number;
+  applies: "always" | "as_lead";
+  inWords: string;
+  reason: string;
+  setAt: string;
+  endedAt: string | null;
+}
+
 export interface EndContractBillingInput {
   lastDay?: string;
 }
@@ -7279,6 +7293,15 @@ export interface GetCommissionSplitOutput {
     explanation: string | null;
   }>;
   changed: boolean;
+  standing: Array<{
+    technicianId: string;
+    name: string;
+    percent: number;
+    applies: "always" | "as_lead";
+    reason: string;
+  }>;
+  standingSentence: string | null;
+  standingConflict: string | null;
   refusal: string | null;
   itemRule: "plan_only" | "item_wins" | "higher" | "item_adds";
   itemRuleLabel: string;
@@ -7298,6 +7321,7 @@ export interface GetCommissionSplitOutput {
     total: string;
     occurredAt: string;
     splitNote: string | null;
+    standingNote: string | null;
     explanation: string;
     itemRule: "plan_only" | "item_wins" | "higher" | "item_adds";
     lines: Array<{
@@ -13812,6 +13836,35 @@ export interface ListCommissionPlansOutput {
   }>;
 }
 
+export interface ListCommissionStandingSharesOutput {
+  live: Array<{
+    id: string;
+    technicianId: string;
+    name: string;
+    percent: number;
+    applies: "always" | "as_lead";
+    inWords: string;
+    reason: string;
+    setAt: string;
+    endedAt: string | null;
+  }>;
+  ended: Array<{
+    id: string;
+    technicianId: string;
+    name: string;
+    percent: number;
+    applies: "always" | "as_lead";
+    inWords: string;
+    reason: string;
+    setAt: string;
+    endedAt: string | null;
+  }>;
+  people: Array<{
+    technicianId: string;
+    name: string;
+  }>;
+}
+
 export interface ListCommitmentsOutput {
   commitments: Array<{
     itemId: string;
@@ -17102,6 +17155,7 @@ export interface ListSharedCommissionsOutput {
     total: string;
     occurredAt: string;
     splitNote: string | null;
+    standingNote: string | null;
     parts: Array<{
       technicianId: string;
       name: string;
@@ -23637,6 +23691,26 @@ export interface SetCommissionItemRuleOutput {
   }>;
 }
 
+export interface SetCommissionStandingShareInput {
+  technicianId: string;
+  percent: number;
+  applies: "always" | "as_lead";
+  reason: string;
+}
+
+export interface SetCommissionStandingShareOutput {
+  id: string;
+  technicianId: string;
+  name: string;
+  percent: number;
+  applies: "always" | "as_lead";
+  inWords: string;
+  reason: string;
+  setAt: string;
+  endedAt: string | null;
+  replayed: boolean;
+}
+
 export interface SetContactPortalAccessInput {
   allowed: boolean;
 }
@@ -29620,6 +29694,10 @@ export interface EmailPurchaseOrderParams {
   id: string;
 }
 
+export interface EndCommissionStandingShareParams {
+  id: string;
+}
+
 export interface EndContractBillingParams {
   contractId: string;
 }
@@ -30581,6 +30659,8 @@ export interface ListCommissionEarningsInput {
 }
 
 export type ListCommissionPlansInput = Record<string, never>;
+
+export type ListCommissionStandingSharesInput = Record<string, never>;
 
 export type ListCommitmentsInput = Record<string, never>;
 
@@ -33019,6 +33099,7 @@ export interface OperationTypes {
   editPurchaseOrder: { input: EditPurchaseOrderParams & EditPurchaseOrderInput; output: EditPurchaseOrderOutput };
   emailCustomerStatement: { input: EmailCustomerStatementParams & EmailCustomerStatementInput; output: EmailCustomerStatementOutput };
   emailPurchaseOrder: { input: EmailPurchaseOrderParams & EmailPurchaseOrderInput; output: EmailPurchaseOrderOutput };
+  endCommissionStandingShare: { input: EndCommissionStandingShareParams & EndCommissionStandingShareInput; output: EndCommissionStandingShareOutput };
   endContractBilling: { input: EndContractBillingParams & EndContractBillingInput; output: EndContractBillingOutput };
   endCustomerPortalSessions: { input: EndCustomerPortalSessionsParams & EndCustomerPortalSessionsInput; output: EndCustomerPortalSessionsOutput };
   endTechnicianSkill: { input: EndTechnicianSkillParams & EndTechnicianSkillInput; output: EndTechnicianSkillOutput };
@@ -33280,6 +33361,7 @@ export interface OperationTypes {
   listCommissionBases: { input: ListCommissionBasesInput; output: ListCommissionBasesOutput };
   listCommissionEarnings: { input: ListCommissionEarningsInput; output: ListCommissionEarningsOutput };
   listCommissionPlans: { input: ListCommissionPlansInput; output: ListCommissionPlansOutput };
+  listCommissionStandingShares: { input: ListCommissionStandingSharesInput; output: ListCommissionStandingSharesOutput };
   listCommitments: { input: ListCommitmentsInput; output: ListCommitmentsOutput };
   listComplianceDocuments: { input: ListComplianceDocumentsInput; output: ListComplianceDocumentsOutput };
   listConflicts: { input: ListConflictsInput; output: ListConflictsOutput };
@@ -33742,6 +33824,7 @@ export interface OperationTypes {
   setCancellationNotice: { input: SetCancellationNoticeInput; output: SetCancellationNoticeOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
   setCommissionItemRule: { input: SetCommissionItemRuleInput; output: SetCommissionItemRuleOutput };
+  setCommissionStandingShare: { input: SetCommissionStandingShareInput; output: SetCommissionStandingShareOutput };
   setContactPortalAccess: { input: SetContactPortalAccessParams & SetContactPortalAccessInput; output: SetContactPortalAccessOutput };
   setContractBilling: { input: SetContractBillingParams & SetContractBillingInput; output: SetContractBillingOutput };
   setContractRises: { input: SetContractRisesParams & SetContractRisesInput; output: SetContractRisesOutput };
@@ -34192,6 +34275,7 @@ export const OPERATIONS = {
   editPurchaseOrder: { method: "PUT", path: "/v1/purchase-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   emailCustomerStatement: { method: "POST", path: "/v1/customers/{id}/statement/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
   emailPurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/email", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
+  endCommissionStandingShare: { method: "POST", path: "/v1/commissions/standing-shares/{id}/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   endContractBilling: { method: "POST", path: "/v1/contracts/{contractId}/billing/end", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   endCustomerPortalSessions: { method: "POST", path: "/v1/customers/{id}/portal-sessions/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:revoke"] },
   endTechnicianSkill: { method: "POST", path: "/v1/technician-skills/{id}/end", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -34453,6 +34537,7 @@ export const OPERATIONS = {
   listCommissionBases: { method: "GET", path: "/v1/commissions/bases", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   listCommissionEarnings: { method: "GET", path: "/v1/commissions", pathParams: [], queryParams: ["technicianId","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   listCommissionPlans: { method: "GET", path: "/v1/commissions/plans", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
+  listCommissionStandingShares: { method: "GET", path: "/v1/commissions/standing-shares", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   listCommitments: { method: "GET", path: "/v1/stock/commitments", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listComplianceDocuments: { method: "GET", path: "/v1/compliance/documents", pathParams: [], queryParams: ["subjectType","subjectId","kind","includeReplaced","withinDays"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
   listConflicts: { method: "GET", path: "/v1/field/conflicts", pathParams: [], queryParams: ["cursor","limit","includeResolved"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["visit:read"] },
@@ -34915,6 +35000,7 @@ export const OPERATIONS = {
   setCancellationNotice: { method: "PATCH", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCommissionItemRule: { method: "POST", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
+  setCommissionStandingShare: { method: "POST", path: "/v1/commissions/standing-shares", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setContactPortalAccess: { method: "POST", path: "/v1/contacts/{id}/portal-access", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write","portal:revoke"] },
   setContractBilling: { method: "PUT", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   setContractRises: { method: "PUT", path: "/v1/contracts/{contractId}/escalation/rises", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -37239,6 +37325,15 @@ export abstract class GeneratedOperations {
    */
   emailPurchaseOrder(input: EmailPurchaseOrderParams & EmailPurchaseOrderInput, options?: CallOptions): Promise<EmailPurchaseOrderOutput> {
     return this.call("emailPurchaseOrder", input, options);
+  }
+
+  /**
+   * Stop a standing share.
+   *
+   * POST /v1/commissions/standing-shares/{id}/end. Needs commission:configure.
+   */
+  endCommissionStandingShare(input: EndCommissionStandingShareParams & EndCommissionStandingShareInput, options?: CallOptions): Promise<EndCommissionStandingShareOutput> {
+    return this.call("endCommissionStandingShare", input, options);
   }
 
   /**
@@ -39588,6 +39683,15 @@ export abstract class GeneratedOperations {
    */
   listCommissionPlans(input: ListCommissionPlansInput = {} as ListCommissionPlansInput, options?: CallOptions): Promise<ListCommissionPlansOutput> {
     return this.call("listCommissionPlans", input, options);
+  }
+
+  /**
+   * Standing shares of shared commission: in force, and the last ones stopped.
+   *
+   * GET /v1/commissions/standing-shares. Needs commission:read.
+   */
+  listCommissionStandingShares(input: ListCommissionStandingSharesInput = {} as ListCommissionStandingSharesInput, options?: CallOptions): Promise<ListCommissionStandingSharesOutput> {
+    return this.call("listCommissionStandingShares", input, options);
   }
 
   /**
@@ -43746,6 +43850,15 @@ export abstract class GeneratedOperations {
    */
   setCommissionItemRule(input: SetCommissionItemRuleInput, options?: CallOptions): Promise<SetCommissionItemRuleOutput> {
     return this.call("setCommissionItemRule", input, options);
+  }
+
+  /**
+   * Give somebody a standing share of the commissions they share.
+   *
+   * POST /v1/commissions/standing-shares. Needs commission:configure.
+   */
+  setCommissionStandingShare(input: SetCommissionStandingShareInput, options?: CallOptions): Promise<SetCommissionStandingShareOutput> {
+    return this.call("setCommissionStandingShare", input, options);
   }
 
   /**
