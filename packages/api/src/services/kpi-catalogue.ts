@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Forty of the forty seven are computed here, four are
- * M22's, and the three that are not each name what they still lack.)
+ * (They are read now. Forty one of the forty seven are computed here, four
+ * are M22's, and the two that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -1065,6 +1065,85 @@ const applicationRecords = (pick: "numerator" | "denominator" | "excluded" | "un
       unknown: `not ${NO_PRODUCT} and ${ANY_REPORT} and not ${ANY_JUDGED}`,
     }[pick])}
 `;
+
+/**
+ * CHEMICAL COST PER STOP. A stop is a completed visit on customer work. An
+ * APPLICATION is the latest answer to one of its reports' chemical fields that
+ * says how much was applied, and it is VALUED at the cost per unit of the price
+ * book item it was chosen from, in the version in force when the stop was
+ * completed, when it was recorded in the unit that cost is per. A stop with an
+ * application that cannot be valued so (typed by name, no cost that day,
+ * another unit) is left out of both halves and counted beside. The rule is
+ * core's `reporting.chemicalCostOf`, and
+ * `kpi-chemical-cost.integration.test.ts` puts the same stops through both.
+ */
+const chemicalStops = (from: string, to: string, zone: string) => sql`
+  with stops as (
+    select v.id, v.sequence, v.completed_at, j.number, j.summary
+    from public.visit v
+    join public.job j on j.id = v.job_id
+    join public.job_type jt on jt.id = j.job_type_id
+    where v.deleted_at is null and j.deleted_at is null
+      and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+      and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+      and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+  ),
+  answers as (
+    select distinct on (f.report_id, f.key) f.id, r.visit_id, f.quantity_applied, f.application_unit,
+           f.product_name, f.price_book_item_id
+    from public.service_report_field f
+    join public.service_report r on r.id = f.report_id
+    where r.visit_id in (select id from stops) and f.kind = 'chemical'
+    order by f.report_id, f.key, f.recorded_at desc, f.created_at desc
+  ),
+  applied as (
+    select a.*, i.chemical_unit,
+           (select ver.cost from public.price_book_item_version ver
+            where ver.item_id = a.price_book_item_id
+              and ver.effective_from <= s.completed_at
+              and (ver.effective_to is null or ver.effective_to > s.completed_at)
+            order by ver.effective_from desc limit 1) as cost_per_unit
+    from answers a
+    join stops s on s.id = a.visit_id
+    left join public.price_book_item i on i.id = a.price_book_item_id
+    where a.quantity_applied is not null
+  ),
+  valued as (
+    select applied.*, (price_book_item_id is not null and cost_per_unit is not null
+      and chemical_unit is not null and application_unit = chemical_unit) as valued
+    from applied
+  ),
+  stop_verdicts as (
+    select s.*, coalesce((select bool_and(x.valued) from valued x where x.visit_id = s.id), true) as counted,
+           (select count(*) from valued x where x.visit_id = s.id and x.price_book_item_id is null) as typed,
+           (select count(*) from valued x where x.visit_id = s.id and x.price_book_item_id is not null and not x.valued) as uncosted
+    from stops s
+  )`;
+
+const stopLabel = "concat('#', s.number, ' visit ', s.sequence, ', ', s.summary)";
+
+const chemicalCost = (pick: "numerator" | "denominator" | "unknown"): Records => (from, to, zone) => pick === "numerator"
+  ? sql`${chemicalStops(from, to, zone)}
+    select 'visit'::text as kind, x.id::text as id,
+           concat(coalesce(x.product_name, 'A product'), ', ', trim_scale(x.quantity_applied)::text, ' ',
+                  coalesce(x.application_unit, ''), ' at $',
+                  case when scale(trim_scale(x.cost_per_unit)) <= 2 then to_char(x.cost_per_unit, 'FM999999990.00')
+                       else trim_scale(x.cost_per_unit)::text end,
+                  ', ', ${sql.raw(stopLabel)}) as label,
+           to_char(s.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+           round(x.quantity_applied * x.cost_per_unit, 4)::numeric as value,
+           '/visits/' || s.id as href
+    from valued x join stop_verdicts s on s.id = x.visit_id
+    where s.counted`
+  : sql`${chemicalStops(from, to, zone)}
+    select 'visit'::text as kind, s.id::text as id,
+           ${pick === "denominator" ? sql.raw(stopLabel) : sql.raw(`concat(${stopLabel}, ': ', concat_ws(' and ',
+             case when s.typed = 1 then '1 product typed by name' when s.typed > 1 then s.typed || ' products typed by name' end,
+             case when s.uncosted = 1 then '1 product with no cost that day' when s.uncosted > 1 then s.uncosted || ' products with no cost that day' end))`)} as label,
+           to_char(s.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+           1::numeric as value, '/visits/' || s.id as href
+    from stop_verdicts s
+    where ${pick === "denominator" ? sql`s.counted` : sql`not s.counted`}`;
 
 /**
  * THE PANEL THE ELECTRICAL PACK DECLARES, read from the pack rather than typed
@@ -2171,19 +2250,40 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   chemical_cost_per_stop: {
-    state: "needs",
+    state: "computed",
     format: "money",
-    needs:
-      "A product application tied to the product register. Service reports "
-      + "record what was applied (`service_report_field.product_name`, quantity "
-      + "and unit, the EPA number), typed on the phone by name rather than chosen "
-      + "as a price book item, so nothing values it, and the definition values "
-      + "product from the register and EXCLUDES devices, bait stations and "
-      + "monitors, which are capital. The trade pack marks added since (a "
-      + "troubleshooting call, a drain upsell) mark no product as chemistry. "
-      + "Valuing it from what was issued to a truck instead would make this a "
-      + "purchasing number rather than a cost per stop, and matching the typed "
-      + "name to an item would be reading words for a meaning.",
+    /** What product cost is what jobs cost, so it takes what a job's margin takes. */
+    permissions: ["job.cost:read", "report.financial:read"],
+    measure: {
+      /**
+       * "Cost of product applied, valued from the product register, divided
+       * by completed stops. EXCLUDES devices, bait stations and monitors,
+       * which are capital placed at a site rather than chemistry consumed on
+       * a visit."
+       *
+       * WHAT IT NEEDED, and what changed: a product application tied to the
+       * register. The company marks the materials that are chemicals in its
+       * price book, with the unit their cost is per and the EPA number from
+       * the label (`price_book_item.chemical_unit`), and the phone, "My day"
+       * and the office choose the product applied from them
+       * (`service_report_field.price_book_item_id`), carrying the item's name,
+       * EPA number and unit onto the regulated record.
+       *
+       * Each application is its quantity at the item's cost per unit in the
+       * version in force when the stop was completed. Only a material can be a
+       * chemical, so a device, a station or a monitor (the book's equipment) is
+       * never one, which is the definition's exclusion. A stop with a product
+       * typed by name, never valued from its name, or with no cost recorded
+       * that day, is left out of both halves and counted beside, because
+       * counted at nothing it would read as a cheaper stop than it was. A stop
+       * where nothing was applied costs nothing, and counts.
+       */
+      numerator: { label: "dollars of product applied, at the price book's cost on the day", money: true, records: chemicalCost("numerator") },
+      denominator: { label: "completed stops, other than those left out", records: chemicalCost("denominator") },
+      besides: {
+        unknown: { label: "stops left out because a product on them was typed by name or had no cost that day", records: chemicalCost("unknown") },
+      },
+    },
   },
 
   supply_cost_pct: {

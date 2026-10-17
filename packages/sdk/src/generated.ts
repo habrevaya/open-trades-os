@@ -4133,6 +4133,10 @@ export interface CreatePriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  chemical: {
+    unit: string;
+    epaRegistrationNumber: string | null;
+  } | null;
   price: string;
   taxable: boolean;
   taxClass: string | null;
@@ -8601,6 +8605,10 @@ export interface GetFieldSnapshotOutput {
       name: string;
       quantity: number;
     }>;
+    chemical?: {
+      unit: string;
+      epaRegistrationNumber: string | null;
+    } | null;
   }>;
   openTimeEntry: {
     id: string;
@@ -10827,6 +10835,10 @@ export interface GetPriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  chemical: {
+    unit: string;
+    epaRegistrationNumber: string | null;
+  } | null;
   price: string;
   taxable: boolean;
   taxClass: string | null;
@@ -12272,6 +12284,34 @@ export interface GetVisitOutput {
     noticeHours: number | null;
     late: boolean | null;
   } | null;
+}
+
+export interface GetVisitProductsOutput {
+  visitId: string;
+  reportId: string | null;
+  published: boolean;
+  fields: Array<{
+    key: string;
+    label: string;
+  }>;
+  chemicals: Array<{
+    id: string;
+    name: string;
+    unit: string;
+    epaRegistrationNumber: string | null;
+  }>;
+  applied: Array<{
+    id: string;
+    field: string;
+    productName: string | null;
+    epaRegistrationNumber: string | null;
+    quantity: string | null;
+    unit: string | null;
+    applicatorLicense: string | null;
+    targetPest: string | null;
+    fromBook: boolean;
+    recordedAt: string;
+  }>;
 }
 
 export interface GetVisitUnitsOutput {
@@ -16167,6 +16207,10 @@ export interface ListPriceBookOutput {
     imageUrl: string | null;
     categoryId: string | null;
     feeRole: "diagnostic" | "after_hours" | null;
+    chemical: {
+      unit: string;
+      epaRegistrationNumber: string | null;
+    } | null;
     price: string;
     taxable: boolean;
     taxClass: string | null;
@@ -20700,6 +20744,42 @@ export interface RecordVendorCreditOutput {
   }>;
 }
 
+export interface RecordVisitProductInput {
+  field: string;
+  priceBookItemId: string;
+  quantity: string;
+  applicatorLicense?: string;
+  targetPest?: string;
+}
+
+export interface RecordVisitProductOutput {
+  visitId: string;
+  reportId: string | null;
+  published: boolean;
+  fields: Array<{
+    key: string;
+    label: string;
+  }>;
+  chemicals: Array<{
+    id: string;
+    name: string;
+    unit: string;
+    epaRegistrationNumber: string | null;
+  }>;
+  applied: Array<{
+    id: string;
+    field: string;
+    productName: string | null;
+    epaRegistrationNumber: string | null;
+    quantity: string | null;
+    unit: string | null;
+    applicatorLicense: string | null;
+    targetPest: string | null;
+    fromBook: boolean;
+    recordedAt: string;
+  }>;
+}
+
 export interface RecordWarrantyRegistrationInput {
   registeredOn?: string;
   reference?: string | null;
@@ -22495,6 +22575,10 @@ export interface RevisePriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  chemical: {
+    unit: string;
+    epaRegistrationNumber: string | null;
+  } | null;
   price: string;
   taxable: boolean;
   taxClass: string | null;
@@ -27399,6 +27483,10 @@ export interface UpdatePriceBookItemInput {
   code?: string;
   categoryId?: string | null;
   feeRole?: "diagnostic" | "after_hours" | null;
+  chemical?: {
+    unit: string;
+    epaRegistrationNumber: string | null;
+  } | null;
 }
 
 export type UpdatePriceBookItemOutput = {
@@ -27412,6 +27500,10 @@ export type UpdatePriceBookItemOutput = {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  chemical: {
+    unit: string;
+    epaRegistrationNumber: string | null;
+  } | null;
   price: string;
   taxable: boolean;
   taxClass: string | null;
@@ -30260,6 +30352,10 @@ export interface GetVisitInput {
   id: string;
 }
 
+export interface GetVisitProductsInput {
+  id: string;
+}
+
 export interface GetVisitUnitsInput {
   visitId: string;
 }
@@ -31664,6 +31760,10 @@ export interface RecordUnitOutcomeParams {
 }
 
 export interface RecordVendorCreditParams {
+  id: string;
+}
+
+export interface RecordVisitProductParams {
   id: string;
 }
 
@@ -33124,6 +33224,7 @@ export interface OperationTypes {
   getTrialBalance: { input: GetTrialBalanceInput; output: GetTrialBalanceOutput };
   getUploadStatus: { input: GetUploadStatusInput; output: GetUploadStatusOutput };
   getVisit: { input: GetVisitInput; output: GetVisitOutput };
+  getVisitProducts: { input: GetVisitProductsInput; output: GetVisitProductsOutput };
   getVisitUnits: { input: GetVisitUnitsInput; output: GetVisitUnitsOutput };
   getVisitorNumber: { input: GetVisitorNumberInput; output: GetVisitorNumberOutput };
   getWarrantyWatch: { input: GetWarrantyWatchInput; output: GetWarrantyWatchOutput };
@@ -33507,6 +33608,7 @@ export interface OperationTypes {
   recordTruckWater: { input: RecordTruckWaterParams & RecordTruckWaterInput; output: RecordTruckWaterOutput };
   recordUnitOutcome: { input: RecordUnitOutcomeParams & RecordUnitOutcomeInput; output: RecordUnitOutcomeOutput };
   recordVendorCredit: { input: RecordVendorCreditParams & RecordVendorCreditInput; output: RecordVendorCreditOutput };
+  recordVisitProduct: { input: RecordVisitProductParams & RecordVisitProductInput; output: RecordVisitProductOutput };
   recordWarrantyRegistration: { input: RecordWarrantyRegistrationParams & RecordWarrantyRegistrationInput; output: RecordWarrantyRegistrationOutput };
   refreshFinancingApplication: { input: RefreshFinancingApplicationParams & RefreshFinancingApplicationInput; output: RefreshFinancingApplicationOutput };
   refundDeposit: { input: RefundDepositParams & RefundDepositInput; output: RefundDepositOutput };
@@ -34296,6 +34398,7 @@ export const OPERATIONS = {
   getTrialBalance: { method: "GET", path: "/v1/ledger/trial-balance", pathParams: [], queryParams: ["from","to","businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getUploadStatus: { method: "GET", path: "/v1/field/uploads/outstanding", pathParams: [], queryParams: ["subjectType","subjectId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
   getVisit: { method: "GET", path: "/v1/visits/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getVisitProducts: { method: "GET", path: "/v1/visits/{id}/products-applied", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:read"] },
   getVisitUnits: { method: "GET", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getVisitorNumber: { method: "GET", path: "/v1/public/dni", pathParams: [], queryParams: ["companyKey","visitorId","page","query","referrer"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getWarrantyWatch: { method: "GET", path: "/v1/equipment-warranties", pathParams: [], queryParams: ["withinDays","on","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
@@ -34679,6 +34782,7 @@ export const OPERATIONS = {
   recordTruckWater: { method: "PUT", path: "/v1/assets/{assetId}/water/{day}", pathParams: ["assetId","day"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordUnitOutcome: { method: "POST", path: "/v1/visits/{visitId}/units/{equipmentId}/outcome", pathParams: ["visitId","equipmentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   recordVendorCredit: { method: "POST", path: "/v1/vendor-returns/{id}/credit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
+  recordVisitProduct: { method: "POST", path: "/v1/visits/{id}/products-applied", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   recordWarrantyRegistration: { method: "POST", path: "/v1/equipment/{id}/warranty-registration", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   refreshFinancingApplication: { method: "POST", path: "/v1/financing/applications/{id}/refresh", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   refundDeposit: { method: "POST", path: "/v1/deposits/{id}/refund", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["deposit:refund"] },
@@ -38857,6 +38961,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * What was applied on a visit, and the chemicals to choose from.
+   *
+   * GET /v1/visits/{id}/products-applied. Needs servicereport:read.
+   */
+  getVisitProducts(input: GetVisitProductsInput, options?: CallOptions): Promise<GetVisitProductsOutput> {
+    return this.call("getVisitProducts", input, options);
+  }
+
+  /**
    * The machines this visit covers, in the order to walk them.
    *
    * GET /v1/visits/{visitId}/units. Needs visit:read.
@@ -42304,6 +42417,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record a product applied on a visit, chosen from the price book.
+   *
+   * POST /v1/visits/{id}/products-applied. Needs servicereport:write.
+   */
+  recordVisitProduct(input: RecordVisitProductParams & RecordVisitProductInput, options?: CallOptions): Promise<RecordVisitProductOutput> {
+    return this.call("recordVisitProduct", input, options);
+  }
+
+  /**
    * Say a unit has been registered with its maker.
    *
    * POST /v1/equipment/{id}/warranty-registration. Needs equipment:write.
@@ -45139,7 +45261,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Change an item's kind, code, category or fee.
+   * Change an item's kind, code, category, fee or chemical mark.
    *
    * PATCH /v1/pricebook/items/{id}. Needs pricebook:write.
    */

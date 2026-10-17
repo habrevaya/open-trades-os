@@ -279,6 +279,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "budget_hour_variance",
       "callback_rate",
       "cancel_rate_route",
+      "chemical_cost_per_stop",
       "churn",
       "close_rate",
       "diag_conversion",
@@ -371,8 +372,12 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * `revenue_per_container_month` and `disposal_cost_pct` made forty four when a
      * hire's invoice named the haul each line bills and the office could name
      * the haul a job's own line bills.
+     * `chemical_cost_per_stop` made forty five when the price book could mark
+     * a material as a chemical, with the unit its cost is per and its EPA
+     * number, and the product applied was chosen from those on the phone, on
+     * "My day" and in the office rather than typed.
      */
-    expect(computed.length + elsewhere.length).toBe(44);
+    expect(computed.length + elsewhere.length).toBe(45);
     expect(KEYS.length).toBe(47);
   });
 });

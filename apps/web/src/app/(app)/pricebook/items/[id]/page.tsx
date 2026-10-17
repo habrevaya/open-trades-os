@@ -69,6 +69,7 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
         </h1>
         <div className="flex items-center gap-2">
           {item.feeRole ? <Chip tone="info">{item.feeRole === "diagnostic" ? "Diagnostic fee" : "After hours rate"}</Chip> : null}
+          {item.chemical ? <Chip tone="info">Chemical, per {item.chemical.unit}</Chip> : null}
           <Chip tone={item.active ? "success" : "neutral"}>{item.active ? "sold" : "retired"}</Chip>
         </div>
       </div>
@@ -199,6 +200,32 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
               <Select label="Fee a plan can waive" name="feeRole" options={FEE_ROLES} defaultValue={item.feeRole ?? ""} />
             </div>
           </ActionForm>
+        </section>
+      ) : null}
+
+      {writes && (item.kind === "material" || item.chemical) ? (
+        <section aria-label="A chemical your technicians apply" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="text-sm font-semibold">A chemical your technicians apply</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            {item.chemical
+              ? <>Technicians pick it by name when they record what they applied, and its EPA number goes on the record
+                for them. Its cost is per {item.chemical.unit}, and the chemical cost per stop counts what they applied
+                at the cost on the day.</>
+              : <>Mark it as a chemical and technicians pick it by name when they record what they applied, instead of
+                typing it. Say the unit its cost is per, so what they apply can be costed.</>}
+          </p>
+          <ActionForm action={actOnItem} submit={item.chemical ? "Save" : "Mark as a chemical"}
+                      hidden={{ ...hidden, op: "chemical" }} className="mt-3 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextField label="Unit its cost is per, like gal or oz" name="chemicalUnit" required maxLength={20}
+                         defaultValue={item.chemical?.unit ?? ""} />
+              <TextField label="EPA registration number, from the label" name="epaRegistrationNumber" maxLength={40}
+                         defaultValue={item.chemical?.epaRegistrationNumber ?? ""} />
+            </div>
+          </ActionForm>
+          {item.chemical ? (
+            <ActionForm action={actOnItem} submit="Not a chemical" tone="quiet" hidden={{ ...hidden, op: "unchemical" }} className="mt-2" />
+          ) : null}
         </section>
       ) : null}
 

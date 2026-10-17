@@ -5,6 +5,7 @@ import { organization } from "./tenancy";
 import { customer, property, equipment } from "./crm";
 import { visit, job } from "./work";
 import { agreementPlan } from "./agreements";
+import { priceBookItem } from "./pricebook";
 
 /**
  * SERVICE REPORTS
@@ -163,6 +164,20 @@ export const serviceReportField = pgTable("service_report_field", {
   applicationUnit: text("application_unit"),
   applicatorLicense: text("applicator_license"),
   targetPest: text("target_pest"),
+  /**
+   * THE PRODUCT, CHOSEN FROM THE PRICE BOOK, when it was. An item the company
+   * marks as a chemical (`price_book_item.chemical_unit`), whose name, EPA
+   * number and unit were carried onto this row from the item when it was
+   * chosen, so the regulated columns above still say what was applied in the
+   * register's own words.
+   *
+   * Null for a product typed by name: every row written before products were
+   * chosen, and a product the book does not hold. Such a row is kept exactly
+   * as typed and never valued from its name; the chemical cost per stop
+   * counts it beside the figure instead. Set null if the item is ever
+   * removed, which leaves the row as typed.
+   */
+  priceBookItemId: uuid("price_book_item_id").references(() => priceBookItem.id, { onDelete: "set null" }),
 
   customerVisible: boolean("customer_visible").notNull().default(true),
   outOfRange: boolean("out_of_range").notNull().default(false),

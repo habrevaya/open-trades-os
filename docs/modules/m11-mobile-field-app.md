@@ -711,6 +711,25 @@ wrote is a different decision from writing it. A report read back says what it
 was required to capture (`requiredFields`), or null for one written before that
 was kept.
 
+**Products applied** are chosen, not typed, where the company has marked its
+chemicals in the price book (M06). On a report's chemical question the phone
+offers "Find the product", lists the chemicals by name with the unit their cost
+is per, and asks only how much; "Not in the price book? Type it" keeps the old
+typed form for a product the book does not hold. `/my-day` asks the same under
+"Products applied" on each visit, with "Not in the price book" for a typed one.
+Both send `service_report.set_field` naming the item (`priceBookItemId`), and
+the server carries the item's name, EPA number and unit onto the record
+whatever the phone typed beside them; an item that is not a chemical in the
+company's book is recorded as typed, never refused. The visit's page in the
+office (`/visits/{id}`, "Products applied") lists each product question's
+latest answer, from the price book or typed by name, and "Record the product"
+adds one the technician missed, chosen from the book onto the visit's report
+(created as the phone would create it): `GET /v1/visits/{id}/products-applied`
+(`servicereport:read`) and `POST /v1/visits/{id}/products-applied`
+(`servicereport:write`, audited, refused for a published report). The licence
+and the target pest are kept as before. Pest control's chemical cost per stop
+(M21) values only what was chosen from the book.
+
 **What a technician must fill in** is set per template on Settings, Service
 reports (`/settings/service-reports`): every field of every template, which a
 regulator asks for, and a box for each the company requires. Saving is
@@ -790,6 +809,11 @@ A code is sent only by a company with a text number or a mail provider
 connected; with neither, the person is told a code is on its way and none
 comes, and the office sees why in the audit log. The mobile number a code goes
 to is set only on `/settings/phones`.
+
+`/my-day` answers a report's product questions only; its other readings are the
+phone app's. The phone and `/my-day` offer the chemicals the day's price book
+carried when it was fetched, so an item marked an hour ago is typed until the
+day is fetched again.
 
 Readings cover the kinds a keyboard can fill in: numbers, measurements, text,
 yes or no, a choice, and a chemical application; a photo or signature field on

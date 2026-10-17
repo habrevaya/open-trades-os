@@ -79,6 +79,11 @@ import { streetKey } from "../geo/index.js";
  *   HOMES PER SERVED STREET. Active subscriptions over the distinct streets
  *   they are on, commercial stops left out and an address whose street is not
  *   recorded left out of both halves rather than guessed from its line.
+ *
+ *   A STOP'S CHEMICAL COST. Each product applied, chosen from the price book,
+ *   at the cost per unit in force on the stop's day, and a stop with any
+ *   product that cannot be valued that way left out of both halves rather
+ *   than valued from a typed name.
  */
 
 export type KpiFormat = "percent" | "money" | "number" | "duration";
@@ -1091,4 +1096,71 @@ export function disposalHaulOf(haul: { fee: number | null; revenue: number | und
   if (haul.fee === null) return { counted: false, why: "no_fee" };
   if (haul.revenue === undefined) return { counted: false, why: "not_invoiced" };
   return { counted: true, cost: haul.fee, revenue: haul.revenue };
+}
+
+/* ------------------------------------------------------ chemical cost per stop */
+
+export interface ChemicalApplication {
+  /** How much was applied, in the unit it was recorded in; null when the record says no amount. */
+  quantity: number | null;
+  /** The unit the application was recorded in. */
+  unit: string | null;
+  /**
+   * The price book item it was chosen from, or null for a product typed by
+   * name (an older record, or one the book does not hold).
+   */
+  itemId: string | null;
+  /** The unit that item's cost is per today, or null when it is no longer marked as a chemical. */
+  itemUnit: string | null;
+  /** The item's cost per unit in the version in force on the stop's day, or null when none was recorded. */
+  costPerUnit: number | null;
+}
+
+/**
+ * "Cost of product applied, valued from the product register, divided by
+ * completed stops. EXCLUDES devices, bait stations and monitors, which are
+ * capital placed at a site rather than chemistry consumed on a visit."
+ *
+ * AN APPLICATION is the latest answer to one of a report's chemical fields
+ * that says how much was applied. VALUED is its quantity at the cost per unit
+ * of the price book item it was chosen from, in the version in force on the
+ * stop's day, in the unit that cost is per. The devices the definition leaves
+ * out are never applications: only a material can be marked as a chemical, and
+ * a station or a monitor is the book's equipment.
+ *
+ * A STOP WITH ANY APPLICATION THAT CANNOT BE VALUED IS LEFT OUT OF BOTH
+ * HALVES: a product typed by name (never valued from its name, which would be
+ * reading words for a meaning), an item with no cost recorded on that day, or
+ * one recorded in a unit its cost is no longer per. Counted at nothing it
+ * would make the stop read cheaper than it was, so it is counted beside the
+ * figure instead. A stop where nothing was applied is a stop at no cost, and
+ * counts.
+ */
+export function chemicalCostOf(applications: readonly ChemicalApplication[]): { counted: true; cost: number } | { counted: false } {
+  let cost = 0;
+  for (const application of applications) {
+    if (application.quantity === null) continue;
+    if (application.itemId === null || application.costPerUnit === null
+      || application.itemUnit === null || application.unit !== application.itemUnit) {
+      return { counted: false };
+    }
+    cost += application.quantity * application.costPerUnit;
+  }
+  return { counted: true, cost };
+}
+
+/** The company's figure over its stops: cost over stops counted, and the stops left out. */
+export function chemicalCostPerStop(stops: ReadonlyArray<readonly ChemicalApplication[]>): {
+  cost: number; stops: number; notValued: number;
+} {
+  let cost = 0;
+  let counted = 0;
+  let notValued = 0;
+  for (const stop of stops) {
+    const verdict = chemicalCostOf(stop);
+    if (!verdict.counted) { notValued += 1; continue; }
+    cost += verdict.cost;
+    counted += 1;
+  }
+  return { cost, stops: counted, notValued };
 }

@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  formatAmount, isOwing, outOfRange, parseAmount, readingValue, recordEquipment, resultLabel, tipChoices,
-  type DayReportField, type DayVisit,
+  applicationFromBook, checkApplied, chemicalsIn, formatAmount, isOwing, outOfRange, parseAmount, readingValue,
+  recordEquipment, resultLabel, searchChemicals, tipChoices,
+  type ChemicalChoice, type DayReportField, type DayVisit,
 } from "@opentradesos/field-client";
 import { recordPayment } from "../lib/sell";
 import type { Navigate } from "../shell/App";
@@ -101,6 +102,9 @@ function Reading({ field, locked, onSave }: {
 }) {
   const [typed, setTyped] = useState("");
   const [chemical, setChemical] = useState({ product: "", epa: "", quantity: "", unit: field.unit ?? "" });
+  /** The company's chemicals, chosen by name; typing one is for a product the book does not hold. */
+  const chemicals = chemicalsIn(useField().view?.priceBook ?? []);
+  const [typing, setTyping] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const base = { field: field.key, label: field.label, kind: field.kind, ...(field.unit ? { unit: field.unit } : {}) };
 
@@ -151,6 +155,8 @@ function Reading({ field, locked, onSave }: {
             </Pressable>
           ))}
         </View>
+      ) : field.kind === "chemical" && !typing && chemicals.length > 0 ? (
+        <ChemicalFromBook field={field} chemicals={chemicals} onSave={onSave} onType={() => setTyping(true)} />
       ) : field.kind === "chemical" ? (
         <View>
           <TextInput value={chemical.product} onChangeText={(product) => setChemical({ ...chemical, product })}
@@ -187,6 +193,75 @@ function Reading({ field, locked, onSave }: {
         </View>
       )}
       {problem ? <Text style={styles.problem} accessibilityLiveRegion="polite">{problem}</Text> : null}
+    </View>
+  );
+}
+
+/**
+ * A product applied, chosen from the chemicals in the company's price book:
+ * find it by name, type how much, in the unit its cost is per. The book's
+ * name, EPA number and unit go on the record, so nothing regulated is typed
+ * twice and the office can cost what was applied. A product the book does
+ * not hold is still typed, by the link under the list.
+ */
+function ChemicalFromBook({ field, chemicals, onSave, onType }: {
+  field: DayReportField;
+  chemicals: ChemicalChoice[];
+  onSave: (payload: Record<string, unknown>) => Promise<void>;
+  onType: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [chosen, setChosen] = useState<ChemicalChoice | null>(null);
+  const [amount, setAmount] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!chosen) return;
+    const checked = checkApplied(amount);
+    if (!checked.ok) {
+      setProblem(checked.problem);
+      return;
+    }
+    setProblem(null);
+    await onSave(applicationFromBook(field, chosen, checked.quantity));
+    setChosen(null);
+    setAmount("");
+    setQuery("");
+  };
+
+  if (chosen) {
+    return (
+      <View>
+        <Text style={type.body}>{chosen.name}{chosen.epaRegistrationNumber ? `, EPA ${chosen.epaRegistrationNumber}` : ""}</Text>
+        <View style={styles.row}>
+          <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="How much"
+                     placeholderTextColor={color.inkFaint} style={[styles.input, { flex: 1 }]}
+                     accessibilityLabel={`How much ${chosen.name} was applied, in ${chosen.unit}`} />
+          <Text style={[type.body, { width: 64 }]}>{chosen.unit}</Text>
+        </View>
+        <Button label="Save" kind="secondary" onPress={() => void save()} />
+        <Pressable accessibilityRole="button" onPress={() => setChosen(null)} style={styles.match}>
+          <Text style={type.soft}>Choose another product</Text>
+        </Pressable>
+        {problem ? <Text style={styles.problem} accessibilityLiveRegion="polite">{problem}</Text> : null}
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <TextInput value={query} onChangeText={setQuery} placeholder="Find the product" placeholderTextColor={color.inkFaint}
+                 style={styles.input} accessibilityLabel="Find the product applied" />
+      {searchChemicals(chemicals, query).map((c) => (
+        <Pressable key={c.id} accessibilityRole="button" accessibilityLabel={`Applied ${c.name}`}
+                   onPress={() => setChosen(c)} style={styles.match}>
+          <Text style={type.body}>{c.name}</Text>
+          <Text style={type.soft}>per {c.unit}</Text>
+        </Pressable>
+      ))}
+      <Pressable accessibilityRole="button" onPress={onType} style={styles.match}>
+        <Text style={type.soft}>Not in the price book? Type it</Text>
+      </Pressable>
     </View>
   );
 }

@@ -77,6 +77,28 @@ export const priceBookItem = pgTable("price_book_item", {
    * nothing anybody was charged. See `feeRole`.
    */
   feeRole: feeRole("fee_role"),
+  /**
+   * A CHEMICAL, AND THE UNIT ITS COST IS PER. Null for everything that is not
+   * chemistry, which is nearly everything; set, the item is a product a
+   * technician applies and is offered by name on the phone's application
+   * record, so what was applied is a choice from the book rather than words.
+   *
+   * The unit is what the version's `cost` is per ("gal", "oz", "lb"), and an
+   * application chosen from the book carries it, so its quantity is valued at
+   * the cost in force on the day it was applied. Pest control's chemical cost
+   * per stop reads it. Only a material can be one: a device, a bait station or
+   * a monitor is equipment placed at a site, which the definition leaves out.
+   *
+   * On the item rather than the version, like `feeRole`, because it is what the
+   * item IS: no document points at it, and marking it changes no price.
+   */
+  chemicalUnit: text("chemical_unit"),
+  /**
+   * The product's EPA registration number, from its label, carried onto every
+   * application chosen from the book so the regulated record holds the number
+   * the register says rather than one typed on a phone in a crawl space.
+   */
+  epaRegistrationNumber: text("epa_registration_number"),
   /** Set when the row came from a trade pack, so pack updates can be offered later. */
   tradePackId: text("trade_pack_id"),
   ...sourceRef,

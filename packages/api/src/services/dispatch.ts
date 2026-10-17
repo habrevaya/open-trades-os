@@ -9,7 +9,7 @@ import { jobVisibility, technicianScopeFilter } from "./scope";
 import { dispatchPeople } from "./people-scope";
 import { shopOfPeople } from "./visit-shop";
 import { announce, sideOf } from "./visit-notices";
-import { inForceAt } from "./pricebook";
+import { chemicalOf, inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
 import { can, money as m, time } from "@opentradesos/core";
 import { sendTransactional } from "./comms-send";
@@ -945,6 +945,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       kind: schema.priceBookItem.kind,
       feeRole: schema.priceBookItem.feeRole,
       components: schema.priceBookItemVersion.components,
+      chemicalUnit: schema.priceBookItem.chemicalUnit,
+      epaRegistrationNumber: schema.priceBookItem.epaRegistrationNumber,
     })
       .from(schema.priceBookItemVersion)
       .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -966,9 +968,10 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
      * covers, so each one carries its parts by name.
      */
     const bookNames = new Map(book.map((item) => [item.id, item.name]));
-    const priceBook = book.map(({ components, ...item }) => ({
+    const priceBook = book.map(({ components, chemicalUnit, epaRegistrationNumber, ...item }) => ({
       ...item,
       components: components.map((c) => ({ name: bookNames.get(c.itemId) ?? "A part", quantity: c.quantity })),
+      chemical: chemicalOf({ chemicalUnit, epaRegistrationNumber }),
     }));
 
     // Somebody always forgets to clock out, and the phone needs to know it is

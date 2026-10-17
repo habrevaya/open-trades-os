@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
-  projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordInvoice, recordPayment, recordWater, tipChoices,
+  chemicalsIn, projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordInvoice, recordPayment, recordWater, tipChoices,
   type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptReceipt, type KeptSignature, type PriceBookEntry,
   type QueuedOperation, type UploadTransport, checkExpenseDraft,
 } from "@opentradesos/field-client";
@@ -15,6 +15,7 @@ import { preparePhoto, prepareSignature } from "@/lib/photo";
 import { Ask, CashTip, InvoicePanel, SellPanel, TasksPanel, type SellHandlers } from "./Sell";
 import { ExpensesPanel } from "./Expenses";
 import { TruckWaterPanel } from "./TruckWater";
+import { ProductsApplied } from "./ProductsApplied";
 import { InspectionRun, type VisitInspection } from "./InspectionRun";
 import { inspectionPayload, type FieldInspectionProgram } from "@opentradesos/field-client";
 
@@ -374,6 +375,8 @@ export function Day({
     applied: landed && landed.basis === visits ? landed.operations : [],
   }), [visits, priceBook, openTimeEntry, tasks, expenses, trucks, pendingOps, landed]);
   const projectedVisit = (id: string) => projected.visits.find((v) => v.id === id);
+  /** The chemicals the company marks in its price book, which a product applied is chosen from. */
+  const chemicals = useMemo(() => chemicalsIn(priceBook), [priceBook]);
   const can: FieldAbilities = abilities ?? {
     writeEstimates: false, presentEstimates: false, raiseInvoices: false, takePayments: true, tasks: false,
     tipping: { enabled: false, presets: [] }, financing: false, assistant: false, expenses: false,
@@ -572,6 +575,19 @@ export function Day({
                     onPhoto={(file) => keepPhoto(v.id, file)}
                   />
                 )}
+                products={projectedVisit(v.id) ? (
+                  <ProductsApplied
+                    questions={projectedVisit(v.id)!.report.fields.filter((f) => f.kind === "chemical")}
+                    chemicals={chemicals}
+                    locked={projectedVisit(v.id)!.report.submitted}
+                    onSave={(payload) => {
+                      const reportId = projectedVisit(v.id)!.report.id ?? crypto.randomUUID();
+                      return perform((phone) => phone.queue.enqueue({
+                        kind: "service_report.set_field", subjectId: reportId, payload: { visitId: v.id, ...payload },
+                      }));
+                    }}
+                  />
+                ) : null}
                 photos={photos[v.id] ?? { waiting: 0, sent: 0, failed: 0 }}
                 payments={(payments[v.id] ?? []).map((p) => ({ ...p, waiting: pendingIds.has(p.clientId) }))}
                 timezone={timezone}
@@ -696,7 +712,7 @@ const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "v
 };
 
 function VisitCard({
-  visit, index, status, expanded, onToggle, onRecord, onPhoto, photos, payments, timezone, inspection,
+  visit, index, status, expanded, onToggle, onRecord, onPhoto, photos, payments, timezone, inspection, products,
   projected, abilities, onPay, sale, cashTip,
 }: {
   visit: Visit;
@@ -715,6 +731,8 @@ function VisitCard({
   payments: Array<RecordedPayment & { waiting: boolean }>;
   /** Running an inspection on this visit, when the person may. */
   inspection?: React.ReactNode;
+  /** The report's product questions, answered from the price book's chemicals. */
+  products?: React.ReactNode;
   /** The visit with what this page has queued laid over it: estimates, invoices, tips. */
   projected?: DayVisit | undefined;
   abilities: FieldAbilities;
@@ -947,6 +965,8 @@ function VisitCard({
           </div>
 
           <Photos photos={photos} onPhoto={onPhoto} />
+
+          {products}
 
           {inspection}
 
