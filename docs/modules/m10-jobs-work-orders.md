@@ -266,6 +266,15 @@ take it off. It is a pass through, so the supply cost share of revenue (M21)
 leaves it out once it is on an issued invoice. Labour and equipment fitted are
 refused, because they are not supplies. `GET /v1/jobs/{jobId}/material-cost`
 is the stock side and needs `inventory:read`.
+A line on a roll off job can name **the container it bills**: on a job at an
+address where containers have been, "Used on this job" has a "Container it
+bills" column offering each haul there (a can's time on the site, from
+delivery to the pickup or swap that took it), or `POST /v1/job-lines/{id}/haul`
+(`job:write`, audited; a container at another address is refused). A hire sold
+at a flat price has its price on the job and a swap chain puts several cans on
+one job, so this is how revenue per container month and disposal cost per haul
+(M21) know each can's share. A hire's own invoice names the haul on every line
+it writes, so only the job's lines need naming.
 `GET /v1/jobs/{jobId}/attribution` is where the job came from and needs
 `adspend:read`, because that is a marketing question about a job rather than a
 job question.
@@ -295,6 +304,7 @@ because a technician may finish work and may not re-describe it.
 | `PATCH /v1/jobs/{id}` | `job:write`, and `visit:reschedule` with `cancelVisits` (and `cancelledBy`) |
 | `GET /v1/jobs/{id}/lines` | `job:read` |
 | `POST /v1/job-lines/{id}/billed-back` | `job:write` |
+| `POST /v1/job-lines/{id}/haul` | `job:write` |
 | `GET /v1/jobs/{id}/holds` | `job:read` |
 | `POST /v1/jobs/{id}/holds` | `job:write`, and `po:read` to name a purchase order |
 | `POST /v1/job-holds/{id}/released` | `job:write` |
@@ -356,4 +366,6 @@ taken from the estimate, whose lines carry quantities and prices and never say
 which of them are hours. A supply is marked billed back by the office, one line
 at a time, not from the phone and not by the customer or the price book item: a
 pass through is the account's arrangement, and the same paper can be billed back
-to one office and absorbed for another.
+to one office and absorbed for another. The container a line bills is named by
+the office, one line at a time; a line typed straight onto an invoice, rather
+than on the job, names no container.

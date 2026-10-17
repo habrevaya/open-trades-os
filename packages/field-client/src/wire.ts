@@ -258,6 +258,17 @@ export interface FieldAbilities {
   mileageRate?: string | null | undefined;
 }
 
+/**
+ * A company vehicle this person had checked out yesterday or today, the days
+ * they had it, and the fresh water already read for those days.
+ */
+export interface FieldTruck {
+  assetId: string;
+  label: string;
+  days: string[];
+  water: Array<{ onDay: string; gallons: string }>;
+}
+
 /** One of this person's own expenses and what the office said, as the server last said. */
 export interface FieldExpense {
   id: string;
@@ -360,6 +371,8 @@ export interface FieldSnapshot {
   abilities?: FieldAbilities | undefined;
   /** This person's own expenses from the last sixty days. Absent from older servers. */
   expenses?: FieldExpense[] | undefined;
+  /** The trucks this person had yesterday and today, with the water read. Absent from older servers. */
+  trucks?: FieldTruck[] | undefined;
 }
 
 export interface CodeRequestResult {

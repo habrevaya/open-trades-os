@@ -28,7 +28,7 @@ import {
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
-  safety, retention, holidays, permitInspections, businessHours, numberHours, afterHours, safetyTalks,
+  safety, retention, holidays, permitInspections, truckWater, businessHours, numberHours, afterHours, safetyTalks,
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
@@ -121,6 +121,7 @@ export const handlers = {
   listJobLines: jobs.lines,
   listJobTypes: jobs.listTypes,
   markJobLineBilledBack: jobs.markBilledBack,
+  nameJobLineHaul: jobs.nameHaul,
   listJobHolds: jobHolds.handlers.listJobHolds,
   placeJobHold: jobHolds.handlers.placeJobHold,
   releaseJobHold: jobHolds.handlers.releaseJobHold,
@@ -226,6 +227,7 @@ export const handlers = {
 
   // Things a published field needed before it could ever be written.
   updateProperty: properties.update,
+  setPropertyStreet: properties.setStreet,
   setPriceBookItemActive: priceBook.setActive,
   setMembershipActive: roleService.setMembershipActive,
 
@@ -841,6 +843,8 @@ export const handlers = {
   ...holidays.handlers,
   // The city's inspections of a permitted job, read by the first time pass rate (M23, M21)
   ...permitInspections.handlers,
+  // Each truck's fresh water by day, read by fresh water per stop (M22, M21)
+  ...truckWater.handlers,
   // The week's hours, the company's and each branch's own (M02)
   listBusinessHours: businessHours.handlers.listBusinessHours,
   clearBranchHours: businessHours.handlers.clearBranchHours,

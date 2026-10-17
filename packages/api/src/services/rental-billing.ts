@@ -559,7 +559,8 @@ export interface HireInvoiceResult {
 }
 
 type Hire = typeof schema.rental.$inferSelect;
-type DraftLine = { name: string; description?: string; quantity: string; unitPrice: string; taxable: boolean };
+/** A line, with the haul (the rental row) it bills, so a swap chain on one invoice still says which can earned what. */
+type DraftLine = { name: string; description?: string; quantity: string; unitPrice: string; taxable: boolean; rentalId: string };
 
 /** An invoice that still stands: not deleted, not voided. */
 async function liveInvoice(tx: Database, invoiceId: string | null) {
@@ -686,16 +687,16 @@ async function draftFor(tx: Database, ctx: ServiceContext, hire: Hire): Promise<
       lines.push({
         name: `${can}, rental ${from} to ${to}`,
         description: `${period.days} container ${period.days === 1 ? "day" : "days"} at the day rate`,
-        quantity: String(period.days), unitPrice: m.toString(m.money(period.rate)), taxable: true,
+        quantity: String(period.days), unitPrice: m.toString(m.money(period.rate)), taxable: true, rentalId: link.id,
       });
     }
     for (const meter of verdict.lines) {
       lines.push(meter.meter === "rental_days"
-        ? { name: `${can}, extra days`, description: `${meter.overBy} beyond the ${link.includedDays} included`, quantity: meter.overBy, unitPrice: m.toString(m.money(meter.rate)), taxable: true }
+        ? { name: `${can}, extra days`, description: `${meter.overBy} beyond the ${link.includedDays} included`, quantity: meter.overBy, unitPrice: m.toString(m.money(meter.rate)), taxable: true, rentalId: link.id }
         : {
             name: `${can}, disposal over the included tonnage`,
             description: `${Number(meter.overBy)} tons over${link.disposalTicketNumber ? `, scale ticket ${link.disposalTicketNumber}` : ""}`,
-            quantity: meter.overBy, unitPrice: m.toString(m.money(meter.rate)), taxable: true,
+            quantity: meter.overBy, unitPrice: m.toString(m.money(meter.rate)), taxable: true, rentalId: link.id,
           });
     }
     const charges = (await chargesWithin(tx, [link.id])).filter((c) => c.invoiceId === null);
@@ -703,7 +704,7 @@ async function draftFor(tx: Database, ctx: ServiceContext, hire: Hire): Promise<
       lines.push({
         name: charge.description,
         ...(charge.note ? { description: charge.note } : {}),
-        quantity: charge.quantity, unitPrice: charge.unitPrice, taxable: charge.taxable,
+        quantity: charge.quantity, unitPrice: charge.unitPrice, taxable: charge.taxable, rentalId: link.id,
       });
       found.push(charge);
     }
@@ -726,6 +727,7 @@ async function draftFor(tx: Database, ctx: ServiceContext, hire: Hire): Promise<
           quantity: "1", unitPrice: m.toString(m.money(fee.figure.amount)),
           /** Taxed like the hire's other lines: the draft is checked before it is issued, and the office changes this line if its state taxes disposal differently. */
           taxable: true,
+          rentalId: link.id,
         });
       } else {
         unpriced.push({ rentalId: link.id, why: fee.why });
@@ -863,6 +865,17 @@ export function invoiceHire(ctx: ServiceContext, input: { id: string; disposalFe
         quantity: l.quantity, unitPrice: l.unitPrice, discountAmount: "0", taxable: l.taxable,
       })),
     });
+
+    /**
+     * Each line names the haul it bills. Written by position, which is the
+     * order the invoice was given its lines in and keeps them.
+     */
+    const written = await tx.select({ id: schema.invoiceLine.id, sortOrder: schema.invoiceLine.sortOrder })
+      .from(schema.invoiceLine).where(eq(schema.invoiceLine.invoiceId, invoice.id));
+    for (const line of written) {
+      const rentalId = lines[line.sortOrder]?.rentalId;
+      if (rentalId) await tx.update(schema.invoiceLine).set({ rentalId }).where(eq(schema.invoiceLine.id, line.id));
+    }
 
     const now = new Date();
     for (const link of group) {

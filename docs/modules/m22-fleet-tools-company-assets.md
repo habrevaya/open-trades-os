@@ -390,15 +390,22 @@ and relocations that a driver on a truck day did; a visit where the truck
 arrived and the haul did not happen (the customer was not there, the way was
 blocked) is counted beside the number as a dry run, not as a haul.
 
-The other three are absent rather than approximated:
-`revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue
-attributed to the container and the haul, which a hire billed as a chain (several
-cans on one invoice) and a hire sold at a flat price on its job both leave
-unrecorded, even though a haul now names its facility and the facility's rate;
-and `turnaround_hours` needs the moment a can was emptied at the facility, which
-nothing records, and the cans held at a customer's request, which the definition
-leaves out and nothing marks. A KPI computed from the nearest available number is
-one an owner makes a fleet purchase on.
+Two more are on the scorecard too, `revenue_per_container_month` and
+`disposal_cost_pct`, because each haul's revenue is now recorded: a hire's own
+invoice names the haul (the rental row) on every line it writes, chain or not,
+and the office names the haul a job's own line bills (M10), so a hire sold at a
+flat price on its job is a can's revenue too. The facility's fee recorded on the
+haul is the cost. M21 says what each counts and leaves out.
+
+The last, `turnaround_hours`, is absent rather than approximated: it is hours
+from emptied to placed, and neither end is recorded to the hour. A pickup keeps
+the scale ticket, which is the weighbridge and not the tip; the board takes a
+delivery as a day (kept at midday, for the reason under "The container screen").
+It also leaves out the cans held at a customer's request, which nothing marks,
+and the cans sent for repair, whose out of service tag is the can's current state
+with no history of when it was put on and taken off.
+A KPI computed from the nearest available number is one an owner makes a fleet
+purchase on.
 
 ## Permissions
 
@@ -461,6 +468,37 @@ Retire it (`DELETE /v1/rentable-assets/{id}`). It is soft, so every hire that
 unit ever ran still resolves to its number, which is the difference between an
 answerable tonnage query and an unanswerable one. Refused while it is on a
 site.
+
+## Fresh water by truck
+
+The trash bin trade's fresh water per stop is a truck's fresh water over its
+stops, per truck, because one truck drifting upward is a nozzle or a burner
+going. Nothing recorded water: a meter reading is a counter a machine wears out
+by, and the per stop "water used" reading on a service report is a guess at one
+bin. So a company vehicle's day has its fresh water (`truck_water_day`): the
+gallons the tank gauge or the fill meter says it used that day in the company's
+calendar, one figure per truck per day.
+
+- **The driver reads it on the phone** at the end of the day, for a truck
+  checked out to them that day (`truck.water`, M11).
+- **The office types or corrects it** on "Fresh water by truck", linked from
+  the top of `Fleet` (`/fleet/water`): each truck's last two weeks, a day per row with the stops
+  completed that day by whoever had it, the gallons and the gallons a stop, and
+  a form to record a reading; "Take off" removes one read on the wrong truck.
+  `GET /v1/truck-water` lists the days (`asset:read`), `PUT
+  /v1/assets/{assetId}/water/{day}` records one and `DELETE
+  /v1/assets/{assetId}/water/{day}` takes one off (`asset:write`, as a meter
+  reading is). Every change is on the audit log.
+- **Between two readings of one day the later one stands**, by when it was
+  read, so a correction lands and a phone that synced late with an older
+  reading does not undo it.
+- **Refused**: anything but a vehicle, a truck retired by that day, a day still
+  to come, a figure that is not a number of gallons, and more than five
+  thousand gallons, which no truck uses in a day.
+- **A truck's stops** are not recorded here, because they are known: the visits
+  completed that day by whoever had it checked out (custody, half open, so on
+  a handover day it is the next driver's), sent to them by name or with a crew
+  they are on. A day with stops and no reading is shown as not read.
 
 ## The container screen
 
@@ -530,6 +568,7 @@ this product's own board first.
   billed as one invoice cannot be raised until its last can is collected: the
   cans already collected are invoiced by changing the hire to one invoice per
   haul.
-- **Three of the eight KPIs**, listed above with what each one needs.
+- **One of the eight KPIs**, turnaround, listed above with what it needs.
 - **No telematics.** Cost per hour and per mile on a company asset are only as
-  good as what somebody enters.
+  good as what somebody enters, and so is a truck's water: a reading is what
+  the driver read off the gauge, and a flow meter is not connected.

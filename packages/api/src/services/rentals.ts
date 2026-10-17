@@ -808,15 +808,15 @@ export interface FleetReport {
 /**
  * The four KPIs this data can answer exactly as the pack defines them.
  *
- * The pack declares eight. Four of them need joins this module does not have:
- * `revenue_per_container_month` and `disposal_cost_pct` need invoiced revenue
- * and facility cost attributed per container, and `turnaround_hours` needs the
- * moment a can was emptied at the facility, which nothing records, and the cans
- * held at a customer's request, which it must leave out. They are absent rather
- * than approximated, because a KPI computed from the nearest available number is
- * one an owner makes a fleet purchase on. `hauls_per_truck_day` is the scorecard's
- * (`kpi-catalogue.ts`): who drives is the custody of a vehicle with a kind of
- * truck, and the days worked are the timeclock's.
+ * The pack declares eight. Three of the rest are the scorecard's
+ * (`kpi-catalogue.ts`): `hauls_per_truck_day`, because who drives is the
+ * custody of a vehicle with a kind of truck and the days worked are the
+ * timeclock's, and `revenue_per_container_month` and `disposal_cost_pct`,
+ * because they read invoice lines that name the haul they bill. The last,
+ * `turnaround_hours`, needs the moment a can was emptied at the facility, which
+ * nothing records, and the cans held at a customer's request, which it must
+ * leave out. It is absent rather than approximated, because a KPI computed from
+ * the nearest available number is one an owner makes a fleet purchase on.
  *
  * EVERY EXCLUSION THE PACK NAMES IS IMPLEMENTED AND TESTED, because each one is
  * the way the metric is usually got wrong.

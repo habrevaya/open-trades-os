@@ -8681,6 +8681,15 @@ export interface GetFieldSnapshotOutput {
     decisionReason: string | null;
     receipts: number;
   }>;
+  trucks?: Array<{
+    assetId: string;
+    label: string;
+    days: string[];
+    water: Array<{
+      onDay: string;
+      gallons: string;
+    }>;
+  }>;
 }
 
 export interface GetFinancingReportOutput {
@@ -11095,6 +11104,8 @@ export interface GetPropertyOutput {
     role: "owner" | "tenant" | "manager" | "billing";
   }>;
   equipmentCount: number;
+  street: string | null;
+  streetSource: string | null;
 }
 
 export interface GetProposalTemplateOutput {
@@ -13785,7 +13796,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -15158,6 +15169,7 @@ export interface ListJobLinesOutput {
     invoiceLineId: string | null;
     nonBillableReason: string | null;
     billedBackAt?: string | null;
+    rentalId?: string | null;
     occurredAt: string;
   }>;
 }
@@ -17561,6 +17573,18 @@ export interface ListTruckMinimumsOutput {
   }>;
 }
 
+export interface ListTruckWaterOutput {
+  days: Array<{
+    assetId: string;
+    label: string;
+    onDay: string;
+    stops: number;
+    gallons: string | null;
+    source: string | null;
+    perStop: string | null;
+  }>;
+}
+
 export interface ListUndeliveredInvoicesOutput {
   invoices: Array<{
     invoiceId: string;
@@ -18305,6 +18329,7 @@ export interface MarkJobLineBilledBackOutput {
   invoiceLineId: string | null;
   nonBillableReason: string | null;
   billedBackAt?: string | null;
+  rentalId?: string | null;
   occurredAt: string;
 }
 
@@ -18489,6 +18514,30 @@ export interface MoveProjectPhaseOutput {
     startsOn: string;
     endsOn: string;
   }>;
+}
+
+export interface NameJobLineHaulInput {
+  rentalId: string | null;
+}
+
+export interface NameJobLineHaulOutput {
+  id: string;
+  jobId: string;
+  visitId: string | null;
+  kind: string;
+  source: string;
+  priceBookItemVersionId: string | null;
+  name: string;
+  description: string | null;
+  quantity: string;
+  unitPrice: string;
+  unitCost?: string | null;
+  taxable: boolean;
+  invoiceLineId: string | null;
+  nonBillableReason: string | null;
+  billedBackAt?: string | null;
+  rentalId?: string | null;
+  occurredAt: string;
 }
 
 export interface NumberStockUnitsInput {
@@ -20591,6 +20640,21 @@ export interface RecordTechnicianSkillOutput {
   }>;
 }
 
+export interface RecordTruckWaterInput {
+  gallons: string;
+  note?: string | null;
+}
+
+export interface RecordTruckWaterOutput {
+  id: string;
+  assetId: string;
+  onDay: string;
+  gallons: string;
+  source: string;
+  recordedAt: string;
+  note: string | null;
+}
+
 export interface RecordUnitOutcomeInput {
   outcome: "serviced" | "faults_found" | "no_access" | "skipped" | "out_of_service";
   notes?: string | null;
@@ -21333,6 +21397,12 @@ export type RemoveTaskChecklistItemInput = Record<string, unknown>;
 export interface RemoveTaskChecklistItemOutput {
   id: string;
   removed: true;
+}
+
+export type RemoveTruckWaterInput = Record<string, unknown>;
+
+export interface RemoveTruckWaterOutput {
+  ok: true;
 }
 
 export type RemoveVendorItemInput = Record<string, unknown>;
@@ -24424,6 +24494,16 @@ export interface SetProjectPhaseStatusOutput {
   completedAt: string | null;
 }
 
+export interface SetPropertyStreetInput {
+  street: string | null;
+}
+
+export interface SetPropertyStreetOutput {
+  id: string;
+  street: string | null;
+  streetSource: string | null;
+}
+
 export interface SetProposalTermsInput {
   terms: string;
 }
@@ -25619,7 +25699,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -31199,6 +31279,11 @@ export type ListTruckKindsInput = Record<string, never>;
 
 export type ListTruckMinimumsInput = Record<string, never>;
 
+export interface ListTruckWaterInput {
+  from: string;
+  to: string;
+}
+
 export interface ListUndeliveredInvoicesInput {
   limit?: number;
 }
@@ -31358,6 +31443,10 @@ export interface MoveExternalWorkOrderParams {
 }
 
 export interface MoveProjectPhaseParams {
+  id: string;
+}
+
+export interface NameJobLineHaulParams {
   id: string;
 }
 
@@ -31564,6 +31653,11 @@ export interface RecordTechnicianSkillParams {
   technicianId: string;
 }
 
+export interface RecordTruckWaterParams {
+  assetId: string;
+  day: string;
+}
+
 export interface RecordUnitOutcomeParams {
   visitId: string;
   equipmentId: string;
@@ -31719,6 +31813,11 @@ export interface RemoveSpendParams {
 export interface RemoveTaskChecklistItemParams {
   id: string;
   itemId: string;
+}
+
+export interface RemoveTruckWaterParams {
+  assetId: string;
+  day: string;
 }
 
 export interface RemoveVendorItemParams {
@@ -32117,6 +32216,10 @@ export interface SetProjectPhaseDependencyParams {
 }
 
 export interface SetProjectPhaseStatusParams {
+  id: string;
+}
+
+export interface SetPropertyStreetParams {
   id: string;
 }
 
@@ -33273,6 +33376,7 @@ export interface OperationTypes {
   listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
   listTruckKinds: { input: ListTruckKindsInput; output: ListTruckKindsOutput };
   listTruckMinimums: { input: ListTruckMinimumsInput; output: ListTruckMinimumsOutput };
+  listTruckWater: { input: ListTruckWaterInput; output: ListTruckWaterOutput };
   listUndeliveredInvoices: { input: ListUndeliveredInvoicesInput; output: ListUndeliveredInvoicesOutput };
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
   listUnsignedSafetyLines: { input: ListUnsignedSafetyLinesInput; output: ListUnsignedSafetyLinesOutput };
@@ -33321,6 +33425,7 @@ export interface OperationTypes {
   moveEquipment: { input: MoveEquipmentParams & MoveEquipmentInput; output: MoveEquipmentOutput };
   moveExternalWorkOrder: { input: MoveExternalWorkOrderParams & MoveExternalWorkOrderInput; output: MoveExternalWorkOrderOutput };
   moveProjectPhase: { input: MoveProjectPhaseParams & MoveProjectPhaseInput; output: MoveProjectPhaseOutput };
+  nameJobLineHaul: { input: NameJobLineHaulParams & NameJobLineHaulInput; output: NameJobLineHaulOutput };
   numberStockUnits: { input: NumberStockUnitsInput; output: NumberStockUnitsOutput };
   openPortalLink: { input: OpenPortalLinkInput; output: OpenPortalLinkOutput };
   openPortalRecord: { input: OpenPortalRecordInput; output: OpenPortalRecordOutput };
@@ -33399,6 +33504,7 @@ export interface OperationTypes {
   recordServiceRouteStopServiced: { input: RecordServiceRouteStopServicedParams & RecordServiceRouteStopServicedInput; output: RecordServiceRouteStopServicedOutput };
   recordSpend: { input: RecordSpendInput; output: RecordSpendOutput };
   recordTechnicianSkill: { input: RecordTechnicianSkillParams & RecordTechnicianSkillInput; output: RecordTechnicianSkillOutput };
+  recordTruckWater: { input: RecordTruckWaterParams & RecordTruckWaterInput; output: RecordTruckWaterOutput };
   recordUnitOutcome: { input: RecordUnitOutcomeParams & RecordUnitOutcomeInput; output: RecordUnitOutcomeOutput };
   recordVendorCredit: { input: RecordVendorCreditParams & RecordVendorCreditInput; output: RecordVendorCreditOutput };
   recordWarrantyRegistration: { input: RecordWarrantyRegistrationParams & RecordWarrantyRegistrationInput; output: RecordWarrantyRegistrationOutput };
@@ -33446,6 +33552,7 @@ export interface OperationTypes {
   removeRole: { input: RemoveRoleParams & RemoveRoleInput; output: RemoveRoleOutput };
   removeSpend: { input: RemoveSpendParams & RemoveSpendInput; output: RemoveSpendOutput };
   removeTaskChecklistItem: { input: RemoveTaskChecklistItemParams & RemoveTaskChecklistItemInput; output: RemoveTaskChecklistItemOutput };
+  removeTruckWater: { input: RemoveTruckWaterParams & RemoveTruckWaterInput; output: RemoveTruckWaterOutput };
   removeVendorItem: { input: RemoveVendorItemParams & RemoveVendorItemInput; output: RemoveVendorItemOutput };
   renameCustomerTag: { input: RenameCustomerTagInput; output: RenameCustomerTagOutput };
   renewAgreement: { input: RenewAgreementParams & RenewAgreementInput; output: RenewAgreementOutput };
@@ -33597,6 +33704,7 @@ export interface OperationTypes {
   setProjectPhaseDates: { input: SetProjectPhaseDatesParams & SetProjectPhaseDatesInput; output: SetProjectPhaseDatesOutput };
   setProjectPhaseDependency: { input: SetProjectPhaseDependencyParams & SetProjectPhaseDependencyInput; output: SetProjectPhaseDependencyOutput };
   setProjectPhaseStatus: { input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput; output: SetProjectPhaseStatusOutput };
+  setPropertyStreet: { input: SetPropertyStreetParams & SetPropertyStreetInput; output: SetPropertyStreetOutput };
   setProposalTerms: { input: SetProposalTermsInput; output: SetProposalTermsOutput };
   setPurchaseOrderStatus: { input: SetPurchaseOrderStatusParams & SetPurchaseOrderStatusInput; output: SetPurchaseOrderStatusOutput };
   setPurchasingSettings: { input: SetPurchasingSettingsInput; output: SetPurchasingSettingsOutput };
@@ -34440,6 +34548,7 @@ export const OPERATIONS = {
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listTruckKinds: { method: "GET", path: "/v1/truck-kinds", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listTruckMinimums: { method: "GET", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
+  listTruckWater: { method: "GET", path: "/v1/truck-water", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listUndeliveredInvoices: { method: "GET", path: "/v1/invoice-deliveries/undelivered", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listUnsignedSafetyLines: { method: "GET", path: "/v1/safety/unsigned", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
@@ -34488,6 +34597,7 @@ export const OPERATIONS = {
   moveEquipment: { method: "POST", path: "/v1/equipment/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   moveExternalWorkOrder: { method: "POST", path: "/v1/external-work-orders/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   moveProjectPhase: { method: "POST", path: "/v1/project-phases/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  nameJobLineHaul: { method: "POST", path: "/v1/job-lines/{id}/haul", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   numberStockUnits: { method: "POST", path: "/v1/stock/numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   openPortalLink: { method: "GET", path: "/v1/portal/session", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openPortalRecord: { method: "POST", path: "/v1/portal/account/open", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
@@ -34566,6 +34676,7 @@ export const OPERATIONS = {
   recordServiceRouteStopServiced: { method: "POST", path: "/v1/service-routes/stops/{id}/serviced", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordSpend: { method: "POST", path: "/v1/marketing/spend", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   recordTechnicianSkill: { method: "POST", path: "/v1/technicians/{technicianId}/skills", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  recordTruckWater: { method: "PUT", path: "/v1/assets/{assetId}/water/{day}", pathParams: ["assetId","day"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordUnitOutcome: { method: "POST", path: "/v1/visits/{visitId}/units/{equipmentId}/outcome", pathParams: ["visitId","equipmentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   recordVendorCredit: { method: "POST", path: "/v1/vendor-returns/{id}/credit", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordWarrantyRegistration: { method: "POST", path: "/v1/equipment/{id}/warranty-registration", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
@@ -34613,6 +34724,7 @@ export const OPERATIONS = {
   removeRole: { method: "POST", path: "/v1/roles/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   removeSpend: { method: "DELETE", path: "/v1/marketing/spend-rows/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   removeTaskChecklistItem: { method: "POST", path: "/v1/tasks/{id}/checklist/{itemId}/remove", pathParams: ["id","itemId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
+  removeTruckWater: { method: "DELETE", path: "/v1/assets/{assetId}/water/{day}", pathParams: ["assetId","day"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   removeVendorItem: { method: "POST", path: "/v1/vendor-items/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   renameCustomerTag: { method: "POST", path: "/v1/customer-tags/rename", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customer:write"] },
   renewAgreement: { method: "POST", path: "/v1/agreements/{id}/renew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
@@ -34764,6 +34876,7 @@ export const OPERATIONS = {
   setProjectPhaseDates: { method: "POST", path: "/v1/project-phases/{id}/dates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseDependency: { method: "POST", path: "/v1/project-phases/{id}/dependency", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseStatus: { method: "POST", path: "/v1/project-phases/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  setPropertyStreet: { method: "PUT", path: "/v1/properties/{id}/street", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
   setProposalTerms: { method: "PUT", path: "/v1/proposal-terms", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPurchaseOrderStatus: { method: "POST", path: "/v1/purchase-orders/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   setPurchasingSettings: { method: "POST", path: "/v1/purchasing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
@@ -41012,6 +41125,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Each truck's days: the stops its driver completed and the fresh water read.
+   *
+   * GET /v1/truck-water. Needs asset:read.
+   */
+  listTruckWater(input: ListTruckWaterInput, options?: CallOptions): Promise<ListTruckWaterOutput> {
+    return this.call("listTruckWater", input, options);
+  }
+
+  /**
    * Money outstanding the customer may never have seen.
    *
    * GET /v1/invoice-deliveries/undelivered. Needs invoice:read.
@@ -41441,6 +41563,15 @@ export abstract class GeneratedOperations {
    */
   moveProjectPhase(input: MoveProjectPhaseParams & MoveProjectPhaseInput, options?: CallOptions): Promise<MoveProjectPhaseOutput> {
     return this.call("moveProjectPhase", input, options);
+  }
+
+  /**
+   * Name the container a line bills, or take the name off.
+   *
+   * POST /v1/job-lines/{id}/haul. Needs job:write.
+   */
+  nameJobLineHaul(input: NameJobLineHaulParams & NameJobLineHaulInput, options?: CallOptions): Promise<NameJobLineHaulOutput> {
+    return this.call("nameJobLineHaul", input, options);
   }
 
   /**
@@ -42146,6 +42277,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record the fresh water a truck used on a day.
+   *
+   * PUT /v1/assets/{assetId}/water/{day}. Needs asset:write.
+   */
+  recordTruckWater(input: RecordTruckWaterParams & RecordTruckWaterInput, options?: CallOptions): Promise<RecordTruckWaterOutput> {
+    return this.call("recordTruckWater", input, options);
+  }
+
+  /**
    * What happened to one machine.
    *
    * POST /v1/visits/{visitId}/units/{equipmentId}/outcome. Needs visit:write.
@@ -42566,6 +42706,15 @@ export abstract class GeneratedOperations {
    */
   removeTaskChecklistItem(input: RemoveTaskChecklistItemParams & RemoveTaskChecklistItemInput, options?: CallOptions): Promise<RemoveTaskChecklistItemOutput> {
     return this.call("removeTaskChecklistItem", input, options);
+  }
+
+  /**
+   * Take off a day's water reading.
+   *
+   * DELETE /v1/assets/{assetId}/water/{day}. Needs asset:write.
+   */
+  removeTruckWater(input: RemoveTruckWaterParams & RemoveTruckWaterInput, options?: CallOptions): Promise<RemoveTruckWaterOutput> {
+    return this.call("removeTruckWater", input, options);
   }
 
   /**
@@ -43925,6 +44074,15 @@ export abstract class GeneratedOperations {
    */
   setProjectPhaseStatus(input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput, options?: CallOptions): Promise<SetProjectPhaseStatusOutput> {
     return this.call("setProjectPhaseStatus", input, options);
+  }
+
+  /**
+   * Record the street a property is on.
+   *
+   * PUT /v1/properties/{id}/street. Needs property:write.
+   */
+  setPropertyStreet(input: SetPropertyStreetParams & SetPropertyStreetInput, options?: CallOptions): Promise<SetPropertyStreetOutput> {
+    return this.call("setPropertyStreet", input, options);
   }
 
   /**

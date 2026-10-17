@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Thirty six of the forty seven are computed here, four are
- * M22's, and the seven that are not each name what they still lack.)
+ * (They are read now. Forty of the forty seven are computed here, four are
+ * M22's, and the three that are not each name what they still lack.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -63,8 +63,9 @@ export type Format = "percent" | "money" | "number" | "duration";
  * Every records query returns the same six columns:
  *
  *   kind     job, estimate, agreement, visit, customer, technician_day,
- *            crew_day, time, deficiency, equipment or route_day: what the row
- *            is, which decides who may see it listed
+ *            crew_day, time, deficiency, equipment, route_day, street, truck,
+ *            truck_day, container or haul: what the row is, which decides who
+ *            may see it listed
  *   id       the record's id, as text
  *   label    what to call it on a list
  *   on_day   the date it falls on in the window, as YYYY-MM-DD
@@ -272,6 +273,177 @@ const truckDays = (): Records => (from, to, zone) => sql`
   ) as days
   join public.technician t on t.id = days.technician_id
   where ${onATruck(sql`days.technician_id`, sql`days.d`)}
+`;
+
+/**
+ * A TRUCK'S DAYS, for fresh water per stop: each company vehicle and day in
+ * the window with the stops completed that day by whoever had it checked out,
+ * and the water its driver read (`truck_water_day`), a day with either.
+ *
+ * Who had a truck is the custody record, half open like every custody period,
+ * so on the day it is handed over it is the next driver's. A stop is a visit
+ * completed that day in the company's calendar that the holder was sent on by
+ * name or with a crew they are on, which is how a route day reads "their
+ * visits", and a multi bin stop is one visit. A retired truck has no day after
+ * its retirement. Core's `reporting.waterPerStopOf` is the rule these days are
+ * put through, and `kpi-water-per-stop.integration.test.ts` holds the two
+ * together. Exported, because the office's water screen lists the same days.
+ */
+export const truckDaysSql = (from: string, to: string, zone: string) => sql`
+  with held as (
+    select distinct ca.id as asset_id, ac.custodian_id as technician_id, d.day::date as day
+    from public.asset_custody ac
+    join public.company_asset ca on ca.id = ac.asset_id
+    cross join lateral generate_series(
+      greatest(ac.held_from, ${from}::date)::timestamp,
+      least(coalesce(ac.held_until - 1, ${to}::date), ${to}::date)::timestamp,
+      interval '1 day') as d(day)
+    where ac.custodian_kind = 'technician' and ca.kind = 'vehicle'
+      and (ca.retired_on is null or ca.retired_on > d.day::date)
+  ),
+  stops as (
+    select h.asset_id, h.day, count(distinct v.id)::int as stops
+    from held h
+    join public.visit v on v.deleted_at is null and v.status = 'completed'
+      and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+      and (v.completed_at at time zone ${zone})::date = h.day
+    where exists (select 1 from public.visit_assignment va where va.visit_id = v.id and va.technician_id = h.technician_id)
+       or exists (select 1 from public.crew_member cm where cm.crew_id = v.crew_id and cm.technician_id = h.technician_id)
+    group by h.asset_id, h.day
+  ),
+  read as (
+    select w.id, w.asset_id, w.on_day, w.gallons, w.source
+    from public.truck_water_day w
+    where w.on_day >= ${from}::date and w.on_day <= ${to}::date
+  )
+  select coalesce(s.asset_id, r.asset_id) as asset_id, ca.label,
+         to_char(coalesce(s.day, r.on_day), 'YYYY-MM-DD') as day,
+         coalesce(s.stops, 0) as stops, r.gallons::text as gallons, r.source, r.id as reading_id
+  from stops s
+  full join read r on r.asset_id = s.asset_id and r.on_day = s.day
+  join public.company_asset ca on ca.id = coalesce(s.asset_id, r.asset_id)
+  order by ca.label, day
+`;
+
+/** Fresh water per stop's records: each truck's counted days added up, or a day left out. See `water_per_stop`. */
+const waterPerStop = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to, zone) => pick === "numerator" || pick === "denominator"
+  ? sql`
+    select 'truck'::text as kind, x.asset_id::text as id,
+           concat(x.label, ': ', trim_scale(sum(x.gallons::numeric)), ' gallons over ', sum(x.stops),
+                  case when sum(x.stops) = 1 then ' stop, ' else ' stops, ' end,
+                  round(sum(x.gallons::numeric) / sum(x.stops), 1), ' a stop') as label,
+           max(x.day) as on_day,
+           ${pick === "numerator" ? sql`sum(x.gallons::numeric)` : sql`sum(x.stops)::numeric`} as value,
+           '/fleet/water?truck=' || x.asset_id as href
+    from (${truckDaysSql(from, to, zone)}) as x
+    where x.gallons is not null and x.stops > 0
+    group by x.asset_id, x.label`
+  : sql`
+    select 'truck_day'::text as kind, concat(x.asset_id, ':', x.day) as id,
+           ${pick === "unknown"
+             ? sql`concat(x.label, ', ', to_char(x.day::date, 'Mon FMDD'), ': ', x.stops, case when x.stops = 1 then ' stop' else ' stops' end, ', no water read')`
+             : sql`concat(x.label, ', ', to_char(x.day::date, 'Mon FMDD'), ': ', trim_scale(x.gallons::numeric), ' gallons and no stop')`} as label,
+           x.day as on_day, 1::numeric as value,
+           '/fleet/water?truck=' || x.asset_id as href
+    from (${truckDaysSql(from, to, zone)}) as x
+    where ${pick === "unknown" ? sql`x.gallons is null and x.stops > 0` : sql`x.gallons is not null and x.stops = 0`}`;
+
+/**
+ * WHAT EACH HAUL WAS INVOICED, line by line: every invoice line that names the
+ * haul it bills (a rental row: one can's time on a site), its own name when a
+ * hire's invoice wrote it, or the name on the job line it billed. On invoices
+ * issued and not voided, before tax (tax is held apart on the line), net of
+ * discounts, and never a permit line, which the dumpster pack calls a pass
+ * through and not revenue. Core's `reporting.haulRevenue` is the same rule.
+ */
+const haulLines = () => sql`
+  select coalesce(il.rental_id, jl.rental_id) as rental_id, il.id as line_id, i.issued_on,
+         (il.quantity * il.unit_price - il.discount_amount - il.member_discount_amount)::numeric as amount
+  from public.invoice_line il
+  join public.invoice i on i.id = il.invoice_id
+  left join public.job_line jl on jl.invoice_line_id = il.id
+  where coalesce(il.rental_id, jl.rental_id) is not null
+    and i.deleted_at is null
+    and i.status::text = any(${sql.param([...reporting.INVOICE_ISSUED])}::text[])
+    and coalesce(jl.kind::text, '') <> 'permit'
+`;
+
+/** A container as it reads on a list: its number and its size. */
+const containerName = (alias: string) => sql.raw(`concat('Container ', ${alias}.identifier, coalesce(' (' || ${alias}.size || ')', ''))`);
+
+/** Revenue per container month's records. See `revenue_per_container_month`. */
+const containerMonths = (pick: "numerator" | "denominator" | "unknown"): Records => (from, to, zone) => ({
+  numerator: sql`
+    select 'container'::text as kind, ra.id::text as id,
+           concat(${containerName("ra")}, ': ', count(*), case when count(*) = 1 then ' line' else ' lines' end, ' invoiced') as label,
+           max(hl.issued_on)::text as on_day, sum(hl.amount) as value, '/fleet/containers' as href
+    from (${haulLines()}) as hl
+    join public.rental r on r.id = hl.rental_id
+    join public.rentable_asset ra on ra.id = r.asset_id
+    where hl.issued_on >= ${from}::date and hl.issued_on <= ${to}::date
+    group by ra.id, ra.identifier, ra.size`,
+  denominator: sql`
+    with fleet as (
+      select ra.id, ra.identifier, ra.size,
+             least((ra.created_at at time zone ${zone})::date,
+                   coalesce((select min((r.delivered_at at time zone ${zone})::date) from public.rental r where r.asset_id = ra.id),
+                            'infinity'::date)) as joined,
+             (ra.deleted_at at time zone ${zone})::date as left_on
+      from public.rentable_asset ra
+    )
+    select 'container'::text as kind, f.id::text as id,
+           concat(${containerName("f")}, ': ',
+                  to_char(sum(1.0 / extract(day from (date_trunc('month', d.day) + interval '1 month - 1 day'))), 'FM9990.00'),
+                  ' months in the fleet') as label,
+           ${to}::text as on_day,
+           sum(1.0 / extract(day from (date_trunc('month', d.day) + interval '1 month - 1 day')))::numeric as value,
+           '/fleet/containers' as href
+    from fleet f
+    cross join lateral generate_series(greatest(f.joined, ${from}::date)::timestamp, ${to}::date::timestamp, interval '1 day') as d(day)
+    where f.left_on is null or d.day::date < f.left_on
+    group by f.id, f.identifier, f.size`,
+  unknown: sql`
+    select 'job'::text as kind, j.id::text as id,
+           concat('#', j.number, ' ', j.summary, ': ', count(*), case when count(*) = 1 then ' line' else ' lines' end,
+                  ' naming no container') as label,
+           max(i.issued_on)::text as on_day, 1::numeric as value, '/jobs/' || j.id as href
+    from public.invoice_line il
+    join public.invoice i on i.id = il.invoice_id
+    join public.job_line jl on jl.invoice_line_id = il.id
+    join public.job j on j.id = jl.job_id
+    where il.rental_id is null and jl.rental_id is null and jl.kind::text <> 'permit'
+      and i.deleted_at is null
+      and i.status::text = any(${sql.param([...reporting.INVOICE_ISSUED])}::text[])
+      and i.issued_on >= ${from}::date and i.issued_on <= ${to}::date
+      and exists (select 1 from public.visit v where v.job_id = j.id and v.rental_id is not null)
+    group by j.id, j.number, j.summary`,
+}[pick]);
+
+/**
+ * Disposal cost's records: each haul collected in the window (the pickup or
+ * swap that took the full can to the facility), with its facility fee and the
+ * revenue invoiced on it. See `disposal_cost_pct`. Core's
+ * `reporting.disposalHaulOf` is the rule.
+ */
+const disposalHauls = (pick: "numerator" | "denominator" | "unknown" | "excluded"): Records => (from, to, zone) => sql`
+  select 'haul'::text as kind, r.id::text as id,
+         concat(${containerName("ra")}, ', collected ', to_char(r.picked_up_at at time zone ${zone}, 'Mon FMDD'),
+                coalesce(', ' || r.disposal_facility, ''), coalesce(', ticket ' || r.disposal_ticket_number, '')) as label,
+         to_char(r.picked_up_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         ${pick === "numerator" ? sql`r.disposal_fee::numeric` : pick === "denominator" ? sql`inv.revenue` : sql`1::numeric`} as value,
+         '/fleet/containers' as href
+  from public.rental r
+  join public.rentable_asset ra on ra.id = r.asset_id
+  left join lateral (
+    select sum(hl.amount) as revenue, count(*) as lines from (${haulLines()}) as hl where hl.rental_id = r.id
+  ) as inv on true
+  where r.picked_up_at >= ${dayStart(from, zone)} and r.picked_up_at < ${dayAfter(to, zone)}
+    and ${{
+      numerator: sql`r.disposal_fee is not null and inv.lines > 0`,
+      denominator: sql`r.disposal_fee is not null and inv.lines > 0`,
+      unknown: sql`r.disposal_fee is null`,
+      excluded: sql`r.disposal_fee is not null and inv.lines = 0`,
+    }[pick]}
 `;
 
 /** The haul events of the pack: a delivery, a pickup, a swap, a dump and return, a relocation. */
@@ -648,6 +820,55 @@ const churned = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Re
       unknown: sql`and not ${runningOn("a", to)} and not ${leftTheHome(to)} and ${REASON_UNKNOWN}`,
     }[pick]}
 `;
+
+/**
+ * HOMES PER SERVED STREET: every subscription running on the window's last
+ * day, with whether its customer is commercial and the street its address is
+ * on, keyed as core's `geo.streetKey` keys it (the street, the town and the
+ * state, trimmed, spaced once, in small letters). The street counts only when
+ * it answers for the address as it is now (`street_for_address`), which is
+ * `geo.streetOf`. `reporting.streetDensityOf` is the rule, and
+ * `kpi-street-density.integration.test.ts` puts the same plans through both.
+ */
+const tidied = (column: string) => `lower(btrim(regexp_replace(coalesce(${column}, ''), '[[:space:]]+', ' ', 'g')))`;
+const subscriptionsOnStreets = (to: string) => sql`
+  select a.id as agreement_id, a.plan_id, a.customer_id, p.id as property_id,
+         coalesce(c.type = 'commercial', false) as commercial,
+         case when p.id is not null and p.street_for_address = p.address_key and ${sql.raw(tidied("p.street"))} <> ''
+              then ${sql.raw(tidied("p.street"))} || '|' || ${sql.raw(tidied("p.city"))} || '|' || ${sql.raw(tidied("p.state"))}
+         end as street_key,
+         btrim(regexp_replace(p.street, '[[:space:]]+', ' ', 'g')) as street, p.city, p.state
+  from public.agreement a
+  join public.customer c on c.id = a.customer_id
+  left join public.property p on p.id = a.property_id and p.deleted_at is null
+  where ${runningOn("a", to)}
+`;
+
+const streetSubscriptionRow = (to: string) => sql`
+  'agreement'::text as kind, x.agreement_id::text as id,
+  concat((select pl.name from public.agreement_plan pl where pl.id = x.plan_id), ' for ', ${customerName},
+         coalesce(', ' || x.street, '')) as label,
+  ${to}::text as on_day, 1::numeric as value`;
+
+/** Street density's records: which plans, and which streets, by which test. See `street_density`. */
+const streetDensity = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (_from, to) => pick === "denominator"
+  ? sql`
+    select 'street'::text as kind, x.street_key as id,
+           concat(min(x.street), ', ', min(x.city), ' ', min(x.state), ': ', count(*), case when count(*) = 1 then ' home' else ' homes' end) as label,
+           ${to}::text as on_day, 1::numeric as value,
+           '/properties/' || min(x.property_id::text) as href
+    from (${subscriptionsOnStreets(to)}) as x
+    where not x.commercial and x.street_key is not null
+    group by x.street_key`
+  : sql`
+    select ${streetSubscriptionRow(to)},
+           ${pick === "unknown" ? sql`coalesce('/properties/' || x.property_id, '/agreements/' || x.agreement_id)` : sql`'/agreements/' || x.agreement_id`} as href
+    from (${subscriptionsOnStreets(to)}) as x
+    where ${{
+      numerator: sql`not x.commercial and x.street_key is not null`,
+      excluded: sql`x.commercial`,
+      unknown: sql`not x.commercial and x.street_key is null`,
+    }[pick]}`;
 
 /** The two counts every one of the four shows beside its number. */
 const besidesOf = (records: (pick: "excluded" | "unknown") => Records, what: string): NonNullable<Measure["besides"]> => ({
@@ -2408,27 +2629,71 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   street_density: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "A street rather than an address line. The definition divides active "
-      + "subscriptions by distinct streets on the route, and `property` stores "
-      + "`address_line1` whole: '12 Oak Street' and '14 Oak St' are the same "
-      + "street and two different strings. Splitting on the first space would "
-      + "count them separately and report twice the streets and half the density, "
-      + "which is the single most important number in this trade.",
+    measure: {
+      /**
+       * "Active subscriptions divided by the number of distinct streets on the
+       * route. ... Excludes commercial stops, which have their own economics."
+       *
+       * WHAT IT NEEDED: a street rather than an address line. `address_line1`
+       * is the whole line, and "12 Oak Street" and "14 Oak St" are one street
+       * and two strings, so splitting the line would count twice the streets
+       * and report half the density. A property now keeps its street apart
+       * (M03): the geocoder's own street component where it gives one, or
+       * typed or picked from the streets already in the town by a person, and
+       * never read out of the line.
+       *
+       * Active is running on the window's last day, as churn reads it. A
+       * commercial customer's plan leaves both halves and is counted beside. A
+       * home whose street is not recorded for its address as it is now (or a
+       * plan with no address of its own) is LEFT OUT OF BOTH HALVES and
+       * counted beside as not known, opening on the address so the office can
+       * record it: counted on top and not underneath it would read as a denser
+       * route than the one driven. Two spellings of one street typed by hand
+       * count as two streets, which reads lower, never higher.
+       */
+      numerator: { label: "active subscriptions on a recorded street", records: streetDensity("numerator") },
+      denominator: { label: "distinct streets they are on", records: streetDensity("denominator") },
+      besides: {
+        excluded: { label: "Commercial subscriptions, left out of both halves", records: streetDensity("excluded") },
+        unknown: { label: "Subscriptions left out because the street of their address is not recorded", records: streetDensity("unknown") },
+      },
+    },
   },
 
   water_per_stop: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "A water reading per truck. The definition is fresh water used divided by "
-      + "completed stops, per truck, and nothing records water: "
-      + "`asset_meter_reading` takes a reading on a company asset and no reading "
-      + "kind is declared for a tank. The point of the number is a truck drifting "
-      + "upward before it shows in a complaint, so a fleet-wide figure would miss "
-      + "the one truck.",
+    measure: {
+      /**
+       * "Fresh water used divided by completed stops, per truck. A truck
+       * drifting upward is usually a nozzle or a burner problem, and it shows
+       * here before it shows in a complaint."
+       *
+       * WHAT IT NEEDED: a water reading per truck. Nothing recorded water: the
+       * per stop "water used" reading on a report is a guess at one bin, and a
+       * meter reading is a counter a machine wears out by. A truck's day now
+       * has its fresh water (`truck_water_day`, M22), read off the tank by the
+       * driver on the phone or typed by the office, and a truck's stops are the
+       * visits completed by whoever had it checked out that day.
+       *
+       * PER TRUCK. Each record is one truck, its water over its own stops and
+       * the truck's own gallons a stop in its words, so the one truck drifting
+       * is a line of its own; the number is the trucks' together.
+       *
+       * ONLY DAYS WITH BOTH COUNT. A truck day with stops and no reading is
+       * left out of both halves and counted beside as not read, never as no
+       * water; a reading on a day the truck completed no stop is left out and
+       * counted beside too.
+       */
+      numerator: { label: "gallons of fresh water used on truck days with a reading", records: waterPerStop("numerator") },
+      denominator: { label: "stops completed on those truck days", records: waterPerStop("denominator") },
+      besides: {
+        unknown: { label: "Truck days with stops and no water read, left out of both halves", records: waterPerStop("unknown") },
+        excluded: { label: "Water read on a day the truck completed no stop, left out of both halves", records: waterPerStop("excluded") },
+      },
+    },
   },
 
   /* --------------------------------------------------------- elsewhere */
@@ -2458,36 +2723,67 @@ export const CATALOGUE: Record<string, Entry> = {
   /* ------------------------------------------- the rental ones that need more */
 
   revenue_per_container_month: {
-    state: "needs",
+    state: "computed",
     format: "money",
-    needs:
-      "Revenue attributed to a container. A hire's own invoice is linked to it "
-      + "now (`rental.invoice_id`), but it holds only the period (for a hire "
-      + "priced by the day), a meter that went over and the charges found on the "
-      + "haul: a hire sold at a flat price has that price on the job, which can "
-      + "have several containers on it in a swap chain. The ratio needs each "
-      + "container's share of a job's revenue, which nothing records, so the "
-      + "figure would be fleet revenue divided by fleet months rather than per "
-      + "container, which is the comparison the number exists to make. A hire "
-      + "billed as a swap chain puts several cans on one invoice, so even a "
-      + "hire's own invoice no longer belongs to one container.",
+    measure: {
+      /**
+       * "Rental, overage, disposal and fee revenue attributed to a container
+       * divided by the months that container was in the fleet, including
+       * months it never left the yard. EXCLUDES taxes and permit amounts passed
+       * through at cost, which are not revenue."
+       *
+       * WHAT IT NEEDED: each container's share of a job's revenue. A hire's
+       * invoice now names the haul each of its lines bills (the period, the
+       * meters, the charges found, the disposal fee passed on), so a swap chain
+       * on one invoice still says which can earned what, and the office names
+       * the haul a job's own line bills (a flat priced hire, a trip) on the
+       * job's page. Nothing is read from a line's words.
+       *
+       * Revenue is those lines on invoices issued in the window and not
+       * voided, before tax, never a permit. A container's months are its days
+       * in the fleet in the window, each a share of its own month, from when it
+       * joined the register (or its first hire, if earlier) until it was
+       * retired, the yard and the repair shop included. Lines on a container
+       * job that name no container are counted beside, not guessed.
+       */
+      numerator: { label: "invoiced revenue naming a container", records: containerMonths("numerator") },
+      denominator: { label: "container months in the fleet", records: containerMonths("denominator") },
+      besides: {
+        unknown: { label: "Jobs with a container whose invoiced lines name none, left out", records: containerMonths("unknown") },
+      },
+    },
   },
   disposal_cost_pct: {
-    state: "needs",
+    state: "computed",
     format: "percent",
-    needs:
-      "Revenue attributed to the same hauls as the disposal cost. "
-      + "`rental.disposal_fee` is the cost side and is recorded, and a hire's own "
-      + "invoice is linked to it (`rental.invoice_id`), but that invoice holds only "
-      + "the period of a hire priced by the day, the meters that went over and the "
-      + "charges found. The definition divides by invoiced revenue ON THE SAME "
-      + "HAULS, which for a hire sold at a flat price is on the job, shared by "
-      + "every container in a swap chain, and nothing records a haul's share. "
-      + "Dividing by the hire invoice alone would read as a disposal cost several "
-      + "times the truth. A haul now names its facility and the facility's rate, "
-      + "which firms up the cost half, and a fee passed on to the customer is a "
-      + "line on the hire's invoice, but that is the cost recovered and not the "
-      + "revenue the definition divides by.",
+    /** What a facility charged against what a haul earned is what work costs. */
+    permissions: ["job.cost:read", "report.financial:read"],
+    measure: {
+      /**
+       * "Tipping and disposal cost taken from scale tickets divided by
+       * invoiced revenue on the same hauls. EXCLUDES fuel, driver labour and
+       * truck cost, which belong in cost per haul."
+       *
+       * WHAT IT NEEDED: revenue attributed to the same hauls as the cost. The
+       * cost was always on the haul (`rental.disposal_fee`, what the facility
+       * billed for the load); the revenue is now the invoice lines naming the
+       * haul, as for revenue per container month. A haul counts in the window
+       * it was collected (the pickup or swap that took the full can to the
+       * facility).
+       *
+       * A haul with no disposal fee recorded is left out of both halves and
+       * counted beside as not known, never read as a free tip; one with a fee
+       * and nothing invoiced on it yet is left out and counted beside too,
+       * because its cost over nothing would read as a facility several times
+       * dearer. Fuel, labour and the truck are not in it.
+       */
+      numerator: { label: "facility fees on hauls collected and invoiced", records: disposalHauls("numerator"), money: true },
+      denominator: { label: "invoiced revenue on those hauls", records: disposalHauls("denominator"), money: true },
+      besides: {
+        unknown: { label: "Hauls collected with no disposal fee recorded, left out of both halves", records: disposalHauls("unknown") },
+        excluded: { label: "Hauls with a disposal fee and nothing invoiced on them yet, left out of both halves", records: disposalHauls("excluded") },
+      },
+    },
   },
   hauls_per_truck_day: {
     state: "computed",
@@ -2518,14 +2814,18 @@ export const CATALOGUE: Record<string, Entry> = {
     state: "needs",
     format: "duration",
     needs:
-      "The moment a container was emptied at the facility. A pickup records the "
-      + "scale ticket, which is the weighbridge rather than the tip, and the "
-      + "definition measures from emptied to next placement. Using the pickup "
-      + "time instead would include the drive and the queue at the gate and "
-      + "report a worse figure than the fleet achieves. A haul now names the "
-      + "facility it went to, but not the time it was tipped there, and nothing "
-      + "records a can held at the customer's request, the other exclusion the "
-      + "definition makes.",
+      "Three times nothing records to the hour. The moment a can was emptied at the "
+      + "facility: a pickup records the scale ticket's number and weight, which is the "
+      + "weighbridge and not the tip, and a ticket file is read to the day. The moment "
+      + "the can was placed on the next site: the containers board takes a delivery as a "
+      + "day (kept at midday), so hours from it would be hours from a guess, and only a "
+      + "hire raised through the API with its own instant has one. And the days a can "
+      + "was held at a customer's request, which the definition leaves out and nothing "
+      + "marks, beside the days it was out for repair, which are kept only as the can's "
+      + "current state with no history. Using the pickup time instead would include the "
+      + "drive and the queue at the gate and report a worse figure than the fleet "
+      + "achieves. Revenue now names the haul (revenue per container month), which "
+      + "answers none of the three.",
   },
 };
 

@@ -1,5 +1,6 @@
 import { and, eq, desc, lt, or, ilike, isNull, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { geo } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, cleanAll, decodeCursor, paginate, NotFoundError, scopeOf,
@@ -231,9 +232,75 @@ export async function get(ctx: ServiceContext, input: z.infer<typeof getProperty
 
     return {
       ...shape(clean(ctx, "property", row)),
+      ...streetView(row),
       customers: links.get(row.id) ?? [],
       equipmentCount: counted?.n ?? 0,
     };
+  });
+}
+
+/**
+ * The street as a caller sees it: the one recorded for the address as it is
+ * now, or null, and who said so. A street recorded for the address before it
+ * changed is not shown as this address's.
+ */
+function streetView(row: typeof schema.property.$inferSelect) {
+  const street = geo.streetOf({
+    addressKey: row.addressKey ?? "", street: row.street, streetSource: row.streetSource,
+    streetForAddress: row.streetForAddress, streetAttemptedAddress: row.streetAttemptedAddress,
+  });
+  return { street, streetSource: street === null ? null : row.streetSource };
+}
+
+/**
+ * THE STREET A HOME IS ON, TYPED OR CONFIRMED BY A PERSON.
+ *
+ * The geocoder fills it from its own address components where it gives them;
+ * this is for every address it did not, and for a street it named wrongly. A
+ * typed street wins from then on, for this address, as a placed pin does: the
+ * geocoder never writes over it, and an address that changes leaves it as not
+ * known. Null takes it off and hands the address back to the geocoder, which
+ * is asked the street once more.
+ *
+ * Nothing is read out of the street line. The screen offers the streets
+ * already recorded in the same town (`streetsIn`), so "Oak Street" is picked
+ * rather than typed again as "Oak St", which would count as a second street.
+ * `property:write`, on the audit log.
+ */
+export async function setStreet(ctx: ServiceContext, input: { id: string; street: string | null }) {
+  return guardedWrite(ctx, "property:write", async (tx) => {
+    const [before] = await tx.select().from(schema.property)
+      .where(and(eq(schema.property.id, input.id), isNull(schema.property.deletedAt)))
+      .limit(1);
+    if (!before) throw new NotFoundError("Property");
+    const street = geo.streetName(input.street);
+    const [after] = await tx.update(schema.property).set(street === null
+      ? { street: null, streetSource: null, streetForAddress: null, streetAttemptedAddress: null, updatedAt: new Date() }
+      : { street, streetSource: geo.STREET_TYPED, streetForAddress: before.addressKey, updatedAt: new Date() })
+      .where(eq(schema.property.id, input.id)).returning();
+    await audit(tx, ctx, street === null ? "property.street_cleared" : "property.street_set", "property", input.id,
+      { street: before.street, streetSource: before.streetSource }, { street: after!.street, streetSource: after!.streetSource });
+    return { id: after!.id, ...streetView(after!) };
+  });
+}
+
+/**
+ * The streets already recorded in a town, for the screen to offer, so the
+ * same street is picked rather than spelled a second way. Only streets that
+ * answer for their address as it is now.
+ */
+export async function streetsIn(ctx: ServiceContext, input: { city: string; state: string }) {
+  return guardedRead(ctx, "property:read", async (tx) => {
+    const rows = await tx.execute<{ street: string }>(sql`
+      select distinct p.street
+      from public.property p
+      where p.deleted_at is null and p.street is not null
+        and p.street_for_address = p.address_key
+        and lower(btrim(p.city)) = lower(btrim(${input.city}))
+        and lower(btrim(p.state)) = lower(btrim(${input.state}))
+      order by p.street
+      limit 500`);
+    return rows.map((r) => r.street);
   });
 }
 

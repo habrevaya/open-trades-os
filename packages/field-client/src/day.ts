@@ -257,6 +257,17 @@ export interface DayView {
   talks: DayTalk[];
   /** What this person paid for the company, newest first: the server's, with this phone's laid over. */
   expenses: DayExpense[];
+  /** The trucks this person had yesterday and today, with the water read: the server's, with this phone's laid over. */
+  trucks: DayTruck[];
+}
+
+export interface DayTruck {
+  assetId: string;
+  label: string;
+  /** The days this person had it, oldest first. */
+  days: string[];
+  /** The water read for each of those days. A reading made on this phone and not sent yet is `waiting`. */
+  water: Array<{ onDay: string; gallons: string; waiting: boolean }>;
 }
 
 /**
@@ -320,6 +331,9 @@ export function projectDay(input: {
   }));
   const talks: DayTalk[] = (input.snapshot?.talks ?? []).map((t) => ({ ...t, signedHere: false, waiting: false }));
   const expenses: DayExpense[] = (input.snapshot?.expenses ?? []).map((e) => ({ ...e, waiting: false }));
+  const trucks: DayTruck[] = (input.snapshot?.trucks ?? []).map((t) => ({
+    ...t, days: [...t.days], water: t.water.map((w) => ({ ...w, waiting: false })),
+  }));
 
   const landed = new Set((input.applied ?? []).map((op) => op.clientId));
   const ordered = [...(input.applied ?? []), ...input.operations]
@@ -384,6 +398,16 @@ export function projectDay(input: {
     }
     /** Nothing on the day changes: the bell is the office's, and the phone has none. */
     if (op.kind === "notice.read") continue;
+    if (op.kind === "truck.water") {
+      /** The phone's reading over the server's: the later one stands, and this one is later than what was fetched. */
+      const truck = trucks.find((t) => t.assetId === op.subjectId);
+      const onDay = op.payload["onDay"];
+      const gallons = op.payload["gallons"];
+      if (!truck || typeof onDay !== "string" || typeof gallons !== "string") continue;
+      truck.water = [...truck.water.filter((w) => w.onDay !== onDay), { onDay, gallons, waiting }]
+        .sort((a, b) => a.onDay.localeCompare(b.onDay));
+      continue;
+    }
     if (op.kind === "safety.sign") {
       const talk = talks.find((t) => t.meetingId === op.subjectId);
       if (!talk) continue;
@@ -428,6 +452,7 @@ export function projectDay(input: {
     tasks,
     talks,
     expenses,
+    trucks,
   };
 }
 
@@ -444,7 +469,7 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
     return typeof visitId === "string" ? visitId : undefined;
   }
   /** A task is the office's, not a visit's, a toolbox talk is nobody's visit, and an expense is the person's. */
-  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "task.tick" || op.kind === "safety.sign" || op.kind === "expense.record" || op.kind === "notice.read") return undefined;
+  if (op.kind === "task.claim" || op.kind === "task.close" || op.kind === "task.tick" || op.kind === "safety.sign" || op.kind === "expense.record" || op.kind === "notice.read" || op.kind === "truck.water") return undefined;
   /** A receipt photograph is kept with its expense. */
   if (op.kind === "attachment.attach" && op.payload["entityType"] === "expense") return undefined;
   return op.subjectId;

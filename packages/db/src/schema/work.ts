@@ -474,6 +474,15 @@ export const jobLine = pgTable("job_line", {
    * cost and billed amount both.
    */
   billedBackAt: timestamp("billed_back_at", { withTimezone: true }),
+  /**
+   * THE HAUL THIS LINE BILLS, when it is a container's: the hire at a flat
+   * price, a trip, a fee for that can. A roll off job can have several cans on
+   * it in a swap chain, and the dumpster trade's revenue per container month and
+   * disposal cost per haul need each can's share of what the job earned. The
+   * office names it from the hauls at the job's address; nothing guesses it
+   * from the words on the line. A line naming no haul is no container's.
+   */
+  rentalId: uuid("rental_id").references(() => rental.id, { onDelete: "set null" }),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   ...sourceRef,
   ...timestamps,

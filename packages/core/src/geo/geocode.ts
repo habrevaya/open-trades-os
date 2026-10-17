@@ -131,8 +131,83 @@ export function retryAfter(attempts: number, now: Date): Date {
   return new Date(now.getTime() + minutes * 60_000);
 }
 
-/** What an adapter hands back. Never throws for "not found": that is an answer. */
+/**
+ * What an adapter hands back. Never throws for "not found": that is an answer.
+ *
+ * `street` is the street's name as the geocoder's own address components give
+ * it ("Ramsey Avenue"), and only when they give one: an adapter never reads it
+ * out of the line it was asked or out of its own label, because a street read
+ * from a line by a pattern is the guess the street is kept to avoid.
+ */
 export type GeocodeOutcome =
-  | { kind: "found"; lat: number; lng: number; precision: Exclude<GeocodePrecision, "placed">; label: string | null }
+  | {
+    kind: "found"; lat: number; lng: number; precision: Exclude<GeocodePrecision, "placed">; label: string | null;
+    street?: string;
+  }
   | { kind: "not_found"; reason: string }
   | { kind: "failed"; reason: string; retryable: boolean };
+
+/* ------------------------------------------------------------- the street */
+
+/**
+ * THE STREET AN ADDRESS IS ON, AS ITS OWN VALUE.
+ *
+ * "Homes per served street" counts distinct streets, and the street line holds
+ * the house number and the street together: "12 Oak Street" and "14 Oak St"
+ * are one street and two strings. The street is therefore recorded apart from
+ * the line, from the geocoder's own components or typed by a person, and never
+ * worked out of the line. A typed street wins over the geocoder, as a placed
+ * pin does, for as long as it answers for the address it was typed against.
+ */
+export const STREET_TYPED = "typed";
+
+/** A street as stored: spaces trimmed and run together, nothing else changed; null when blank. */
+export function streetName(raw: string | null | undefined): string | null {
+  const tidy = (raw ?? "").trim().replace(/\s+/g, " ");
+  return tidy === "" ? null : tidy;
+}
+
+/**
+ * The key two homes are on the same street by: the street, the town and the
+ * state, each trimmed, spaced once and in small letters. Nothing more is
+ * done to it. "Oak St" and "Oak Street" typed by hand are two keys, which
+ * counts two streets and reads a LOWER density, never a higher one; picking
+ * the street already recorded in the town, which the screen offers, is what
+ * makes them one. A Main Street in two towns is two streets.
+ */
+export function streetKey(street: string | null | undefined, city: string | null | undefined, state: string | null | undefined): string | null {
+  const name = streetName(street);
+  if (name === null) return null;
+  const part = (s: string | null | undefined) => (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  return `${name.toLowerCase()}|${part(city)}|${part(state)}`;
+}
+
+export interface StreetState {
+  /** The key of the address as it is now. */
+  addressKey: string;
+  street: string | null;
+  /** `typed`, or the geocoder's key. */
+  streetSource: string | null;
+  /** The address key the street answers for. */
+  streetForAddress: string | null;
+  /** The address key the geocoder was last asked the street of. */
+  streetAttemptedAddress: string | null;
+}
+
+/** The street, when it answers for the address as it is now; null when it is not known. */
+export function streetOf(state: StreetState): string | null {
+  return state.streetForAddress === state.addressKey ? streetName(state.street) : null;
+}
+
+/**
+ * Whether the geocoder should be asked this address's street, for an address
+ * it has already located (a pin placed by hand is never sent to it). Not when a
+ * person typed the street for this address, and not when the geocoder was
+ * already asked it for this address, found or not; once per address, as a
+ * coordinate is. A failure that might clear waits for its back off.
+ */
+export function streetDue(state: StreetState & { retryAt: Date | null }, now: Date): boolean {
+  if (state.streetSource === STREET_TYPED && state.streetForAddress === state.addressKey) return false;
+  if (state.streetAttemptedAddress === state.addressKey) return false;
+  return state.retryAt === null || state.retryAt.getTime() <= now.getTime();
+}

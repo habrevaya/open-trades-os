@@ -391,6 +391,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One row per fix a phone took. A batch resent after a dropped answer is the same fixes, inserted with on conflict do nothing.",
   travel_time_pair_idx: "One cached drive time per pair of points per routing provider, upserted when asked again.",
   route_day_person_day_idx: "One route day per person per day, upserted by the worker when the day's positions are read again.",
+  truck_water_day_idx:
+    "One fresh water reading per truck per day, upserted, and only over a reading made no later than the new one.",
   project_job_job_idx: "One project link per job, which is what stops a job being in two.",
   web_form_slug_idx: "Upserted on the slug, because publishing a form again is an edit.",
   network_grant_uniq_idx:

@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Twenty eight operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, and the last, `notice.read`, is a notice opened on the phone): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Twenty nine operation kinds and the
+list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, and the last, `truck.water`, is the fresh water a truck used on a day, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -417,6 +417,21 @@ answer) and reads them through React Native's own `XMLHttpRequest`, whose
 native module is added. A server that answers whole is read whole. A dropped
 signal mid answer says there is no signal, and the sentences shown so far go.
 
+### The fresh water a truck used
+
+A driver with a company vehicle checked out to them today sees a card for it
+on the day ("Truck 3: fresh water today"), on the phone app and on `/my-day`:
+what is already recorded for today, a box for the gallons read off the tank
+gauge or the fill meter, and "Save the reading". It goes into the queue as
+`truck.water` (an edit: the subject is the truck and the day is the field, so a
+second reading of the day replaces the first, an older one arriving late is
+superseded, and a reading of another day is its own), shown as waiting to send
+until it lands, and is refused in words for a truck that was not checked out to
+the phone's own person that day. The snapshot carries the trucks the person had
+yesterday and today with the water already read (`trucks`), so the card works
+with no signal and shows a reading the office corrected. The office's side and
+what the figure is are M22 and M21 (fresh water per stop).
+
 ### Inspections
 
 A technician the company lets file inspections (`compliance:write`, which the
@@ -740,6 +755,10 @@ working everywhere at once. Anything it had not sent is on the lost phone.
 device, and so an Expo app and the web page share one implementation.
 
 ## What is not built
+
+A truck's water is read for today only on the phone; a reading for an earlier
+day, or for a truck that was not the person's, is the office's to type on
+`/fleet/water`.
 
 The phone app has not been run on a device or a simulator, so live location
 has been tested against its logic and a fake server, not against a real

@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Forty of the forty seven are answered: thirty six computed here, four by
-M22's fleet report. The other seven each name what they still lack.
+Forty four of the forty seven are answered: forty computed here, four by
+M22's fleet report. The other three each name what they still lack.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -526,6 +526,105 @@ SQL, and `kpi-heater-capture.integration.test.ts` checks a month worked out by
 hand, puts the same heaters through both, checks a decline keeps its code, and
 fails if the pack stops declaring the water heater.
 
+### Homes per served street, and the street it waited on
+
+The trash bin trade's **homes per served street** is "active subscriptions
+divided by the number of distinct streets on the route", and it EXCLUDES
+"commercial stops, which have their own economics". It waited on a street
+rather than an address line: `address_line1` is the whole line, "12 Oak
+Street" and "14 Oak St" are one street and two strings, and splitting the line
+on a space would count twice the streets and report half the density. An
+address now keeps its street apart from the line (M03): the geocoder's own
+street component where it gives one, or typed on the address's page (picked
+from the streets already recorded in the town), never read out of the line.
+
+- **Active** is a subscription running on the window's last day, as churn
+  reads it.
+- **Distinct streets** are the street, the town and the state, trimmed, spaced
+  once and in small letters (core's `geo.streetKey`). A Main Street in two
+  towns is two streets. Nothing expands an abbreviation, so two spellings typed
+  by hand count as two streets, which reads lower and never higher.
+- A **commercial** customer's subscription leaves both halves and is counted
+  beside the number.
+- A home whose street is **not recorded** for its address as it is now, or a
+  plan with no address of its own, is **left out of both halves** and counted
+  beside as not known, each opening on the address so the office can record
+  it. Counted on top and not underneath it would read as a denser route than
+  the one driven.
+
+Each street served is a record of its own ("Oak Street, Austin TX: 2 homes"),
+opening on one of its addresses. The rule is core's `reporting.streetDensityOf`,
+with unit tests, written again in SQL, and
+`kpi-street-density.integration.test.ts` checks a month worked out by hand, puts
+the same plans through both, and checks the geocoder writing the street from
+its own parts, once per address, never over a typed one.
+
+### Fresh water per stop, and the reading it waited on
+
+The trash bin trade's **fresh water per stop** is "fresh water used divided by
+completed stops, per truck", because a truck drifting upward is a nozzle or a
+burner going and shows here before it shows in a complaint. Nothing recorded
+water. A truck's day now has the fresh water its driver read off the tank (M22,
+`truck_water_day`), on the phone at the end of the day (`truck.water`, M11) or
+typed by the office on `/fleet/water`.
+
+- **A truck's stops** on a day are the visits completed that day, in the
+  company's calendar, by whoever had it checked out (sent to them by name or
+  with a crew they are on), a multi bin stop being one visit.
+- **Only truck days with both count.** A day with stops and no reading is left
+  out of both halves and counted beside as not read, never as no water; a
+  reading on a day the truck completed no stop (a tank flushed in the yard) is
+  left out of both and counted beside.
+- **Per truck.** Each record of either half is one truck, its water over its
+  own stops with the truck's own gallons a stop in its words ("Truck 2: 25
+  gallons over 3 stops, 8.3 a stop"), opening on that truck's days on
+  `/fleet/water`; the number is the trucks' together.
+
+The rule is core's `reporting.waterPerStopOf`, with unit tests, written again
+in SQL, and `kpi-water-per-stop.integration.test.ts` checks a month worked out
+by hand, puts the same truck days through both, and records a reading from the
+office and from the phone.
+
+### Revenue per container month and disposal cost per haul, and the share they waited on
+
+The dumpster pack's **revenue per container per month** is "rental, overage,
+disposal and fee revenue attributed to a container divided by the months that
+container was in the fleet, including months it never left the yard", and it
+EXCLUDES "taxes and permit amounts passed through at cost". Its **disposal cost
+as a percent of revenue** is "tipping and disposal cost taken from scale tickets
+divided by invoiced revenue on the same hauls", EXCLUDING fuel, driver labour
+and truck cost. Both waited on each container's share of what a job earned: a
+hire sold at a flat price has its price on the job, and a swap chain puts
+several cans on one job and one invoice. A hire's own invoice now names the haul
+each of its lines bills (the period, the meters, the charges found, the disposal
+fee passed on), and the office names the haul a job's own line bills (M10).
+Nothing is read from a line's words.
+
+- **Revenue on a haul** is the invoice lines naming it, on invoices issued and
+  not voided, net of discounts and before tax (tax is held apart on the line),
+  and never a `permit` line.
+- **Revenue per container month** counts lines on invoices issued in the
+  window, per container, over the container's months in the fleet in the
+  window: each day it was on the register as a share of its own month, from the
+  day it was entered (or its first hire, if earlier) until it was retired, the
+  yard and the repair shop included. Lines on a job a container was on that
+  name no container are counted beside, opening on the job.
+- **Disposal cost** counts the hauls collected in the window (the pickup or
+  swap that took the full can to the facility): the facility's fee recorded on
+  the haul over what was invoiced on it, whenever it was invoiced. A haul with
+  no fee recorded is left out of both halves and counted beside as not known; a
+  haul with a fee and nothing invoiced yet is left out and counted beside too.
+  It is what hauls cost, so like install margin it needs `job.cost:read` and
+  `report.financial:read`.
+
+The records are each container ("Container 101 (20 yd): 2 lines invoiced") and
+each haul ("Container 101 (20 yd), collected Jun 8, Austin Transfer, ticket
+T-1"). The rules are core's `reporting.haulRevenue`, `reporting.containerMonths`
+and `reporting.disposalHaulOf`, with unit tests, written again in SQL, and
+`kpi-container-revenue.integration.test.ts` checks a month worked out by hand,
+puts the same lines and hauls through both, and checks a hire's invoice naming
+the haul on every line.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -627,11 +726,14 @@ each with what it adds: a completed job and its ledger revenue, an estimate
 presentation, a plan sold, a technician day, a drive between two stops, an
 assembly due a retest, a crew's day, a permitted job, a person's route day, a
 scheduled stop, an old water heater inspected, a troubleshooting call, a drain call. The scorecard's number is the sum of those rows, and
+
+street served, a truck, a container, a haul. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
 agreement, a visit, a customer, the week's timesheets (a crew's day and a
-route day open on them too), or the unit.
+route day open on them too), the unit, an address on the street, or the
+truck's days of water, or the container fleet.
 
 It is refused, in words, rather than trimmed, in three cases. The figure is the
 whole company's, so somebody whose scope is narrower (a technician who sees their
@@ -1004,11 +1106,11 @@ prefix off.
 
 ## What is not built
 
-Seven of the forty seven declared KPIs cannot be computed, and each one
+Three of the forty seven declared KPIs cannot be computed, and each one
 names the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
 looks like the definition. They were checked again against everything shipped
-since they were written and none of the seven has its datum yet (above, "The
+since they were written and none of the three has its datum yet (above, "The
 unavailable list"); none is computed from something near it instead.
 
 Drain call conversion reads the drain call and the upsell items the company's
@@ -1041,6 +1143,37 @@ door is recorded by the office; a cancellation recorded before who asked was
 kept, or by an API caller that did not say, is counted beside the figure as not
 known. A visit with the customer not there (`no_show`) counts as a kept stop,
 not a skipped one, because nobody called it off.
+
+Homes per served street is only as complete as the streets recorded: an
+address the geocoder could not name a street for, and one with a pin placed by
+hand, has none until the office types it, and is counted beside the figure
+until then. "Oak St" and "Oak Street" typed by hand are two streets; the screen
+offers the town's streets to pick from rather than guessing they are one.
+Which customers are commercial is the customer's type, not the plan's.
+
+Fresh water per stop is only as good as the gauge the driver reads: there is no
+flow meter connection, and a truck's stops are counted only for a person who
+had it checked out that day, so a truck nobody checked out has no stops and a
+stop by somebody holding no truck is on no truck. A stop done by two people on
+two trucks counts on both.
+
+Revenue per container month and disposal cost read only lines that name a
+haul: a line typed straight onto an invoice names none, and a hire invoice's
+draft whose lines the office replaces before issuing loses the names, so that
+revenue is not any container's (it reads lower, never higher). Every permit line
+is left out, whether or not it carried a markup, the conservative reading of
+"passed through at cost". A credit note against an issued invoice is not taken
+off a container's revenue. When a container joined the fleet is the day it was
+entered on the register or its first hire, not the day it was bought, which the
+register does not hold. A disposal fee is what was recorded on the haul; the fee
+worked out from a ticket's weight at the facility's rate is an estimate and is
+not read.
+
+The dumpster pack's turnaround between pickup and redelivery stays unanswered:
+it is hours from a can emptied at the facility to it placed on the next site,
+and neither moment is recorded to the hour (the board takes a delivery as a
+day), nor are the days a can was held for a customer or out for repair. Recording
+them is a change to how a haul and a delivery are written, not to this report.
 
 First time fix leaves out a part hold only when it names a purchase order in
 this product that went to the supplier, so a part bought over the counter and

@@ -122,3 +122,31 @@ export async function setPropertyTaxRate(_previous: unknown, form: FormData) {
   revalidatePath(`/properties/${id}`);
   return result;
 }
+
+/**
+ * The street this address is on, typed or picked from the streets already
+ * recorded in the town. Homes per served street counts streets by it, so it
+ * is the street's name only, and never read out of the street line.
+ */
+export async function setPropertyStreet(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const street = text(form, "street");
+  const result = await attempt(form, async () => {
+    if (street === null) throw new ConflictError("Type the street's name, for example Oak Street.");
+    await properties.setStreet(await ctx(), { id, street });
+    return { message: "Saved." };
+  });
+  revalidatePath(`/properties/${id}`);
+  return result;
+}
+
+/** Take the street off, so the map's service is asked for it again. */
+export async function clearPropertyStreet(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const result = await attempt(form, async () => {
+    await properties.setStreet(await ctx(), { id, street: null });
+    return { message: "Taken off." };
+  });
+  revalidatePath(`/properties/${id}`);
+  return result;
+}

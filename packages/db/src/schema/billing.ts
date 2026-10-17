@@ -6,6 +6,7 @@ import { contact, customer, property } from "./crm";
 import { job, jobType } from "./work";
 import { priceBookItemVersion } from "./pricebook";
 import { taxRate } from "./tax";
+import { rental } from "./scheduling";
 
 /**
  * One pricing rule's effect on one line, as `core/plugins` recorded it.
@@ -554,6 +555,14 @@ export const invoiceLine = pgTable("invoice_line", {
    */
   taxSource: text("tax_source"),
   lineTotal: money("line_total").notNull().default("0"),
+  /**
+   * THE HAUL THIS LINE BILLS, written by raising a hire's invoice: each can's
+   * period, meters, charges and passed on disposal fee name the rental row
+   * they are for, so a swap chain on one invoice still says which can earned
+   * what. A line billed from a job line takes the haul that line names
+   * instead. Null for everything else.
+   */
+  rentalId: uuid("rental_id").references(() => rental.id, { onDelete: "set null" }),
   /** Commercial and builder clients require cost coding at the line. */
   costCode: text("cost_code"),
   /** Set when the price came from a rate card rather than our own price book. */

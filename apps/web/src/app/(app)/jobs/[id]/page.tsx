@@ -40,7 +40,7 @@ import { Permits } from "./Permits";
 import { EstimateDrafts } from "./EstimateDrafts";
 import { Stages } from "./Stages";
 import { JobHoldPanel, PlannedVisits } from "./Hold";
-import { placeHold, releaseHold, setBilledBack, setBudgetedHours, setMultiVisitPlanned } from "./hold-actions";
+import { placeHold, releaseHold, setBilledBack, setBudgetedHours, setLineHaul, setMultiVisitPlanned } from "./hold-actions";
 import { CrewBudget } from "./Budget";
 
 export const dynamic = "force-dynamic";
@@ -180,6 +180,8 @@ export default async function JobPage({ params, searchParams }: {
     && (() => { const until = v.windowEnd ?? v.windowStart; return until === null || new Date(until).getTime() > now; })()).length;
   const visitsUnderWay = job.visits.filter((v) => v.status === "en_route" || v.status === "working").length;
   const used = (await jobs.lines(ctx, { id })).data;
+  /** The containers that have been on this site, so a line can say which one it bills. */
+  const hauls = used.length > 0 ? await jobs.haulsAt(ctx, { jobId: id }) : [];
   /** A customer asking from their link to move or cancel one of these visits. */
   const changeRequests = can(user.actor, "visit:read")
     ? await visitChanges.list(ctx, { status: "pending", jobId: id })
@@ -595,7 +597,7 @@ export default async function JobPage({ params, searchParams }: {
         </details>
       )}
 
-      <UsedOnJob lines={used} jobId={id} {...(writes ? { markBilledBack: setBilledBack } : {})} />
+      <UsedOnJob lines={used} jobId={id} hauls={hauls} {...(writes ? { markBilledBack: setBilledBack, nameHaul: setLineHaul } : {})} />
 
       {can(user.actor, "estimate:write") && job.status !== "cancelled" && (
         <p className="mt-10 text-sm">

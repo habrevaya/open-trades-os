@@ -36,6 +36,11 @@ interface Feature {
     feature_type?: string;
     full_address?: string;
     coordinates?: { accuracy?: string };
+    /**
+     * The parts the answer is made of. An address carries its street's name in
+     * `address.street_name`, and a street answer its own in `street.name`.
+     */
+    context?: { address?: { street_name?: string }; street?: { name?: string } };
   };
 }
 
@@ -107,10 +112,13 @@ export function mapboxGeocoder(options: GeocoderOptions): GeocodingProvider {
       if (geo.parseLatLng(lat, lng) === null) {
         return { kind: "failed", retryable: false, reason: "Mapbox's answer had no usable coordinates." };
       }
+      const context = feature.properties?.context;
+      const street = geo.streetName(context?.address?.street_name ?? context?.street?.name);
       return {
         kind: "found", lat: lat!, lng: lng!,
         precision: precisionOf(feature),
         label: feature.properties?.full_address ?? null,
+        ...(street !== null ? { street } : {}),
       };
     },
   };

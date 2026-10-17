@@ -18,6 +18,7 @@ export const OperationKind = z.enum([
   "safety.sign",
   "expense.record",
   "notice.read",
+  "truck.water",
 ]);
 
 export const OperationStatus = z.enum([
@@ -571,6 +572,20 @@ export const getFieldSnapshot = defineRoute({
       decisionReason: z.string().nullable(),
       receipts: z.number().int(),
     })),
+    /**
+     * The company vehicles checked out to this person yesterday or on the day
+     * asked for, each with the days they had it and the fresh water already
+     * read for those days, so the driver records the day's reading
+     * (`truck.water`) with no signal and sees one the office corrected. Empty
+     * for somebody who had no truck. Absent from older servers and on an
+     * unchanged poll.
+     */
+    trucks: z.array(z.object({
+      assetId: Uuid,
+      label: z.string(),
+      days: z.array(z.string().date()),
+      water: z.array(z.object({ onDay: z.string().date(), gallons: z.string() })),
+    })).optional(),
   }),
 });
 

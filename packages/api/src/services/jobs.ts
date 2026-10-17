@@ -1529,6 +1529,7 @@ export async function lines(ctx: ServiceContext, input: z.infer<typeof listJobLi
           ...("unitCost" in shown ? { unitCost: row.unitCost } : {}),
           taxable: row.taxable, invoiceLineId: row.invoiceLineId, nonBillableReason: row.nonBillableReason,
           billedBackAt: row.billedBackAt?.toISOString() ?? null,
+          rentalId: row.rentalId,
           occurredAt: row.occurredAt.toISOString(),
         };
       }),
@@ -1572,8 +1573,84 @@ export async function markBilledBack(ctx: ServiceContext, input: { id: string; b
       ...("unitCost" in shown ? { unitCost: after.unitCost } : {}),
       taxable: after.taxable, invoiceLineId: after.invoiceLineId, nonBillableReason: after.nonBillableReason,
       billedBackAt: after.billedBackAt?.toISOString() ?? null,
+      rentalId: after.rentalId,
       occurredAt: after.occurredAt.toISOString(),
     };
+  });
+}
+
+/**
+ * THE CONTAINER A LINE BILLS, named or taken off.
+ *
+ * A roll off job sold at a flat price has the price on the job, and a swap
+ * chain puts several cans on one job, so nothing said which can earned it. The
+ * dumpster trade's revenue per container month and disposal cost per haul need
+ * each can's share, so the office names the haul (the rental row: one can's
+ * time on the site, from delivery to the pickup or swap that took it) a line
+ * bills, from the hauls at the job's address. Nothing is read out of the
+ * line's words. Naming what it already names changes nothing, so a replay is
+ * harmless. Scoped like the job, `job:write`, on the audit log.
+ */
+export async function nameHaul(ctx: ServiceContext, input: { id: string; rentalId: string | null }) {
+  return guardedWrite(ctx, "job:write", async (tx) => {
+    const [line] = await tx.select().from(schema.jobLine).where(eq(schema.jobLine.id, input.id)).limit(1);
+    if (!line) throw new NotFoundError("Job line");
+    const [job] = await tx.select({ id: schema.job.id, propertyId: schema.job.propertyId }).from(schema.job)
+      .where(and(eq(schema.job.id, line.jobId), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf(ctx, "job"), ctx.actor)))
+      .limit(1);
+    if (!job) throw new NotFoundError("Job line");
+    if (input.rentalId !== null) {
+      const [hire] = await tx.select({ id: schema.rental.id, propertyId: schema.rental.propertyId }).from(schema.rental)
+        .where(and(eq(schema.rental.id, input.rentalId), eq(schema.rental.organizationId, ctx.actor.organizationId))).limit(1);
+      if (!hire) throw new NotFoundError("Haul");
+      if (hire.propertyId !== job.propertyId) {
+        throw new ConflictError("That container was at another address. A line on this job bills a container at the job's own address.");
+      }
+    }
+    let after = line;
+    if (line.rentalId !== input.rentalId) {
+      [after] = await tx.update(schema.jobLine).set({ rentalId: input.rentalId, updatedAt: new Date() })
+        .where(eq(schema.jobLine.id, line.id)).returning() as [typeof line];
+      await audit(tx, ctx, "job_line.haul_named", "job_line", line.id, { rentalId: line.rentalId }, { rentalId: after.rentalId });
+    }
+    const shown = clean(ctx, "jobLine", after);
+    return {
+      id: after.id, jobId: after.jobId, visitId: after.visitId, kind: after.kind, source: after.source,
+      priceBookItemVersionId: after.priceBookItemVersionId, name: after.name, description: after.description,
+      quantity: after.quantity, unitPrice: after.unitPrice,
+      ...("unitCost" in shown ? { unitCost: after.unitCost } : {}),
+      taxable: after.taxable, invoiceLineId: after.invoiceLineId, nonBillableReason: after.nonBillableReason,
+      billedBackAt: after.billedBackAt?.toISOString() ?? null,
+      rentalId: after.rentalId,
+      occurredAt: after.occurredAt.toISOString(),
+    };
+  });
+}
+
+/**
+ * The hauls a line on this job could bill: every container that has been on
+ * the job's site, newest first, with when it came and went, for the job's page
+ * to offer.
+ */
+export async function haulsAt(ctx: ServiceContext, input: { jobId: string }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({ propertyId: schema.job.propertyId }).from(schema.job)
+      .where(and(eq(schema.job.id, input.jobId), isNull(schema.job.deletedAt))).limit(1);
+    if (!job) throw new NotFoundError("Job");
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const rows = await tx.select({
+      id: schema.rental.id, deliveredAt: schema.rental.deliveredAt, pickedUpAt: schema.rental.pickedUpAt,
+      identifier: schema.rentableAsset.identifier, size: schema.rentableAsset.size,
+    }).from(schema.rental)
+      .innerJoin(schema.rentableAsset, eq(schema.rentableAsset.id, schema.rental.assetId))
+      .where(eq(schema.rental.propertyId, job.propertyId))
+      .orderBy(desc(schema.rental.deliveredAt)).limit(200);
+    return rows.map((r) => ({
+      id: r.id,
+      label: `Container ${r.identifier}${r.size ? ` (${r.size})` : ""}, `
+        + `${r.deliveredAt ? `on site from ${time.dateIn(r.deliveredAt, zone)}` : "not delivered"}`
+        + `${r.pickedUpAt ? ` to ${time.dateIn(r.pickedUpAt, zone)}` : ", still there"}`,
+    }));
   });
 }
 
