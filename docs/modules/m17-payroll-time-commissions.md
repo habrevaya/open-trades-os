@@ -317,6 +317,30 @@ named shares, which existed before the screen, still settles without one, so an
 integration that sends its own split keeps working; its earning is audited with
 its parts as it always was.
 
+### Settle several at once
+
+On `/payroll/commissions/splits`, each invoice waiting to be shared shows the
+split proposed for it (even, or with standing shares), worked out as settling
+it would be, with who gets what; one that settling would refuse says why
+instead (two plans in force and none named, a margin plan with no cost). Whoever
+holds `commission:configure` ticks the ones whose proposed split they are happy
+with and presses "Settle the ticked ones as proposed"; with more than one plan in
+force they name the plan they are all under. Each ticked invoice is settled
+exactly as "Settle this split" would settle it alone with the split proposed and
+no reason (`POST /v1/commissions/splits/as-proposed`, which hands each one to
+`POST /v1/commissions/splits`'s own settling), in its own transaction, so each is
+audited as its own earning (`commission.earned`, with the split proposed beside
+the one settled and `changed: false`) and posted to the ledger on its own. One
+that settling refuses is listed with its reason and does not stop the rest; the
+page then says "Settled 2: ..." under the button and names any that were not,
+and why (when the last waiting invoices settle, the list empties instead and
+they appear under "Shared lately"). The
+proposal is read and then checked again inside each settle, so a standing share
+changed in between is refused for that invoice rather than settled under a
+split nobody saw. Sent again, an invoice already settled with its proposed split
+answers with that earning, and one settled another way since is refused. At most
+fifty at a time, the length of the waiting list.
+
 ### A standing share
 
 Somebody can always take the same part of a commission they share: the
@@ -584,6 +608,7 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/commissions/shared` | `commission:read` |
 | `GET /v1/commissions/split-proposal` | `commission:read` |
 | `POST /v1/commissions/splits` | `commission:configure` |
+| `POST /v1/commissions/splits/as-proposed` | `commission:configure` |
 | `GET /v1/commissions/standing-shares` | `commission:read` |
 | `POST /v1/commissions/standing-shares` | `commission:configure` |
 | `POST /v1/commissions/standing-shares/{id}/end` | `commission:configure` |
@@ -665,8 +690,10 @@ force when a commission is settled applies (not the one when the invoice was rai
 credit comes off every line in proportion, because a credit does not say which lines it
 was for; and lines that come to less than nothing pay nothing rather than reducing other
 commission. A commission
-several people share is settled from the split screen one invoice at a time:
-there is no settling a page of them at once. A person can have a standing share
+several people share is settled from the split screen, one invoice at a time or
+several at once each with its proposed split; a page of them cannot be settled
+with a split the office changed, which is done one invoice at a time with a
+reason. A person can have a standing share
 that the split proposes, but there is no standing rule per job type, a standing
 share applies only to the people on the job's visits (somebody added by hand gets
 what the office types), and standing shares that cannot all be honoured propose

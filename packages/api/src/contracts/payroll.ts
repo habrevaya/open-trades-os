@@ -236,7 +236,7 @@ export const listSharedCommissions = defineRoute({
   path: "/v1/commissions/shared",
   summary: "Commissions several people share: waiting to be settled, and the last ones settled",
   description:
-    "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the even split.",
+    "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Each waiting one carries the split proposed (even, or shaped by standing shares) worked out as settling it would be, or the refusal settling would give. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the proposed split.",
   module: "M17",
   permissions: ["commission:read"],
   input: z.object({}),
@@ -245,6 +245,13 @@ export const listSharedCommissions = defineRoute({
       invoiceId: Uuid, invoiceNumber: z.string(), status: z.string(), customerName: z.string(),
       jobNumber: z.string(), revenue: MoneyString, issuedAt: z.string().datetime(),
       people: z.array(z.object({ technicianId: Uuid, name: z.string() })),
+      /** The split proposed, worked out as settling it would be, or the refusal settling would give. */
+      proposed: z.object({
+        total: MoneyString.nullable(),
+        parts: z.array(z.object({ technicianId: Uuid, name: z.string(), amount: MoneyString })),
+        standingSentence: z.string().nullable(),
+        refusal: z.string().nullable(),
+      }),
     })),
     settled: z.array(z.object({
       invoiceId: Uuid, invoiceNumber: z.string(), total: MoneyString, occurredAt: z.string().datetime(),
@@ -386,6 +393,32 @@ export const settleCommissionSplit = defineRoute({
   }),
   output: z.object({
     id: Uuid, invoiceId: Uuid, total: MoneyString, splitNote: z.string().nullable(), replayed: z.boolean(),
+  }),
+});
+
+export const settleCommissionSplitsAsProposed = defineRoute({
+  method: "post",
+  path: "/v1/commissions/splits/as-proposed",
+  summary: "Settle several shared commissions at once, each with the split proposed",
+  description:
+    "For the invoices whose proposed split nobody changed. Each one is settled exactly as `POST /v1/commissions/splits` would settle it alone with the split proposed (even between the people on the job, or shaped by their standing shares) and no reason: in its own transaction, audited as one earning with the proposal beside it. One that settling would refuse (two plans in force and none named, a margin plan with no cost, a closed pay period, a standing share changed since the proposal was read) is listed in `refused` with the reason and does not stop the rest. Sent again, an invoice already settled with its proposed split answers with that earning (`replayed`).",
+  module: "M17",
+  permissions: ["commission:configure"],
+  idempotent: true,
+  input: z.object({
+    invoiceIds: z.array(Uuid).min(1).max(50),
+    /** The plan they are all settled under, when more than one is in force. */
+    planId: Uuid.optional(),
+  }),
+  output: z.object({
+    settled: z.array(z.object({
+      invoiceId: Uuid, invoiceNumber: z.string().nullable(), eventId: Uuid.nullable(), total: MoneyString.nullable(),
+      replayed: z.boolean(), refusal: z.string().nullable(),
+    })),
+    refused: z.array(z.object({
+      invoiceId: Uuid, invoiceNumber: z.string().nullable(), eventId: Uuid.nullable(), total: MoneyString.nullable(),
+      replayed: z.boolean(), refusal: z.string().nullable(),
+    })),
   }),
 });
 
@@ -763,6 +796,7 @@ export const payrollRoutes = {
   settleCommission, reverseCommission, listCommissionEarnings,
   listSharedCommissions, getCommissionSplit, settleCommissionSplit,
   listCommissionStandingShares, setCommissionStandingShare, endCommissionStandingShare,
+  settleCommissionSplitsAsProposed,
   getCommissionItemRule, setCommissionItemRule,
   declarePayPeriod, listPayPeriods, closePayPeriod, reopenPayPeriod,
   getPayrollRegister, exportPayPeriod, listPayrollExports, payCommissions, payTips,

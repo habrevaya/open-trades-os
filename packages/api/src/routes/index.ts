@@ -545,6 +545,7 @@ export const handlers = {
   listCommissionStandingShares: commissions.handlers.listCommissionStandingShares,
   setCommissionStandingShare: commissions.handlers.setCommissionStandingShare,
   endCommissionStandingShare: commissions.handlers.endCommissionStandingShare,
+  settleCommissionSplitsAsProposed: commissions.handlers.settleCommissionSplitsAsProposed,
   getCommissionItemRule: commissions.handlers.getCommissionItemRule,
   setCommissionItemRule: commissions.handlers.setCommissionItemRule,
 

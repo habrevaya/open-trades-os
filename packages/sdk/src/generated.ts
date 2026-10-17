@@ -17148,6 +17148,16 @@ export interface ListSharedCommissionsOutput {
       technicianId: string;
       name: string;
     }>;
+    proposed: {
+      total: string | null;
+      parts: Array<{
+        technicianId: string;
+        name: string;
+        amount: string;
+      }>;
+      standingSentence: string | null;
+      refusal: string | null;
+    };
   }>;
   settled: Array<{
     invoiceId: string;
@@ -25367,6 +25377,30 @@ export interface SettleCommissionSplitOutput {
   total: string;
   splitNote: string | null;
   replayed: boolean;
+}
+
+export interface SettleCommissionSplitsAsProposedInput {
+  invoiceIds: string[];
+  planId?: string;
+}
+
+export interface SettleCommissionSplitsAsProposedOutput {
+  settled: Array<{
+    invoiceId: string;
+    invoiceNumber: string | null;
+    eventId: string | null;
+    total: string | null;
+    replayed: boolean;
+    refusal: string | null;
+  }>;
+  refused: Array<{
+    invoiceId: string;
+    invoiceNumber: string | null;
+    eventId: string | null;
+    total: string | null;
+    replayed: boolean;
+    refusal: string | null;
+  }>;
 }
 
 export interface SettleReferralRewardInput {
@@ -33913,6 +33947,7 @@ export interface OperationTypes {
   setWorkflowEnabled: { input: SetWorkflowEnabledParams & SetWorkflowEnabledInput; output: SetWorkflowEnabledOutput };
   settleCommission: { input: SettleCommissionInput; output: SettleCommissionOutput };
   settleCommissionSplit: { input: SettleCommissionSplitInput; output: SettleCommissionSplitOutput };
+  settleCommissionSplitsAsProposed: { input: SettleCommissionSplitsAsProposedInput; output: SettleCommissionSplitsAsProposedOutput };
   settleReferralReward: { input: SettleReferralRewardParams & SettleReferralRewardInput; output: SettleReferralRewardOutput };
   shareAttachmentWithCustomer: { input: ShareAttachmentWithCustomerParams & ShareAttachmentWithCustomerInput; output: ShareAttachmentWithCustomerOutput };
   shareVisitNotes: { input: ShareVisitNotesParams & ShareVisitNotesInput; output: ShareVisitNotesOutput };
@@ -35089,6 +35124,7 @@ export const OPERATIONS = {
   setWorkflowEnabled: { method: "POST", path: "/v1/workflows/{id}/enabled", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:write"] },
   settleCommission: { method: "POST", path: "/v1/commissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   settleCommissionSplit: { method: "POST", path: "/v1/commissions/splits", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
+  settleCommissionSplitsAsProposed: { method: "POST", path: "/v1/commissions/splits/as-proposed", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   settleReferralReward: { method: "POST", path: "/v1/marketing/referral-rewards/{id}/settle", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   shareAttachmentWithCustomer: { method: "POST", path: "/v1/attachments/{id}/customer-sharing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
   shareVisitNotes: { method: "POST", path: "/v1/visits/{id}/customer-notes", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
@@ -44651,6 +44687,15 @@ export abstract class GeneratedOperations {
    */
   settleCommissionSplit(input: SettleCommissionSplitInput, options?: CallOptions): Promise<SettleCommissionSplitOutput> {
     return this.call("settleCommissionSplit", input, options);
+  }
+
+  /**
+   * Settle several shared commissions at once, each with the split proposed.
+   *
+   * POST /v1/commissions/splits/as-proposed. Needs commission:configure.
+   */
+  settleCommissionSplitsAsProposed(input: SettleCommissionSplitsAsProposedInput, options?: CallOptions): Promise<SettleCommissionSplitsAsProposedOutput> {
+    return this.call("settleCommissionSplitsAsProposed", input, options);
   }
 
   /**

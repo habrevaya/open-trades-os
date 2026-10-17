@@ -1147,6 +1147,17 @@ export interface SharedEarning {
   revenue: string;
   issuedAt: Date;
   people: { technicianId: string; name: string }[];
+  /**
+   * The split proposed, worked out as settling it would: the total and each
+   * person's part, or the refusal settling would give (two plans in force and
+   * none named, a margin plan with no cost). What "settle as proposed" pays.
+   */
+  proposed: {
+    total: string | null;
+    parts: { technicianId: string; name: string; amount: string }[];
+    standingSentence: string | null;
+    refusal: string | null;
+  };
 }
 
 /**
@@ -1196,8 +1207,10 @@ export async function shared(ctx: ServiceContext): Promise<{
       limit 50
     `);
     const people = new Map<string, { technicianId: string; name: string }[]>();
+    const proposed = new Map<string, SharedEarning["proposed"]>();
     for (const row of waiting) {
       if (!people.has(row.job_id)) people.set(row.job_id, await peopleOnJob(tx, row.job_id));
+      proposed.set(row.id, await proposedFor(tx, ctx, row.id, row.job_id));
     }
 
     const events = await tx.execute<{ id: string }>(sql`
@@ -1231,10 +1244,113 @@ export async function shared(ctx: ServiceContext): Promise<{
         revenue: row.revenue,
         issuedAt: new Date(row.created_at),
         people: people.get(row.job_id) ?? [],
+        proposed: proposed.get(row.id)!,
       })),
       settled,
     };
   });
+}
+
+/**
+ * The proposed split for one waiting invoice, worked out through `prepare` as
+ * settling it would be, or the refusal settling would give. Writes nothing.
+ */
+async function proposedFor(
+  tx: Database, ctx: ServiceContext, invoiceId: string, jobId: string | null, planId?: string,
+): Promise<SharedEarning["proposed"]> {
+  const { onJob, split } = await proposedWithin(tx, ctx.actor.organizationId, jobId);
+  const shares = split.shares.filter((s) => SHARE_IS_POSITIVE(s.weight)).map((s) => ({ technicianId: s.personId, weight: s.weight }));
+  const names = new Map(onJob.map((p) => [p.technicianId, p.name]));
+  try {
+    const worked = await prepare(tx, ctx, { invoiceId, ...(planId ? { planId } : {}), shares });
+    return {
+      total: m.toString(worked.verdict.total),
+      parts: worked.verdict.parts.map((part) => ({
+        technicianId: part.personId, name: names.get(part.personId) ?? "Unknown", amount: m.toString(part.amount),
+      })),
+      standingSentence: split.sentence,
+      refusal: null,
+    };
+  } catch (error) {
+    if (error instanceof ConflictError || error instanceof NotFoundError) {
+      return { total: null, parts: [], standingSentence: split.sentence, refusal: error.message };
+    }
+    throw error;
+  }
+}
+
+export interface BatchOutcome {
+  invoiceId: string;
+  invoiceNumber: string | null;
+  /** The earning, when it settled (or had already settled this way). */
+  eventId: string | null;
+  total: string | null;
+  replayed: boolean;
+  /** Why it was not settled, in the words settling it alone would have used. */
+  refusal: string | null;
+}
+
+/**
+ * SETTLE SEVERAL SHARED COMMISSIONS AT ONCE, EACH AS PROPOSED.
+ *
+ * For the invoices whose proposed split nobody changed: each is settled
+ * exactly as "Settle this split" would settle it alone, through `settleSplit`
+ * with the split proposed (even, or shaped by standing shares) and no reason,
+ * in its own transaction, so it is audited as one earning (`commission.earned`,
+ * with the proposal beside it) and one refusal does not hold up the rest. The
+ * proposal is read first and checked again inside the settle, so a standing
+ * share changed in between is refused for that invoice rather than settled
+ * under a split nobody saw.
+ *
+ * Repeated, an invoice already settled with its proposed split answers with
+ * that earning, as settling it alone again does; one settled another way is
+ * refused for that invoice.
+ */
+export async function settleProposed(
+  ctx: ServiceContext, input: { invoiceIds: readonly string[]; planId?: string | undefined },
+): Promise<{ settled: BatchOutcome[]; refused: BatchOutcome[] }> {
+  const ids = [...new Set(input.invoiceIds)];
+  const settled: BatchOutcome[] = [];
+  const refused: BatchOutcome[] = [];
+  for (const invoiceId of ids) {
+    /** What was proposed, read by somebody who may settle it, before settling it. */
+    const seen = await guardedRead(ctx, "commission:configure", async (tx) => {
+      const [invoice] = await tx.select({ id: schema.invoice.id, jobId: schema.invoice.jobId, number: schema.invoice.number, prefix: schema.invoice.numberPrefix })
+        .from(schema.invoice)
+        .where(and(eq(schema.invoice.organizationId, ctx.actor.organizationId), eq(schema.invoice.id, invoiceId), isNull(schema.invoice.deletedAt)))
+        .limit(1);
+      if (!invoice) return null;
+      const { split } = await proposedWithin(tx, ctx.actor.organizationId, invoice.jobId);
+      return { number: work.documentNumber(invoice.prefix, invoice.number), shares: split.shares };
+    });
+    if (!seen) {
+      refused.push({ invoiceId, invoiceNumber: null, eventId: null, total: null, replayed: false, refusal: "No such invoice." });
+      continue;
+    }
+    if (seen.shares.length === 0) {
+      refused.push({
+        invoiceId, invoiceNumber: seen.number, eventId: null, total: null, replayed: false,
+        refusal: "Nobody is on this job's visits, so there is no split to propose. Open it and name who it is for.",
+      });
+      continue;
+    }
+    try {
+      const done = await settleSplit(ctx, {
+        invoiceId,
+        ...(input.planId ? { planId: input.planId } : {}),
+        shares: seen.shares.map((s) => ({ technicianId: s.personId, weight: s.weight })),
+      });
+      settled.push({ invoiceId, invoiceNumber: seen.number, eventId: done.id, total: done.total, replayed: done.replayed, refusal: null });
+    } catch (error) {
+      if (error instanceof ConflictError || error instanceof NotFoundError || error instanceof UnprocessableError) {
+        const said = error instanceof UnprocessableError ? error.issues[0]?.message ?? error.message : error.message;
+        refused.push({ invoiceId, invoiceNumber: seen.number, eventId: null, total: null, replayed: false, refusal: said });
+        continue;
+      }
+      throw error;
+    }
+  }
+  return { settled, refused };
 }
 
 /**
@@ -1760,6 +1876,10 @@ export const handlers = {
     invoiceId: string; planId?: string | undefined;
     shares: readonly { technicianId: string; weight: string }[]; reason?: string | undefined;
   }) => settleSplit(ctx, input),
+
+  settleCommissionSplitsAsProposed: (ctx: ServiceContext, input: {
+    invoiceIds: readonly string[]; planId?: string | undefined;
+  }) => settleProposed(ctx, input),
 
   listCommissionStandingShares: (ctx: ServiceContext) => standingShares(ctx),
 

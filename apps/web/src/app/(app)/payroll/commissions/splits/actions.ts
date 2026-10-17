@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { commissions } from "@opentradesos/api/services";
-import { settleCommissionSplit, setCommissionStandingShare } from "@opentradesos/api/contracts";
+import { settleCommissionSplit, setCommissionStandingShare, settleCommissionSplitsAsProposed } from "@opentradesos/api/contracts";
+import { ConflictError } from "@opentradesos/api/services";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 
 /**
@@ -57,6 +58,31 @@ export async function endStanding(_previous: FormState, form: FormData): Promise
     const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
     await commissions.endStandingShare(ctx, { id: field(form, "id") ?? "" });
     return { message: "Stopped." };
+  });
+  revalidatePath("/payroll/commissions/splits");
+  return result;
+}
+
+/**
+ * Settle the ticked invoices, each with the split proposed for it, as settling
+ * each alone would. What did not settle is said with its reason, so the office
+ * knows which to open.
+ */
+export async function settleAsProposed(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
+    const invoiceIds = form.getAll("invoiceId").filter((v): v is string => typeof v === "string" && v !== "");
+    if (invoiceIds.length === 0) throw new ConflictError("Tick the invoices to settle as proposed.");
+    const input = parsed(settleCommissionSplitsAsProposed.input, {
+      invoiceIds,
+      ...(field(form, "planId") ? { planId: field(form, "planId") } : {}),
+    });
+    const done = await commissions.settleProposed(ctx, input);
+    const settled = done.settled.length === 0
+      ? "Nothing settled."
+      : `Settled ${done.settled.length}: ${done.settled.map((s) => s.invoiceNumber).join(", ")}.`;
+    const refused = done.refused.map((r) => `${r.invoiceNumber ?? "An invoice"} was not settled: ${r.refusal}`).join(" ");
+    return { message: refused ? `${settled} ${refused}` : settled };
   });
   revalidatePath("/payroll/commissions/splits");
   return result;

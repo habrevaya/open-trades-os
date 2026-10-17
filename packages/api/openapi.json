@@ -25645,7 +25645,7 @@
       "get": {
         "operationId": "listSharedCommissions",
         "summary": "Commissions several people share: waiting to be settled, and the last ones settled",
-        "description": "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the even split.\n\nRequires a session holding: commission:read.",
+        "description": "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Each waiting one carries the split proposed (even, or shaped by standing shares) worked out as settling it would be, or the refusal settling would give. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the proposed split.\n\nRequires a session holding: commission:read.",
         "tags": [
           "M17"
         ],
@@ -25902,6 +25902,135 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SettleCommissionSplitOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:configure"
+        ]
+      }
+    },
+    "/v1/commissions/splits/as-proposed": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "settleCommissionSplitsAsProposed",
+        "summary": "Settle several shared commissions at once, each with the split proposed",
+        "description": "For the invoices whose proposed split nobody changed. Each one is settled exactly as `POST /v1/commissions/splits` would settle it alone with the split proposed (even between the people on the job, or shaped by their standing shares) and no reason: in its own transaction, audited as one earning with the proposal beside it. One that settling would refuse (two plans in force and none named, a margin plan with no cost, a closed pay period, a standing share changed since the proposal was read) is listed in `refused` with the reason and does not stop the rest. Sent again, an invoice already settled with its proposed split answers with that earning (`replayed`).\n\nRequires a session holding: commission:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleCommissionSplitsAsProposedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Settle several shared commissions at once, each with the split proposed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettleCommissionSplitsAsProposedOutput"
                 }
               }
             }
@@ -233770,6 +233899,60 @@
                       "name"
                     ]
                   }
+                },
+                "proposed": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "parts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "technicianId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          }
+                        },
+                        "required": [
+                          "technicianId",
+                          "name",
+                          "amount"
+                        ]
+                      }
+                    },
+                    "standingSentence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refusal": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "total",
+                    "parts",
+                    "standingSentence",
+                    "refusal"
+                  ]
                 }
               },
               "required": [
@@ -233780,7 +233963,8 @@
                 "jobNumber",
                 "revenue",
                 "issuedAt",
-                "people"
+                "people",
+                "proposed"
               ]
             }
           },
@@ -273838,6 +274022,134 @@
           "total",
           "splitNote",
           "replayed"
+        ]
+      },
+      "SettleCommissionSplitsAsProposedInput": {
+        "type": "object",
+        "properties": {
+          "invoiceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "planId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "invoiceIds"
+        ]
+      },
+      "SettleCommissionSplitsAsProposedOutput": {
+        "type": "object",
+        "properties": {
+          "settled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "eventId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "total": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "replayed": {
+                  "type": "boolean"
+                },
+                "refusal": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "eventId",
+                "total",
+                "replayed",
+                "refusal"
+              ]
+            }
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "eventId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "total": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "replayed": {
+                  "type": "boolean"
+                },
+                "refusal": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "eventId",
+                "total",
+                "replayed",
+                "refusal"
+              ]
+            }
+          }
+        },
+        "required": [
+          "settled",
+          "refused"
         ]
       },
       "SettleReferralRewardInput": {

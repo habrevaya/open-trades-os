@@ -789,6 +789,7 @@ const wiring: { [K in keyof typeof payrollRoutes]: SessionHandler<(typeof payrol
   listCommissionStandingShares: commissions.handlers.listCommissionStandingShares,
   setCommissionStandingShare: commissions.handlers.setCommissionStandingShare,
   endCommissionStandingShare: commissions.handlers.endCommissionStandingShare,
+  settleCommissionSplitsAsProposed: commissions.handlers.settleCommissionSplitsAsProposed,
   declarePayPeriod: payroll.handlers.declarePayPeriod,
   listPayPeriods: payroll.handlers.listPayPeriods,
   closePayPeriod: payroll.handlers.closePayPeriod,

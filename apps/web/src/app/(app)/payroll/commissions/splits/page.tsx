@@ -7,7 +7,7 @@ import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { Crumb } from "@/components/Detail";
 import { formatIn } from "@/lib/dates";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
-import { setStanding, endStanding } from "./actions";
+import { setStanding, endStanding, settleAsProposed } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,60 @@ export default async function SharedCommissionPage() {
   const { waiting, settled } = await commissions.shared(ctx);
   const standing = await commissions.standingShares(ctx);
   const configures = can(user.actor, "commission:configure");
+  /** With more than one plan in force, settling a page of them at once names the one they are all under. */
+  const activePlans = (await commissions.plans(ctx)).filter((p) => p.active);
+
+  const waitingTable = (
+    <Table label="Waiting to be shared" head={
+      <>{configures ? <Th>{""}</Th> : null}<Th>Invoice</Th><Th>Customer</Th><Th>Job</Th><Th>Proposed split</Th><Th className="text-right">Revenue</Th><Th>{""}</Th></>
+    }>
+      {waiting.map((row) => (
+        <tr key={row.invoiceId}>
+          {configures ? (
+            <Td>
+              {/*
+                Only an invoice whose proposal could be settled can be
+                ticked. One that would be refused (two plans and none
+                named, a margin plan with no cost) says why instead.
+              */}
+              <input type="checkbox" name="invoiceId" value={row.invoiceId}
+                     aria-label={`Settle ${row.invoiceNumber} as proposed`}
+                     disabled={row.proposed.refusal !== null && activePlans.length < 2} />
+            </Td>
+          ) : null}
+          <Td>
+            <span className="font-medium">{row.invoiceNumber}</span>
+            <span className="block text-xs text-ink-500">{formatIn(row.issuedAt, user.organizationTimezone, { month: "short", day: "numeric", year: "numeric" })}</span>
+          </Td>
+          <Td>{row.customerName}</Td>
+          <Td>{row.jobNumber}</Td>
+          <Td>
+            {row.proposed.refusal === null ? (
+              <>
+                {row.proposed.parts.map((p) => (
+                  <span key={p.technicianId} className="block">{p.name}: <Money value={p.amount} /></span>
+                ))}
+                <span className="block text-xs text-ink-500">
+                  {row.proposed.standingSentence ? "With standing shares." : "An even split."}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="block text-ink-700">{row.people.map((p) => p.name).join(", ")}</span>
+                <span className="block text-xs text-amber-700">{row.proposed.refusal}</span>
+              </>
+            )}
+          </Td>
+          <Td className="text-right"><Money value={row.revenue} /></Td>
+          <Td>
+            <a href={`/payroll/commissions/splits/${row.invoiceId}`} className="font-medium underline underline-offset-4">
+              Share it
+            </a>
+          </Td>
+        </tr>
+      ))}
+    </Table>
+  );
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -54,29 +108,19 @@ export default async function SharedCommissionPage() {
           An invoice shows up here once it is sent, on a job with two or more people on its visits, made since your
           first commission plan.
         </Empty>
-      ) : (
-        <Table label="Waiting to be shared" head={
-          <><Th>Invoice</Th><Th>Customer</Th><Th>Job</Th><Th>People on the job</Th><Th className="text-right">Revenue</Th><Th>{""}</Th></>
-        }>
-          {waiting.map((row) => (
-            <tr key={row.invoiceId}>
-              <Td>
-                <span className="font-medium">{row.invoiceNumber}</span>
-                <span className="block text-xs text-ink-500">{formatIn(row.issuedAt, user.organizationTimezone, { month: "short", day: "numeric", year: "numeric" })}</span>
-              </Td>
-              <Td>{row.customerName}</Td>
-              <Td>{row.jobNumber}</Td>
-              <Td>{row.people.map((p) => p.name).join(", ")}</Td>
-              <Td className="text-right"><Money value={row.revenue} /></Td>
-              <Td>
-                <a href={`/payroll/commissions/splits/${row.invoiceId}`} className="font-medium underline underline-offset-4">
-                  Share it
-                </a>
-              </Td>
-            </tr>
-          ))}
-        </Table>
-      )}
+      ) : configures ? (
+        <ActionForm action={settleAsProposed} submit="Settle the ticked ones as proposed" className="mt-4 space-y-3">
+          {waitingTable}
+          {activePlans.length > 1 ? (
+            <Select label="Plan they are all under" name="planId" className="block max-w-xs"
+                    options={[{ value: "", label: "Choose a plan" }, ...activePlans.map((p) => ({ value: p.id, label: p.label }))]} />
+          ) : null}
+          <p className="max-w-2xl text-xs text-ink-500">
+            Each ticked invoice is settled with the split shown, exactly as if you opened it and settled it without
+            changing anything. To change a split, open it with Share it instead.
+          </p>
+        </ActionForm>
+      ) : waitingTable}
 
       <section aria-label="Standing shares" className="mt-10">
         <h2 className="text-base font-semibold">Standing shares</h2>
