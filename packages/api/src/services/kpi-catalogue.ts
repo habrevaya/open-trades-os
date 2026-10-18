@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Forty one of the forty seven are computed here, four
- * are M22's, and the two that are not each name what they still lack.)
+ * (They are read now. Forty three of the forty seven are computed here and
+ * the other four are M22's. None is left that names something it still lacks.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -1131,6 +1131,146 @@ const applicationRecords = (pick: "numerator" | "denominator" | "excluded" | "un
 `;
 
 /**
+ * CHEMICAL COST PER STOP. A stop is a completed visit on customer work. An
+ * APPLICATION is the latest answer to one of its reports' chemical fields that
+ * says how much was applied, and it is VALUED at the cost per unit of the price
+ * book item it was chosen from, in the version in force when the stop was
+ * completed, when it was recorded in the unit that cost is per. A stop with an
+ * application that cannot be valued so (typed by name, no cost that day,
+ * another unit) is left out of both halves and counted beside. The rule is
+ * core's `reporting.chemicalCostOf`, and
+ * `kpi-chemical-cost.integration.test.ts` puts the same stops through both.
+ */
+const chemicalStops = (from: string, to: string, zone: string) => sql`
+  with stops as (
+    select v.id, v.sequence, v.completed_at, j.number, j.summary
+    from public.visit v
+    join public.job j on j.id = v.job_id
+    join public.job_type jt on jt.id = j.job_type_id
+    where v.deleted_at is null and j.deleted_at is null
+      and v.status::text = any(${sql.param([...reporting.VISIT_DONE])}::text[])
+      and v.completed_at >= ${dayStart(from, zone)} and v.completed_at < ${dayAfter(to, zone)}
+      and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+  ),
+  answers as (
+    select distinct on (f.report_id, f.key) f.id, r.visit_id, f.quantity_applied, f.application_unit,
+           f.product_name, f.price_book_item_id
+    from public.service_report_field f
+    join public.service_report r on r.id = f.report_id
+    where r.visit_id in (select id from stops) and f.kind = 'chemical'
+    order by f.report_id, f.key, f.recorded_at desc, f.created_at desc
+  ),
+  applied as (
+    select a.*, i.chemical_unit,
+           (select ver.cost from public.price_book_item_version ver
+            where ver.item_id = a.price_book_item_id
+              and ver.effective_from <= s.completed_at
+              and (ver.effective_to is null or ver.effective_to > s.completed_at)
+            order by ver.effective_from desc limit 1) as cost_per_unit
+    from answers a
+    join stops s on s.id = a.visit_id
+    left join public.price_book_item i on i.id = a.price_book_item_id
+    where a.quantity_applied is not null
+  ),
+  valued as (
+    select applied.*, (price_book_item_id is not null and cost_per_unit is not null
+      and chemical_unit is not null and application_unit = chemical_unit) as valued
+    from applied
+  ),
+  stop_verdicts as (
+    select s.*, coalesce((select bool_and(x.valued) from valued x where x.visit_id = s.id), true) as counted,
+           (select count(*) from valued x where x.visit_id = s.id and x.price_book_item_id is null) as typed,
+           (select count(*) from valued x where x.visit_id = s.id and x.price_book_item_id is not null and not x.valued) as uncosted
+    from stops s
+  )`;
+
+const stopLabel = "concat('#', s.number, ' visit ', s.sequence, ', ', s.summary)";
+
+const chemicalCost = (pick: "numerator" | "denominator" | "unknown"): Records => (from, to, zone) => pick === "numerator"
+  ? sql`${chemicalStops(from, to, zone)}
+    select 'visit'::text as kind, x.id::text as id,
+           concat(coalesce(x.product_name, 'A product'), ', ', trim_scale(x.quantity_applied)::text, ' ',
+                  coalesce(x.application_unit, ''), ' at $',
+                  case when scale(trim_scale(x.cost_per_unit)) <= 2 then to_char(x.cost_per_unit, 'FM999999990.00')
+                       else trim_scale(x.cost_per_unit)::text end,
+                  ', ', ${sql.raw(stopLabel)}) as label,
+           to_char(s.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+           round(x.quantity_applied * x.cost_per_unit, 4)::numeric as value,
+           '/visits/' || s.id as href
+    from valued x join stop_verdicts s on s.id = x.visit_id
+    where s.counted`
+  : sql`${chemicalStops(from, to, zone)}
+    select 'visit'::text as kind, s.id::text as id,
+           ${pick === "denominator" ? sql.raw(stopLabel) : sql.raw(`concat(${stopLabel}, ': ', concat_ws(' and ',
+             case when s.typed = 1 then '1 product typed by name' when s.typed > 1 then s.typed || ' products typed by name' end,
+             case when s.uncosted = 1 then '1 product with no cost that day' when s.uncosted > 1 then s.uncosted || ' products with no cost that day' end))`)} as label,
+           to_char(s.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+           1::numeric as value, '/visits/' || s.id as href
+    from stop_verdicts s
+    where ${pick === "denominator" ? sql`s.counted` : sql`not s.counted`}`;
+
+/**
+ * PRODUCTION PER CREW HOUR, per completed production job: the amount of work
+ * recorded on it in its job type's unit, over every person's hours on site
+ * on it (`reporting.ON_SITE_PRODUCTION`), never travel or getting the job
+ * ready. A job with no amount, no hours on site or a punch still running is
+ * left out of both halves; only the unit the window's measured jobs spent the
+ * most hours in is added up, and a job in another unit is counted beside. The
+ * rule is core's `reporting.productionPerCrewHour`, and
+ * `kpi-production.integration.test.ts` puts the same jobs through both.
+ */
+const productionJobs = (from: string, to: string, zone: string) => sql`
+  with jobs as (
+    select j.id, j.number, j.summary, j.completed_at, j.production_quantity as quantity,
+           btrim(jt.production_unit) as unit, lower(btrim(jt.production_unit)) as unit_key,
+           (select coalesce(sum(te.minutes), 0) from public.timeclock_entry te
+            where te.job_id = j.id and te.deleted_at is null and te.ended_at is not null
+              and te.kind::text = any(${sql.param([...reporting.ON_SITE_PRODUCTION])}::text[]))::numeric / 60 as hours,
+           (select coalesce(sum(te.minutes), 0) from public.timeclock_entry te
+            where te.job_id = j.id and te.deleted_at is null and te.ended_at is not null
+              and te.kind = 'mobilisation')::numeric / 60 as ready,
+           exists (select 1 from public.timeclock_entry te
+            where te.job_id = j.id and te.deleted_at is null and te.ended_at is null
+              and te.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])) as running
+    from public.job j
+    join public.job_type jt on jt.id = j.job_type_id
+    where j.deleted_at is null and j.completed_at is not null
+      and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+      and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+      and nullif(btrim(jt.production_unit), '') is not null
+  ),
+  judged as (
+    select jobs.*, (not running and quantity is not null and quantity > 0 and hours > 0) as measured from jobs
+  ),
+  main as (
+    select unit_key from judged where measured group by unit_key order by sum(hours) desc, unit_key limit 1
+  )`;
+
+const amount = (column: string) => `trim_scale(round(${column}, 2))::text`;
+
+const production = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to, zone) => sql`${productionJobs(from, to, zone)}
+  select 'job'::text as kind, x.id::text as id,
+         ${sql.raw({
+           numerator: `concat('#', x.number, ' ', x.summary, ': ', ${amount("x.quantity")}, ' ', x.unit, ' over ', to_char(x.hours, 'FM999999990.00'), ' hours on site',
+             case when x.ready > 0 then concat(', ', to_char(x.ready, 'FM999999990.00'), ' getting it ready left out') else '' end)`,
+           denominator: `concat('#', x.number, ' ', x.summary, ': ', to_char(x.hours, 'FM999999990.00'), ' hours on site')`,
+           excluded: `concat('#', x.number, ' ', x.summary, ': ', ${amount("x.quantity")}, ' ', x.unit, ' over ', to_char(x.hours, 'FM999999990.00'),
+             ' hours, ', to_char(x.quantity / x.hours, 'FM999999990.00'), ' an hour, measured in another unit')`,
+           unknown: `concat('#', x.number, ' ', x.summary, ': ', case when x.running then 'somebody is still on the clock on it'
+             when x.quantity is null or x.quantity <= 0 then 'no amount of work recorded' else 'no hours on site punched' end)`,
+         }[pick])} as label,
+         to_char(x.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         ${sql.raw({ numerator: "x.quantity", denominator: "round(x.hours, 4)", excluded: "1", unknown: "1" }[pick])}::numeric as value,
+         '/jobs/' || x.id as href
+  from judged x
+  where ${sql.raw({
+    numerator: "x.measured and x.unit_key = (select unit_key from main)",
+    denominator: "x.measured and x.unit_key = (select unit_key from main)",
+    excluded: "x.measured and x.unit_key <> (select unit_key from main)",
+    unknown: "not x.measured",
+  }[pick])}`;
+
+/**
  * THE PANEL THE ELECTRICAL PACK DECLARES, read from the pack rather than typed
  * again here: the service panel's code and name (the register's category is
  * either, in any case) and the ratings its `service_amps` may hold.
@@ -1618,9 +1758,11 @@ export const CATALOGUE: Record<string, Entry> = {
        * to the shop for a part sits between two stops and counts, which is the
        * route inefficiency the number exists to show.
        *
-       * The denominator is the working day on the clock: travel, on site, shop
-       * and paid breaks. Leave, standby and unpaid breaks are not the day the
-       * share is of.
+       * The denominator is the working day on the clock: travel, on site,
+       * getting a job ready (on site time before it had a kind), shop and paid
+       * breaks. Leave, standby and unpaid breaks are not the day the share is
+       * of. Getting a job ready is clocked time but not a stop, so a drive
+       * between loading the trailer and the first site is the way out.
        *
        * ONLY DAYS THAT RECORD BOTH A STOP AND A DRIVE COUNT, in both halves. A
        * company whose people do not clock their driving would otherwise read
@@ -1670,7 +1812,7 @@ export const CATALOGUE: Record<string, Entry> = {
                  '/timesheets?week=' || to_char(e.day, 'YYYY-MM-DD') as href
           from entries e
           join public.technician t on t.id = e.technician_id
-          where e.kind in ('travel', 'on_site', 'shop', 'paid_break')
+          where e.kind in ('travel', 'on_site', 'mobilisation', 'shop', 'paid_break')
             and e.ended_at is not null
             and exists (select 1 from entries s where s.technician_id = e.technician_id and s.day = e.day and s.kind = 'on_site')
             and exists (select 1 from entries s where s.technician_id = e.technician_id and s.day = e.day and s.kind = 'travel')
@@ -2051,7 +2193,8 @@ export const CATALOGUE: Record<string, Entry> = {
        * travel."
        *
        * Every exclusion is a `kind` on the timeclock entry: `shop` is the office
-       * and administrative half, `travel` is travel. "Every person separately" is
+       * and administrative half, `travel` is travel. Getting a job ready is paid
+       * as on site time, and is here as it was before it had a kind. "Every person separately" is
        * what summing minutes per entry already does. One row per entry, adding
        * its hours.
        */
@@ -2067,7 +2210,7 @@ export const CATALOGUE: Record<string, Entry> = {
           from public.timeclock_entry te
           join public.technician t on t.id = te.technician_id
           where te.deleted_at is null
-            and te.kind in ('on_site', 'paid_break')
+            and te.kind in ('on_site', 'mobilisation', 'paid_break')
             and te.started_at >= ${dayStart(from, zone)} and te.started_at < ${dayAfter(to, zone)}
         `,
       },
@@ -2187,18 +2330,41 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   production_per_crew_hour: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "Mobilisation recorded separately. `job.production_quantity` and on-site "
-      + "minutes are both here, and the definition EXCLUDES mobilisation on the "
-      + "first day as well as drive time. Travel is a timeclock kind and "
-      + "mobilisation is not (`time_entry_kind` has travel, on site, shop and "
-      + "the kinds of leave), so the hours a crew spent unloading and setting up "
-      + "on a build's first day are on site hours, and a two day build would "
-      + "read as slower than a one day one for no reason the crew controls. "
-      + "Recording it means a punch kind the phone offers, with payroll paying it "
-      + "as on site time, which nothing has yet.",
+    measure: {
+      /**
+       * "Production units completed, in the unit on the job type, divided by
+       * crew hours on site. EXCLUDES drive time and EXCLUDES mobilisation on
+       * the first day of a multi day job, when nothing is produced but the crew
+       * is paid."
+       *
+       * WHAT IT NEEDED, and what changed: mobilisation recorded apart from on
+       * site time. The timeclock has a kind for it now (`mobilisation`,
+       * "Getting a job ready": loading, driving out and unloading), offered on
+       * the phone and `/my-day` against one of the day's stops and filed on
+       * its job. It is paid exactly as on site time (core's `labor.PAID_AS`),
+       * so nobody's pay or payroll export changes, and only this figure reads
+       * it. A job's amount of work (`job.production_quantity`, in its job
+       * type's unit) is set on the job's page.
+       *
+       * Crew hours on site are every person's on site punches on the job and
+       * a paid break there; travel is drive time and getting the job ready is
+       * the mobilisation, and neither is counted, on any day (the
+       * mobilisation holds the drive out). A job with no amount recorded, no
+       * hours on site or a punch still running is left out of both halves and
+       * counted beside, because counted it would read as nothing produced or
+       * as work done in no time. Units of different kinds do not add, so the
+       * figure is over the unit the window's jobs spent most hours on site in,
+       * and a job in another unit is counted beside with its own rate.
+       */
+      numerator: { label: "units of work completed, in the unit most of the hours went to", records: production("numerator") },
+      denominator: { label: "crew hours on site on those jobs, each person separately", records: production("denominator") },
+      besides: {
+        excluded: { label: "jobs measured in another unit, left out", records: production("excluded") },
+        unknown: { label: "jobs left out because their amount or hours are not known", records: production("unknown") },
+      },
+    },
   },
 
   cancel_rate_route: {
@@ -2235,19 +2401,40 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   chemical_cost_per_stop: {
-    state: "needs",
+    state: "computed",
     format: "money",
-    needs:
-      "A product application tied to the product register. Service reports "
-      + "record what was applied (`service_report_field.product_name`, quantity "
-      + "and unit, the EPA number), typed on the phone by name rather than chosen "
-      + "as a price book item, so nothing values it, and the definition values "
-      + "product from the register and EXCLUDES devices, bait stations and "
-      + "monitors, which are capital. The trade pack marks added since (a "
-      + "troubleshooting call, a drain upsell) mark no product as chemistry. "
-      + "Valuing it from what was issued to a truck instead would make this a "
-      + "purchasing number rather than a cost per stop, and matching the typed "
-      + "name to an item would be reading words for a meaning.",
+    /** What product cost is what jobs cost, so it takes what a job's margin takes. */
+    permissions: ["job.cost:read", "report.financial:read"],
+    measure: {
+      /**
+       * "Cost of product applied, valued from the product register, divided
+       * by completed stops. EXCLUDES devices, bait stations and monitors,
+       * which are capital placed at a site rather than chemistry consumed on
+       * a visit."
+       *
+       * WHAT IT NEEDED, and what changed: a product application tied to the
+       * register. The company marks the materials that are chemicals in its
+       * price book, with the unit their cost is per and the EPA number from
+       * the label (`price_book_item.chemical_unit`), and the phone, "My day"
+       * and the office choose the product applied from them
+       * (`service_report_field.price_book_item_id`), carrying the item's name,
+       * EPA number and unit onto the regulated record.
+       *
+       * Each application is its quantity at the item's cost per unit in the
+       * version in force when the stop was completed. Only a material can be a
+       * chemical, so a device, a station or a monitor (the book's equipment) is
+       * never one, which is the definition's exclusion. A stop with a product
+       * typed by name, never valued from its name, or with no cost recorded
+       * that day, is left out of both halves and counted beside, because
+       * counted at nothing it would read as a cheaper stop than it was. A stop
+       * where nothing was applied costs nothing, and counts.
+       */
+      numerator: { label: "dollars of product applied, at the price book's cost on the day", money: true, records: chemicalCost("numerator") },
+      denominator: { label: "completed stops, other than those left out", records: chemicalCost("denominator") },
+      besides: {
+        unknown: { label: "stops left out because a product on them was typed by name or had no cost that day", records: chemicalCost("unknown") },
+      },
+    },
   },
 
   supply_cost_pct: {

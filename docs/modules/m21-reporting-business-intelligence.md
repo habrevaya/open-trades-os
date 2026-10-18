@@ -51,8 +51,9 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Forty five of the forty seven are answered: forty one computed here, four by
-M22's fleet report. The other two each name what they still lack.
+All forty seven are answered: forty three computed here, four by M22's fleet
+report. None is left that names a datum it still lacks; a reader without a
+KPI's permissions still finds it on the list, with the permission it needs.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -672,6 +673,84 @@ placements one each, opening on the container fleet. The rule is core's
 the same placements through both, and records the drop, the tip and the holds
 from the office and the tip and the drop from the phone.
 
+### Production per crew hour, and the mobilisation it waited on
+
+Lawn and landscape's **production per crew hour** is "production units
+completed, in the unit on the job type, divided by crew hours on site", and it
+EXCLUDES "drive time" and "mobilisation on the first day of a multi day job,
+when nothing is produced but the crew is paid". A crew loading the trailer,
+driving out and unloading punched it as on site time, so a two day build read
+as slower than a one day one for no reason the crew controls. The timeclock now
+has a kind for it, **getting a job ready** (`mobilisation`, M17), offered on the
+phone and `/my-day` against one of the day's stops (M11) and filed on its job. It
+is paid exactly as on site time, so nobody's pay or payroll export changes, and
+only this figure reads it. How much work a job is, in its job type's unit, is
+set on the job's page (M10).
+
+- A **job** is a completed customer job (every class but internal) whose job
+  type has a production unit, in the window it was completed.
+- **Units** are the amount of work recorded on it. **Crew hours on site** are
+  every person's on site punches on the job and paid breaks there, each person
+  separately, on whatever day they were punched. Travel is drive time and getting
+  the job ready is the mobilisation, and **neither is counted on any day**:
+  getting the job ready holds the drive out, which the definition also leaves
+  out. Each record says how many hours getting it ready were left out, so the
+  exclusion is visible on the job.
+- A job with **no amount recorded, no hours on site, or a punch still running**
+  is left out of both halves and counted beside as not known, each saying which.
+  Counted, the first reads as nothing produced and the others as work done in no
+  time.
+- **One unit at a time.** Square feet and cubic yards do not add, so the figure
+  is over the unit the window's measured jobs spent the most hours on site in
+  (the alphabetically first on a tie), and a job in another unit is left out of
+  both halves and counted beside with its own rate on its record ("#12 Mulch
+  refresh: 12 cubic yards over 4.00 hours, 3.00 an hour").
+
+The records open on the job. The rule is core's `reporting.productionOf` and
+`reporting.productionPerCrewHour`, with unit tests, written again in SQL, and
+`kpi-production.integration.test.ts` checks a month worked out by hand, puts the
+same jobs through both, and clocks in to get a job ready from the phone.
+
+### Chemical cost per stop, and the register it waited on
+
+Pest control's **chemical cost per stop** is "cost of product applied, valued
+from the product register, divided by completed stops", and it EXCLUDES
+"devices, bait stations and monitors, which are capital placed at a site
+rather than chemistry consumed on a visit". The application record already held
+the product, its EPA number, how much and the unit, but the product was typed
+by name, and a name cannot be valued without reading words for a meaning. The
+price book now marks the materials that are chemicals (M06), with the unit
+their cost is per and their EPA number, and the product applied is chosen from
+them on the phone, on `/my-day` and on the visit's page in the office (M11),
+the item's name, EPA number and unit carried onto the regulated record.
+
+- A **stop** is a completed visit (done, or done on a phone that missed its
+  cancellation) on customer work, in the window it was completed.
+- An **application** is the latest answer to one of its reports' chemical
+  questions that says how much was applied. It is **valued** at the cost per
+  unit of the item it was chosen from, in the price book version in force when
+  the stop was completed (a price change dated the 15th values a stop on the
+  20th at the new cost), in the unit that cost is per.
+- **Devices are never applications**: only a material can be marked as a
+  chemical, and a station, a trap or a monitor is the book's equipment. A
+  marked item cannot be changed to another kind until the mark is taken off.
+- A stop where nothing was applied costs nothing, and counts.
+- A stop with any application that **cannot be valued** (a product typed by
+  name, on an older record or not in the book; an item with no cost recorded
+  on that day; one recorded in a unit its cost is no longer per) is **left out
+  of both halves** and counted beside the figure, each opening on the visit
+  with what was wrong in words. Counted at nothing it would read as a cheaper
+  stop than it was.
+
+Each record of the top half is one application ("Bifen IT, 2 gal at $3.00,
+#41 visit 1, Quarterly service"), opening on the visit; the bottom half is the
+stops. It is what product cost, so like install margin it needs
+`job.cost:read` and `report.financial:read`. The rule is core's
+`reporting.chemicalCostOf`, with unit tests, written again in SQL, and
+`kpi-chemical-cost.integration.test.ts` checks a month worked out by hand, puts
+the same stops through both, records products from the phone and the office,
+and checks a phone's typed name and number are replaced by the book's.
+
 ### The four that waited on a coded cancellation reason
 
 Cleaning's **recurring customer retention**, pest control's **program renewal
@@ -774,7 +853,7 @@ presentation, a plan sold, a technician day, a drive between two stops, an
 assembly due a retest, a crew's day, a permitted job, a person's route day, a
 scheduled stop, an old water heater inspected, a troubleshooting call, a drain
 call, a street served, a truck, a container, a haul (a placement of a can, for
-turnaround). The scorecard's number is the sum of those rows, and
+turnaround), a product applied. The scorecard's number is the sum of those rows, and
 clicking a half on `Reports > Trade scorecard` opens `/reports/scorecard/records`
 listing the same rows, so the total at the bottom is the half that was clicked
 by construction. Each record opens on its own screen: a job, an estimate, an
@@ -1153,12 +1232,37 @@ prefix off.
 
 ## What is not built
 
-Two of the forty seven declared KPIs cannot be computed, and each one
-names the single missing datum rather than saying not built, because most of
+None of the forty seven declared KPIs is left uncomputed. Each one that waited
+named the single missing datum rather than saying not built, because most of
 these definitions turn on an exclusion and a KPI computed without its exclusions
-looks like the definition. They were checked again against everything shipped
-since they were written and neither has its datum yet (above, "The
-unavailable list"); neither is computed from something near it instead.
+looks like the definition, and none was computed from something near it while it
+waited.
+
+Production per crew hour is only as good as the clock: the phone's ordinary
+"Clock in" names no job, so on site hours reach a job only from a punch that
+names it (the field sync's `jobId` or the stop it is for, which an API client or
+a crew's tablet sends), and a company whose crews clock in once a day with no job
+sees its jobs counted beside as having no hours on site. Getting a job ready is
+left out on every day it is punched, not only the first day of a multi day job,
+because it holds the drive out; a crew that unloads on day three and punches it
+as getting ready makes that day read faster. The amount of work is the office's
+number on the job, not measured, and one amount for the whole job: a job half
+done at the end of the month is counted only when it is completed. Only the unit
+with most hours is added up, so a company that sells by several units sees one
+of them on the scorecard and the others on their records.
+
+Chemical cost per stop values only products chosen from the price book: every
+application typed before chemicals could be chosen, and every product the book
+does not hold, leaves its stop out of the figure and is counted beside it, so a
+company's first months read over the newer stops only. Nothing matches a typed
+name to an item. Each answer to a chemical question that says how much was
+applied is one application, so a technician who picks the same product with an
+amount under two questions of one report has it counted twice (the higher
+cost, never a hidden one). A product is valued at the version in force when
+the stop was completed, not at the moment it was recorded, and at the item's
+cost, not at what a particular drum was bought for: purchasing's own costs are
+not read. Changing the unit an item's cost is per leaves its earlier
+applications out as not valued rather than converting them.
 
 Drain call conversion reads the drain call and the upsell items the company's
 trade pack marks, by code: a camera inspection sold under an item the company

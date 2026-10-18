@@ -212,6 +212,19 @@ service refuses a change after that, because a budget moved once the hours are
 known is a budget fitted to them: hours the customer agrees to add go on a
 change order (M12). The budgeted hour variance (M21) reads both.
 
+### Record how much work it is
+
+A job whose type is measured in a unit of work (square feet, cubic yards, linear
+feet: the job type's production unit) shows "Amount of work" on `/jobs/{id}`: how
+much it is, in that unit, the crew's hours on site so far (each person separately,
+on site and paid breaks there), and the hours spent getting it ready (loading,
+driving out, unloading), which are not counted as on site. The office sets the
+amount when it books the work and corrects it once the work is done if the crew
+did more or less (`productionQuantity` on `PATCH /v1/jobs/{id}`, `job:write`, on
+the job's audit line; null takes it off; anything but a number more than nought
+is refused in words). Lawn and landscape's production per crew hour (M21) reads it
+on completed jobs as the units the crew produced.
+
 ### Finish it
 
 `POST /v1/visits/{id}/complete` records what was done, the notes, the checklist

@@ -279,6 +279,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "budget_hour_variance",
       "callback_rate",
       "cancel_rate_route",
+      "chemical_cost_per_stop",
       "churn",
       "close_rate",
       "diag_conversion",
@@ -293,6 +294,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "not_out_rate",
       "oneoff_to_recurring",
       "panel_pipeline",
+      "production_per_crew_hour",
       "program_attach",
       "programme_renewal",
       "reapplication_rate",
@@ -376,8 +378,16 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * delivery the moment the can was put down rather than a day at midday,
      * and a repair and a customer hold were kept as periods with a start and
      * an end.
+     * `chemical_cost_per_stop` made forty six when the price book could mark
+     * a material as a chemical, with the unit its cost is per and its EPA
+     * number, and the product applied was chosen from those on the phone, on
+     * "My day" and in the office rather than typed.
+     * `production_per_crew_hour` made all forty seven when the timeclock got a
+     * kind for getting a job ready, paid exactly as on site time and offered
+     * on the phone and "My day" against a stop, and a job's amount of work
+     * could be set on its page.
      */
-    expect(computed.length + elsewhere.length).toBe(45);
+    expect(computed.length + elsewhere.length).toBe(47);
     expect(KEYS.length).toBe(47);
   });
 });

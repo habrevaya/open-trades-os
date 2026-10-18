@@ -340,6 +340,13 @@ export const updateJob = defineRoute({
     /** Null clears the budget. Refused once an hour has been punched on the job. */
     budgetedHours: MoneyString.nullable().optional(),
     /**
+     * How much work the job is, in its job type's production unit (square
+     * feet, cubic yards): its size, and once it is done what the crew
+     * produced. Null clears it. Lawn and landscape's production per crew hour
+     * reads it on completed jobs.
+     */
+    productionQuantity: MoneyString.nullable().optional(),
+    /**
      * Move the job to another branch, or out of every branch with null. Only
      * somebody who sees the whole company may move work out of their own.
      */

@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { can, field, money as m, tax } from "@opentradesos/core";
+import { can, field, labor, money as m, tax } from "@opentradesos/core";
 import { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
@@ -8,6 +8,7 @@ import {
 import * as billing from "./billing";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
+import { chemicalAt } from "./pricebook";
 import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
 import * as location from "./location";
@@ -470,13 +471,22 @@ export const LOG_ONLY_OPERATIONS: readonly field.OperationKind[] = [] as const;
 async function ensureReport(
   tx: Database, org: string, op: field.FieldOperation,
 ): Promise<string | null> {
-  const reportId = op.subjectId!;
+  return fileReport(tx, org, op.subjectId!, op.payload["visitId"] as string | undefined);
+}
 
+/**
+ * The report under this id, filed against the visit if it is not there yet,
+ * as `ensureReport` explains. Exported for the office's record of a product
+ * applied, which writes to the same report the phone would, created the same
+ * way with the same required list.
+ */
+export async function fileReport(
+  tx: Database, org: string, reportId: string, visitId: string | undefined,
+): Promise<string | null> {
   const [existing] = await tx.select({ id: schema.serviceReport.id })
     .from(schema.serviceReport).where(eq(schema.serviceReport.id, reportId)).limit(1);
   if (existing) return null;
 
-  const visitId = op.payload["visitId"] as string | undefined;
   if (!visitId) {
     /**
      * Refused rather than skipped. A report with no visit cannot be attached
@@ -854,6 +864,20 @@ async function effect(
     case "timeclock.punch_in": {
       const technicianId = await punchingTechnician(tx, op);
       if (!technicianId) return NOBODY_TO_PUNCH;
+      const kind = op.payload["kind"] ?? "on_site";
+      if (typeof kind !== "string" || !(labor.TIME_ENTRY_KINDS as readonly string[]).includes(kind)) {
+        return "That kind of time is not one this product knows, so the punch was not recorded. Clock in again.";
+      }
+      /**
+       * A punch on a visit is on that visit's job, so a crew clocking in to get
+       * a build ready from the phone (which names the stop and not the job)
+       * puts its hours where job costing and the production per crew hour
+       * read them. A job named in the payload is kept as named.
+       */
+      const [onVisit] = op.subjectId && typeof op.payload["jobId"] !== "string"
+        ? await tx.select({ jobId: schema.visit.jobId }).from(schema.visit)
+          .where(and(eq(schema.visit.id, op.subjectId), eq(schema.visit.organizationId, org))).limit(1)
+        : [];
       await tx.insert(schema.timeclockEntry).values({
         organizationId: org,
         technicianId,
@@ -862,8 +886,8 @@ async function effect(
          * A punch with no kind is somebody at a property working, which is
          * the only default here that cannot quietly reclassify paid time.
          */
-        kind: (op.payload["kind"] as "on_site") ?? "on_site",
-        jobId: (op.payload["jobId"] as string) ?? null,
+        kind: kind as labor.TimeEntryKind,
+        jobId: (op.payload["jobId"] as string | undefined) ?? onVisit?.jobId ?? null,
         visitId: op.subjectId || null,
         startedAt: op.occurredAt,
         /**
@@ -1023,6 +1047,21 @@ async function effect(
       if (!report) return "That service report could not be created.";
 
       const value = op.payload["value"];
+      const kind = (op.payload["kind"] as (typeof schema.readingKind.enumValues)[number] | undefined) ?? "numeric";
+
+      /**
+       * A PRODUCT CHOSEN FROM THE BOOK carries the book's own words: its name
+       * on the day, its EPA number and the unit its cost is per, whatever the
+       * phone typed beside them, so the regulated record says what the
+       * register says and the chemical cost per stop can value it. An item
+       * that is not a chemical here (a stale phone, another company's id) is
+       * recorded as typed: a regulated record is never refused for naming the
+       * wrong thing, and typed it is counted beside that figure, not valued.
+       */
+      const chosen = kind === "chemical" && typeof op.payload["priceBookItemId"] === "string"
+        && UUID.test(op.payload["priceBookItemId"])
+        ? await chemicalAt(tx, org, op.payload["priceBookItemId"], op.occurredAt)
+        : null;
 
       await tx.insert(schema.serviceReportField).values({
         organizationId: org,
@@ -1034,18 +1073,19 @@ async function effect(
         // Defaults to numeric, which is what a reading is. A chemical
         // application and a signature are their own kinds because the columns
         // they fill are different and regulators ask about them by name.
-        kind: (op.payload["kind"] as "numeric") ?? "numeric",
+        kind,
         valueNumeric: typeof value === "number" ? String(value) : null,
-        valueText: typeof value === "string" ? value : null,
+        valueText: chosen ? chosen.name : typeof value === "string" ? value : null,
         valueBoolean: typeof value === "boolean" ? value : null,
         unit: (op.payload["unit"] as string) ?? null,
         // The regulated set. Captured at the moment or reconstructed never.
-        productName: (op.payload["productName"] as string) ?? null,
-        epaRegistrationNumber: (op.payload["epaRegistrationNumber"] as string) ?? null,
+        productName: chosen ? chosen.name : (op.payload["productName"] as string) ?? null,
+        epaRegistrationNumber: chosen ? chosen.epaRegistrationNumber : (op.payload["epaRegistrationNumber"] as string) ?? null,
         quantityApplied: (op.payload["quantityApplied"] as string) ?? null,
-        applicationUnit: (op.payload["applicationUnit"] as string) ?? null,
+        applicationUnit: chosen ? chosen.unit : (op.payload["applicationUnit"] as string) ?? null,
         applicatorLicense: (op.payload["applicatorLicense"] as string) ?? null,
         targetPest: (op.payload["targetPest"] as string) ?? null,
+        priceBookItemId: chosen?.itemId ?? null,
         recordedAt: op.occurredAt,
       });
       return null;

@@ -124,6 +124,14 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
           categoryId: field(form, "categoryId") ?? null, feeRole: field(form, "feeRole") ?? null,
         }));
         return { message: "Saved. No version was written: nothing anybody was charged changes." };
+      case "chemical":
+        await priceBook.updateItem(ctx, parsed(updatePriceBookItem.input, {
+          id, chemical: { unit: field(form, "chemicalUnit") ?? "", epaRegistrationNumber: field(form, "epaRegistrationNumber") ?? null },
+        }));
+        return { message: "Saved. Technicians pick it by name when they record what they applied." };
+      case "unchemical":
+        await priceBook.updateItem(ctx, parsed(updatePriceBookItem.input, { id, chemical: null }));
+        return { message: "It is no longer offered as a chemical. What was already recorded keeps it." };
       case "active":
         await priceBook.setActive(ctx, parsed(setPriceBookItemActive.input, {
           id, active: form.get("active") === "1", reason: field(form, "reason"),

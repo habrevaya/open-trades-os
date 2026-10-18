@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
-  arrivalWindow, checkGallons, dateOf, haulClock, statusLabel, todayIn, addressOf, type DayHaul, type DayTruck, type DayVisit,
+  arrivalWindow, checkGallons, clockWords, dateOf, haulClock, mobilisationPunch, statusLabel, todayIn, addressOf,
+  type DayHaul, type DayTruck, type DayVisit,
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { syncLine } from "../lib/status";
@@ -99,7 +100,7 @@ export function DayScreen({ nav }: { nav: Navigate }) {
         </Pressable>
       ) : null}
 
-      <TimeClock />
+      <TimeClock stops={todays} />
 
       <TalksToSign nav={nav} />
 
@@ -288,9 +289,17 @@ function LocationIndicator() {
   return <Notice tone={line.tone === "on" ? "green" : "amber"}>{line.text}</Notice>;
 }
 
-function TimeClock() {
+/**
+ * The clock, and clocking in to get a job ready: loading, driving out to the
+ * first site and unloading, before the work starts. That time is paid exactly
+ * as on site time, as it always was; saying which stop it was for keeps it out
+ * of the crew's hours on site when the company measures production per hour.
+ */
+function TimeClock({ stops }: { stops: DayVisit[] }) {
   const field = useField();
   const clock = field.view?.day.clock;
+  const kind = field.view?.day.clockKind ?? null;
+  const [readying, setReadying] = useState(false);
   const zone = field.session?.timezone ?? "UTC";
   const open = clock?.open ?? false;
   const since = clock?.since
@@ -300,7 +309,7 @@ function TimeClock() {
     <Card>
       <View style={styles.clock}>
         <View style={{ flex: 1 }}>
-          <Text style={type.heading}>{open ? "On the clock" : "Not clocked in"}</Text>
+          <Text style={type.heading}>{open ? clockWords(kind?.kind) : "Not clocked in"}</Text>
           {since ? <Text style={type.soft}>Since {since}{clock?.waiting ? ", waiting to send" : ""}</Text> : null}
         </View>
         <Button
@@ -309,6 +318,32 @@ function TimeClock() {
           onPress={() => void field.record(open ? "timeclock.punch_out" : "timeclock.punch_in")}
         />
       </View>
+      {!open && stops.length > 0 ? (
+        readying ? (
+          <View style={{ marginTop: space.md }}>
+            <Text style={type.body}>Loading, driving out and unloading. Which job is it for?</Text>
+            {stops.map((stop) => (
+              <Pressable key={stop.id} accessibilityRole="button" accessibilityLabel={`Clock in to get ${stop.customer.name} ready`}
+                         onPress={() => {
+                           const punch = mobilisationPunch(stop.id);
+                           setReadying(false);
+                           void field.record(punch.kind, punch.subjectId, punch.payload);
+                         }}
+                         style={styles.readyRow}>
+                <Text style={type.body}>{stop.customer.name}</Text>
+                <Text style={type.soft}>{stop.summary}</Text>
+              </Pressable>
+            ))}
+            <Pressable accessibilityRole="button" onPress={() => setReadying(false)} style={styles.readyRow}>
+              <Text style={type.soft}>Not now</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable accessibilityRole="button" onPress={() => setReadying(true)} style={styles.readyRow}>
+            <Text style={type.soft}>Getting a job ready first? Clock in for it</Text>
+          </Pressable>
+        )
+      ) : null}
     </Card>
   );
 }
@@ -348,6 +383,7 @@ const styles = StyleSheet.create({
   pillProblem: { backgroundColor: color.redTint },
   pillText: { fontSize: 15, fontWeight: "600" },
   clock: { flexDirection: "row", alignItems: "center", gap: space.md },
+  readyRow: { minHeight: 48, justifyContent: "center", borderTopWidth: 1, borderTopColor: color.line, marginTop: space.sm },
   empty: { textAlign: "center", marginTop: space.xl * 2 },
   later: { marginTop: space.lg, marginBottom: space.sm },
   row: {

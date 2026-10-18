@@ -471,11 +471,20 @@ export const getFieldSnapshot = defineRoute({
       feeRole: z.string().nullable(),
       /** What a kit includes, by name, so the technician can say what the price covers. */
       components: z.array(z.object({ name: z.string(), quantity: z.number() })),
+      /**
+       * A chemical the company's technicians apply: the unit its cost is per
+       * and its EPA registration number, carried onto an application chosen
+       * from the book. Null for anything else; absent from older servers.
+       */
+      chemical: z.object({ unit: z.string(), epaRegistrationNumber: z.string().nullable() }).nullable().optional(),
     })),
     openTimeEntry: z.object({
       id: Uuid,
+      /** `on_site`, or `mobilisation` for getting a job ready, and the rest of the timeclock's kinds. */
       kind: z.string(),
       startedAt: z.string().datetime(),
+      /** The stop the punch was made for, when it names one. Absent from older servers. */
+      visitId: Uuid.nullable().optional(),
     }).nullable(),
     /**
      * The programmes a technician can run an inspection against, only for one

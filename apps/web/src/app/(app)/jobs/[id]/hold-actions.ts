@@ -83,3 +83,17 @@ export async function setLineHaul(_previous: FormState, form: FormData): Promise
   revalidatePath(`/jobs/${jobId}`);
   return result;
 }
+
+/** How much work the job is, in its job type's unit: its size, and once done what the crew produced. */
+export async function setProduction(_previous: FormState, form: FormData): Promise<FormState> {
+  const jobId = field(form, "jobId") ?? "";
+  const typed = field(form, "productionQuantity")?.replace(/,/g, "");
+  if (typed !== undefined && !/^\d{1,9}(\.\d{1,4})?$/.test(typed)) {
+    return refused(form, "Give how much work it is as a number, like 1200 or 12.5.");
+  }
+  const result = await attempt(form, async () => {
+    await jobs.update(await ctx(), { id: jobId, productionQuantity: typed ?? null });
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  return result;
+}

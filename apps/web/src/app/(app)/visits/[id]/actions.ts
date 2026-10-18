@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { dispatchDays, visitCancellations } from "@opentradesos/api/services";
-import { setVisitMovable } from "@opentradesos/api/contracts";
+import { dispatchDays, productsApplied, visitCancellations } from "@opentradesos/api/services";
+import { recordVisitProduct, setVisitMovable } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, refused, type FormState } from "@/lib/actions";
 import { instantFromLocal } from "@/lib/local-time";
 
@@ -56,6 +56,28 @@ export async function cancelVisitAction(_previous: FormState, form: FormData): P
           ? `Called off. It came inside the ${done.cancelNoticeHours} hour notice window, so it counts as a late cancellation.`
           : "Called off, with enough notice. Whoever was on it has been told not to go.",
     };
+  });
+  if (state?.done) revalidatePath(`/visits/${id}`);
+  return state;
+}
+
+/**
+ * A product the technician did not record, chosen from the price book's
+ * chemicals and written to the visit's report as the phone would write it.
+ */
+export async function recordProductAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const state = await attempt(form, async () => {
+    const input = parsed(recordVisitProduct.input, {
+      id,
+      field: field(form, "field") ?? "",
+      priceBookItemId: field(form, "priceBookItemId") ?? "",
+      quantity: field(form, "quantity") ?? "",
+      ...(field(form, "applicatorLicense") ? { applicatorLicense: field(form, "applicatorLicense") } : {}),
+      ...(field(form, "targetPest") ? { targetPest: field(form, "targetPest") } : {}),
+    });
+    await productsApplied.record({ actor: (await requireSetupUser()).actor, db: getDb() }, input);
+    return { message: "Recorded on the visit's report, with the product's EPA number from the price book." };
   });
   if (state?.done) revalidatePath(`/visits/${id}`);
   return state;

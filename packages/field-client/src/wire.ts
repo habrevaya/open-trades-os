@@ -339,6 +339,12 @@ export interface PriceBookEntry {
   feeRole?: string | null | undefined;
   /** What a kit includes, by name. Absent from older servers and empty for anything else. */
   components?: Array<{ name: string; quantity: number }> | undefined;
+  /**
+   * Set when the company marks the item as a chemical its technicians apply:
+   * the unit its cost is per and its EPA number, which an application chosen
+   * from the book carries. Absent from older servers and null for the rest.
+   */
+  chemical?: { unit: string; epaRegistrationNumber: string | null } | null | undefined;
 }
 
 /**
@@ -358,7 +364,8 @@ export interface FieldSnapshot {
   visits: FieldVisit[];
   /** What the technician can pick from when recording a part. */
   priceBook: PriceBookEntry[];
-  openTimeEntry: { id: string; kind: string; startedAt: string } | null;
+  /** The visit it names, for a punch made for one. Absent from older servers. */
+  openTimeEntry: { id: string; kind: string; startedAt: string; visitId?: string | null | undefined } | null;
   /** Absent from older servers, and empty for somebody who may not file inspections. */
   inspectionPrograms?: FieldInspectionProgram[] | undefined;
   /** Absent from older servers, which is read as sharing off. */

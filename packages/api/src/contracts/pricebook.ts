@@ -22,6 +22,18 @@ export const KitComponent = z.object({
   quantity: z.number().positive().max(10000),
 });
 
+/**
+ * The item as a chemical a technician applies: the unit its cost is per
+ * ("gal", "oz", "lb") and the EPA registration number from its label. Only a
+ * material can be one. Chosen by name on the phone's application record, it
+ * carries both onto the record, and the chemical cost per stop values its
+ * quantity at the cost in force on the day it was applied.
+ */
+export const ChemicalMark = z.object({
+  unit: z.string().trim().min(1).max(20),
+  epaRegistrationNumber: z.string().trim().max(40).nullable(),
+});
+
 export const PriceBookItem = z.object({
   id: Uuid,
   versionId: Uuid,
@@ -33,6 +45,8 @@ export const PriceBookItem = z.object({
   imageUrl: z.string().nullable(),
   categoryId: Uuid.nullable(),
   feeRole: FeeRole.nullable(),
+  /** Set when the company marks it as a chemical its technicians apply; null for everything else. */
+  chemical: ChemicalMark.nullable(),
   price: MoneyString,
   taxable: z.boolean(),
   taxClass: z.string().nullable(),
@@ -176,9 +190,9 @@ export const getPriceBookItem = defineRoute({
 export const updatePriceBookItem = defineRoute({
   method: "patch",
   path: "/v1/pricebook/items/{id}",
-  summary: "Change an item's kind, code, category or fee",
+  summary: "Change an item's kind, code, category, fee or chemical mark",
   description:
-    "What the item IS rather than what it costs or is called, so it changes the item in place and writes no version: no document points at any of these. The name, description, price and cost are a revision. A code another item already has is refused.",
+    "What the item IS rather than what it costs or is called, so it changes the item in place and writes no version: no document points at any of these. The name, description, price and cost are a revision. A code another item already has is refused. `chemical` marks a material as a product technicians apply, with the unit its cost is per and its EPA registration number, and null takes the mark off; anything but a material is refused, and so is changing a marked item to another kind.",
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -188,6 +202,7 @@ export const updatePriceBookItem = defineRoute({
     code: z.string().min(1).max(60).optional(),
     categoryId: Uuid.nullable().optional(),
     feeRole: FeeRole.nullable().optional(),
+    chemical: ChemicalMark.nullable().optional(),
   }),
   output: PriceBookItem.nullable(),
 });

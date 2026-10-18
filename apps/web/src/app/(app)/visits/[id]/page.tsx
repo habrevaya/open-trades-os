@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { customFields, visits, files, NotFoundError } from "@opentradesos/api/services";
+import { customFields, visits, files, productsApplied, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
@@ -9,7 +9,7 @@ import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { formatIn, formatDay } from "@/lib/dates";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
-import { cancelVisitAction, movableAction } from "./actions";
+import { cancelVisitAction, movableAction, recordProductAction } from "./actions";
 import { VISIT_STATUS, VISIT_TONE, label, tone, enumText } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +44,11 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
   const photos = can(user.actor, "document:read")
     ? await files.attachmentsFor(ctx, { entityType: "visit", entityId: id })
     : [];
+
+  /** The report's product questions and what was applied, for whoever reads service reports. */
+  const products = can(user.actor, "servicereport:read") ? await productsApplied.forVisit(ctx, { id }) : null;
+  const recordsProducts = can(user.actor, "servicereport:write") && products !== null
+    && products.fields.length > 0 && !products.published && products.chemicals.length > 0;
 
   const window = visit.windowStart
     ? `${formatIn(visit.windowStart, tz)}${visit.windowEnd ? ` to ${formatIn(visit.windowEnd, tz, { hour: "numeric", minute: "2-digit" })}` : ""}`
@@ -241,6 +246,49 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {products && products.fields.length > 0 && (
+        <section aria-label="Products applied" className="mt-8">
+          <h2 className="text-base font-semibold">Products applied</h2>
+          {products.applied.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-700">Nothing recorded yet.</p>
+          ) : (
+            <Table head={<><Th>Product</Th><Th>EPA number</Th><Th className="text-right">How much</Th><Th>From</Th></>}>
+              {products.applied.map((a) => (
+                <tr key={a.id}>
+                  <Td>{a.productName ?? "Not named"}<span className="block text-xs text-ink-500">{a.field}</span></Td>
+                  <Td className="text-ink-700">{a.epaRegistrationNumber ?? "None recorded"}</Td>
+                  <Td className="text-right tabular-nums">{a.quantity !== null ? `${Number(a.quantity)} ${a.unit ?? ""}` : ""}</Td>
+                  <Td className="text-ink-700">{a.fromBook ? "Price book" : "Typed by name"}</Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+          {products.applied.some((a) => !a.fromBook) && (
+            <p className="mt-2 text-sm text-ink-700">
+              A product typed by name cannot be costed, so the chemical cost per stop leaves this visit out and counts it beside the figure.
+            </p>
+          )}
+          {recordsProducts && (
+            <ActionForm action={recordProductAction} submit="Record the product" hidden={{ id }} className="mt-3 space-y-3">
+              <p className="text-sm text-ink-700">
+                For a product the technician did not record. Chosen from the chemicals in your price book, with its EPA number.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Select label="Question it answers" name="field" options={products.fields.map((f) => ({ value: f.key, label: f.label }))} />
+                <Select label="Product" name="priceBookItemId" required
+                        options={[{ value: "", label: "Choose the product" }, ...products.chemicals.map((c) => ({ value: c.id, label: `${c.name}, per ${c.unit}` }))]} />
+                <TextField label="How much" name="quantity" inputMode="decimal" required />
+                <TextField label="Target pest" name="targetPest" maxLength={120} />
+                <TextField label="Applicator licence" name="applicatorLicense" maxLength={120} />
+              </div>
+            </ActionForm>
+          )}
+          {products.published && (
+            <p className="mt-2 text-sm text-ink-700">The report is published, so nothing more can be added to it.</p>
+          )}
         </section>
       )}
 

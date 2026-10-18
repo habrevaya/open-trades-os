@@ -111,6 +111,19 @@ the plan. Commission reads the rate on the version an invoice line was priced fr
 never the item's version today, so a rate changed here reaches only lines priced after
 the change (the form says so and links to the choice).
 
+**A chemical your technicians apply**, on the same screen for a material,
+marks the item as a product applied on a visit, with the unit its cost is per
+("gal", "oz") and the EPA registration number from its label (`chemical` on
+`PATCH /v1/pricebook/items/{id}`, audited before and after; null takes the mark
+off). Technicians then pick it by name when they record what they applied on the
+phone and on `/my-day`, and the office does on the visit's page (M11), and the
+item's name, EPA number and unit go onto the regulated record. Pest control's
+chemical cost per stop (M21) values what was applied at the item's cost on the
+stop's day. Only a material can be marked: a bait station, a trap or a monitor
+is equipment placed at a site, which that figure leaves out, so marking one is
+refused, and so is changing a marked item to another kind. Marking changes no
+price and writes no version.
+
 **What is in the kit**, on the same screen, lists a kit's parts by code with how
 many of each, and saves a changed list as a new version, now or from a day ahead,
 exactly like a price change (`components` on the revise call): an estimate already
@@ -138,7 +151,7 @@ item with every version. `POST /v1/pricebook/items/{id}/revise` is how a price
 changes: it writes a new version rather than editing the old one, and carries
 the warranty, the registration days and tax class forward unless they change.
 `PATCH /v1/pricebook/items/{id}` changes what the item is, refusing a code
-another item already has. `POST /v1/pricebook/items/{id}/active` stops an item
+another item already has, and marks or unmarks a material as a chemical. `POST /v1/pricebook/items/{id}/active` stops an item
 being sold without removing it, because documents point at its versions.
 
 ### Prepare a price change for next quarter
@@ -281,4 +294,7 @@ The choice of how it works with the plan is one for the whole company (M17): the
 no choice per item, per plan or per person. A kit's price is
 its own and is not worked out from its parts. Whether an item is taxed is a yes or
 a no: an item taxed at a reduced rate has that rate chosen on the line by the office. A revision dated ahead is staged from the start of that day
-in the company's calendar; a time of day is an API call.
+in the company's calendar; a time of day is an API call. A chemical's cost is
+the item's own cost on its version: the price paid for a particular drum on a
+purchase order is not read, and an item's unit is one unit, so a product bought
+by the gallon and applied by the ounce needs its cost per ounce on the item.

@@ -96,6 +96,41 @@ function marginOf(price: string, cost: string | null): string | null {
   return ((p - c) / p).toFixed(4);
 }
 
+/** The chemical mark as the API says it: the unit its cost is per and its EPA number, or null. */
+export function chemicalOf(item: { chemicalUnit: string | null; epaRegistrationNumber: string | null }) {
+  return item.chemicalUnit === null ? null : { unit: item.chemicalUnit, epaRegistrationNumber: item.epaRegistrationNumber };
+}
+
+/**
+ * A CHEMICAL FROM THE BOOK, as an application chosen from it carries it: the
+ * name it had at the moment it was applied (the version in force then, or
+ * the current one for an item whose versions all start later), its EPA
+ * number and the unit its cost is per. Null for an item that is not here, has
+ * been removed, or is not marked as a chemical, which the caller records as
+ * typed rather than refusing: a regulated record is never thrown away for
+ * naming the wrong thing.
+ */
+export async function chemicalAt(
+  tx: Database, organizationId: string, itemId: string, at: Date,
+): Promise<{ itemId: string; name: string; unit: string; epaRegistrationNumber: string | null } | null> {
+  const [item] = await tx.select({
+    id: schema.priceBookItem.id, unit: schema.priceBookItem.chemicalUnit,
+    epa: schema.priceBookItem.epaRegistrationNumber,
+  }).from(schema.priceBookItem)
+    .where(and(
+      eq(schema.priceBookItem.id, itemId),
+      eq(schema.priceBookItem.organizationId, organizationId),
+      isNull(schema.priceBookItem.deletedAt),
+    )).limit(1);
+  if (!item?.unit) return null;
+  const [named] = await tx.select({ name: schema.priceBookItemVersion.name }).from(schema.priceBookItemVersion)
+    .where(and(eq(schema.priceBookItemVersion.itemId, itemId), inForceAt(at))).limit(1);
+  const [latest] = named ? [named] : await tx.select({ name: schema.priceBookItemVersion.name })
+    .from(schema.priceBookItemVersion).where(eq(schema.priceBookItemVersion.itemId, itemId))
+    .orderBy(desc(schema.priceBookItemVersion.version)).limit(1);
+  return { itemId: item.id, name: latest?.name ?? "", unit: item.unit, epaRegistrationNumber: item.epa };
+}
+
 export interface ItemRow {
   item: typeof schema.priceBookItem.$inferSelect;
   version: typeof schema.priceBookItemVersion.$inferSelect;
@@ -134,6 +169,7 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     imageUrl: row.version.imageUrl ?? null,
     categoryId: row.item.categoryId,
     feeRole: row.item.feeRole,
+    chemical: chemicalOf(row.item),
     price: row.version.price,
     taxable: row.version.taxable,
     taxClass: row.version.taxClass ?? null,
@@ -600,6 +636,7 @@ export async function updateItem(
     code?: string | undefined;
     categoryId?: string | null | undefined;
     feeRole?: "diagnostic" | "after_hours" | null | undefined;
+    chemical?: { unit: string; epaRegistrationNumber: string | null } | null | undefined;
   },
 ) {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
@@ -620,6 +657,24 @@ export async function updateItem(
       set.categoryId = input.categoryId;
     }
     if (input.feeRole !== undefined) set.feeRole = input.feeRole;
+
+    /**
+     * A CHEMICAL IS A MATERIAL. The chemical cost per stop leaves out devices,
+     * bait stations and monitors, "which are capital placed at a site rather
+     * than chemistry consumed on a visit", and those are the book's equipment.
+     * So only a material may be marked, and a marked item may not become
+     * another kind while it is: the mark would quietly start valuing a bait
+     * station as product applied. Taking the mark off is always allowed.
+     */
+    const kindAfter = input.kind ?? before.kind;
+    const marked = input.chemical === undefined ? before.chemicalUnit !== null : input.chemical !== null;
+    if (marked && kindAfter !== "material") {
+      throw new ConflictError(input.chemical
+        ? "Only a material can be marked as a chemical. A device, a bait station or a monitor is equipment placed at a site, not product applied."
+        : "This item is marked as a chemical, so it stays a material. Take the chemical mark off first.");
+    }
+    const unit = input.chemical ? input.chemical.unit.trim() : null;
+    if (input.chemical && !unit) throw new ConflictError("A chemical needs the unit its cost is per, like gal or oz.");
     if (input.code !== undefined) {
       const code = input.code.trim();
       if (code === "") throw new ConflictError("An item needs a code.");
@@ -631,11 +686,22 @@ export async function updateItem(
       set.code = code;
     }
 
-    const [after] = await tx.update(schema.priceBookItem).set(set)
-      .where(eq(schema.priceBookItem.id, input.id)).returning();
+    const [after] = await tx.update(schema.priceBookItem).set({
+      ...set,
+      /** Left as it was unless the mark is being set or taken off. */
+      chemicalUnit: input.chemical === undefined ? before.chemicalUnit : unit,
+      epaRegistrationNumber: input.chemical === undefined
+        ? before.epaRegistrationNumber : input.chemical?.epaRegistrationNumber?.trim() || null,
+    }).where(eq(schema.priceBookItem.id, input.id)).returning();
     await audit(tx, ctx, "pricebook.item_updated", "price_book_item", input.id,
-      { kind: before.kind, code: before.code, categoryId: before.categoryId, feeRole: before.feeRole },
-      { kind: after!.kind, code: after!.code, categoryId: after!.categoryId, feeRole: after!.feeRole });
+      {
+        kind: before.kind, code: before.code, categoryId: before.categoryId, feeRole: before.feeRole,
+        chemical: chemicalOf(before),
+      },
+      {
+        kind: after!.kind, code: after!.code, categoryId: after!.categoryId, feeRole: after!.feeRole,
+        chemical: chemicalOf(after!),
+      });
 
     const fresh = await load(tx, input.id);
     return fresh ? shape(ctx, fresh) : null;
