@@ -1,11 +1,12 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { inspections } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, inspection as insp } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import Link from "next/link";
 import { QuoteForm } from "./QuoteForm";
+import { DeclineForm } from "./DeclineForm";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,12 @@ export const dynamic = "force-dynamic";
  * formats. "Open 40 days against a 30 day response" is a thing somebody can
  * act on; a red badge saying 40 is a thing they learn to ignore.
  */
-export default async function InspectionsPage() {
+export default async function InspectionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ declined?: string }>;
+}) {
+  const { declined } = await searchParams;
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
 
@@ -48,6 +54,9 @@ export default async function InspectionsPage() {
     inspections.recent(ctx, { limit: 20 }),
   ]);
   const quotes = can(user.actor, "compliance:write") && can(user.actor, "estimate:write");
+  /** Declining needs `compliance:write` only; quoting needs `estimate:write` as well. */
+  const declines = can(user.actor, "compliance:write");
+  const declineCodes = insp.DECLINE_CODES.map((code) => ({ value: code, label: insp.DECLINE_CODE_WORDS[code] }));
 
   const overdue = open.filter((row) => row.overdue);
 
@@ -65,6 +74,12 @@ export default async function InspectionsPage() {
       ) : (
         <p className="mt-1 text-sm text-ink-500">
           {programs.map((program) => `${program.name} (${program.checkpointCount} checks)`).join(" · ")}
+        </p>
+      )}
+
+      {declined === "1" && (
+        <p role="status" className="mt-6 rounded-md border border-steel-200 bg-steel-100 p-3 text-sm text-ink-900">
+          Recorded as declined. It is off this list, and still on the unit's page with what they said.
         </p>
       )}
 
@@ -117,6 +132,14 @@ export default async function InspectionsPage() {
               ) : quotes && (row.status === "open" || row.status === "deferred") ? (
                 <QuoteForm deficiencyId={row.id} needsPrice={!row.hasRemedy} />
               ) : null}
+              {/*
+                Saying no, and why, from here, so the office does not open each
+                piece of equipment. A finding already approved or scheduled is
+                work the customer said yes to, and is not offered.
+              */}
+              {declines && ["open", "quoted", "deferred"].includes(row.status) && (
+                <DeclineForm deficiencyId={row.id} codes={declineCodes} />
+              )}
             </li>
           ))}
         </ul>

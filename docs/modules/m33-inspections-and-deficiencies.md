@@ -94,7 +94,9 @@ writing later, and a blank there is the record that was not kept.
 fixed list (too dear, not now, already booked with another company, something
 else), `declineCode` on `POST /v1/inspection-deficiencies/{id}/status`, and the
 code stands as the reason when no words are given. "The customer said no" beside
-each open finding on the unit's page (`/equipment/{id}`, M04) asks for one. The
+each open finding on the unit's page (`/equipment/{id}`, M04) asks for one, and so does
+the same words on each row of the backlog (`/inspections`), so the office does not open
+each piece of equipment: both post the one call above, and both are `compliance:write`. The
 words are kept beside it and never read for a meaning: plumbing's water heater
 capture (M21) leaves out a unit whose finding was declined as already booked
 with another company, and reads only the code for that.
@@ -161,6 +163,16 @@ Findings become deficiencies with a severity and a response deadline.
 The backlog is everything found and not yet put right, worst and most overdue
 first. `/inspections` is the screen. Moving a finding along needs a reason when the
 move ends it.
+
+"The customer said no" on a row (an open, quoted or deferred finding, for somebody
+holding `compliance:write`) asks why from the fixed list (too dear, not now, already
+booked with another company, something else) and for their words if there are any.
+Choosing nothing is refused in words ("Say why they said no."). Recorded, the finding
+leaves the backlog, the page says so, and the unit's page still lists it as declined
+with the code and the words. It is `POST /v1/inspection-deficiencies/{id}/status` with
+`declined`, so the audit entry and the water heater capture are exactly what the unit's
+page makes. A finding already approved or scheduled is not offered the form, because
+the customer said yes to it.
 
 ### Run one in the field
 
@@ -253,7 +265,7 @@ a submission. Inspections filed before the checkpoints were kept print the
 programme's current prompts and say so. Resolving a
 deficiency does not automatically create the job that fixes it: the estimate is
 written and converting it is M07's path. A finding is declined, with its
-code, from the unit's page or the API; the backlog page and the phone do not
+code, from the backlog page, the unit's page or the API; the phone does not
 decline one, and a "they said no" on the phone is the estimate's, which names no
 unit. A decline written before codes were kept, or with words only, has no
 code.
