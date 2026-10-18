@@ -39,6 +39,21 @@ export interface PayExtrasView {
   mileageRates: px.MileageRate[];
   /** The rate in force today in the company's zone, or null when none has started. */
   mileageRateToday: string | null;
+  /** The places a day away is worth something other than the rate above, retired ones last. */
+  perDiemPlaces: PerDiemPlaceView[];
+}
+
+export interface PerDiemPlaceView {
+  id: string;
+  name: string;
+  state: string | null;
+  city: string | null;
+  /** What a day there is worth, one line per starting day, oldest first. */
+  rates: px.PerDiemRate[];
+  /** What a day there is worth today in the company's zone, or null when no rate has started. */
+  rateToday: string | null;
+  /** No longer offered or matched; days already recorded keep it. */
+  retired: boolean;
 }
 
 const view = (settings: px.PaySettings, today: string): PayExtrasView => ({
@@ -47,6 +62,9 @@ const view = (settings: px.PaySettings, today: string): PayExtrasView => ({
   rules: px.TIP_SPLIT_RULES.map((rule) => ({ rule, label: px.TIP_SPLIT_LABEL[rule] })),
   mileageRates: settings.mileageRates,
   mileageRateToday: px.mileageRateOn(settings.mileageRates, today)?.perMile ?? null,
+  perDiemPlaces: [...settings.perDiemPlaces]
+    .sort((a, b) => Number(a.retired) - Number(b.retired) || a.name.localeCompare(b.name))
+    .map((p) => ({ ...p, rateToday: px.perDiemRateOn(p, today) })),
 });
 
 const todayOf = async (tx: Database, organizationId: string) => time.dateIn(new Date(), await timezoneOf(tx, organizationId));
@@ -77,7 +95,7 @@ export async function set(ctx: ServiceContext, input: PayExtrasInput): Promise<P
         perDiemRate = checked.rate;
       }
     }
-    const after: px.PaySettings = { perDiemRate, tipSplit: input.tipSplit ?? before.tipSplit, mileageRates: before.mileageRates };
+    const after: px.PaySettings = { perDiemRate, tipSplit: input.tipSplit ?? before.tipSplit, mileageRates: before.mileageRates, perDiemPlaces: before.perDiemPlaces };
     await write(tx, ctx, "pay_extras.set", before, after);
     return view(after, await todayOf(tx, ctx.actor.organizationId));
   });
@@ -135,9 +153,95 @@ export async function removeMileageRate(ctx: ServiceContext, input: { from: stri
   });
 }
 
+/**
+ * WHERE A DAY AWAY IS WORTH SOMETHING ELSE.
+ *
+ * A list of places, each with a day rate from a date, kept beside the company's one rate (which stays
+ * what a day is worth wherever no place is chosen on purpose). A day recorded at a place is worked out
+ * at that place's rate in force on the day and keeps it, so adding, ending or retiring here never
+ * reprices a day already recorded. Each is a statement about what people are owed, so
+ * `payroll:configure`. A place is retired, never deleted, because recorded days name it.
+ *
+ * Not posted to the ledger, for the reason the one rate's days are not (see `services/expenses.ts`).
+ */
+export async function addPerDiemPlace(
+  ctx: ServiceContext,
+  input: { name: string; state?: string | null | undefined; city?: string | null | undefined; from: string; perDay: string },
+): Promise<PayExtrasView> {
+  return guardedWrite(ctx, "payroll:configure", async (tx) => {
+    const before = await settingsWithin(tx, ctx.actor.organizationId);
+    /** The same place sent again, by a caller that lost the answer, is the first one back and changes nothing. */
+    const checked = px.checkPerDiemPlace(input);
+    const line = px.checkPerDiemRateLine(input);
+    if (checked.ok && line.ok && before.perDiemPlaces.some((p) => !p.retired
+      && p.name === checked.name && p.state === checked.state && p.city === checked.city
+      && p.rates.some((r) => r.from === line.line.from && r.perDay === line.line.perDay))) {
+      return view(before, await todayOf(tx, ctx.actor.organizationId));
+    }
+    const added = px.addPerDiemPlace(before.perDiemPlaces, input, crypto.randomUUID());
+    if (!added.ok) throw new ConflictError(added.reason);
+    const after: px.PaySettings = { ...before, perDiemPlaces: added.places };
+    await write(tx, ctx, "per_diem_place.added", before, after);
+    return view(after, await todayOf(tx, ctx.actor.organizationId));
+  });
+}
+
+export async function addPerDiemPlaceRate(
+  ctx: ServiceContext, input: { id: string; from: string; perDay: string },
+): Promise<PayExtrasView> {
+  return guardedWrite(ctx, "payroll:configure", async (tx) => {
+    const before = await settingsWithin(tx, ctx.actor.organizationId);
+    const line = px.checkPerDiemRateLine(input);
+    const place = before.perDiemPlaces.find((p) => p.id === input.id);
+    if (line.ok && place?.rates.some((r) => r.from === line.line.from && r.perDay === line.line.perDay)) {
+      return view(before, await todayOf(tx, ctx.actor.organizationId));
+    }
+    const added = px.addPerDiemPlaceRate(before.perDiemPlaces, input.id, input);
+    if (!added.ok) throw new ConflictError(added.reason);
+    const after: px.PaySettings = { ...before, perDiemPlaces: added.places };
+    await write(tx, ctx, "per_diem_place.rate_added", before, after);
+    return view(after, await todayOf(tx, ctx.actor.organizationId));
+  });
+}
+
+export async function removePerDiemPlaceRate(ctx: ServiceContext, input: { id: string; from: string }): Promise<PayExtrasView> {
+  return guardedWrite(ctx, "payroll:configure", async (tx) => {
+    const before = await settingsWithin(tx, ctx.actor.organizationId);
+    const place = before.perDiemPlaces.find((p) => p.id === input.id);
+    if (!place) throw new ConflictError("That place is not on the list.");
+    /** Nothing starts that day: taking it off again changes nothing, so a retry is not an error. */
+    if (!place.rates.some((r) => r.from === input.from)) return view(before, await todayOf(tx, ctx.actor.organizationId));
+    const removed = px.removePerDiemPlaceRate(before.perDiemPlaces, input.id, input.from);
+    if (!removed.ok) throw new ConflictError(removed.reason);
+    const after: px.PaySettings = { ...before, perDiemPlaces: removed.places };
+    await write(tx, ctx, "per_diem_place.rate_removed", before, after);
+    return view(after, await todayOf(tx, ctx.actor.organizationId));
+  });
+}
+
+/** Stop using a place. Days already recorded keep its name and what they were worked out at. */
+export async function retirePerDiemPlace(ctx: ServiceContext, input: { id: string }): Promise<PayExtrasView> {
+  return guardedWrite(ctx, "payroll:configure", async (tx) => {
+    const before = await settingsWithin(tx, ctx.actor.organizationId);
+    const place = before.perDiemPlaces.find((p) => p.id === input.id);
+    if (!place) throw new ConflictError("That place is not on the list.");
+    if (place.retired) return view(before, await todayOf(tx, ctx.actor.organizationId));
+    const after: px.PaySettings = {
+      ...before, perDiemPlaces: before.perDiemPlaces.map((p) => (p.id === input.id ? { ...p, retired: true } : p)),
+    };
+    await write(tx, ctx, "per_diem_place.retired", before, after);
+    return view(after, await todayOf(tx, ctx.actor.organizationId));
+  });
+}
+
 export const handlers = {
   getPayExtras: (ctx: ServiceContext) => get(ctx),
   setPayExtras: (ctx: ServiceContext, input: PayExtrasInput) => set(ctx, input),
   addMileageRate: (ctx: ServiceContext, input: { from: string; perMile: string }) => addMileageRate(ctx, input),
   removeMileageRate: (ctx: ServiceContext, input: { from: string }) => removeMileageRate(ctx, input),
+  addPerDiemPlace: (ctx: ServiceContext, input: { name: string; state?: string | null | undefined; city?: string | null | undefined; from: string; perDay: string }) =>
+    addPerDiemPlace(ctx, input),
+  addPerDiemPlaceRate: (ctx: ServiceContext, input: { id: string; from: string; perDay: string }) => addPerDiemPlaceRate(ctx, input),
+  removePerDiemPlaceRate: (ctx: ServiceContext, input: { id: string; from: string }) => removePerDiemPlaceRate(ctx, input),
+  retirePerDiemPlace: (ctx: ServiceContext, input: { id: string }) => retirePerDiemPlace(ctx, input),
 } as const;

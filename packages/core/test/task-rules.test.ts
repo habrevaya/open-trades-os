@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   occurrenceOnOrBefore, occurrenceAfter, occurrenceToRaise, describeSchedule, checkSchedule,
-  escalationDue, checkEscalationHours, closeVerdict, weekdayOf,
+  escalationDue, checkEscalationHours, closeVerdict, weekdayOf, reportingLoop, describeReportingLoop,
 } from "../src/tasks/index.js";
 
 // 2026-10-05 is a Monday.
@@ -254,5 +254,33 @@ describe("closing a task with a checklist", () => {
 
   it("does not ask when it is being dismissed", () => {
     expect(closeVerdict({ items, dismissed: true })).toEqual({ ok: true, overrideReason: null });
+  });
+});
+
+describe("a reporting line that would loop", () => {
+  const lines = (pairs: Record<string, string | null>) => new Map(Object.entries(pairs));
+
+  it("finds A to B and B to A", () => {
+    expect(reportingLoop(lines({ b: "a" }), "a", "b")).toEqual(["a", "b"]);
+  });
+
+  it("finds a longer loop, in the order people report", () => {
+    expect(reportingLoop(lines({ b: "c", c: "d", d: "a" }), "a", "b")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("allows a line that only joins a chain", () => {
+    expect(reportingLoop(lines({ b: "c", c: null }), "a", "b")).toBeNull();
+    expect(reportingLoop(lines({}), "a", "b")).toBeNull();
+  });
+
+  it("does not go round for ever on a loop that is already there and does not include the person", () => {
+    expect(reportingLoop(lines({ b: "c", c: "b" }), "a", "b")).toBeNull();
+  });
+
+  it("names the people in the loop", () => {
+    expect(describeReportingLoop(["Ana", "Ben"]))
+      .toBe("That would make a loop. Ana would report to Ben, and Ben reports to Ana. Change one of those lines first.");
+    expect(describeReportingLoop(["Ana", "Ben", "Cy"]))
+      .toBe("That would make a loop. Ana would report to Ben, Ben reports to Cy, and Cy reports to Ana. Change one of those lines first.");
   });
 });

@@ -76,7 +76,7 @@ export const expense = pgTable("expense", {
 }));
 
 /**
- * A DAY AWAY, AT THE COMPANY'S RATE.
+ * A DAY AWAY, AT THE RATE OF WHERE IT WAS.
  *
  * The amount is the rate as it stood when the day was recorded, kept on the
  * row. A rate read live would change what was already paid the day somebody
@@ -94,11 +94,20 @@ export const perDiem = pgTable("per_diem", {
   day: date("day").notNull(),
   amount: money("amount").notNull(),
   currency: text("currency").notNull().default("USD"),
+  /**
+   * The place whose rate the day was worked out at, when the company has places (M17), and its name
+   * as it was. Neither is a foreign key: places live in the company's pay settings, a place is
+   * retired rather than deleted, and the name is what the office reads on a day recorded long ago.
+   * Both are null for a day at the company's one standard rate.
+   */
+  placeId: uuid("place_id"),
+  placeName: text("place_name"),
   recordedByUserId: uuid("recorded_by_user_id").references(() => user.id, { onDelete: "set null" }),
   note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
+  placeNamed: check("per_diem_place_named", sql`(${t.placeId} is null) = (${t.placeName} is null)`),
   personDayIdx: uniqueIndex("per_diem_person_day_idx").on(t.organizationId, t.technicianId, t.day),
   jobIdx: index("per_diem_job_idx").on(t.organizationId, t.jobId),
 }));

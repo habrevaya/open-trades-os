@@ -52,10 +52,12 @@ export interface PayExtras {
   tipSplit: TipSplitRule;
 }
 
-/** Everything the company chose beside hours: the above and what one mile is paid. */
+/** Everything the company chose beside hours: the above, what one mile is paid and the places a day away is worth something else. */
 export interface PaySettings extends PayExtras {
   /** Oldest first, one per starting day. Empty until somebody sets one, which means no mileage is paid. */
   mileageRates: MileageRate[];
+  /** Places with a day rate of their own. Empty until somebody adds one, which leaves every day away at the one rate above. */
+  perDiemPlaces: PerDiemPlace[];
 }
 
 /**
@@ -74,7 +76,7 @@ export function readPayExtras(raw: unknown): PayExtras {
 /** The whole blob: `readPayExtras` and the mileage rates, each read as defaults when they are nonsense. */
 export function readPaySettings(raw: unknown): PaySettings {
   const blob = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-  return { ...readPayExtras(raw), mileageRates: readMileageRates(blob["mileageRates"]) };
+  return { ...readPayExtras(raw), mileageRates: readMileageRates(blob["mileageRates"]), perDiemPlaces: readPerDiemPlaces(blob["perDiemPlaces"]) };
 }
 
 /**
@@ -196,6 +198,182 @@ export function checkMiles(value: string): MilesCheck {
  */
 export function mileageAmount(miles: string, perMile: string): Money {
   return round(multiply(money(perMile), miles), 2);
+}
+
+/* ------------------------------------------------- a day away, by place */
+
+/** What one day away at a place is worth, from a day. The place's own history, like the mileage rate's. */
+export interface PerDiemRate {
+  /** The first day the rate applies, a company date. */
+  from: string;
+  /** Dollars and cents for one day, the same shape as the company's one rate. */
+  perDay: string;
+}
+
+/**
+ * A place with a day rate of its own.
+ *
+ * A name always, and a city, a state or both when the place is a town or a state rather than a
+ * region the company names itself ("Gulf coast", "Out of state"). Only a place with a city is ever
+ * picked for a job by itself, from the job's address; a state alone, or a name alone, is picked by
+ * a person. A place is retired rather than deleted: days already recorded keep its name and what
+ * they were worked out at, and the list says it is no longer used.
+ */
+export interface PerDiemPlace {
+  /** Made when the place is added and never reused, so a retired place and a new one of the same name are two. */
+  id: string;
+  name: string;
+  /** Two letters, upper case, or null. */
+  state: string | null;
+  city: string | null;
+  /** Oldest first, one per starting day. A place with none pays no day away. */
+  rates: PerDiemRate[];
+  retired: boolean;
+}
+
+export const MAX_PLACE_NAME = 80;
+
+/** The same town however it was typed: case, spaces and a trailing full stop do not make a different one. */
+const townKey = (value: string) => value.trim().replace(/\.$/, "").replace(/\s+/g, " ").toLowerCase();
+
+export type RateLineCheck = { ok: true; line: PerDiemRate } | { ok: false; reason: string };
+
+/** One line of a place's history: what a day is worth from the day it starts. */
+export function checkPerDiemRateLine(input: { from: string; perDay: string }): RateLineCheck {
+  const rate = checkPerDiemRate(input.perDay);
+  if (!rate.ok) return rate;
+  if (!isDay(input.from)) return { ok: false, reason: "Say the first day the rate applies." };
+  if (input.from < EARLIEST_MILEAGE_DAY) return { ok: false, reason: "That day is too long ago to be right. Check the year." };
+  return { ok: true, line: { from: input.from, perDay: rate.rate } };
+}
+
+export type PlaceCheck =
+  | { ok: true; name: string; state: string | null; city: string | null }
+  | { ok: false; reason: string };
+
+/** What was typed for a place, tidied: the name, and a state of two letters or a city when given. */
+export function checkPerDiemPlace(input: { name: string; state?: string | null | undefined; city?: string | null | undefined }): PlaceCheck {
+  const name = input.name.trim().replace(/\s+/g, " ");
+  if (name === "") return { ok: false, reason: "Give the place a name, like Austin or Out of state." };
+  if (name.length > MAX_PLACE_NAME) return { ok: false, reason: `Keep the name of a place to ${MAX_PLACE_NAME} letters.` };
+  const typedState = input.state?.trim() ?? "";
+  if (typedState !== "" && !/^[A-Za-z]{2}$/.test(typedState)) {
+    return { ok: false, reason: "Say the state as two letters, like TX, or leave it empty." };
+  }
+  const city = (input.city?.trim() ?? "").replace(/\s+/g, " ");
+  if (city.length > MAX_PLACE_NAME) return { ok: false, reason: `Keep the city to ${MAX_PLACE_NAME} letters.` };
+  return { ok: true, name, state: typedState === "" ? null : typedState.toUpperCase(), city: city === "" ? null : city };
+}
+
+/**
+ * The places in the settings blob. Anything that is not a place, or has a name two places share, is
+ * dropped rather than guessed at, and the rates of each are read the way mileage rates are: a line
+ * that is not a rate goes, two for one day keep the first, and the answer is oldest first.
+ */
+export function readPerDiemPlaces(raw: unknown): PerDiemPlace[] {
+  const found: PerDiemPlace[] = [];
+  const ids = new Set<string>();
+  for (const line of Array.isArray(raw) ? raw : []) {
+    const entry = line && typeof line === "object" ? line as Record<string, unknown> : {};
+    if (typeof entry["id"] !== "string" || entry["id"] === "" || ids.has(entry["id"]) || typeof entry["name"] !== "string") continue;
+    const place = checkPerDiemPlace({
+      name: entry["name"],
+      state: typeof entry["state"] === "string" ? entry["state"] : null,
+      city: typeof entry["city"] === "string" ? entry["city"] : null,
+    });
+    if (!place.ok) continue;
+    const rates = new Map<string, PerDiemRate>();
+    for (const rate of Array.isArray(entry["rates"]) ? entry["rates"] : []) {
+      const r = rate && typeof rate === "object" ? rate as Record<string, unknown> : {};
+      if (typeof r["from"] !== "string" || typeof r["perDay"] !== "string") continue;
+      const checked = checkPerDiemRateLine({ from: r["from"], perDay: r["perDay"] });
+      if (checked.ok && !rates.has(checked.line.from)) rates.set(checked.line.from, checked.line);
+    }
+    ids.add(entry["id"]);
+    found.push({
+      id: entry["id"], name: place.name, state: place.state, city: place.city,
+      rates: [...rates.values()].sort((a, b) => a.from.localeCompare(b.from)),
+      retired: entry["retired"] === true,
+    });
+  }
+  return found;
+}
+
+type PlacesResult = { ok: true; places: PerDiemPlace[] } | { ok: false; reason: string };
+
+const sameName = (a: string, b: string) => townKey(a) === townKey(b);
+
+/** The places with a new one, or why not. Two places in use cannot share a name, because the list is read by name. */
+export function addPerDiemPlace(
+  places: readonly PerDiemPlace[],
+  input: { name: string; state?: string | null | undefined; city?: string | null | undefined; from: string; perDay: string },
+  id: string,
+): PlacesResult {
+  const place = checkPerDiemPlace(input);
+  if (!place.ok) return place;
+  const line = checkPerDiemRateLine(input);
+  if (!line.ok) return line;
+  if (places.some((p) => !p.retired && sameName(p.name, place.name))) {
+    return { ok: false, reason: `There is already a place called ${place.name}. Add a rate to it, or give this one another name.` };
+  }
+  return { ok: true, places: [...places, { id, name: place.name, state: place.state, city: place.city, rates: [line.line], retired: false }] };
+}
+
+/** The places with a rate added to one of them. A day that already has a rate is refused, not replaced, as a mileage rate is. */
+export function addPerDiemPlaceRate(
+  places: readonly PerDiemPlace[], id: string, input: { from: string; perDay: string },
+): PlacesResult {
+  const place = places.find((p) => p.id === id);
+  if (!place) return { ok: false, reason: "That place is not on the list." };
+  if (place.retired) return { ok: false, reason: `${place.name} is no longer used, so it cannot be given a rate.` };
+  const line = checkPerDiemRateLine(input);
+  if (!line.ok) return line;
+  if (place.rates.some((r) => r.from === line.line.from)) {
+    return { ok: false, reason: `${place.name} already has a rate from ${line.line.from}. Take it off first if it is wrong.` };
+  }
+  const rates = [...place.rates, line.line].sort((a, b) => a.from.localeCompare(b.from));
+  return { ok: true, places: places.map((p) => (p.id === id ? { ...p, rates } : p)) };
+}
+
+/** The places with the rate that starts on a day taken off one of them. */
+export function removePerDiemPlaceRate(places: readonly PerDiemPlace[], id: string, from: string): PlacesResult {
+  const place = places.find((p) => p.id === id);
+  if (!place) return { ok: false, reason: "That place is not on the list." };
+  if (!place.rates.some((r) => r.from === from)) return { ok: false, reason: `${place.name} has no rate from ${from}.` };
+  return { ok: true, places: places.map((p) => (p.id === id ? { ...p, rates: p.rates.filter((r) => r.from !== from) } : p)) };
+}
+
+/** What a day at a place is worth on a day: the latest rate that starts on or before it. Null when none has started. */
+export function perDiemRateOn(place: Pick<PerDiemPlace, "rates">, day: string): string | null {
+  let found: PerDiemRate | null = null;
+  for (const rate of place.rates) if (rate.from <= day && (found === null || rate.from > found.from)) found = rate;
+  return found?.perDay ?? null;
+}
+
+export type PlaceMatch =
+  | { kind: "one"; place: PerDiemPlace }
+  | { kind: "none" }
+  | { kind: "several"; places: PerDiemPlace[] };
+
+/**
+ * Which place a job's address is in, for a day away recorded without one chosen.
+ *
+ * Only a place with a CITY is matched, and only on the city (without caring about case or spacing)
+ * and, when the place gives a state, the state. A place with a state alone or a name alone is for
+ * a person to choose, because "the job is in Texas" does not say which of two Texas places a
+ * person was in. Nothing is guessed from a near miss: "Austin" does not match "Austin Heights".
+ * Two places that both match are `several`, which the caller turns into a question.
+ */
+export function placeForAddress(
+  places: readonly PerDiemPlace[], address: { city: string; state: string },
+): PlaceMatch {
+  const city = townKey(address.city);
+  const state = address.state.trim().toUpperCase();
+  const matches = places.filter((p) => !p.retired && p.city !== null && townKey(p.city) === city
+    && (p.state === null || p.state === state));
+  if (matches.length === 0) return { kind: "none" };
+  if (matches.length === 1) return { kind: "one", place: matches[0]! };
+  return { kind: "several", places: matches };
 }
 
 /* ------------------------------------------------------------ an expense */

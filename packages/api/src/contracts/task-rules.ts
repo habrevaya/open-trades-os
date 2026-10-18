@@ -299,7 +299,7 @@ export const setReportingLine = defineRoute({
   method: "post",
   path: "/v1/reporting-lines",
   summary: "Say who somebody answers to",
-  description: "`reportsToUserId: null` records that nobody is. Setting a value is idempotent by nature.",
+  description: "`reportsToUserId: null` records that nobody is. Setting a value is idempotent by nature. Refused with a `409` when the person would be their own manager, when the manager has left, or when the line would make a loop (A to B and B to A, or longer), the message naming the people in it.",
   module: "M34",
   permissions: ["user:write"],
   idempotent: true,

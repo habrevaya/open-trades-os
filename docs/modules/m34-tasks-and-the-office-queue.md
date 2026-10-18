@@ -267,10 +267,17 @@ Somebody with `user:write` also sets it on that page, from a list of the people 
 work there now (never the person themselves), or clears it with "Nobody recorded":
 the page posts the same call as the escalation screen, so it is the same permission,
 the same refusals ("Somebody cannot be their own manager", "A manager has to be
-somebody who works here now") and the same audit line (`membership.reports_to_set`,
+somebody who works here now", and a loop, below) and the same audit line (`membership.reports_to_set`,
 with the line it replaced), and either screen shows what the other set. A manager who
 has left stays in the list, marked, so saving the page does not take the line off
-unnoticed. Without `user:write` the page shows the line and no list. With no manager recorded, an
+unnoticed. A line that would make a loop is refused in words naming the people in it:
+"That would make a loop. Ana would report to Ben, Ben reports to Cy, and Cy reports to
+Ana. Change one of those lines first." (a `409` from `POST /v1/reporting-lines`, and the
+message on both screens). The check is in `setReportsTo`, the one function every path
+posts to, and walks the whole chain above the new manager, including people who have
+left, because their lines still stand; saves are taken one at a time per company so two
+people saved at once cannot each look fine and together make a loop. Without `user:write`
+the page shows the line and no list. With no manager recorded, an
 unassigned task, nobody in the chosen role, or a named person who has left, the
 owners are told and the escalation says so in words.
 `GET /v1/task-escalation-rules`, `POST /v1/task-escalation-rules`,
@@ -496,9 +503,10 @@ page, with the change applying from the next occurrence.
 
 Reporting lines are read by escalation and by the licence notice, and shown on the
 person's own page, where they can also be set; nothing else in the product reads them.
-They are one manager per person, with no limit on how long a chain is and no check that
-it does not loop: A reports to B and B to A is accepted, and escalation looks one step
-up and no further, so it does no harm, but nothing warns about it.
+They are one manager per person, with no limit on how long a chain is. A new line that
+would make a loop is refused, but a loop already in the data from before the check is not
+found or repaired: nothing walks the whole company looking for one, and escalation looks
+one step up and no further, so it does no harm.
 
 Obligations are raised by work finished on a cancelled visit, by a contract's
 clocks on a job (respond by, on site by, finished by, invoice by and claim by,

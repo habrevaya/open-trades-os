@@ -381,14 +381,47 @@ out at the rate on the day whatever the phone showed.
 
 A per diem is the company's rate for one day away. `POST /v1/payroll/pay-extras`
 (`payroll:configure`) sets it, on `/payroll/pay-rules` under "A day away", and
-`GET /v1/payroll/pay-extras` reads it (`timesheet:read`). No rate means no per diem is
-paid. `POST /v1/per-diem` (`expense:approve`) records each day from the first to the
+`GET /v1/payroll/pay-extras` reads it (`timesheet:read`). No standard rate and no place
+means no per diem is paid; with places and no standard rate, days are paid only at a place.
+`POST /v1/per-diem` (`expense:approve`) records each day from the first to the
 last (at most 31) a person was away on a job, named by id or by number, at the rate as
 it stands that day, kept on the row so a later change does not reprice it. A day that
 already has one for that person is left as it was and named. A day inside a closed
 period is refused, and `POST /v1/per-diem/{id}/removal` takes a wrong one back out while
 its period is open. `GET /v1/per-diem` lists them. A per diem is exported as `per_diem`,
 the same way, and the office does it on `/timesheets/expenses`.
+
+**A day away by place.** The rate above is the company's standard one. A company whose
+days away are worth more in some places keeps a list of places on `/payroll/pay-rules`
+under "Days away by place": a name, optionally a city and a state (two letters), and a day
+rate from a date, with more rates added later and each place's list kept oldest first, the
+way mileage rates are (`POST /v1/payroll/per-diem-places`,
+`POST /v1/payroll/per-diem-places/{id}/rates`,
+`POST /v1/payroll/per-diem-places/{id}/rates/{from}/removal` and
+`POST /v1/payroll/per-diem-places/{id}/retirement`, all `payroll:configure`; the list is on
+`GET /v1/payroll/pay-extras` as `perDiemPlaces`, with what a day there is worth today). A
+rate for a day that already has one is refused rather than replaced, a place is retired and
+never deleted because recorded days name it, and two places in use cannot share a name. The
+places are kept in the company's pay settings beside the mileage rates. Recording a day
+(`POST /v1/per-diem`, `expense:approve`) takes a `placeId`. Left out, the place is the one
+whose city is the job's address's city (and whose state, when it gives one), compared
+without regard to case or spacing: nothing is matched on a near miss, a place with a state
+only or a name only is never picked for a job by itself, and a city no place names (or two
+that do) is refused in words that name the city and ask the office to choose, never guessed.
+`placeId: null` says the standard rate on purpose, which the screen offers as "Nowhere on
+the list: the standard rate". A company with no places records exactly as before. Each day
+is worked out at the rate in force on that day at the place, and is kept with the place's id
+and name (`per_diem.place_id`, `place_name`), so a rate added, taken off or a place retired
+afterwards never reprices a day recorded. A day the place has no rate for (before its first
+rate, or after its only rate was taken off) is refused by name and nothing in that entry is
+recorded. One entry is one place: a span that crosses places is recorded as separate
+entries, each with its own days, and a day somebody already has one for is left alone and
+named, so the second entry cannot overwrite the first. The answer carries `place` and
+`amounts` (each new day's figure) when a place was used, and `rate` is the place's rate when
+it was the same on every day recorded. The days list, a person's own page of days away, and
+the job's "Paid back to people" show the place. Like the standard rate, a place's day is
+paid with no tax taken, which is only right within the tax authority's allowance for that
+place and day, and that check is the company's; none of it is posted to the ledger.
 
 **Three judgements the product owner has not made, and the conservative reading taken.**
 A per diem is paid with no tax taken from it, which is only right while it is within
@@ -607,10 +640,13 @@ company wide figure from a day: there is no rate per person, per vehicle or per 
 odometer or trip log behind the miles (they are what the person types, and the office
 decides), no distance worked out from the addresses, and nothing checks the rate or the miles against the
 tax authority's rate. A claim in miles is not repriced when its rate is wrong: it is refused by the
-office and entered again. There is no per diem that varies by place or by meal, and nothing checks
-a per diem against the tax authority's allowance: the company has one rate for a day away, and a
-list of places with an amount each was left out because a day away is recorded by the office for a
-whole span of days and a span that crosses places has no single answer. Certified payroll reporting is not built. How an item's own commission rate works
+office and entered again. A per diem does not vary by meal, and nothing checks a per diem against the tax
+authority's allowance, at a place or at the standard rate. A place is only a name, a city
+and a state: there is no radius or postcode, no place picked from where a technician's phone
+was, and a trip crossing places is recorded one place at a time by the office, because one
+entry has one place. A place's rate is not corrected in place: a wrong one is taken off and
+the right one added, and days already recorded are not repriced, so a wrong day is taken out
+and recorded again while its pay period is open. Certified payroll reporting is not built. How an item's own commission rate works
 with the plan is one choice for the whole company: there is no choice per plan, per item
 or per person, and the plan's part of a line on a margin, flat or collected plan is its
 share by what it charged, not a margin or a cost worked out for the line. Three
