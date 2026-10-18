@@ -2030,6 +2030,10 @@ export interface CancelMailCampaignOutput {
 export interface CancelVisitInput {
   by: "customer" | "company";
   askedAt?: string;
+  reason?: {
+    code: "weather" | "crew_short" | "equipment" | "other";
+    note?: string;
+  };
 }
 
 export interface CancelVisitOutput {
@@ -2039,6 +2043,12 @@ export interface CancelVisitOutput {
   cancelledAt: string;
   cancelNoticeHours: number;
   late: boolean | null;
+  reason: {
+    code: "weather" | "crew_short" | "equipment" | "other";
+    label: string;
+    note: string | null;
+    words: string;
+  } | null;
 }
 
 export type CancelWebhookReplayInput = Record<string, unknown>;
@@ -2306,6 +2316,8 @@ export interface CompleteVisitOutput {
   customerNotesSharedAt: string | null;
   cancelledBy?: "customer" | "company" | null;
   cancelledAt?: string | null;
+  cancelReason?: "weather" | "crew_short" | "equipment" | "other" | null;
+  cancelReasonNote?: string | null;
   externalRef: {
     source: string;
     id: string;
@@ -3852,6 +3864,8 @@ export interface CreateJobOutput {
     customerNotesSharedAt: string | null;
     cancelledBy?: "customer" | "company" | null;
     cancelledAt?: string | null;
+    cancelReason?: "weather" | "crew_short" | "equipment" | "other" | null;
+    cancelReasonNote?: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -8029,6 +8043,11 @@ export interface GetDispatchBoardOutput {
       routeName: string | null;
       locked: boolean;
       stage?: string | null;
+      onHold?: {
+        reason: "part" | "inspection" | "customer" | "weather" | "other" | null;
+        days: number | null;
+        words: string;
+      } | null;
     }>;
   }>;
   crews: Array<{
@@ -8052,6 +8071,11 @@ export interface GetDispatchBoardOutput {
       routeName: string | null;
       locked: boolean;
       stage?: string | null;
+      onHold?: {
+        reason: "part" | "inspection" | "customer" | "weather" | "other" | null;
+        days: number | null;
+        words: string;
+      } | null;
     }>;
   }>;
   routes: Array<{
@@ -8080,6 +8104,11 @@ export interface GetDispatchBoardOutput {
     locked: boolean;
     priorityPlan: string | null;
     stage?: string | null;
+    onHold?: {
+      reason: "part" | "inspection" | "customer" | "weather" | "other" | null;
+      days: number | null;
+      words: string;
+    } | null;
   }>;
 }
 
@@ -9201,6 +9230,10 @@ export interface GetInspectionReportOutput {
   checkpointsKept: boolean;
 }
 
+export interface GetInviteLifetimeOutput {
+  days: number;
+}
+
 export interface GetInvoiceFinancingOutput {
   connected: boolean;
   lender: string | null;
@@ -9391,6 +9424,10 @@ export interface GetJobExpensesOutput {
   total: string;
 }
 
+export interface GetJobHoldNudgeOutput {
+  days: number | null;
+}
+
 export interface GetJobMaterialCostOutput {
   cost: string;
 }
@@ -9445,6 +9482,8 @@ export interface GetJobOutput {
     customerNotesSharedAt: string | null;
     cancelledBy?: "customer" | "company" | null;
     cancelledAt?: string | null;
+    cancelReason?: "weather" | "crew_short" | "equipment" | "other" | null;
+    cancelReasonNote?: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -12483,6 +12522,12 @@ export interface GetVisitOutput {
     at: string | null;
     noticeHours: number | null;
     late: boolean | null;
+    reason?: {
+      code: "weather" | "crew_short" | "equipment" | "other";
+      label: string;
+      note: string | null;
+      words: string;
+    } | null;
   } | null;
 }
 
@@ -12852,6 +12897,7 @@ export interface InviteMemberOutput {
   emailed: boolean;
   emailNote: string | null;
   expiresAt: string;
+  days: number;
 }
 
 export type InvoiceAgreementInstalmentInput = Record<string, unknown>;
@@ -22227,6 +22273,7 @@ export interface ResendInviteOutput {
   emailed: boolean;
   emailNote: string | null;
   expiresAt: string;
+  days: number;
 }
 
 export interface ReserveStockInput {
@@ -23470,6 +23517,8 @@ export interface ScheduleVisitOutput {
   customerNotesSharedAt: string | null;
   cancelledBy?: "customer" | "company" | null;
   cancelledAt?: string | null;
+  cancelReason?: "weather" | "crew_short" | "equipment" | "other" | null;
+  cancelReasonNote?: string | null;
   externalRef: {
     source: string;
     id: string;
@@ -24316,6 +24365,14 @@ export interface SetEstimateCustomFieldsOutput {
   customFields: Record<string, unknown>;
 }
 
+export interface SetInviteLifetimeInput {
+  days: number;
+}
+
+export interface SetInviteLifetimeOutput {
+  days: number;
+}
+
 export interface SetInvoiceBillToInput {
   contactId: string | null;
 }
@@ -24434,6 +24491,14 @@ export interface SetJobCoverageOutput {
   coversLabour: boolean | null;
   coversParts: boolean | null;
   coversTrip: boolean | null;
+}
+
+export interface SetJobHoldNudgeInput {
+  days: number | null;
+}
+
+export interface SetJobHoldNudgeOutput {
+  days: number | null;
 }
 
 export interface SetJobPartiesInput {
@@ -27594,6 +27659,10 @@ export interface UpdateJobInput {
   cancelVisits?: boolean;
   cancelledBy?: "customer" | "company";
   cancelAskedAt?: string;
+  cancelReason?: {
+    code: "weather" | "crew_short" | "equipment" | "other";
+    note?: string;
+  };
 }
 
 export interface UpdateJobOutput {
@@ -27646,6 +27715,8 @@ export interface UpdateJobOutput {
     customerNotesSharedAt: string | null;
     cancelledBy?: "customer" | "company" | null;
     cancelledAt?: string | null;
+    cancelReason?: "weather" | "crew_short" | "equipment" | "other" | null;
+    cancelReasonNote?: string | null;
     externalRef: {
       source: string;
       id: string;
@@ -30461,6 +30532,8 @@ export interface GetInspectionReportInput {
   id: string;
 }
 
+export type GetInviteLifetimeInput = Record<string, never>;
+
 export interface GetInvoiceInput {
   id: string;
 }
@@ -30481,6 +30554,8 @@ export interface GetJobAttributionInput {
 export interface GetJobExpensesInput {
   jobId: string;
 }
+
+export type GetJobHoldNudgeInput = Record<string, never>;
 
 export interface GetJobMaterialCostInput {
   jobId: string;
@@ -33655,11 +33730,13 @@ export interface OperationTypes {
   getImportRefusals: { input: GetImportRefusalsInput; output: GetImportRefusalsOutput };
   getIncident: { input: GetIncidentInput; output: GetIncidentOutput };
   getInspectionReport: { input: GetInspectionReportInput; output: GetInspectionReportOutput };
+  getInviteLifetime: { input: GetInviteLifetimeInput; output: GetInviteLifetimeOutput };
   getInvoice: { input: GetInvoiceInput; output: GetInvoiceOutput };
   getInvoiceFinancing: { input: GetInvoiceFinancingInput; output: GetInvoiceFinancingOutput };
   getJob: { input: GetJobInput; output: GetJobOutput };
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
   getJobExpenses: { input: GetJobExpensesInput; output: GetJobExpensesOutput };
+  getJobHoldNudge: { input: GetJobHoldNudgeInput; output: GetJobHoldNudgeOutput };
   getJobMaterialCost: { input: GetJobMaterialCostInput; output: GetJobMaterialCostOutput };
   getJobProfitability: { input: GetJobProfitabilityInput; output: GetJobProfitabilityOutput };
   getJobRateOffers: { input: GetJobRateOffersInput; output: GetJobRateOffersOutput };
@@ -34313,11 +34390,13 @@ export interface OperationTypes {
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
+  setInviteLifetime: { input: SetInviteLifetimeInput; output: SetInviteLifetimeOutput };
   setInvoiceBillTo: { input: SetInvoiceBillToParams & SetInvoiceBillToInput; output: SetInvoiceBillToOutput };
   setInvoiceCustomFields: { input: SetInvoiceCustomFieldsParams & SetInvoiceCustomFieldsInput; output: SetInvoiceCustomFieldsOutput };
   setItemTax: { input: SetItemTaxInput; output: SetItemTaxOutput };
   setJobContract: { input: SetJobContractParams & SetJobContractInput; output: SetJobContractOutput };
   setJobCoverage: { input: SetJobCoverageParams & SetJobCoverageInput; output: SetJobCoverageOutput };
+  setJobHoldNudge: { input: SetJobHoldNudgeInput; output: SetJobHoldNudgeOutput };
   setJobParties: { input: SetJobPartiesParams & SetJobPartiesInput; output: SetJobPartiesOutput };
   setJobSkills: { input: SetJobSkillsParams & SetJobSkillsInput; output: SetJobSkillsOutput };
   setLocationSharing: { input: SetLocationSharingInput; output: SetLocationSharingOutput };
@@ -34843,11 +34922,13 @@ export const OPERATIONS = {
   getImportRefusals: { method: "GET", path: "/v1/imports/{id}/refused", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   getIncident: { method: "GET", path: "/v1/safety/incidents/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   getInspectionReport: { method: "GET", path: "/v1/inspections/{id}/report", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  getInviteLifetime: { method: "GET", path: "/v1/invite-lifetime", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:invite"] },
   getInvoice: { method: "GET", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getInvoiceFinancing: { method: "GET", path: "/v1/invoices/{invoiceId}/financing", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getJob: { method: "GET", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getJobExpenses: { method: "GET", path: "/v1/jobs/{jobId}/expenses", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
+  getJobHoldNudge: { method: "GET", path: "/v1/job-hold-nudge", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   getJobProfitability: { method: "GET", path: "/v1/profitability/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read","job.cost:read"] },
   getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["for","exceptInvoiceId","exceptEstimateId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -35501,11 +35582,13 @@ export const OPERATIONS = {
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
+  setInviteLifetime: { method: "PATCH", path: "/v1/invite-lifetime", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setInvoiceBillTo: { method: "PUT", path: "/v1/invoices/{id}/bill-to", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   setInvoiceCustomFields: { method: "PUT", path: "/v1/invoices/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read","invoice:write"] },
   setItemTax: { method: "POST", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setJobContract: { method: "PUT", path: "/v1/jobs/{id}/contract", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobCoverage: { method: "PUT", path: "/v1/jobs/{id}/coverage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  setJobHoldNudge: { method: "PATCH", path: "/v1/job-hold-nudge", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setJobParties: { method: "PUT", path: "/v1/jobs/{id}/parties", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobSkills: { method: "PUT", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setLocationSharing: { method: "PUT", path: "/v1/dispatch/location-sharing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -38652,6 +38735,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * How many days an invite's link works.
+   *
+   * GET /v1/invite-lifetime. Needs user:invite.
+   */
+  getInviteLifetime(input: GetInviteLifetimeInput = {} as GetInviteLifetimeInput, options?: CallOptions): Promise<GetInviteLifetimeOutput> {
+    return this.call("getInviteLifetime", input, options);
+  }
+
+  /**
    * Get an invoice.
    *
    * GET /v1/invoices/{id}. Needs invoice:read.
@@ -38694,6 +38786,15 @@ export abstract class GeneratedOperations {
    */
   getJobExpenses(input: GetJobExpensesInput, options?: CallOptions): Promise<GetJobExpensesOutput> {
     return this.call("getJobExpenses", input, options);
+  }
+
+  /**
+   * How long a job may stay on hold before the office is nudged.
+   *
+   * GET /v1/job-hold-nudge. Needs settings:read.
+   */
+  getJobHoldNudge(input: GetJobHoldNudgeInput = {} as GetJobHoldNudgeInput, options?: CallOptions): Promise<GetJobHoldNudgeOutput> {
+    return this.call("getJobHoldNudge", input, options);
   }
 
   /**
@@ -44574,6 +44675,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set how many days an invite's link works.
+   *
+   * PATCH /v1/invite-lifetime. Needs settings:write.
+   */
+  setInviteLifetime(input: SetInviteLifetimeInput, options?: CallOptions): Promise<SetInviteLifetimeOutput> {
+    return this.call("setInviteLifetime", input, options);
+  }
+
+  /**
    * Say who at the payer an invoice is addressed to.
    *
    * PUT /v1/invoices/{id}/bill-to. Needs invoice:write.
@@ -44616,6 +44726,15 @@ export abstract class GeneratedOperations {
    */
   setJobCoverage(input: SetJobCoverageParams & SetJobCoverageInput, options?: CallOptions): Promise<SetJobCoverageOutput> {
     return this.call("setJobCoverage", input, options);
+  }
+
+  /**
+   * Set how long a job may stay on hold before the office is nudged.
+   *
+   * PATCH /v1/job-hold-nudge. Needs settings:write.
+   */
+  setJobHoldNudge(input: SetJobHoldNudgeInput, options?: CallOptions): Promise<SetJobHoldNudgeOutput> {
+    return this.call("setJobHoldNudge", input, options);
   }
 
   /**
