@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { labor, ledger, money as m, time, work } from "@opentradesos/core";
+import { assertCan, labor, ledger, money as m, time, work } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, timezoneOf, ConflictError, NotFoundError, UnprocessableError,
   type ServiceContext,
@@ -1309,7 +1309,14 @@ export interface BatchOutcome {
 export async function settleProposed(
   ctx: ServiceContext, input: { invoiceIds: readonly string[]; planId?: string | undefined },
 ): Promise<{ settled: BatchOutcome[]; refused: BatchOutcome[] }> {
-  const ids = [...new Set(input.invoiceIds)];
+  /**
+   * Checked once before anything, not only by each settle: a list that turns
+   * out empty, or whose every invoice is refused before settling, must still
+   * be refused to somebody who may not settle commission at all.
+   */
+  assertCan(ctx.actor, "commission:configure");
+  const ids = [...new Set(input.invoiceIds ?? [])];
+  if (ids.length === 0) throw new ConflictError("Tick the invoices to settle as proposed.");
   const settled: BatchOutcome[] = [];
   const refused: BatchOutcome[] = [];
   for (const invoiceId of ids) {
