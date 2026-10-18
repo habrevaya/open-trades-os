@@ -1,5 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
-import { reporting, type Permission } from "@opentradesos/core";
+import { reporting, work, type Permission } from "@opentradesos/core";
 import { packById } from "@opentradesos/trade-packs";
 import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 
@@ -1390,13 +1390,18 @@ const routeDays = (status: "counted" | "gap", value: "stops" | "miles" | "one"):
  * scorecard's figure is the company's, and the records behind it say which
  * route and which day each stop was.
  */
+/** The reason in the words the office reads (core's `work.CANCEL_REASONS`), for the records behind the figure. */
+const CANCEL_REASON_SQL = `case v.cancel_reason::text ${work.CANCEL_REASONS.map((r) => `when '${r.value}' then '${r.label}'`).join(" ")} end`;
 const CALLED_OFF = `v.status::text = any(array['cancelled', 'completed_after_cancellation'])`;
 const WHO_KNOWN = `(v.cancelled_by is not null and v.cancelled_at is not null and v.cancel_notice_hours is not null)`;
 const LATE = `(v.cancelled_at > v.window_start - make_interval(hours => v.cancel_notice_hours))`;
 const stopsCalledOff = (pick: "late" | "scheduled" | "company" | "unknown"): Records => (from, to, zone) => sql`
   select 'visit'::text as kind, v.id::text as id,
          concat('#', j.number, ' ', c.name, ', ', coalesce(r.name, cr.name, 'no route'), ', ',
-                trim(to_char(v.window_start at time zone ${zone}, 'Day'))) as label,
+                trim(to_char(v.window_start at time zone ${zone}, 'Day')),
+                ${sql.raw(pick === "company"
+    ? `case when v.cancel_reason is null then ', no reason given' else ', ' || ${CANCEL_REASON_SQL} || coalesce(': ' || nullif(btrim(v.cancel_reason_note), ''), '') end`
+    : "''")}) as label,
          to_char(v.window_start at time zone ${zone}, 'YYYY-MM-DD') as on_day,
          1::numeric as value, '/visits/' || v.id as href
   from public.visit v

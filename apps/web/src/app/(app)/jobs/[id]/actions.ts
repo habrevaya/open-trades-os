@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { commercial, entitlements, files, jobs, jobBilling, visitChanges, ConflictError } from "@opentradesos/api/services";
-import { money, type coverage } from "@opentradesos/core";
+import { money, work, type coverage } from "@opentradesos/core";
 import { partiesFromForm } from "@/lib/job-parties";
 import { completeVisit } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
@@ -162,10 +162,20 @@ export async function setJobStatus(_previous: FormState, form: FormData): Promis
   if (cancelVisits && cancelledBy !== "customer" && cancelledBy !== "company") {
     return refused(form, "Say who asked to call the visits off: the customer, or us.");
   }
+  /**
+   * Why, when the company is the one who called them off: from the fixed list,
+   * and "something else" says what. A customer is never asked why.
+   */
+  const code = cancelVisits && cancelledBy === "company" ? field(form, "cancelReason") : undefined;
+  if (cancelVisits && cancelledBy === "company" && !work.CANCEL_REASONS.some((r) => r.value === code)) {
+    return refused(form, "Say why we called the visits off: rain or weather, crew short, equipment, or something else.");
+  }
+  const note = code ? field(form, "cancelReasonNote") : undefined;
   const result = await attempt(form, async () => {
     await jobs.update(await ctx(), {
       id: jobId, status,
       ...(cancelVisits ? { cancelVisits, cancelledBy: cancelledBy as "customer" | "company" } : {}),
+      ...(code ? { cancelReason: { code: code as work.CancelReason, ...(note ? { note } : {}) } } : {}),
     });
   });
   revalidatePath(`/jobs/${jobId}`);

@@ -293,6 +293,18 @@ export const job = pgTable("job", {
  */
 export const visitCancelledBy = pgEnum("visit_cancelled_by", ["customer", "company"]);
 
+/**
+ * WHY THE COMPANY CALLED A DAY OFF
+ *
+ * Cleaning's cancellation rate leaves out "visits the company cancelled for
+ * weather or staffing, which are a separate and more serious number", and
+ * until a code was kept nothing could say which of those a rain day, a sick
+ * crew or a broken van was. A fixed list rather than words, for the reason a
+ * hold and a decline got one: a figure reads the code, never a sentence.
+ * Asked only of the company's own cancellations, never of the customer's.
+ */
+export const visitCancelReason = pgEnum("visit_cancel_reason", ["weather", "crew_short", "equipment", "other"]);
+
 export const visit = pgTable("visit", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -376,6 +388,14 @@ export const visit = pgTable("visit", {
   cancelledBy: visitCancelledBy("cancelled_by"),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   cancelNoticeHours: integer("cancel_notice_hours"),
+  /**
+   * Why the company called it off, as a code and the words that go with it.
+   * Null on a customer's cancellation, always, and on a company one that
+   * came from an API caller that did not say or from history (nothing
+   * guesses it from notes). `other` carries its words in `cancel_reason_note`.
+   */
+  cancelReason: visitCancelReason("cancel_reason"),
+  cancelReasonNote: text("cancel_reason_note"),
   ...sourceRef,
   /**
    * The company's own fields, checked against the definitions in M29 by the
@@ -387,6 +407,12 @@ export const visit = pgTable("visit", {
   /** A visit that says who called it off says when, and under what notice window. */
   cancelSaysWhen: check("visit_cancel_says_when",
     sql`${t.cancelledBy} is null or (${t.cancelledAt} is not null and ${t.cancelNoticeHours} is not null)`),
+  /** Only a day the company called off has a reason, words only go beside a code, and "something else" says what. */
+  cancelReasonOnlyCompany: check("visit_cancel_reason_company",
+    sql`${t.cancelReason} is null or ${t.cancelledBy} = 'company'`),
+  cancelReasonSaysWhat: check("visit_cancel_reason_says_what",
+    sql`(${t.cancelReasonNote} is null or ${t.cancelReason} is not null)
+      and (${t.cancelReason} is distinct from 'other' or (${t.cancelReasonNote} is not null and btrim(${t.cancelReasonNote}) <> ''))`),
   sourceRefIdx: sourceRefIndex("visit_source_ref_idx", t),
   jobIdx: index("visit_job_idx").on(t.jobId),
   /** The dispatch board's primary query: everything in a window, by org. */

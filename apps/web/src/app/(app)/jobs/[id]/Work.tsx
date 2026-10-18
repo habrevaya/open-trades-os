@@ -1,5 +1,7 @@
 import { Money } from "@opentradesos/ui";
+import { work } from "@opentradesos/core";
 import { ActionForm, TextArea } from "@/components/ActionForm";
+import { CalledOffFields } from "@/components/CalledOffFields";
 import { Table, Th, Td } from "@/components/Table";
 import type { FormState } from "@/lib/actions";
 import { PART_ROWS } from "./parts";
@@ -142,14 +144,8 @@ export function CancelJob({
               Asked every time the visits go with the job: a customer's late
               cancellation and a rain day are different numbers.
             */}
-            <label className="block text-sm">
-              <span className="font-medium text-ink-700">Who asked to call {toCome === 1 ? "it" : "them"} off</span>
-              <select name="cancelledBy" defaultValue="" className="mt-1 block h-10 w-72 rounded border border-steel-300 bg-canvas px-3 text-sm">
-                <option value="">Choose</option>
-                <option value="customer">The customer asked</option>
-                <option value="company">We called it off (weather, staffing)</option>
-              </select>
-            </label>
+            <CalledOffFields name="cancelledBy" label={`Who asked to call ${toCome === 1 ? "it" : "them"} off`}
+                             reasons={work.CANCEL_REASONS} />
           </>
         )}
         {toCome > 0 && !mayCancelVisits && (

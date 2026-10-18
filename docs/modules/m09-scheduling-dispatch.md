@@ -298,6 +298,29 @@ cancellations were late. The visit's page says who asked, when, and whether it
 came inside the window. Cleaning's cancellation rate reads these (M21), and a
 guard test fails when a new path cancels a visit without saying who.
 
+**A day the company called off says why.** When the answer to "who asked" is
+"We called it off", the form goes on to ask why, from a fixed list (rain or
+weather, crew short, equipment, or something else, which asks for a few words),
+and shows a box for more words beside any of them. The customer is never asked:
+choosing the customer shows no such box, and a reason sent with the customer on
+the API is refused ("Only a day the company called off has a reason."), as the
+database refuses one on a visit the customer cancelled. It is asked on the
+visit's own form and on "Cancel this job" with its visits (M10), and accepted on
+the two calls behind them, `reason` (`code`, `note`) on
+`POST /v1/visits/{id}/cancelled` and `cancelReason` on `PATCH /v1/jobs/{id}`
+with `cancelVisits` and `cancelledBy: "company"`; the job's one reason goes on
+every visit it calls off. The visit's page says it ("We called it off, Oct 20,
+9:00 AM. Rain or weather"), `GET /v1/visits/{id}` carries it as
+`cancellation.reason` (`code`, `label`, `note`, `words`), and the cancellation
+records the scorecard opens for the company's own days end with it ("#41 Rosa
+Reyes, North, Wednesday, Rain or weather"), or "no reason given". It is kept on
+the visit as `cancel_reason` and `cancel_reason_note`, and the audit entry has
+it. An API caller that says the company did it and gives no reason is recorded
+with no reason given, as one that does not say who is recorded as not known:
+nothing guesses a reason from notes, and an integration that cancelled before
+reasons existed keeps working. A visit brought in from history does not carry
+one.
+
 **Crew work is not unassigned.** A visit sent to a crew is on the crew, not on
 anybody's assignment list, and the board used to put it in the unassigned pile
 where a dispatcher would give it to somebody else. A visit carries a crew or
@@ -393,6 +416,11 @@ and the audit log keeps the reason beside the refusal it overrode.
 `POST /v1/visits/{id}/assign` and `POST /v1/visits/{id}/crew` put somebody on a
 visit, `POST /v1/dispatch/route` sets the order, and
 `POST /v1/visits/{id}/on-my-way` tells the customer.
+
+A card whose job is on hold says why in words under the summary ("On hold 3 days.
+Waiting on a part: condenser fan motor"), as `onHold` on the visit in
+`GET /v1/dispatch/board`, so nobody rings a customer for work that is waiting on a
+supplier (M10 keeps the hold itself, and nudges the office when one lasts too long).
 
 ### See the day on a map
 
@@ -610,8 +638,11 @@ manager.
 
 A visit is not called off from the phone: a team turned away at the door rings
 the office, which records it with the time they were turned away, as the
-customer's. Why the company called a day off (rain, a sick crew) is not coded,
-only that it was the company. A visit cancelled before who asked was recorded,
+customer's. Why the company called a day off is coded from now on, and a
+company cancellation from before that, from an API caller that gave none, or
+brought in from history, stays "no reason given": the API does not insist on a
+reason, so an integration written before it keeps working, and only the screens
+ask every time. A visit cancelled before who asked was recorded,
 or by an API caller that did not say, stays not known; nothing guesses it from
 notes. No live traffic: drive times by road are the roads as the provider knows them,
 and a routing answer is kept for the provider's whole cache period. A route's

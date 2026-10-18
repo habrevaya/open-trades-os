@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
-import { can, reporting } from "@opentradesos/core";
+import { can, reporting, work } from "@opentradesos/core";
 import { guardedRead, NotFoundError, scopeOf, type ServiceContext } from "./context";
 import { jobVisibility } from "./scope";
 import { shopNames } from "./visit-shop";
@@ -188,6 +188,12 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
             status: visit.status, windowStart: visit.windowStart, cancelledBy: visit.cancelledBy,
             cancelledAt: visit.cancelledAt, noticeHours: visit.cancelNoticeHours,
           })),
+          reason: visit.cancelReason
+            ? {
+              code: visit.cancelReason, label: work.cancelReasonLabel(visit.cancelReason), note: visit.cancelReasonNote,
+              words: work.cancelReasonWords(visit.cancelReason, visit.cancelReasonNote),
+            }
+            : null,
         }
         : null,
     };
