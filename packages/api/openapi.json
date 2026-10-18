@@ -44289,7 +44289,7 @@
       "post": {
         "operationId": "mergeCustomers",
         "summary": "Join two records that are the same person",
-        "description": "EVERYTHING MOVES, including the money, which is the difference between this and removing: a merge does not discard a history, it re-parents one, so the invoices raised against the duplicate become invoices against the survivor and the balance is right for the first time. The duplicate is soft deleted and keeps a pointer to the survivor, because an id that stops resolving breaks a link somebody emailed, an integration that stored it and every audit row naming it. The response says what moved and which blank fields on the survivor were filled in from the duplicate.\n\nRequires a session holding: customer:merge.",
+        "description": "EVERYTHING MOVES, including the money, which is the difference between this and removing: a merge does not discard a history, it re-parents one, so the invoices raised against the duplicate become invoices against the survivor and the balance is right for the first time. Projects, credit notes, statements sent, saved cards (the processor's reference, never the card), files, tasks and every other table naming a customer move too, inside the one company and the one transaction; only the ledger, which is append only, stays where it was posted. The duplicate is soft deleted and keeps a pointer to the survivor, because an id that stops resolving breaks a link somebody emailed, an integration that stored it and every audit row naming it. The response says what moved, what stayed with the duplicate and why (`stayed`: a statement for a month the survivor already has one for, a piece in a mailing the survivor was also sent, a card that pays automatically when the survivor already pays automatically with another), and which blank fields on the survivor were filled in from the duplicate.\n\nRequires a session holding: customer:merge.",
         "tags": [
           "M03"
         ],
@@ -186376,6 +186376,28 @@
                     ]
                   }
                 },
+                "stayed": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "n",
+                      "why"
+                    ]
+                  }
+                },
                 "filled": {
                   "type": "array",
                   "items": {
@@ -186455,6 +186477,7 @@
                 "by",
                 "reason",
                 "moved",
+                "stayed",
                 "filled",
                 "tagsAdded",
                 "undone",
@@ -243726,6 +243749,28 @@
               ]
             }
           },
+          "stayed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "integer"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "n",
+                "why"
+              ]
+            }
+          },
           "filled": {
             "type": "array",
             "items": {
@@ -243745,6 +243790,7 @@
           "mergeRecordId",
           "name",
           "moved",
+          "stayed",
           "filled",
           "tagsAdded"
         ]

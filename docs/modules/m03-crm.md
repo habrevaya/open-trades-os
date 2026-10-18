@@ -365,6 +365,54 @@ the survivor has no tag that compares equal, because a merged record is in no
 tag count and a "VIP" on it would otherwise drop out of every list kept by
 tag.
 
+### What a merge moves
+
+Everything that names the duplicate: the jobs, estimates, projects,
+invoices, payments, deposits, agreements, contracts, credit notes and their
+payouts, card charges, financing applications, coverage claims they pay,
+referral rewards, statements sent, saved cards, people, notes, addresses,
+consent and advertising answers, conversations, calls, portal links and sign
+ins, campaign sends and mail pieces, reviews, files and tasks filed on the
+customer, custom records, container holds, and the customers they referred.
+All of it inside the one company (every statement names the company as well
+as the customer), in the one transaction, with both customer rows locked
+first, and written to the audit log as `customer.merged`. The lists are in
+`packages/api/src/services/customer-lifecycle.ts`, and a test reads every
+foreign key to `customer` from the database and fails on one the merge does
+not name, as moving or as staying with a reason, so a new table cannot be
+missed quietly.
+
+**A saved card moves as the processor's reference.** The card number never
+reaches this product; the processor holds it under its own customer record,
+and what moves is the reference, the brand and the last four digits, with the
+customer's agreements to charge it. A charge reaches the processor through
+the card's own processor record, so a moved card charges where it was saved.
+The processor record itself moves when the survivor has none at that
+processor account, and stays with the duplicate otherwise.
+
+**What may not move stays, and is said.** Some things a customer may have
+only one of, and when the survivor already has one, the duplicate's stays
+with the duplicate: a statement for the same month, a piece in the same
+mailing, a referral reward earned for the same person, a task the same
+automation raised. A card that pays the duplicate's bills automatically stays
+with its agreements when the survivor already pays automatically with a card
+of its own, because one card pays each customer's bills automatically or
+every bill is charged twice, and which one they meant is the customer's to
+say; they can save it again on the survivor. Each of these is on the merge's
+answer as `stayed`, with why in words, right after the merge on the page,
+and under the merge on the kept record's list.
+
+**A no to advertising wins.** When the duplicate's live answer about using
+their details for advertising is no and the survivor's is yes, the yes is
+superseded and the no becomes the person's answer. Joining two records must
+not turn somebody's no into a yes; that is the conservative reading. An
+undo makes the yes live again, unless a new answer was recorded since.
+
+What stays where it was: the ledger, which is append only (below); the
+merge's own record; a pair marked "not the same person", which is a judgement
+about two records and says nothing about the survivor; and the tag table,
+which the database keeps from the customer's own list.
+
 ### Take a merge back
 
 Two people who share a phone number get merged, and somebody notices a week
@@ -377,8 +425,8 @@ survivor already had (kept whole), the blank fields it filled and the tags it
 added. Equipment belongs to an address, so it goes with the address links.
 
 The kept record's page lists "Merged into this record": who merged what, when,
-what it brought, and "Undo this merge" with a box for why. Undoing moves those
-rows back and no others, puts the doubled address links back as they were,
+what it brought, what stayed with the duplicate and why, and "Undo this
+merge" with a box for why. Undoing moves those rows back and no others, puts the doubled address links back as they were,
 clears a field the merge filled unless somebody has changed it since (then it
 is left, and the answer says so), takes off the tags it added, and makes the
 duplicate a customer with its own page again. Anything written to the
@@ -392,7 +440,9 @@ before anybody clicks and again at the click:
 - money was written to the survivor since: an invoice, an invoice they pay
   for, a payment, a deposit, a ledger posting (a payment, a void or a refund
   on an invoice the merge moved posts one), an agreement, a contract, a credit
-  note, a credit payout, a card charge or a financing application. Money
+  note, a credit payout, a card charge, a financing application, a coverage
+  claim they pay, a referral reward, or an agreement to charge a saved card
+  (which would stay with the survivor while the card it names went back). Money
   cannot be split back between two customers by a guess, so the merge stands.
   That is the conservative choice, made because a payment on the wrong
   person's account is worse than a merge somebody has to untangle by hand;
@@ -416,7 +466,10 @@ first answer.
 `GET /v1/customers/{id}/deletability` says whether it can go and what would go
 with it, asked before anybody clicks because the answer decides which button a
 screen should show. `POST /v1/customers/{id}/remove` is the removal, and it is
-refused outright when money points at the customer: a hard delete would cascade
+refused outright when money points at the customer (an invoice, a payment, a
+deposit, a ledger entry, an agreement, a contract, a credit note or its
+payout, a card charge, a financing application, a coverage claim they pay or
+a referral reward): a hard delete would cascade
 and take the invoices, a soft delete would leave a receivable nobody can
 explain, and both are worse than refusing. The refusal names what is in the way,
 which is also the case where merging is the right answer.
@@ -449,10 +502,14 @@ and an undone merge puts the duplicate's own list back in both.
 
 A merge older than 30 days, or one with money written to the survivor since,
 cannot be undone here: what belongs to the duplicate is moved by hand. A merge
-still does not move every table that names a customer (a project, a credit
-note, a saved card, a statement sent, among others stay on the duplicate,
-whose pointer resolves them), and an undo moves back only what the merge
-moved. Undoing does not mark the two as different people, so they can show as
+moves every table with a foreign key to a customer, and the files and tasks
+filed on one, but not what names a customer some other way: the audit log,
+the event and integration logs, a document or an obligation filed by kind and
+id under another name, and the accounting system's link to its own customer,
+which stays with the duplicate so the accountant joins the two there. What
+stays because the survivor already has one (a statement for the month, a card
+that pays automatically) is not joined to the survivor's: the office or the
+customer does that. Undoing does not mark the two as different people, so they can show as
 a possible duplicate again until somebody says so on the duplicates screen. A
 merge done before merges were recorded has no record and cannot be undone. The tag table is written only by the
 database, so a restore that loads `customer_tag` rows from an export as well as

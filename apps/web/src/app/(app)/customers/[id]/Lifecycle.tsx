@@ -11,7 +11,7 @@ import { useState } from "react";
  * which then fails to collect. Every other screen built over a service does it
  * this way for the same reason, and the cost is two props.
  */
-type State = { error?: string; moved?: string[] } | null;
+type State = { error?: string; moved?: string[]; stayed?: string[] } | null;
 type Action = (previous: State, form: FormData) => Promise<State>;
 
 /**
@@ -59,6 +59,7 @@ export function Lifecycle({
 
   const error = [removeState, mergeState].map((state) => state?.error).find(Boolean);
   const moved = mergeState?.moved ?? null;
+  const stayed = mergeState?.stayed ?? [];
 
   return (
     <div className="mt-10 border-t border-steel-200 pt-6">
@@ -68,6 +69,14 @@ export function Lifecycle({
         <p className="mt-2 rounded-md border border-green-700/20 bg-green-tint p-3 text-sm text-ink-900">
           Merged. {moved.join(", ")} now belong to {name}.
         </p>
+      )}
+      {stayed.length > 0 && (
+        <div className="mt-2 rounded-md border border-steel-200 p-3 text-sm text-ink-900">
+          <p>These stayed with the duplicate:</p>
+          <ul className="mt-1 list-disc pl-5 text-ink-700">
+            {stayed.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        </div>
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">

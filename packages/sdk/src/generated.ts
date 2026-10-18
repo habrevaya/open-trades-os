@@ -7874,6 +7874,11 @@ export interface GetCustomerMergesOutput {
       label: string;
       n: number;
     }>;
+    stayed: Array<{
+      label: string;
+      n: number;
+      why: string;
+    }>;
     filled: string[];
     tagsAdded: string[];
     undone: {
@@ -18784,6 +18789,11 @@ export interface MergeCustomersOutput {
   moved: Array<{
     label: string;
     n: number;
+  }>;
+  stayed: Array<{
+    label: string;
+    n: number;
+    why: string;
   }>;
   filled: string[];
   tagsAdded: string[];

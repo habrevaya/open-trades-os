@@ -307,6 +307,19 @@ export const customerMerge = pgTable("customer_merge", {
   reason: text("reason"),
   /** Every row moved: `{ table, column, label, ids }` per column that held the duplicate's id. */
   moved: jsonb("moved").$type<{ table: string; column: string; label: string; ids: string[] }[]>().notNull().default([]),
+  /**
+   * The duplicate's rows the merge left with it, the same way, with why in
+   * words: the ones the kept record may hold only one of and already did (a
+   * statement for the same month, a piece in the same mailing). Never moved,
+   * so an undo has nothing to do with them; kept so nobody has to wonder.
+   */
+  stayed: jsonb("stayed").$type<{ table: string; column: string; label: string; ids: string[]; why: string }[]>()
+    .notNull().default([]),
+  /**
+   * The kept record's rows the merge superseded rather than moved: a yes to
+   * advertising overruled by the duplicate's no. An undo makes them live again.
+   */
+  superseded: jsonb("superseded").$type<{ table: string; ids: string[] }[]>().notNull().default([]),
   /** Address links taken out as doubles of one the kept record had, whole, with whose they were. */
   removedLinks: jsonb("removed_links").$type<{ customerId: string; row: Record<string, unknown> }[]>().notNull().default([]),
   /** The kept record's blank fields filled from the duplicate, with the value written. */

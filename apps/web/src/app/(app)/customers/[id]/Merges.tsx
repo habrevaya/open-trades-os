@@ -37,6 +37,16 @@ export async function Merges({ ctx, customerId, timezone }: { ctx: ServiceContex
             {merge.moved.length > 0 && (
               <p className="mt-1 text-ink-700">It brought {customerMerge.counted(merge.moved)}.</p>
             )}
+            {merge.stayed.length > 0 && (
+              <div className="mt-1 text-ink-700">
+                <p>Stayed with {merge.merged.name}:</p>
+                <ul className="list-disc pl-5" aria-label="Stayed with the duplicate">
+                  {merge.stayed.map((group) => (
+                    <li key={`${group.label}-${group.why}`}>{customerMerge.counted([group])}. {group.why}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {merge.undone ? (
               <p className="mt-1 text-ink-700">
                 Undone on {day(merge.undone.at)}{merge.undone.by?.name ? ` by ${merge.undone.by.name}` : ""}.
