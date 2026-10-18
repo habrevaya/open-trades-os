@@ -740,6 +740,8 @@ function VisitCard({
       <p className="mt-0.5 truncate text-ink-700">{visit.summary}</p>
       {/* The stage its job is at, when an application set stages for the job's type. */}
       {visit.stage ? <p className="mt-0.5 truncate text-xs font-medium text-ink-700">Stage: {visit.stage}</p> : null}
+      {/* Why the job is waiting, in words, so nobody rings a customer for work that is held. */}
+      {visit.onHold ? <p className="mt-0.5 text-xs font-medium text-amber-700" data-testid="board-hold">{visit.onHold.words}</p> : null}
       <p className="mt-0.5 truncate text-xs text-ink-500">{visit.addressLine1}</p>
       {visit.routeName && <p className="mt-0.5 truncate text-xs font-medium text-ink-700">Route: {visit.routeName}</p>}
       <div className="mt-1.5 flex items-center gap-2 text-xs">
@@ -808,6 +810,7 @@ function UnassignedCard({
       </div>
       <p className="mt-0.5 truncate text-ink-700">{visit.summary}</p>
       {visit.stage ? <p className="mt-0.5 truncate text-xs font-medium text-ink-700">Stage: {visit.stage}</p> : null}
+      {visit.onHold ? <p className="mt-0.5 text-xs font-medium text-amber-700" data-testid="board-hold">{visit.onHold.words}</p> : null}
       {/*
         Why this card is at the top of the pile. Their plan promised members
         are seen first, and a dispatcher who cannot see why the order is what

@@ -11,7 +11,7 @@ import { shopOfPeople } from "./visit-shop";
 import { announce, sideOf } from "./visit-notices";
 import { chemicalOf, inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
-import { can, money as m, time } from "@opentradesos/core";
+import { can, money as m, time, work } from "@opentradesos/core";
 import { sendTransactional } from "./comms-send";
 import type {
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot, VisitForField,
@@ -51,8 +51,8 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
      * marketing screenshot as an unassigned column the caption describes and
      * the picture does not contain.
      */
-    const { start: dayStart, end: dayEnd } =
-      time.dayBoundsIn(input.date, await timezoneOf(tx, ctx.actor.organizationId));
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const { start: dayStart, end: dayEnd } = time.dayBoundsIn(input.date, zone);
     const now = new Date();
 
     /**
@@ -162,6 +162,25 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       jobId: r.visit.jobId, jobTypeId: r.jobTypeId, status: r.jobStatus,
     })));
 
+    /**
+     * WHY A JOB IS ON HOLD, on the card. A visit on a job that was put on hold
+     * after it was booked stays on the board, and a card that says only
+     * "scheduled" sends a dispatcher to ring a customer for work that is
+     * waiting on a part. The open hold is read once for every job on the day,
+     * and the days are the company's calendar days, as the job's page counts.
+     */
+    const jobIds = [...new Set(rows.filter((r) => r.jobStatus === "on_hold").map((r) => r.visit.jobId))];
+    const holdRows = jobIds.length === 0 ? [] : await tx.select({
+      jobId: schema.jobHold.jobId, reason: schema.jobHold.reason, note: schema.jobHold.note, placedAt: schema.jobHold.placedAt,
+    }).from(schema.jobHold).where(and(inArray(schema.jobHold.jobId, jobIds), isNull(schema.jobHold.releasedAt)));
+    const today = time.dateIn(now, zone);
+    const holds = new Map(holdRows.map((h) => {
+      const days = work.daysHeld(time.dateIn(h.placedAt, zone), today);
+      return [h.jobId, {
+        reason: h.reason, days, words: work.holdOnBoard({ reason: h.reason, note: h.note, held: days }),
+      }] as const;
+    }));
+
     const shape = (r: (typeof rows)[number]) => ({
       id: r.visit.id,
       jobNumber: r.jobNumber,
@@ -177,6 +196,10 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       isLate: isLate(r.visit),
       routeName: r.routeName ?? null,
       locked: r.visit.dispatchLocked,
+      /** Why the job is on hold, in words, when it is. A job moved to on hold with no reason says so. */
+      onHold: r.jobStatus === "on_hold"
+        ? holds.get(r.visit.jobId) ?? { reason: null, days: null, words: "On hold. No reason was given." }
+        : null,
     });
 
     const assigned = new Map<string, ReturnType<typeof shape>[]>();
@@ -214,7 +237,6 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
      * Whether the plan covers this job is the same rule the member discount
      * uses (active on the day, at this address or sold with none), in core.
      */
-    const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const byVisit = new Map(rows.map((r) => [r.visit.id, r]));
     const priority = await priorityWithin(tx, unassigned.map((v) => {
       const row = byVisit.get(v.id)!;

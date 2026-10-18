@@ -4,6 +4,7 @@ import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
 import { job, jobStatus } from "./work";
 import { purchaseOrder } from "./inventory";
+import { task } from "./automation";
 
 /**
  * WHY A JOB IS ON HOLD
@@ -53,6 +54,15 @@ export const jobHold = pgTable("job_hold", {
   /** Null while the job is still held. */
   releasedAt: timestamp("released_at", { withTimezone: true }),
   releasedByUserId: uuid("released_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * The nudge the worker raised for this hold, and when. Set once, in the
+   * transaction that writes the task, against a row that had none, so a pass
+   * cut short and run again raises nothing twice. A nudge somebody closed
+   * by hand is not raised again for the same hold: the hold is the claim, not
+   * the task.
+   */
+  nudgedAt: timestamp("nudged_at", { withTimezone: true }),
+  nudgeTaskId: uuid("nudge_task_id").references(() => task.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   jobIdx: index("job_hold_job_idx").on(t.organizationId, t.jobId),

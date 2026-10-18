@@ -137,3 +137,125 @@ export function holdRefusal(input: { reason: HoldReason; purchaseOrderId?: strin
   }
   return null;
 }
+
+/**
+ * A JOB LEFT ON HOLD TOO LONG
+ *
+ * Nothing used to say a job had been waiting a long time: the hold sat on the
+ * job's page and the job slid off everybody's mind. A company may now say how
+ * many days a job can wait before the office is nudged, and the nudge is one
+ * task in the office queue for that hold.
+ *
+ * Counted in the COMPANY'S calendar days, as the page and the board say it
+ * ("on hold 3 days"), not in 24 hour spans: a job held at five on a Monday
+ * evening has been on hold a day by Tuesday morning, which is what anybody
+ * looking at the calendar would say.
+ */
+export const HOLD_NUDGE_MOST_DAYS = 90;
+
+/** Why a nudge setting is refused, or null when it is a whole number of days from one to ninety, or off (null). */
+export function holdNudgeProblem(days: unknown): string | null {
+  if (days === null) return null;
+  if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > HOLD_NUDGE_MOST_DAYS) {
+    return `Give the number of days as a whole number from 1 to ${HOLD_NUDGE_MOST_DAYS}, or leave it off.`;
+  }
+  return null;
+}
+
+/** The setting as saved, or null (off) for anything that is not a good number of days. */
+export function holdNudgeDays(saved: unknown): number | null {
+  return typeof saved === "number" && holdNudgeProblem(saved) === null ? saved : null;
+}
+
+/** How many calendar days a hold has lasted: placed on the 10th, today the 13th, is 3. Never negative. */
+export function daysHeld(placedOn: string, today: string): number {
+  const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${placedOn}T00:00:00Z`)) / 864e5);
+  return Number.isFinite(days) ? Math.max(0, days) : 0;
+}
+
+/** Whether a hold has lasted long enough to nudge. Off (null) never is. */
+export function holdNudgeDue(held: number, days: number | null): boolean {
+  return days !== null && held >= days;
+}
+
+const dayCount = (n: number): string => `${n} ${n === 1 ? "day" : "days"}`;
+
+/** The reason in words, with what the office wrote about it: "Waiting on a part: condenser fan motor". */
+export function holdWords(reason: string, note: string | null | undefined): string {
+  const label = holdReasonLabel(reason);
+  const said = (note ?? "").trim();
+  return said === "" ? label : `${label}: ${said}`;
+}
+
+/** The task the office is given: the job, the reason and how long, in one line. */
+export function holdNudgeTitle(input: { jobLabel: string; reason: string; held: number }): string {
+  return `Job ${input.jobLabel} has been on hold ${dayCount(input.held)}: ${holdReasonLabel(input.reason).toLowerCase()}`;
+}
+
+/**
+ * What the task says. It names no purchase order: the task is read by anybody
+ * who reads the queue, and the order is for those who may read purchasing, who
+ * find it on the job's page.
+ */
+export function holdNudgeBody(input: {
+  customerName: string; summary: string; reason: string; note: string | null; held: number;
+  since: string; placedBy: string | null; days: number;
+}): string {
+  return `${input.customerName}: ${input.summary}. ${holdWords(input.reason, input.note)}. `
+    + `On hold since ${input.since}${input.placedBy ? `, put there by ${input.placedBy}` : ""}, which is ${dayCount(input.held)}. `
+    + `Your company asked to be told after ${dayCount(input.days)}. `
+    + "Chase whoever it is waiting on, or take the job off hold on its page when the wait is over. "
+    + "This task closes itself when the job comes off hold.";
+}
+
+/** What the board card says under a job that is on hold: "On hold 3 days. Waiting on a part: condenser fan motor". */
+export function holdOnBoard(input: { reason: string; note: string | null; held: number }): string {
+  return `${input.held === 0 ? "On hold since today" : `On hold ${dayCount(input.held)}`}. ${holdWords(input.reason, input.note)}`;
+}
+
+/**
+ * WHY THE COMPANY CALLED A DAY OFF
+ *
+ * Cleaning's cancellation rate leaves out the visits the company called off
+ * itself, "for weather or staffing", as a separate and more serious number.
+ * The reason is a code from a fixed list, with words beside it, because a
+ * figure reads the code and words are never read for a meaning. It belongs to
+ * the company's own cancellations only: a customer is never asked why they
+ * cancelled, and a code on their cancellation is refused.
+ */
+export type CancelReason = "weather" | "crew_short" | "equipment" | "other";
+
+export const CANCEL_REASONS: { value: CancelReason; label: string }[] = [
+  { value: "weather", label: "Rain or weather" },
+  { value: "crew_short", label: "Crew short" },
+  { value: "equipment", label: "Equipment" },
+  { value: "other", label: "Something else" },
+];
+
+export function cancelReasonLabel(code: string): string {
+  return CANCEL_REASONS.find((r) => r.value === code)?.label ?? code;
+}
+
+/**
+ * What a company's cancellation has to say, or null when it says enough.
+ * "Something else" says what in words, because a code that means nothing is
+ * the blank this exists to avoid. Words beside the other three are welcome and
+ * not required.
+ */
+export function cancelReasonProblem(
+  by: "customer" | "company", reason: { code: string; note?: string | null | undefined } | null | undefined,
+): string | null {
+  if (!reason) return null;
+  if (by !== "company") {
+    return "Only a day the company called off has a reason. A customer is not asked why they cancelled.";
+  }
+  if (!CANCEL_REASONS.some((r) => r.value === reason.code)) return "Choose rain or weather, crew short, equipment, or something else.";
+  if (reason.code === "other" && (reason.note ?? "").trim() === "") return "Say what the reason was, in a few words.";
+  return null;
+}
+
+/** The reason as the office reads it: "Rain or weather", or "Something else: the van was stolen". */
+export function cancelReasonWords(code: string, note: string | null | undefined): string {
+  const said = (note ?? "").trim();
+  return said === "" ? cancelReasonLabel(code) : `${cancelReasonLabel(code)}: ${said}`;
+}
