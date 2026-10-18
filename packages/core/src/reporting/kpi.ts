@@ -80,6 +80,11 @@ import { streetKey } from "../geo/index.js";
  *   they are on, commercial stops left out and an address whose street is not
  *   recorded left out of both halves rather than guessed from its line.
  *
+ *   PRODUCTION PER CREW HOUR. A completed job's units of work over its
+ *   crew's hours on site, never drive time or getting the job ready, with a
+ *   job whose amount or hours are not known left out of both halves, and
+ *   only one unit of work added up at a time.
+ *
  *   A STOP'S CHEMICAL COST. Each product applied, chosen from the price book,
  *   at the cost per unit in force on the stop's day, and a stop with any
  *   product that cannot be valued that way left out of both halves rather
@@ -1163,4 +1168,91 @@ export function chemicalCostPerStop(stops: ReadonlyArray<readonly ChemicalApplic
     counted += 1;
   }
   return { cost, stops: counted, notValued };
+}
+
+/* ----------------------------------------------------- production per crew hour */
+
+/**
+ * The kinds of time that are crew hours ON SITE for production: working at
+ * the site, and a paid break taken there. Not travel (the definition's drive
+ * time), not getting the job ready (`mobilisation`, the definition's first day
+ * mobilisation, which holds the drive out as well), not the shop or the yard,
+ * and never leave.
+ */
+export const ON_SITE_PRODUCTION = ["on_site", "paid_break"] as const;
+
+export interface ProductionPunch {
+  kind: string;
+  /** Minutes of a closed punch; null while it is still running. */
+  minutes: number | null;
+}
+
+export interface ProductionJob {
+  /** The job type's production unit, as written ("square feet"). */
+  unit: string;
+  /** The amount of work recorded on the job, in that unit, or null. */
+  quantity: number | null;
+  punches: readonly ProductionPunch[];
+}
+
+export type ProductionVerdict =
+  | { counted: true; unitKey: string; units: number; hours: number; readyHours: number }
+  | { counted: false; reason: "no_amount" | "no_hours" | "running" };
+
+/** A unit as compared: trimmed and in small letters, so "Square feet" and "square feet " are one unit. */
+export const unitKey = (unit: string): string => unit.trim().toLowerCase();
+
+/**
+ * One completed production job: its units over its crew's hours on site.
+ *
+ * "Production units completed, in the unit on the job type, divided by crew
+ * hours on site. EXCLUDES drive time and EXCLUDES mobilisation on the first
+ * day of a multi day job, when nothing is produced but the crew is paid."
+ *
+ * Hours on site are every closed punch of an `ON_SITE_PRODUCTION` kind, each
+ * person separately. Getting the job ready is never one: it is the
+ * definition's mobilisation, and it holds the drive out, which is drive time.
+ * A job is LEFT OUT OF BOTH HALVES when nobody recorded how much work it was,
+ * when no hours on site were punched on it, or when a punch on it is still
+ * running: counted, the first would read as nothing produced and the last two
+ * as work done in no time.
+ */
+export function productionOf(job: ProductionJob): ProductionVerdict {
+  if (job.punches.some((p) => p.minutes === null && !(NOT_A_DAY_WORKED as readonly string[]).includes(p.kind))) {
+    return { counted: false, reason: "running" };
+  }
+  if (job.quantity === null || !(job.quantity > 0)) return { counted: false, reason: "no_amount" };
+  const minutes = (kinds: readonly string[]) => job.punches
+    .filter((p) => p.minutes !== null && kinds.includes(p.kind))
+    .reduce((sum, p) => sum + (p.minutes ?? 0), 0);
+  const hours = minutes(ON_SITE_PRODUCTION) / 60;
+  if (!(hours > 0)) return { counted: false, reason: "no_hours" };
+  return { counted: true, unitKey: unitKey(job.unit), units: job.quantity, hours, readyHours: minutes(["mobilisation"]) / 60 };
+}
+
+/**
+ * The company's figure: units over hours, IN ONE UNIT. Square feet and cubic
+ * yards do not add, so the figure is over the unit the window's measured jobs
+ * spent the most hours on site in (the alphabetically first on a tie), and a
+ * job measured in another unit is left out of both halves and counted beside,
+ * its own rate on its record. The jobs not known are counted beside too.
+ */
+export function productionPerCrewHour(jobs: readonly ProductionJob[]): {
+  unitKey: string | null; units: number; hours: number; otherUnit: number; notKnown: number;
+} {
+  const verdicts = jobs.map(productionOf);
+  const hoursBy = new Map<string, number>();
+  for (const v of verdicts) if (v.counted) hoursBy.set(v.unitKey, (hoursBy.get(v.unitKey) ?? 0) + v.hours);
+  const main = [...hoursBy.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
+  let units = 0;
+  let hours = 0;
+  let otherUnit = 0;
+  let notKnown = 0;
+  for (const v of verdicts) {
+    if (!v.counted) { notKnown += 1; continue; }
+    if (v.unitKey !== main) { otherUnit += 1; continue; }
+    units += v.units;
+    hours += v.hours;
+  }
+  return { unitKey: main, units, hours, otherUnit, notKnown };
 }

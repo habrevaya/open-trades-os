@@ -172,6 +172,14 @@ in and out; notes; photos from the camera; a signature from the customer's
 finger; and the text to the customer that they are on the way, which is sent
 there and then or not at all, because queued it would arrive an hour late.
 
+Beside the clock, off it, "Getting a job ready first? Clock in for it" asks which
+of the day's stops the crew is loading, driving out to and unloading for, on the
+phone and on `/my-day` alike, and clocks in for that (`timeclock.punch_in` naming
+the stop, with the kind `mobilisation`); the server files the punch on the stop's
+job, and the clock then says "Getting a job ready" until it is clocked out. It is
+paid exactly as on site time (M17). A punch of a kind the product does not know is
+refused in words rather than stopping the phone's whole send.
+
 ### The rest of the visit
 
 On the phone, a visit also has its checklist to tick (`visit.checklist_item`),

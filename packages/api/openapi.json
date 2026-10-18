@@ -188244,6 +188244,13 @@
               "startedAt": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "visitId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
               }
             },
             "required": [
@@ -282491,6 +282498,13 @@
               "paid",
               "cancelled"
             ]
+          },
+          "productionQuantity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "completedAt": {
             "type": "string",

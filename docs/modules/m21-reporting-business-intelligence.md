@@ -51,8 +51,8 @@ would send an owner looking for a report that is working correctly.
 
 ### The unavailable list is the other half of the answer
 
-Forty five of the forty seven are answered: forty one computed here, four by
-M22's fleet report. The other two each name what they still lack.
+Forty six of the forty seven are answered: forty two computed here, four by
+M22's fleet report. The other one names what it still lacks.
 
 Four moved off the list when it was checked against what has shipped since.
 `drive_time_pct` turned out not to need a commute flag: the definition says
@@ -625,6 +625,44 @@ and `reporting.disposalHaulOf`, with unit tests, written again in SQL, and
 puts the same lines and hauls through both, and checks a hire's invoice naming
 the haul on every line.
 
+### Production per crew hour, and the mobilisation it waited on
+
+Lawn and landscape's **production per crew hour** is "production units
+completed, in the unit on the job type, divided by crew hours on site", and it
+EXCLUDES "drive time" and "mobilisation on the first day of a multi day job,
+when nothing is produced but the crew is paid". A crew loading the trailer,
+driving out and unloading punched it as on site time, so a two day build read
+as slower than a one day one for no reason the crew controls. The timeclock now
+has a kind for it, **getting a job ready** (`mobilisation`, M17), offered on the
+phone and `/my-day` against one of the day's stops (M11) and filed on its job. It
+is paid exactly as on site time, so nobody's pay or payroll export changes, and
+only this figure reads it. How much work a job is, in its job type's unit, is
+set on the job's page (M10).
+
+- A **job** is a completed customer job (every class but internal) whose job
+  type has a production unit, in the window it was completed.
+- **Units** are the amount of work recorded on it. **Crew hours on site** are
+  every person's on site punches on the job and paid breaks there, each person
+  separately, on whatever day they were punched. Travel is drive time and getting
+  the job ready is the mobilisation, and **neither is counted on any day**:
+  getting the job ready holds the drive out, which the definition also leaves
+  out. Each record says how many hours getting it ready were left out, so the
+  exclusion is visible on the job.
+- A job with **no amount recorded, no hours on site, or a punch still running**
+  is left out of both halves and counted beside as not known, each saying which.
+  Counted, the first reads as nothing produced and the others as work done in no
+  time.
+- **One unit at a time.** Square feet and cubic yards do not add, so the figure
+  is over the unit the window's measured jobs spent the most hours on site in
+  (the alphabetically first on a tie), and a job in another unit is left out of
+  both halves and counted beside with its own rate on its record ("#12 Mulch
+  refresh: 12 cubic yards over 4.00 hours, 3.00 an hour").
+
+The records open on the job. The rule is core's `reporting.productionOf` and
+`reporting.productionPerCrewHour`, with unit tests, written again in SQL, and
+`kpi-production.integration.test.ts` checks a month worked out by hand, puts the
+same jobs through both, and clocks in to get a job ready from the phone.
+
 ### Chemical cost per stop, and the register it waited on
 
 Pest control's **chemical cost per stop** is "cost of product applied, valued
@@ -1146,12 +1184,25 @@ prefix off.
 
 ## What is not built
 
-Two of the forty seven declared KPIs cannot be computed, and each one
-names the single missing datum rather than saying not built, because most of
-these definitions turn on an exclusion and a KPI computed without its exclusions
-looks like the definition. They were checked again against everything shipped
-since they were written and neither has its datum yet (above, "The
-unavailable list"); neither is computed from something near it instead.
+One of the forty seven declared KPIs cannot be computed, and it names the
+single missing datum rather than saying not built, because most of these
+definitions turn on an exclusion and a KPI computed without its exclusions looks
+like the definition. It was checked again against everything shipped since it
+was written and does not have its datum yet (above, "The unavailable list"); it
+is not computed from something near it instead.
+
+Production per crew hour is only as good as the clock: the phone's ordinary
+"Clock in" names no job, so on site hours reach a job only from a punch that
+names it (the field sync's `jobId` or the stop it is for, which an API client or
+a crew's tablet sends), and a company whose crews clock in once a day with no job
+sees its jobs counted beside as having no hours on site. Getting a job ready is
+left out on every day it is punched, not only the first day of a multi day job,
+because it holds the drive out; a crew that unloads on day three and punches it
+as getting ready makes that day read faster. The amount of work is the office's
+number on the job, not measured, and one amount for the whole job: a job half
+done at the end of the month is counted only when it is completed. Only the unit
+with most hours is added up, so a company that sells by several units sees one
+of them on the scorecard and the others on their records.
 
 Chemical cost per stop values only products chosen from the price book: every
 application typed before chemicals could be chosen, and every product the book

@@ -980,6 +980,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       id: schema.timeclockEntry.id,
       kind: schema.timeclockEntry.kind,
       startedAt: schema.timeclockEntry.startedAt,
+      visitId: schema.timeclockEntry.visitId,
     }).from(schema.timeclockEntry)
       .where(and(
         eq(schema.timeclockEntry.technicianId, device.technicianId),
@@ -1050,7 +1051,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       })),
       priceBook,
       openTimeEntry: open
-        ? { id: open.id, kind: open.kind, startedAt: open.startedAt.toISOString() }
+        ? { id: open.id, kind: open.kind, startedAt: open.startedAt.toISOString(), visitId: open.visitId }
         : null,
       inspectionPrograms: await programsForField(tx, ctx),
       locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),

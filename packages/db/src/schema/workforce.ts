@@ -79,7 +79,7 @@ export const wageScale = pgTable("wage_scale", {
  */
 export const timeEntryKind = pgEnum("time_entry_kind", [
   "travel", "on_site", "shop", "unpaid_break", "paid_break", "on_call",
-  "training", "pto", "holiday",
+  "training", "pto", "holiday", "mobilisation",
 ]);
 
 export const timeclockEntry = pgTable("timeclock_entry", {

@@ -251,6 +251,12 @@ export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "par
 export interface DayView {
   visits: DayVisit[];
   clock: { open: boolean; since: string | null; waiting: boolean };
+  /**
+   * What the open punch is for, when one is open: `on_site` for an ordinary
+   * clock in, `mobilisation` for getting a job ready, with the stop it names.
+   * Null off the clock.
+   */
+  clockKind: { kind: string; visitId: string | null } | null;
   /** The office queue: this person's tasks and the ones nobody has taken. */
   tasks: DayTask[];
   /** Toolbox talks on this person's sheet. */
@@ -326,6 +332,7 @@ export function projectDay(input: {
 
   const open = input.snapshot?.openTimeEntry ?? null;
   const clock = { open: open !== null, since: open?.startedAt ?? null, waiting: false };
+  let clockKind: DayView["clockKind"] = open ? { kind: open.kind, visitId: open.visitId ?? null } : null;
   const tasks: DayTask[] = (input.snapshot?.tasks ?? []).map((t) => ({
     ...t, done: false, waiting: false, checklist: (t.checklist ?? []).map((i) => ({ ...i, waiting: false })),
   }));
@@ -346,12 +353,14 @@ export function projectDay(input: {
       clock.open = true;
       clock.since = op.occurredAt;
       clock.waiting = waiting;
+      clockKind = { kind: typeof op.payload["kind"] === "string" ? op.payload["kind"] : "on_site", visitId: op.subjectId ?? null };
       continue;
     }
     if (op.kind === "timeclock.punch_out") {
       clock.open = false;
       clock.since = null;
       clock.waiting = waiting;
+      clockKind = null;
       continue;
     }
     if (op.kind === "expense.record") {
@@ -449,11 +458,31 @@ export function projectDay(input: {
   return {
     visits: [...visits.values()].sort(byRoute),
     clock,
+    clockKind,
     tasks,
     talks,
     expenses,
     trucks,
   };
+}
+
+/**
+ * CLOCKING IN TO GET A JOB READY
+ *
+ * Loading the trailer, driving out to the first site and unloading, before
+ * the work starts: mobilisation. It is paid exactly as the on site time it was
+ * punched as before it had a kind, so nobody's pay changes; lawn and
+ * landscape's production per crew hour leaves it out of hours on site. The
+ * punch names the stop it is for, and the server files the hours on that
+ * stop's job.
+ */
+export function mobilisationPunch(visitId: string): { kind: "timeclock.punch_in"; subjectId: string; payload: Record<string, unknown> } {
+  return { kind: "timeclock.punch_in", subjectId: visitId, payload: { kind: "mobilisation" } };
+}
+
+/** What the open punch is for, in a technician's words. */
+export function clockWords(kind: string | null | undefined): string {
+  return kind === "mobilisation" ? "Getting a job ready" : "On the clock";
 }
 
 /**

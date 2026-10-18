@@ -294,6 +294,7 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
       "not_out_rate",
       "oneoff_to_recurring",
       "panel_pipeline",
+      "production_per_crew_hour",
       "program_attach",
       "programme_renewal",
       "reapplication_rate",
@@ -376,8 +377,12 @@ describe("the catalogue accounts for every KPI the packs declare", () => {
      * a material as a chemical, with the unit its cost is per and its EPA
      * number, and the product applied was chosen from those on the phone, on
      * "My day" and in the office rather than typed.
+     * `production_per_crew_hour` made forty six when the timeclock got a kind
+     * for getting a job ready, paid exactly as on site time and offered on the
+     * phone and "My day" against a stop, and a job's amount of work could be
+     * set on its page.
      */
-    expect(computed.length + elsewhere.length).toBe(45);
+    expect(computed.length + elsewhere.length).toBe(46);
     expect(KEYS.length).toBe(47);
   });
 });

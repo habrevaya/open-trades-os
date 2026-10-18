@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { coverage, membership, money as m, rates, splits, tax, time } from "@opentradesos/core";
+import { coverage, labor, membership, money as m, rates, splits, tax, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -390,7 +390,8 @@ export async function planIn(
       .innerJoin(schema.visit, eq(schema.visit.id, schema.timeclockEntry.visitId))
       .where(and(
         eq(schema.visit.jobId, jobId),
-        eq(schema.timeclockEntry.kind, "on_site"),
+        /** Getting the job ready is on site time, as it was before it had a kind of its own. */
+        inArray(schema.timeclockEntry.kind, [...labor.ON_SITE_KINDS]),
       ));
     /** Every labour line on the job, billed, waiting or excused: somebody has decided about that time. */
     const everyLine = await tx.select({ id: schema.jobLine.id }).from(schema.jobLine).where(eq(schema.jobLine.jobId, jobId));

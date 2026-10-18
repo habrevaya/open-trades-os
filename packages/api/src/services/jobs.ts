@@ -52,6 +52,21 @@ function budgetOf(hours: string): string | null {
 }
 
 /**
+ * How much work a job is, in its job type's production unit, as stored: a
+ * positive amount. Lawn and landscape's production per crew hour reads it
+ * on completed jobs as the units the crew produced.
+ */
+function productionOf(amount: string): string {
+  const value = Number(amount);
+  if (!(value > 0) || value > 1_000_000_000) {
+    throw new UnprocessableError("An amount of work is a number", [{
+      path: "productionQuantity", message: "Give how much work it is as a number more than nought, like 1200, or leave it empty.",
+    }]);
+  }
+  return value.toFixed(4);
+}
+
+/**
  * The next human-facing number for an organization.
  *
  * `max(number) + 1` is only correct if nobody else is doing it at the same
@@ -967,6 +982,13 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(planned ?? {}),
       ...(budget ?? {}),
+      /**
+       * How much work it is, in the job type's unit: its size when booked, and
+       * what the crew produced once it is done (corrected then if they did more
+       * or less). Never locked, because a finished job is where it is right.
+       */
+      productionQuantity: input.productionQuantity === undefined ? before.productionQuantity
+        : input.productionQuantity === null ? null : productionOf(input.productionQuantity),
       // Completion is a timestamp as well as a status, and a job that reaches
       // "completed" without one is invisible to every report that asks what
       // was finished this week.
@@ -1681,6 +1703,39 @@ export async function hoursAgainstBudget(ctx: ServiceContext, input: { id: strin
       approvedChangeHours: Number(row?.changed ?? 0).toFixed(2),
       punchStillRunning: Number(row?.running ?? 0) > 0,
       locked: Number(row?.punches ?? 0) > 0,
+    };
+  });
+}
+
+/**
+ * A job's production against its hours on site, for its page: the amount of
+ * work in the job type's unit, the hours on site (each person separately, as
+ * the production per crew hour counts them), and the hours getting the job
+ * ready, which that figure leaves out. Null for a job whose type has no
+ * production unit, which is most of them.
+ */
+export async function production(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    const [job] = await tx.select({ quantity: schema.job.productionQuantity, unit: schema.jobType.productionUnit })
+      .from(schema.job)
+      .leftJoin(schema.jobType, eq(schema.jobType.id, schema.job.jobTypeId))
+      .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf(ctx, "job"), ctx.actor)))
+      .limit(1);
+    if (!job) throw new NotFoundError("Job");
+    if (!job.unit) return null;
+    const [row] = await tx.execute<{ on_site: string; ready: string; running: string }>(sql`
+      select coalesce(sum(te.minutes) filter (where te.ended_at is not null
+               and te.kind::text = any(${sql.param([...reporting.ON_SITE_PRODUCTION])}::text[])), 0)::text as on_site,
+             coalesce(sum(te.minutes) filter (where te.ended_at is not null and te.kind = 'mobilisation'), 0)::text as ready,
+             count(*) filter (where te.ended_at is null)::text as running
+      from public.timeclock_entry te
+      where te.job_id = ${input.id} and te.deleted_at is null`);
+    return {
+      unit: job.unit,
+      quantity: job.quantity,
+      onSiteHours: (Number(row?.on_site ?? 0) / 60).toFixed(2),
+      readyHours: (Number(row?.ready ?? 0) / 60).toFixed(2),
+      punchStillRunning: Number(row?.running ?? 0) > 0,
     };
   });
 }

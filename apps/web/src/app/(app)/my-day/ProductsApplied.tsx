@@ -99,7 +99,7 @@ function Question({ question, chemicals, locked, onSave }: {
         <>
           {chemicals.length > 0 && (
             <div className="mt-2 grid grid-cols-3 gap-2">
-              <label className="col-span-2 block">
+              <label className="col-span-2 block min-w-0">
                 <span className="text-sm text-ink-700">Product</span>
                 <select className={`mt-1 ${input}`} value={chosen} onChange={(e) => setChosen(e.target.value)}
                         aria-label={`${question.label}: product`}>

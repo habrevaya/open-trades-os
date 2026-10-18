@@ -6,8 +6,8 @@ import { JOB_COSTING_SQL, SETTLEMENT_SQL } from "./report-catalogue";
 /**
  * THE SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
  *
- * (They are read now. Forty one of the forty seven are computed here, four
- * are M22's, and the two that are not each name what they still lack.)
+ * (They are read now. Forty two of the forty seven are computed here, four
+ * are M22's, and the one that is not names what it still lacks.)
  *
  * Eight trade packs declare sixty three KPIs between them, forty seven distinct
  * keys, each with a label, a format, a target and a definition precise enough to
@@ -1146,6 +1146,67 @@ const chemicalCost = (pick: "numerator" | "denominator" | "unknown"): Records =>
     where ${pick === "denominator" ? sql`s.counted` : sql`not s.counted`}`;
 
 /**
+ * PRODUCTION PER CREW HOUR, per completed production job: the amount of work
+ * recorded on it in its job type's unit, over every person's hours on site
+ * on it (`reporting.ON_SITE_PRODUCTION`), never travel or getting the job
+ * ready. A job with no amount, no hours on site or a punch still running is
+ * left out of both halves; only the unit the window's measured jobs spent the
+ * most hours in is added up, and a job in another unit is counted beside. The
+ * rule is core's `reporting.productionPerCrewHour`, and
+ * `kpi-production.integration.test.ts` puts the same jobs through both.
+ */
+const productionJobs = (from: string, to: string, zone: string) => sql`
+  with jobs as (
+    select j.id, j.number, j.summary, j.completed_at, j.production_quantity as quantity,
+           btrim(jt.production_unit) as unit, lower(btrim(jt.production_unit)) as unit_key,
+           (select coalesce(sum(te.minutes), 0) from public.timeclock_entry te
+            where te.job_id = j.id and te.deleted_at is null and te.ended_at is not null
+              and te.kind::text = any(${sql.param([...reporting.ON_SITE_PRODUCTION])}::text[]))::numeric / 60 as hours,
+           (select coalesce(sum(te.minutes), 0) from public.timeclock_entry te
+            where te.job_id = j.id and te.deleted_at is null and te.ended_at is not null
+              and te.kind = 'mobilisation')::numeric / 60 as ready,
+           exists (select 1 from public.timeclock_entry te
+            where te.job_id = j.id and te.deleted_at is null and te.ended_at is null
+              and te.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])) as running
+    from public.job j
+    join public.job_type jt on jt.id = j.job_type_id
+    where j.deleted_at is null and j.completed_at is not null
+      and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
+      and jt.revenue_class::text = any(${sql.param(["install", "service", "recurring", "project"])}::text[])
+      and nullif(btrim(jt.production_unit), '') is not null
+  ),
+  judged as (
+    select jobs.*, (not running and quantity is not null and quantity > 0 and hours > 0) as measured from jobs
+  ),
+  main as (
+    select unit_key from judged where measured group by unit_key order by sum(hours) desc, unit_key limit 1
+  )`;
+
+const amount = (column: string) => `trim_scale(round(${column}, 2))::text`;
+
+const production = (pick: "numerator" | "denominator" | "excluded" | "unknown"): Records => (from, to, zone) => sql`${productionJobs(from, to, zone)}
+  select 'job'::text as kind, x.id::text as id,
+         ${sql.raw({
+           numerator: `concat('#', x.number, ' ', x.summary, ': ', ${amount("x.quantity")}, ' ', x.unit, ' over ', to_char(x.hours, 'FM999999990.00'), ' hours on site',
+             case when x.ready > 0 then concat(', ', to_char(x.ready, 'FM999999990.00'), ' getting it ready left out') else '' end)`,
+           denominator: `concat('#', x.number, ' ', x.summary, ': ', to_char(x.hours, 'FM999999990.00'), ' hours on site')`,
+           excluded: `concat('#', x.number, ' ', x.summary, ': ', ${amount("x.quantity")}, ' ', x.unit, ' over ', to_char(x.hours, 'FM999999990.00'),
+             ' hours, ', to_char(x.quantity / x.hours, 'FM999999990.00'), ' an hour, measured in another unit')`,
+           unknown: `concat('#', x.number, ' ', x.summary, ': ', case when x.running then 'somebody is still on the clock on it'
+             when x.quantity is null or x.quantity <= 0 then 'no amount of work recorded' else 'no hours on site punched' end)`,
+         }[pick])} as label,
+         to_char(x.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
+         ${sql.raw({ numerator: "x.quantity", denominator: "round(x.hours, 4)", excluded: "1", unknown: "1" }[pick])}::numeric as value,
+         '/jobs/' || x.id as href
+  from judged x
+  where ${sql.raw({
+    numerator: "x.measured and x.unit_key = (select unit_key from main)",
+    denominator: "x.measured and x.unit_key = (select unit_key from main)",
+    excluded: "x.measured and x.unit_key <> (select unit_key from main)",
+    unknown: "not x.measured",
+  }[pick])}`;
+
+/**
  * THE PANEL THE ELECTRICAL PACK DECLARES, read from the pack rather than typed
  * again here: the service panel's code and name (the register's category is
  * either, in any case) and the ratings its `service_amps` may hold.
@@ -1633,9 +1694,11 @@ export const CATALOGUE: Record<string, Entry> = {
        * to the shop for a part sits between two stops and counts, which is the
        * route inefficiency the number exists to show.
        *
-       * The denominator is the working day on the clock: travel, on site, shop
-       * and paid breaks. Leave, standby and unpaid breaks are not the day the
-       * share is of.
+       * The denominator is the working day on the clock: travel, on site,
+       * getting a job ready (on site time before it had a kind), shop and paid
+       * breaks. Leave, standby and unpaid breaks are not the day the share is
+       * of. Getting a job ready is clocked time but not a stop, so a drive
+       * between loading the trailer and the first site is the way out.
        *
        * ONLY DAYS THAT RECORD BOTH A STOP AND A DRIVE COUNT, in both halves. A
        * company whose people do not clock their driving would otherwise read
@@ -1685,7 +1748,7 @@ export const CATALOGUE: Record<string, Entry> = {
                  '/timesheets?week=' || to_char(e.day, 'YYYY-MM-DD') as href
           from entries e
           join public.technician t on t.id = e.technician_id
-          where e.kind in ('travel', 'on_site', 'shop', 'paid_break')
+          where e.kind in ('travel', 'on_site', 'mobilisation', 'shop', 'paid_break')
             and e.ended_at is not null
             and exists (select 1 from entries s where s.technician_id = e.technician_id and s.day = e.day and s.kind = 'on_site')
             and exists (select 1 from entries s where s.technician_id = e.technician_id and s.day = e.day and s.kind = 'travel')
@@ -2066,7 +2129,8 @@ export const CATALOGUE: Record<string, Entry> = {
        * travel."
        *
        * Every exclusion is a `kind` on the timeclock entry: `shop` is the office
-       * and administrative half, `travel` is travel. "Every person separately" is
+       * and administrative half, `travel` is travel. Getting a job ready is paid
+       * as on site time, and is here as it was before it had a kind. "Every person separately" is
        * what summing minutes per entry already does. One row per entry, adding
        * its hours.
        */
@@ -2082,7 +2146,7 @@ export const CATALOGUE: Record<string, Entry> = {
           from public.timeclock_entry te
           join public.technician t on t.id = te.technician_id
           where te.deleted_at is null
-            and te.kind in ('on_site', 'paid_break')
+            and te.kind in ('on_site', 'mobilisation', 'paid_break')
             and te.started_at >= ${dayStart(from, zone)} and te.started_at < ${dayAfter(to, zone)}
         `,
       },
@@ -2202,18 +2266,41 @@ export const CATALOGUE: Record<string, Entry> = {
   },
 
   production_per_crew_hour: {
-    state: "needs",
+    state: "computed",
     format: "number",
-    needs:
-      "Mobilisation recorded separately. `job.production_quantity` and on-site "
-      + "minutes are both here, and the definition EXCLUDES mobilisation on the "
-      + "first day as well as drive time. Travel is a timeclock kind and "
-      + "mobilisation is not (`time_entry_kind` has travel, on site, shop and "
-      + "the kinds of leave), so the hours a crew spent unloading and setting up "
-      + "on a build's first day are on site hours, and a two day build would "
-      + "read as slower than a one day one for no reason the crew controls. "
-      + "Recording it means a punch kind the phone offers, with payroll paying it "
-      + "as on site time, which nothing has yet.",
+    measure: {
+      /**
+       * "Production units completed, in the unit on the job type, divided by
+       * crew hours on site. EXCLUDES drive time and EXCLUDES mobilisation on
+       * the first day of a multi day job, when nothing is produced but the crew
+       * is paid."
+       *
+       * WHAT IT NEEDED, and what changed: mobilisation recorded apart from on
+       * site time. The timeclock has a kind for it now (`mobilisation`,
+       * "Getting a job ready": loading, driving out and unloading), offered on
+       * the phone and `/my-day` against one of the day's stops and filed on
+       * its job. It is paid exactly as on site time (core's `labor.PAID_AS`),
+       * so nobody's pay or payroll export changes, and only this figure reads
+       * it. A job's amount of work (`job.production_quantity`, in its job
+       * type's unit) is set on the job's page.
+       *
+       * Crew hours on site are every person's on site punches on the job and
+       * a paid break there; travel is drive time and getting the job ready is
+       * the mobilisation, and neither is counted, on any day (the
+       * mobilisation holds the drive out). A job with no amount recorded, no
+       * hours on site or a punch still running is left out of both halves and
+       * counted beside, because counted it would read as nothing produced or
+       * as work done in no time. Units of different kinds do not add, so the
+       * figure is over the unit the window's jobs spent most hours on site in,
+       * and a job in another unit is counted beside with its own rate.
+       */
+      numerator: { label: "units of work completed, in the unit most of the hours went to", records: production("numerator") },
+      denominator: { label: "crew hours on site on those jobs, each person separately", records: production("denominator") },
+      besides: {
+        excluded: { label: "jobs measured in another unit, left out", records: production("excluded") },
+        unknown: { label: "jobs left out because their amount or hours are not known", records: production("unknown") },
+      },
+    },
   },
 
   cancel_rate_route: {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
-  chemicalsIn, projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordInvoice, recordPayment, recordWater, tipChoices,
+  chemicalsIn, clockWords, mobilisationPunch, projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordInvoice, recordPayment, recordWater, tipChoices,
   type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptReceipt, type KeptSignature, type PriceBookEntry,
   type QueuedOperation, type UploadTransport, checkExpenseDraft,
 } from "@opentradesos/field-client";
@@ -497,7 +497,12 @@ export function Day({
 
       <div className="px-4 py-4">
         <TimeClock openEntry={openTimeEntry} zone={timezone} onPunch={(kind) => void record(kind)}
-                   problem={punchProblem} />
+                   problem={punchProblem} kind={projected.clockKind?.kind ?? null}
+                   stops={ordered.map((v) => ({ id: v.id, name: v.customer.name, summary: v.summary }))}
+                   onReady={(visitId) => {
+                     const punch = mobilisationPunch(visitId);
+                     void record(punch.kind, punch.subjectId, punch.payload);
+                   }} />
       </div>
 
       {projected.trucks.filter((t) => t.days.includes(today)).map((truck) => (
@@ -626,15 +631,27 @@ export function Day({
   );
 }
 
+/**
+ * The clock, and clocking in to get a job ready: loading, driving out to the
+ * first site and unloading, before the work starts. Paid exactly as on site
+ * time, as it always was; naming the stop keeps it out of the crew's hours on
+ * site where the company measures production per hour.
+ */
 function TimeClock({
-  openEntry, onPunch, zone, problem,
+  openEntry, onPunch, zone, problem, kind, stops, onReady,
 }: {
   openEntry: Snapshot["openTimeEntry"];
   onPunch: (kind: "timeclock.punch_in" | "timeclock.punch_out") => void;
   zone: string;
   /** Why the last punch did not take, said under the button that made it. */
   problem: string | null;
+  /** What the open punch is for, with this page's own punches laid over the server's. */
+  kind: string | null;
+  /** Today's stops, any of which a punch to get a job ready can be for. */
+  stops: Array<{ id: string; name: string; summary: string }>;
+  onReady: (visitId: string) => void;
 }) {
+  const [ready, setReady] = useState("");
   const since = openEntry
     ? new Date(openEntry.startedAt).toLocaleTimeString("en-US", {
         timeZone: zone,
@@ -647,7 +664,7 @@ function TimeClock({
       <div className="flex items-center gap-3">
         <div className="flex-1">
           <p className="text-sm font-medium">
-            {openEntry ? "On the clock" : "Not clocked in"}
+            {openEntry ? clockWords(kind ?? openEntry.kind) : "Not clocked in"}
           </p>
           {since && <p className="text-sm text-ink-500">Since {since}</p>}
         </div>
@@ -663,6 +680,24 @@ function TimeClock({
           {openEntry ? "Clock out" : "Clock in"}
         </button>
       </div>
+      {!openEntry && stops.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm text-ink-700">Getting a job ready first? Clock in for it</summary>
+          <p className="mt-2 text-sm text-ink-700">Loading, driving out and unloading. Paid the same as time on site.</p>
+          <div className="mt-2 space-y-2">
+            <select className="h-12 w-full min-w-0 rounded border border-steel-300 bg-canvas px-3 text-base" value={ready}
+                    aria-label="Which job you are getting ready" onChange={(e) => setReady(e.target.value)}>
+              <option value="">Which job</option>
+              {stops.map((s) => <option key={s.id} value={s.id}>{s.name}, {s.summary}</option>)}
+            </select>
+            <button type="button" disabled={!ready}
+                    onClick={() => { onReady(ready); setReady(""); }}
+                    className="h-12 w-full rounded bg-ink-900 px-4 text-base font-medium text-white disabled:opacity-60">
+              Clock in to get ready
+            </button>
+          </div>
+        </details>
+      )}
       {problem && (
         <p role="alert" className="mt-2 rounded bg-red-tint px-3 py-2 text-base text-red-600">
           {problem}

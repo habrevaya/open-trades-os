@@ -479,8 +479,11 @@ export const getFieldSnapshot = defineRoute({
     })),
     openTimeEntry: z.object({
       id: Uuid,
+      /** `on_site`, or `mobilisation` for getting a job ready, and the rest of the timeclock's kinds. */
       kind: z.string(),
       startedAt: z.string().datetime(),
+      /** The stop the punch was made for, when it names one. Absent from older servers. */
+      visitId: Uuid.nullable().optional(),
     }).nullable(),
     /**
      * The programmes a technician can run an inspection against, only for one

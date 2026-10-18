@@ -364,7 +364,8 @@ export interface FieldSnapshot {
   visits: FieldVisit[];
   /** What the technician can pick from when recording a part. */
   priceBook: PriceBookEntry[];
-  openTimeEntry: { id: string; kind: string; startedAt: string } | null;
+  /** The visit it names, for a punch made for one. Absent from older servers. */
+  openTimeEntry: { id: string; kind: string; startedAt: string; visitId?: string | null | undefined } | null;
   /** Absent from older servers, and empty for somebody who may not file inspections. */
   inspectionPrograms?: FieldInspectionProgram[] | undefined;
   /** Absent from older servers, which is read as sharing off. */

@@ -86,7 +86,7 @@ function elapsedSeconds(from: Date, to: Date): number {
 
 export const TIME_ENTRY_KINDS = [
   "travel", "on_site", "shop", "unpaid_break", "paid_break", "on_call",
-  "training", "pto", "holiday",
+  "training", "pto", "holiday", "mobilisation",
 ] as const;
 export type TimeEntryKind = (typeof TIME_ENTRY_KINDS)[number];
 
@@ -208,7 +208,42 @@ export const TIME_ENTRY_KIND: Record<TimeEntryKind, TimeEntryKindProfile> = {
     contested:
       "Holiday premium pay, where a company pays extra for working ON a holiday, is a different thing from this and belongs on the day actually worked.",
   },
+
+  /**
+   * PAID EXACTLY AS ON SITE TIME, because that is what it was. Before this
+   * kind existed a crew loading the trailer, driving out to a build and
+   * unloading on its first day punched on site, and pay must not change for
+   * anybody because the crew can now say so. So it is paid and counted
+   * toward overtime by whatever the policy says about `on_site`, never by an
+   * answer of its own (`PAID_AS`), and only lawn and landscape's production
+   * per crew hour reads the kind, to leave it out of hours on site.
+   */
+  mobilisation: {
+    label: "Getting a job ready",
+    meaning: "Loading, driving out to the first site and unloading, before the work starts.",
+    paid: true,
+    countsTowardOvertime: true,
+    contested:
+      "Nothing of its own: it is paid and counted exactly as on site time is, because that is how it was punched before the kind existed. Whether the drive out is paid is the same question as for any first drive, and this kind does not answer it differently.",
+  },
 };
+
+/**
+ * KINDS PAID AS ANOTHER KIND. A policy's per kind override of what counts
+ * toward overtime is read from the kind named here, so a company that never
+ * punches mobilisation, and one that does, pay the same hours the same way.
+ */
+export const PAID_AS: Partial<Record<TimeEntryKind, TimeEntryKind>> = { mobilisation: "on_site" };
+
+/** The kind whose pay rules a kind follows: itself, or the one it is paid as. */
+export const payKindOf = (kind: TimeEntryKind): TimeEntryKind => PAID_AS[kind] ?? kind;
+
+/**
+ * Working time at a customer's site, for anything that pays, costs or bills
+ * on site hours: on site, and getting a job ready, which was on site time
+ * before it had a kind.
+ */
+export const ON_SITE_KINDS = ["on_site", "mobilisation"] as const satisfies readonly TimeEntryKind[];
 
 export interface TimeEntry {
   id: string;
@@ -534,6 +569,11 @@ export function checkOvertimePolicy(policy: OvertimePolicy): PolicyVerdict {
   if (policy.note.trim() === "") {
     bad("The overtime policy has no note. The note is what the person approving payroll reads to decide whether this declaration is right, and a blank one tells them nothing.");
   }
+  for (const [kind, as] of Object.entries(PAID_AS)) {
+    if (policy.countsTowardOvertime?.[kind as TimeEntryKind] !== undefined) {
+      bad(`"${TIME_ENTRY_KIND[kind as TimeEntryKind].label}" is counted toward overtime exactly as "${TIME_ENTRY_KIND[as].label}" is, so it cannot be set on its own. Set "${TIME_ENTRY_KIND[as].label}" instead.`);
+    }
+  }
   if (!Number.isInteger(policy.weekStartsOn) || policy.weekStartsOn < 0 || policy.weekStartsOn > 6) {
     bad(`The workweek starts on day ${String(policy.weekStartsOn)}, which is not a day. It has to be 0 for Sunday through 6 for Saturday: the week boundary decides which week an hour of overtime falls in.`);
   }
@@ -756,12 +796,14 @@ export interface WeekClassification {
   explanations: string[];
 }
 
-function countsTowardOvertime(kind: TimeEntryKind, policy: OvertimePolicy): boolean {
+function countsTowardOvertime(entryKind: TimeEntryKind, policy: OvertimePolicy): boolean {
+  const kind = payKindOf(entryKind);
   if (kind === "on_call") return policy.onCallTreatment === "hours_worked_at_base";
   return policy.countsTowardOvertime?.[kind] ?? TIME_ENTRY_KIND[kind].countsTowardOvertime;
 }
 
-function isPaidAsWorked(kind: TimeEntryKind, policy: OvertimePolicy): boolean {
+function isPaidAsWorked(entryKind: TimeEntryKind, policy: OvertimePolicy): boolean {
+  const kind = payKindOf(entryKind);
   if (!TIME_ENTRY_KIND[kind].paid) return false;
   if (kind === "on_call") return policy.onCallTreatment === "hours_worked_at_base";
   return true;
@@ -822,7 +864,7 @@ export function classifyWeek(
   let unpaidSeconds = 0;
 
   for (const segment of segments) {
-    if (!TIME_ENTRY_KIND[segment.kind].paid) {
+    if (!TIME_ENTRY_KIND[payKindOf(segment.kind)].paid) {
       unpaidSeconds += segment.seconds;
       continue;
     }

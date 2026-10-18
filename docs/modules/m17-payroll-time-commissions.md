@@ -136,6 +136,18 @@ person they belong to: a branch scoped reader sees and approves the people in
 their branch, including an hour one of them spent on another branch's job, and
 a crew lead their crew.
 
+**Getting a job ready** (`mobilisation`) is a kind of time of its own: loading,
+driving out to the first site and unloading, before the work starts. The phone and
+`/my-day` offer it beside the ordinary clock in, against one of the day's stops, and
+the punch is filed on that stop's job. It is **paid exactly as on site time**, because
+that is how it was punched before it had a kind: core's `labor.PAID_AS` makes every pay
+rule read `on_site` for it, so it is paid, counts toward overtime, and follows whatever
+the company's overtime policy says about on site time; a policy cannot set it on its
+own (it is refused in words), and job costing and labour billed beyond an allowance
+count it as on site time. A company that never uses it pays and exports exactly as
+before, and one that does pays the same hours the same way. Only lawn and landscape's
+production per crew hour (M21) reads the kind, to leave it out of hours on site.
+
 ### A person's own pay
 
 `/me/pay` is the signed in person's own statement for each period payroll has
@@ -590,7 +602,10 @@ could hold, which is worse than a coarse one.
 
 ## What is not built
 
-No payroll processing, by design. A wage scale's own overtime multipliers and
+No payroll processing, by design. Getting a job ready is paid as on site time by the
+conservative reading (nobody's pay changes because the crew can now say what they were
+doing); a company that pays the drive out differently has no way to say so for this
+kind alone, as it has none for the first drive of any day. A wage scale's own overtime multipliers and
 apprentice ratio are kept and shown but do not change any figure: overtime comes
 from the company's overtime rule only, and the ratio is not checked against crews.
 A scale's agreement terms are set when it is loaded and cannot be changed on the

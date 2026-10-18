@@ -8614,6 +8614,7 @@ export interface GetFieldSnapshotOutput {
     id: string;
     kind: string;
     startedAt: string;
+    visitId?: string | null;
   } | null;
   inspectionPrograms: Array<{
     id: string;
@@ -27108,6 +27109,7 @@ export interface UpdateJobInput {
   multiVisitPlanned?: boolean;
   budgetedHours?: string | null;
   status?: "lead" | "estimating" | "scheduled" | "in_progress" | "on_hold" | "completed" | "invoiced" | "paid" | "cancelled";
+  productionQuantity?: string | null;
   completedAt?: string;
   cancelVisits?: boolean;
   cancelledBy?: "customer" | "company";

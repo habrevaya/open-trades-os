@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql, desc, isNull, max, ne } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { can, field, money as m, tax } from "@opentradesos/core";
+import { can, field, labor, money as m, tax } from "@opentradesos/core";
 import { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
@@ -863,6 +863,20 @@ async function effect(
     case "timeclock.punch_in": {
       const technicianId = await punchingTechnician(tx, op);
       if (!technicianId) return NOBODY_TO_PUNCH;
+      const kind = op.payload["kind"] ?? "on_site";
+      if (typeof kind !== "string" || !(labor.TIME_ENTRY_KINDS as readonly string[]).includes(kind)) {
+        return "That kind of time is not one this product knows, so the punch was not recorded. Clock in again.";
+      }
+      /**
+       * A punch on a visit is on that visit's job, so a crew clocking in to get
+       * a build ready from the phone (which names the stop and not the job)
+       * puts its hours where job costing and the production per crew hour
+       * read them. A job named in the payload is kept as named.
+       */
+      const [onVisit] = op.subjectId && typeof op.payload["jobId"] !== "string"
+        ? await tx.select({ jobId: schema.visit.jobId }).from(schema.visit)
+          .where(and(eq(schema.visit.id, op.subjectId), eq(schema.visit.organizationId, org))).limit(1)
+        : [];
       await tx.insert(schema.timeclockEntry).values({
         organizationId: org,
         technicianId,
@@ -871,8 +885,8 @@ async function effect(
          * A punch with no kind is somebody at a property working, which is
          * the only default here that cannot quietly reclassify paid time.
          */
-        kind: (op.payload["kind"] as "on_site") ?? "on_site",
-        jobId: (op.payload["jobId"] as string) ?? null,
+        kind: kind as labor.TimeEntryKind,
+        jobId: (op.payload["jobId"] as string | undefined) ?? onVisit?.jobId ?? null,
         visitId: op.subjectId || null,
         startedAt: op.occurredAt,
         /**

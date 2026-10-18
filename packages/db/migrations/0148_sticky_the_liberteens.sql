@@ -1,0 +1,1 @@
+ALTER TYPE "public"."time_entry_kind" ADD VALUE 'mobilisation';
