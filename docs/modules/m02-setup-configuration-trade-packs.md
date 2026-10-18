@@ -397,6 +397,28 @@ business units and territories: `GET /v1/locations`,
 `POST /v1/locations`, `POST /v1/business-units` and `POST /v1/territories` to
 create. All of them are `settings:read` and `settings:write`.
 
+### How long an invite's link works
+
+An invite's link (the one the inviter is shown once and the one in the invite
+email) works for seven days unless the company says otherwise. On
+`/settings/team`, and on the setup wizard's team step, an owner or an
+administrator sets "Days an invite link works" from 1 to 30 (`PATCH
+/v1/invite-lifetime`, `settings:write`; `GET /v1/invite-lifetime` reads it for
+anybody who may invite, `user:invite`). A number outside that, or a part of a
+day, is refused in words ("Give the number of days as a whole number from 1 to
+30."). The invite screen says it above the form ("Both work for 7 days"), the
+email says it beside the day ("The link works once, for 7 days, until Fri, Oct
+23."), the result of inviting carries it as `days` beside `expiresAt`, and the
+screen that hands the link over says "in the next 7 days". It is read at the
+moment an invite is sent and kept on the invite as the day it runs out, so
+changing it never shortens or stretches an invite already sent, and "Send a new
+invite" uses whatever is set then. It is kept in `organization.settings` as
+`inviteLink.days`; a saved value that is not a whole number from 1 to 30 reads as
+seven. The change is audited as `organization.invite_days_set` with the days it
+replaced. It is `settings:write` and not `user:invite` because a longer lived
+link is a longer lived way into the company: the office manager, who sends
+invites, sees the number and cannot change it.
+
 ## Permissions
 
 | Role | Access |
@@ -427,8 +449,9 @@ do. A company that wants a branch's own CSRs makes a branch scoped role for
 them on `/settings/roles`.
 
 **What happens when an invite runs out?** The team list says so beside the
-person, and "Send a new invite" sends another, good for seven more days, and
-stops every link the old one had.
+person, and "Send a new invite" sends another, good for as many days as the
+company has set (seven unless it says otherwise), and stops every link the old
+one had.
 
 **Why was my invite refused for an address?** It already has an account with
 another company. Adding an existing account would hand this company to
@@ -444,8 +467,9 @@ the missing datum for the ones it cannot.
 An invite is emailed only when the company has an email provider connected;
 without one the team list says it was not emailed, and the link shown once to
 the person inviting is the way in. A deployment with no `PUBLIC_URL` makes no
-link at all and says so. An invite's link lasts seven days, which a company
-cannot change. An address with an account at another company cannot be
+link at all and says so. An invite's link lasts as many days as the company sets, from 1 to
+30; a longer life than a month is not offered, because a link left in an inbox
+is a way into the company. An address with an account at another company cannot be
 invited.
 
 A trade pack upgrade does not touch checklists, KPIs, filing calendars or the

@@ -339,6 +339,8 @@ const Invitation = z.object({
   emailNote: z.string().nullable(),
   /** When both links stop working. */
   expiresAt: z.string().datetime(),
+  /** How many days they last: the company's setting (`/v1/invite-lifetime`), seven until it says otherwise. */
+  days: z.number().int().min(1).max(30),
 });
 
 export const inviteMember = defineRoute({
@@ -346,7 +348,7 @@ export const inviteMember = defineRoute({
   path: "/v1/invitations",
   summary: "Invite somebody to work here",
   description:
-    "Creates the person with a preset role, in a branch if one is named, with a technician record when they go out to jobs (the default for technicians and crew leads), returns a one-time link for them to choose a password, and emails them a link of their own through the email outbox. Both work for seven days. The email's link is made by the outbox as it sends and is kept nowhere, so nobody reading the inbox can use it; with no email provider connected the invite is still made and `emailNote` says why it was not emailed. The role must be one the inviter could define themselves, a branch manager must be given a branch, and an inviter who sees only their branch invites into it. An address that already has an account with another company is refused, because adding an existing account would hand this company to whoever controls it. Inviting somebody who was invited and has not signed in sends a new invite and retires the old one's links.",
+    "Creates the person with a preset role, in a branch if one is named, with a technician record when they go out to jobs (the default for technicians and crew leads), returns a one-time link for them to choose a password, and emails them a link of their own through the email outbox. Both work for the number of days the company set (`/v1/invite-lifetime`, seven until it says otherwise); the email says how many. The email's link is made by the outbox as it sends and is kept nowhere, so nobody reading the inbox can use it; with no email provider connected the invite is still made and `emailNote` says why it was not emailed. The role must be one the inviter could define themselves, a branch manager must be given a branch, and an inviter who sees only their branch invites into it. An address that already has an account with another company is refused, because adding an existing account would hand this company to whoever controls it. Inviting somebody who was invited and has not signed in sends a new invite and retires the old one's links.",
   module: "M01",
   permissions: ["user:invite"],
   idempotent: true,
@@ -364,7 +366,7 @@ export const resendInvite = defineRoute({
   method: "post",
   path: "/v1/invitations/{membershipId}/resend",
   summary: "A new invite for somebody who has not signed in yet",
-  description: "A fresh link shown once and emailed again, good for another seven days; the old invite's links stop working. This is what to do when one has run out. Refused for somebody who has chosen a password, who signs in as normal.",
+  description: "A fresh link shown once and emailed again, good for the company's chosen number of days (seven until it says otherwise); the old invite's links stop working. This is what to do when one has run out. Refused for somebody who has chosen a password, who signs in as normal.",
   module: "M01",
   permissions: ["user:invite"],
   idempotent: true,
@@ -385,10 +387,36 @@ export const setMemberRole = defineRoute({
   output: z.object({ membershipId: Uuid, role: RoleKey, customRoleId: Uuid.nullable() }),
 });
 
+const InviteLifetime = z.object({ days: z.number().int().min(1).max(30) });
+
+export const getInviteLifetime = defineRoute({
+  method: "get",
+  path: "/v1/invite-lifetime",
+  summary: "How many days an invite's link works",
+  description: "Seven until the company sets it. Read by whoever may invite, because the invite screen and the invite email say it.",
+  module: "M02",
+  permissions: ["user:invite"],
+  input: z.object({}),
+  output: InviteLifetime,
+});
+
+export const setInviteLifetime = defineRoute({
+  method: "patch",
+  path: "/v1/invite-lifetime",
+  summary: "Set how many days an invite's link works",
+  description: "Whole days from 1 to 30. Applies to invites sent from now on: an invite already sent keeps the day it was given, so lowering this does not cut one short and raising it does not stretch one. Needs `settings:write` rather than `user:invite`, because a longer lived link is a longer lived way into the company.",
+  module: "M02",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: InviteLifetime,
+  output: InviteLifetime,
+});
+
 export const setupRoutes = {
   getSetup, markSetupStep, finishSetup,
   getCompanyDetails, updateCompanyDetails,
   listItemTax, setItemTax,
   listTradePacks, applyTradePack, previewTradePackUpgrade, upgradeTradePack,
   listTeam, inviteMember, resendInvite, setMemberRole,
+  getInviteLifetime, setInviteLifetime,
 } as const;
