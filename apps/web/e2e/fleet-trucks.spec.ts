@@ -140,7 +140,14 @@ test("Containers: the facility's fee is offered when a hire passes it on, added 
   await yardRow.getByLabel("Invoice this hire as").selectOption({ label: "One invoice for the whole chain" });
   await yardRow.getByLabel("Pass the disposal fee on").check();
   await yardRow.getByRole("button", { name: "Deliver" }).click();
-  const first = board.getByRole("row").filter({ hasText: cans[0]! });
+  /**
+   * A hire's row, found by the can named in its first cell: another hire's
+   * "Empty can" list names every can in the yard, so a row that merely
+   * mentions the number can be somebody else's.
+   */
+  const hireOf = (can: string) => board.getByRole("row")
+    .filter({ has: owner.locator("td:first-child .font-mono", { hasText: new RegExp(`^${can}$`) }) });
+  const first = hireOf(cans[0]!);
   await expect(first).toContainText(street);
 
   // Swapped for the second can, which carries the terms forward.
@@ -149,7 +156,7 @@ test("Containers: the facility's fee is offered when a hire passes it on, added 
   await first.getByLabel("Net tons on the full can").fill("1");
   await first.getByLabel("Facility the full can went to").selectOption({ label: facility });
   await first.getByRole("button", { name: "Swap" }).click();
-  const second = board.getByRole("row").filter({ hasText: cans[1]! });
+  const second = hireOf(cans[1]!);
   await expect(second).toContainText("Swap");
 
   // Collected with its ticket: now the fee is offered, and nothing is invoiced yet.
