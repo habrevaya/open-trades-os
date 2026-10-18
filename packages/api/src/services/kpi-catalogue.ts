@@ -72,6 +72,10 @@ export type Format = "percent" | "money" | "number" | "duration";
  *   value    what it adds to the half
  *   href     the screen it opens
  *
+ * A measure that declares `groupings` adds two more per grouping to every
+ * records query of every half: `g_{key}` and `g_{key}_label` (see `Grouping`).
+ * Nothing else reads past the six.
+ *
  * Written by us and never assembled from input, like every SQL fragment in the
  * reporting code. The window and the company's timezone are parameters, and so
  * is the company's trade, for the one key whose packs define it differently
@@ -113,6 +117,26 @@ export interface Measure {
    * of the losses are unknown rather than having them guessed at.
    */
   besides?: Partial<Record<BesideKey, Half>>;
+  /**
+   * THE GROUPINGS EVERY RECORD OF THIS MEASURE ALREADY CARRIES, by which the
+   * scorecard can break the figure down. Declared only where every records
+   * query of every half (and of every count beside) names the group on each
+   * row, as `g_{key}` (what tells two groups apart) and `g_{key}_label` (what
+   * the group is called): a stop names its route and its weekday, a route day
+   * its person and its weekday, a truck its truck. Never worked out from
+   * anything near it, so a group's two halves are the records behind the
+   * figure, added up by group, and the groups add up to the figure.
+   */
+  groupings?: Grouping[];
+}
+
+/** A grouping a measure's records carry. */
+export interface Grouping {
+  key: string;
+  /** What it is called on the selector: "Route", "Weekday". */
+  label: string;
+  /** How the groups are listed: by their key (a weekday's number, Monday first) or by name. */
+  order: "key" | "label";
 }
 
 /** What a count beside the number is. */
@@ -334,7 +358,8 @@ const waterPerStop = (pick: "numerator" | "denominator" | "excluded" | "unknown"
                   round(sum(x.gallons::numeric) / sum(x.stops), 1), ' a stop') as label,
            max(x.day) as on_day,
            ${pick === "numerator" ? sql`sum(x.gallons::numeric)` : sql`sum(x.stops)::numeric`} as value,
-           '/fleet/water?truck=' || x.asset_id as href
+           '/fleet/water?truck=' || x.asset_id as href,
+           x.asset_id::text as g_truck, x.label as g_truck_label
     from (${truckDaysSql(from, to, zone)}) as x
     where x.gallons is not null and x.stops > 0
     group by x.asset_id, x.label`
@@ -344,7 +369,8 @@ const waterPerStop = (pick: "numerator" | "denominator" | "excluded" | "unknown"
              ? sql`concat(x.label, ', ', to_char(x.day::date, 'Mon FMDD'), ': ', x.stops, case when x.stops = 1 then ' stop' else ' stops' end, ', no water read')`
              : sql`concat(x.label, ', ', to_char(x.day::date, 'Mon FMDD'), ': ', trim_scale(x.gallons::numeric), ' gallons and no stop')`} as label,
            x.day as on_day, 1::numeric as value,
-           '/fleet/water?truck=' || x.asset_id as href
+           '/fleet/water?truck=' || x.asset_id as href,
+           x.asset_id::text as g_truck, x.label as g_truck_label
     from (${truckDaysSql(from, to, zone)}) as x
     where ${pick === "unknown" ? sql`x.gallons is null and x.stops > 0` : sql`x.gallons is not null and x.stops = 0`}`;
 
@@ -1372,7 +1398,9 @@ const routeDays = (status: "counted" | "gap", value: "stops" | "miles" | "one"):
                 ${status === "counted" ? sql`', ', rd.miles, ' miles between them'` : sql`', not counted: ', rd.note`}) as label,
          rd.day::text as on_day,
          ${value === "stops" ? sql`rd.stops::numeric` : value === "miles" ? sql`rd.miles::numeric` : sql`1::numeric`} as value,
-         '/timesheets?week=' || rd.day::text as href
+         '/timesheets?week=' || rd.day::text as href,
+         rd.technician_id::text as g_person, t.display_name as g_person_label,
+         extract(isodow from rd.day)::int::text as g_weekday, trim(to_char(rd.day, 'Day')) as g_weekday_label
   from public.route_day rd
   join public.technician t on t.id = rd.technician_id
   where rd.status = ${status}
@@ -1398,7 +1426,11 @@ const stopsCalledOff = (pick: "late" | "scheduled" | "company" | "unknown"): Rec
          concat('#', j.number, ' ', c.name, ', ', coalesce(r.name, cr.name, 'no route'), ', ',
                 trim(to_char(v.window_start at time zone ${zone}, 'Day'))) as label,
          to_char(v.window_start at time zone ${zone}, 'YYYY-MM-DD') as on_day,
-         1::numeric as value, '/visits/' || v.id as href
+         1::numeric as value, '/visits/' || v.id as href,
+         coalesce('route:' || r.id::text, 'crew:' || cr.id::text, 'none') as g_route,
+         coalesce(r.name, cr.name, 'No route') as g_route_label,
+         extract(isodow from v.window_start at time zone ${zone})::int::text as g_weekday,
+         trim(to_char(v.window_start at time zone ${zone}, 'Day')) as g_weekday_label
   from public.visit v
   join public.job j on j.id = v.job_id
   join public.job_type jt on jt.id = j.job_type_id
@@ -2397,6 +2429,11 @@ export const CATALOGUE: Record<string, Entry> = {
         excluded: { label: "stops the company called off itself, left out", records: stopsCalledOff("company") },
         unknown: { label: "stops called off with nobody saying who, left out", records: stopsCalledOff("unknown") },
       },
+      /** "Reported per route and per weekday": every stop names both. */
+      groupings: [
+        { key: "route", label: "Route", order: "label" },
+        { key: "weekday", label: "Weekday", order: "key" },
+      ],
     },
   },
 
@@ -2735,6 +2772,11 @@ export const CATALOGUE: Record<string, Entry> = {
           records: routeDays("gap", "one"),
         },
       },
+      /** Every route day is one person's day, so it names the person and the weekday. */
+      groupings: [
+        { key: "person", label: "Person", order: "label" },
+        { key: "weekday", label: "Weekday", order: "key" },
+      ],
     },
   },
 
@@ -2944,6 +2986,8 @@ export const CATALOGUE: Record<string, Entry> = {
         unknown: { label: "Truck days with stops and no water read, left out of both halves", records: waterPerStop("unknown") },
         excluded: { label: "Water read on a day the truck completed no stop, left out of both halves", records: waterPerStop("excluded") },
       },
+      /** "Per truck": every record is a truck, or one of its days. */
+      groupings: [{ key: "truck", label: "Truck", order: "label" }],
     },
   },
 

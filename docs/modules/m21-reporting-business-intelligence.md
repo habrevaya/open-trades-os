@@ -432,8 +432,8 @@ frozen on each visit when it is called off.
   an API caller that did not say) is out of both halves and counted beside as
   not known, never read as either.
 - Each record names the stop's route (or its crew, with no route) and its
-  weekday. The figure is the company's; the split per route and per weekday is
-  read off the records, not drawn as a breakdown.
+  weekday. The figure is the company's, and "Break it down by" under it on the
+  scorecard splits it per route or per weekday (below).
 
 The rule is core's `reporting.cancellationOf`, with unit tests, written again
 in SQL, and `kpi-cancel-rate.integration.test.ts` checks a month worked out by
@@ -845,6 +845,39 @@ four the fleet report already answers are named with the endpoint rather than
 computed again, because two screens computing one number from two queries is how
 they come to disagree.
 
+### A figure broken down
+
+A figure whose records already name a grouping can be broken down by it on
+the scorecard: "Break it down by" under the figure, a choice in the address
+(`kpi` and `by`) like every other on these screens. Three do, because every
+record behind every half of them names the group, and none is worked out from
+anything near it:
+
+- **Cancellation rate by route**, by route (a stop's route, or its crew when
+  it has none) and by weekday, which is what its definition asks for.
+- **Route density**, by person and by weekday: every route day is one
+  person's day.
+- **Fresh water per stop**, by truck: every record is a truck or one of its
+  days, which is the "per truck" its definition asks for.
+
+Each group shows its figure and its two halves, and the counts beside the
+figure (the company's own cancellations, the stops nobody said who called
+off) for that group. A half is the figure's records added up by the group
+each names, so it opens onto that group's records
+(`/reports/scorecard/records` with `by` and `group`), and the groups add up
+to the figure, on the last row. A group whose bottom half is empty reads "Not
+this window", never nought. Only one figure is broken down at a time. The
+others (close rate "by technician", revenue per technician) are not offered:
+their records do not name a technician on both halves, and a split guessed
+from a job's lead would be the near thing this scorecard refuses to compute
+from. `kpi-breakdown.integration.test.ts` works a month out by hand, opens a
+group's records, and runs every declared breakdown under a trade that declares
+it, so a records query that forgot the group's columns fails there.
+
+A breakdown is refused exactly where the records behind the figure are, in
+the same words: a reader whose scope is narrower than the company, a record
+kind they may not read, and a money half without `report.financial:read`.
+
 ### The records behind a KPI
 
 Every half of every computed KPI is written as the list of records it counts,
@@ -1237,6 +1270,7 @@ caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
 | `POST /v1/reports/drill` | `report:read` |
 | `GET /v1/kpis` | `report:read` |
 | `GET /v1/kpi-records` | `report:read`, and see above |
+| `GET /v1/kpi-breakdown` | `report:read`, and refused where the records are |
 | `GET /v1/report-schedules` | `report:read` |
 | `POST /v1/report-schedules` | `report:build` (a report, or a dashboard by `dashboard` or `dashboardId`) |
 | `PATCH /v1/report-schedules/{id}` | `report:build` |
@@ -1334,9 +1368,9 @@ heater stays in the bottom half. A replacement counts as ours only when the
 register's record of it names one of our jobs. A heater whose install date was
 never recorded is counted beside the figure, not in it.
 
-The cancellation rate by route is one company figure: the route and weekday of
-each stop are on its records, and the scorecard draws no breakdown by either.
-It judges lateness by the company's one notice window, not one per job type or
+The cancellation rate by route is broken down per route and per weekday on
+the scorecard, one figure at a time; a route's own figure is not tracked over
+months anywhere. It judges lateness by the company's one notice window, not one per job type or
 plan. A visit is not called off from the phone, so a team turned away at the
 door is recorded by the office; a cancellation recorded before who asked was
 kept, or by an API caller that did not say, is counted beside the figure as not

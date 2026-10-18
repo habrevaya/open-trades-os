@@ -45,13 +45,19 @@ export default async function KpiRecordsPage({
   const to = one("to") ?? "";
   if (!key || !DATE.test(from) || !DATE.test(to)) notFound();
   const tz = user.organizationTimezone;
-  const back = `/reports/scorecard?${new URLSearchParams({ from, to }).toString()}`;
+  const back = `/reports/scorecard?${new URLSearchParams({
+    from, to, ...(one("by") && one("group") ? { kpi: key, by: one("by")! } : {}),
+  }).toString()}`;
 
   let drilled: kpis.KpiDrill | null = null;
   let refusal: string | null = null;
   try {
+    const by = one("by");
+    const group = one("group");
     drilled = await kpis.drill({ actor: user.actor, db: getDb() }, {
       key, half, from, to, page: reporting.askedPage(one("page")),
+      /** One group of a breakdown, when the list was opened from one. */
+      ...(by && group ? { by, group } : {}),
     });
   } catch (error) {
     if (error instanceof NotFoundError) notFound();
@@ -73,7 +79,8 @@ export default async function KpiRecordsPage({
       </div>
       {drilled ? (
         <p className="mt-2 text-sm text-ink-700">
-          Behind {drilled.label.toLowerCase()}, {formatDay(from, tz)} to {formatDay(to, tz)}.{" "}
+          Behind {drilled.label.toLowerCase()}, {formatDay(from, tz)} to {formatDay(to, tz)}
+          {drilled.group ? <>, {drilled.group.byLabel.toLowerCase()} {drilled.group.label ?? "not named"}</> : null}.{" "}
           <span className="text-ink-500">{drilled.definition}</span>
         </p>
       ) : null}

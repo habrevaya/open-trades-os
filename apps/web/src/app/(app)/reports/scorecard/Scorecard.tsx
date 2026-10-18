@@ -70,6 +70,100 @@ export function Figure({ kpi, records }: {
 }
 
 /**
+ * THE SELECTOR UNDER A FIGURE WHOSE RECORDS CARRY A GROUPING
+ *
+ * A plain GET form, so it works with JavaScript off and the choice lives in
+ * the address: `kpi` names the figure and `by` the grouping. Only one figure
+ * is broken down at a time, because a scorecard of eight tables is a report.
+ */
+export function BreakdownPicker({ kpi, from, to, chosen }: {
+  kpi: Kpi; from: string; to: string; chosen: string | null;
+}) {
+  const groupings = kpi.groupings ?? [];
+  if (groupings.length === 0) return null;
+  return (
+    <form method="get" className="mt-3 flex flex-wrap items-end gap-2 text-xs">
+      <input type="hidden" name="from" value={from} />
+      <input type="hidden" name="to" value={to} />
+      <input type="hidden" name="kpi" value={kpi.key} />
+      <label className="flex flex-col gap-1">
+        <span className="text-ink-700">Break it down by</span>
+        <select name="by" defaultValue={chosen ?? ""} className="h-8 rounded border border-steel-300 bg-canvas px-2 text-sm">
+          <option value="">Not broken down</option>
+          {groupings.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+        </select>
+      </label>
+      <button type="submit" className="h-8 rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+        Show
+      </button>
+    </form>
+  );
+}
+
+/**
+ * ONE FIGURE BROKEN DOWN: each group's figure and its two halves, the halves
+ * linking to that group's records as the figure's own halves do, and the
+ * groups added up on the last row, which are the figure's halves.
+ */
+export function BreakdownTable({ result, records }: {
+  result: kpis.KpiBreakdown;
+  /** Where one half of one group opens. */
+  records: (half: kpis.KpiHalf, group: string) => string;
+}) {
+  const halfOf = (money: boolean, value: string) => (money ? <Money value={value} /> : value);
+  const link = (href: string, children: React.ReactNode) =>
+    <a href={href} className="underline underline-offset-2 hover:text-ink-900">{children}</a>;
+  if (result.groups.length === 0) {
+    return <p className="mt-3 text-sm text-ink-500">Nothing in this window to break down.</p>;
+  }
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full text-sm" aria-label={`${result.label} by ${result.by.label.toLowerCase()}`}>
+        <thead>
+          <tr className="border-b border-steel-200 text-left text-xs text-ink-500">
+            <th className="py-1 pr-3 font-medium">{result.by.label}</th>
+            <th className="py-1 pr-3 text-right font-medium">Figure</th>
+            <th className="py-1 pr-3 text-right font-medium">{capital(result.numeratorLabel)}</th>
+            <th className="py-1 pr-3 text-right font-medium">{capital(result.denominatorLabel)}</th>
+            {result.besides.map((b) => (
+              <th key={b.key} className="py-1 pr-3 text-right font-medium">{b.key === "excluded" ? "Left out" : "Not known"}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {result.groups.map((group) => (
+            <tr key={group.value} className="border-b border-steel-200">
+              <td className="py-1 pr-3">{group.label}</td>
+              <td className="py-1 pr-3 text-right tabular-nums">
+                {group.figure === null ? <span className="text-ink-500">Not this window</span> : show(result.format, group.figure)}
+              </td>
+              <td className="py-1 pr-3 text-right tabular-nums">
+                {link(records("numerator", group.value), halfOf(result.numeratorMoney, group.numerator))}
+              </td>
+              <td className="py-1 pr-3 text-right tabular-nums">
+                {link(records("denominator", group.value), halfOf(result.denominatorMoney, group.denominator))}
+              </td>
+              {group.besides.map((b) => (
+                <td key={b.key} className="py-1 pr-3 text-right tabular-nums">{link(records(b.key, group.value), b.count)}</td>
+              ))}
+            </tr>
+          ))}
+          <tr>
+            <td className="py-1 pr-3 font-medium">All of them</td>
+            <td />
+            <td className="py-1 pr-3 text-right font-medium tabular-nums">{halfOf(result.numeratorMoney, result.numerator)}</td>
+            <td className="py-1 pr-3 text-right font-medium tabular-nums">{halfOf(result.denominatorMoney, result.denominator)}</td>
+            {result.besides.map((b) => <td key={b.key} />)}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
  * What a KPI this product cannot compute shows instead, which is the one
  * missing datum rather than the words "not built".
  */

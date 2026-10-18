@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { kpis, inTenant } from "@opentradesos/api/services";
+import { kpis, inTenant, ConflictError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { packById } from "@opentradesos/trade-packs";
 import { schema } from "@opentradesos/db";
@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import { todayIn, formatDay } from "@/lib/dates";
-import { Figure, Needs } from "./Scorecard";
+import { Figure, Needs, BreakdownPicker, BreakdownTable } from "./Scorecard";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +73,28 @@ export default async function ScorecardPage(
    */
   const card = to < from ? null : await kpis.scorecard(ctx, { from, to });
 
+  /**
+   * One figure broken down by a grouping its records carry, when the address
+   * asks for it. A refusal (somebody who sees only their own work) is said
+   * under that figure in a sentence, the way the records page says it.
+   */
+  const brokenKey = one("kpi") ?? null;
+  const brokenBy = one("by") || null;
+  let broken: kpis.KpiBreakdown | null = null;
+  let brokenRefusal: string | null = null;
+  if (card && brokenKey && brokenBy && card.computed.some((k) => k.key === brokenKey)) {
+    try {
+      broken = await kpis.breakdown(ctx, { key: brokenKey, by: brokenBy, from, to });
+    } catch (error) {
+      if (!(error instanceof ConflictError)) throw error;
+      brokenRefusal = error.message;
+    }
+  }
+  const recordsHref = (key: string, half: kpis.KpiHalf, group?: { by: string; value: string }) =>
+    `/reports/scorecard/records?${new URLSearchParams({
+      key, half, from, to, ...(group ? { by: group.by, group: group.value } : {}),
+    }).toString()}`;
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
       <PageHeader title="Trade scorecard" />
@@ -122,13 +144,25 @@ export default async function ScorecardPage(
             </Empty>
           ) : (
             <ul className="mt-6 grid gap-3 sm:grid-cols-2">
-              {card.computed.map((kpi) => (
-                <li key={kpi.key} className="rounded-md border border-steel-200 bg-canvas p-4">
-                  <Figure kpi={kpi} records={(half) => `/reports/scorecard/records?${new URLSearchParams({
-                    key: kpi.key, half, from, to,
-                  }).toString()}`} />
-                </li>
-              ))}
+              {card.computed.map((kpi) => {
+                const open = brokenKey === kpi.key;
+                return (
+                  <li key={kpi.key}
+                      className={`rounded-md border border-steel-200 bg-canvas p-4 ${open && (broken || brokenRefusal) ? "sm:col-span-2" : ""}`}>
+                    <Figure kpi={kpi} records={(half) => recordsHref(kpi.key, half)} />
+                    <BreakdownPicker kpi={kpi} from={from} to={to} chosen={open ? brokenBy : null} />
+                    {open && brokenRefusal ? (
+                      <p role="alert" className="mt-3 rounded-md border border-steel-200 p-3 text-sm text-ink-700">{brokenRefusal}</p>
+                    ) : null}
+                    {open && broken ? (
+                      <BreakdownTable
+                        result={broken}
+                        records={(half, group) => recordsHref(kpi.key, half, { by: brokenBy ?? "", value: group })}
+                      />
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           )}
 

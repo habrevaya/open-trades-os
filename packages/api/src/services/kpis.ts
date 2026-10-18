@@ -1,9 +1,9 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { can, effectiveScope, reporting, PERMISSIONS, type Permission } from "@opentradesos/core";
 import { packs, packById, type TradePack } from "@opentradesos/trade-packs";
 import { audit, guardedRead, timezoneOf, ConflictError, NotFoundError, type ServiceContext } from "./context";
-import { CATALOGUE, KEYS, total, type BesideKey, type Entry, type Format, type Half } from "./kpi-catalogue";
+import { CATALOGUE, KEYS, total, type BesideKey, type Entry, type Format, type Grouping, type Half } from "./kpi-catalogue";
 
 /**
  * THE SCORECARD A TRADE PACK ALREADY SPECIFIED
@@ -61,6 +61,12 @@ export interface KpiResult {
    * screen's own test) need not invent one.
    */
   besides?: Array<{ key: BesideKey; label: string; count: string }>;
+  /**
+   * What the figure can be broken down by, from the groupings its records
+   * carry (a stop's route and weekday). Empty for a figure whose records name
+   * no grouping; optional for the same reason as `besides`.
+   */
+  groupings?: Array<{ key: string; label: string }>;
 }
 
 export interface Scorecard {
@@ -159,7 +165,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
           needs: "This KPI is declared by the trade pack and has no entry in the catalogue, so "
             + "nobody has decided whether it can be computed. That is a bug rather than a gap.",
-          endpoint: null, besides: [],
+          endpoint: null, besides: [], groupings: [],
         });
         continue;
       }
@@ -176,7 +182,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         result.unavailable.push({
           ...base, state: "unavailable", value: null, numerator: null, denominator: null,
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
-          needs: entry.needs, endpoint: null, besides: [],
+          needs: entry.needs, endpoint: null, besides: [], groupings: [],
         });
         continue;
       }
@@ -185,7 +191,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         result.elsewhere.push({
           ...base, state: "elsewhere", value: null, numerator: null, denominator: null,
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
-          needs: entry.why, endpoint: entry.endpoint, besides: [],
+          needs: entry.why, endpoint: entry.endpoint, besides: [], groupings: [],
         });
         continue;
       }
@@ -203,7 +209,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
           ...base, state: "unavailable", value: null, numerator: null, denominator: null,
           numeratorLabel: null, denominatorLabel: null, numeratorMoney: false, denominatorMoney: false,
           needs: `This figure is built from what jobs cost, so reading it takes ${lacking.map(permissionWords).join(" and ")}.`,
-          endpoint: null, besides: [],
+          endpoint: null, besides: [], groupings: [],
         });
         continue;
       }
@@ -231,6 +237,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         needs: null,
         endpoint: null,
         besides,
+        groupings: (entry.measure.groupings ?? []).map((g) => ({ key: g.key, label: g.label })),
       });
     }
 
@@ -332,6 +339,42 @@ export interface KpiDrill {
   perPage: number;
   /** Every record's value is dollars, so the list and its total are shown as money. */
   money: boolean;
+  /**
+   * The one group of a breakdown these records are, when the list was opened
+   * from one: its grouping and its name. The count and the total are then
+   * that group's half, as the breakdown shows it.
+   */
+  group: { by: string; byLabel: string; value: string; label: string | null } | null;
+}
+
+/** One group of a breakdown: which records it is, and its two halves. */
+export interface KpiGroup {
+  /** What tells the group apart, for opening its records. */
+  value: string;
+  label: string;
+  /** Null when its denominator is empty, as the figure's own is. */
+  figure: string | null;
+  numerator: string;
+  denominator: string;
+  besides: Array<{ key: BesideKey; count: string }>;
+}
+
+export interface KpiBreakdown {
+  key: string;
+  label: string;
+  format: Format;
+  by: { key: string; label: string };
+  from: string;
+  to: string;
+  numeratorLabel: string;
+  denominatorLabel: string;
+  numeratorMoney: boolean;
+  denominatorMoney: boolean;
+  besides: Array<{ key: BesideKey; label: string }>;
+  groups: KpiGroup[];
+  /** The groups added up, which are the scorecard's two halves. */
+  numerator: string;
+  denominator: string;
 }
 
 /**
@@ -391,59 +434,115 @@ const KIND_WORDS: Record<string, string> = {
  * money half is refused without the financial reports permission, because a
  * list of revenue per job is a financial report.
  */
+/**
+ * The checks every list made from a figure's records shares, the drill's and
+ * the breakdown's: a KPI the company's own trade declares and this product
+ * computes, a reader who sees the whole company, and the permissions the
+ * figure itself takes. A breakdown is the records added up by group, so it is
+ * refused exactly where the records would be.
+ */
+async function openFigure(tx: Database, ctx: ServiceContext, key: string) {
+  const entry = CATALOGUE[key];
+  if (!entry || entry.state !== "computed") {
+    throw new NotFoundError("KPI");
+  }
+  const pack = await packOf(tx, ctx.actor.organizationId);
+  const declared = pack?.kpis.find((k) => k.key === key);
+  if (!declared) {
+    /**
+     * Only the company's own trade's numbers. A drill into a KPI the
+     * scorecard never showed is a list of records under a heading nobody
+     * clicked.
+     */
+    throw new NotFoundError("KPI");
+  }
+
+  if (effectiveScope(ctx.actor, "job") !== "all") {
+    throw new ConflictError(
+      "This figure is the whole company's, and your access covers only part of the company's work, "
+      + "so the records behind it are not listed for you. Somebody who sees all of the work can open them.",
+    );
+  }
+  /**
+   * A figure built from what work costs lists what each job cost and earned,
+   * so it takes what the figure takes: the same permissions the scorecard
+   * refused it without.
+   */
+  const lacking = (entry.permissions ?? []).filter((permission) => !can(ctx.actor, permission));
+  if (lacking.length > 0) {
+    throw new ConflictError(
+      `The records behind this figure are what each job cost and earned, and seeing them needs ${lacking.map(permissionWords).join(" and ")}.`,
+    );
+  }
+  return { entry, declared, trade: pack?.id ?? "" };
+}
+
+/** A record kind the reader may not read, refused in words naming what it needs. */
+function assertKindsReadable(ctx: ServiceContext, kinds: readonly string[]): void {
+  for (const kind of kinds) {
+    const needs = KIND_NEEDS[kind];
+    if (!needs || !can(ctx.actor, needs)) {
+      throw new ConflictError(
+        `The records behind this figure are ${KIND_WORDS[kind] ?? kind}, and reading them needs `
+        + `${needs ?? "a permission this product has not named"}.`,
+      );
+    }
+  }
+}
+
+const MONEY_REFUSAL = "The records behind this figure are revenue per job, which is a financial report. "
+  + "Seeing them needs report.financial:read.";
+
+/** A grouping the measure declares, or a refusal naming the ones it has. */
+function groupingOf(entry: Extract<Entry, { state: "computed" }>, by: string): Grouping {
+  const grouping = (entry.measure.groupings ?? []).find((g) => g.key === by);
+  if (!grouping) {
+    const offered = (entry.measure.groupings ?? []).map((g) => g.label.toLowerCase());
+    throw new ConflictError(offered.length > 0
+      ? `This figure can be broken down by ${offered.join(" or ")}, not by "${by}".`
+      : "The records behind this figure carry no grouping, so it is not broken down.");
+  }
+  return grouping;
+}
+
+/**
+ * One half's records, narrowed to one group when asked, with the group's name
+ * on every row. The grouping's key reaches the SQL only after it matched one
+ * the catalogue declares; the value is a parameter.
+ */
+function recordsOf(records: SQL, grouping: Grouping | null, value: string | null): SQL {
+  if (!grouping) return sql`select g.*, null::text as group_label from (${records}) as g`;
+  return sql`
+    select g.*, ${sql.raw(`g."g_${grouping.key}_label"`)}::text as group_label
+    from (${records}) as g
+    where ${sql.raw(`g."g_${grouping.key}"`)} = ${value}`;
+}
+
 export function drill(
-  ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string; page?: number | undefined },
+  ctx: ServiceContext,
+  input: {
+    key: string; half: KpiHalf; from: string; to: string; page?: number | undefined;
+    /** One group of a breakdown: `by` names the grouping and `group` the value. Both or neither. */
+    by?: string | undefined; group?: string | undefined;
+  },
 ) {
   return guardedRead(ctx, "report:read", async (tx): Promise<KpiDrill> => {
     if (input.to < input.from) {
       throw new ConflictError("The end of the window is before its start.");
     }
-    const entry = CATALOGUE[input.key];
-    if (!entry || entry.state !== "computed") {
-      throw new NotFoundError("KPI");
-    }
-    const pack = await packOf(tx, ctx.actor.organizationId);
-    const declared = pack?.kpis.find((k) => k.key === input.key);
-    const declaredBy = pack?.id ?? "";
-    if (!declared) {
-      /**
-       * Only the company's own trade's numbers. A drill into a KPI the
-       * scorecard never showed is a list of records under a heading nobody
-       * clicked.
-       */
-      throw new NotFoundError("KPI");
-    }
-
-    if (effectiveScope(ctx.actor, "job") !== "all") {
-      throw new ConflictError(
-        "This figure is the whole company's, and your access covers only part of the company's work, "
-        + "so the records behind it are not listed for you. Somebody who sees all of the work can open them.",
-      );
-    }
+    const { entry, declared, trade: declaredBy } = await openFigure(tx, ctx, input.key);
     const half: Half | undefined = input.half === "numerator" || input.half === "denominator"
       ? entry.measure[input.half] : entry.measure.besides?.[input.half];
     if (!half) throw new NotFoundError("KPI");
-    /**
-     * A figure built from what work costs lists what each job cost and earned,
-     * so it takes what the figure takes: the same permissions the scorecard
-     * refused it without.
-     */
-    const lacking = (entry.permissions ?? []).filter((permission) => !can(ctx.actor, permission));
-    if (lacking.length > 0) {
-      throw new ConflictError(
-        `The records behind this figure are what each job cost and earned, and seeing them needs ${lacking.map(permissionWords).join(" and ")}.`,
-      );
-    }
     const moneyHalf = halfIsMoney(entry, input.half);
-    if (moneyHalf && !can(ctx.actor, "report.financial:read")) {
-      throw new ConflictError(
-        "The records behind this figure are revenue per job, which is a financial report. "
-        + "Seeing them needs report.financial:read.",
-      );
+    if (moneyHalf && !can(ctx.actor, "report.financial:read")) throw new ConflictError(MONEY_REFUSAL);
+    if ((input.by === undefined) !== (input.group === undefined)) {
+      throw new ConflictError("One group of a figure is named by its grouping and its value together.");
     }
+    const grouping = input.by !== undefined ? groupingOf(entry, input.by) : null;
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
-    const records = half.records(input.from, input.to, zone, declaredBy);
+    const records = recordsOf(half.records(input.from, input.to, zone, declaredBy), grouping, input.group ?? null);
     /**
      * ONE PAGE, AND THE TOTAL OVER EVERY RECORD. The count, the total and the
      * kinds of record are one row over the whole half, with the page joined
@@ -454,16 +553,16 @@ export function drill(
      * so a record is on exactly one page however many share a day.
      */
     const read = (offset: number) => tx.execute<{
-      count: string; total: string; kinds: string[] | null;
+      count: string; total: string; kinds: string[] | null; group_label: string | null;
       kind: string | null; id: string | null; label: string | null; on_day: string | null; value: string | null; href: string | null;
     }>(sql`
       with r as (${records}),
       t as (
         select count(*)::text as count, coalesce(sum(r.value), 0)::text as total,
-               array_remove(array_agg(distinct r.kind), null) as kinds
+               array_remove(array_agg(distinct r.kind), null) as kinds, max(r.group_label) as group_label
         from r
       )
-      select t.count, t.total, t.kinds, p.kind, p.id, p.label, p.on_day, p.value, p.href
+      select t.count, t.total, t.kinds, t.group_label, p.kind, p.id, p.label, p.on_day, p.value, p.href
       from t
       left join lateral (
         select r.kind, r.id, r.label, r.on_day, r.value::text as value, r.href
@@ -480,20 +579,13 @@ export function drill(
     // A page past the end (the window's records changed since the link was made) is the last page.
     if (paged.page !== asked) rows = await read(paged.offset);
 
-    for (const kind of rows[0]?.kinds ?? []) {
-      const needs = KIND_NEEDS[kind];
-      if (!needs || !can(ctx.actor, needs)) {
-        throw new ConflictError(
-          `The records behind this figure are ${KIND_WORDS[kind] ?? kind}, and reading them needs `
-          + `${needs ?? "a permission this product has not named"}.`,
-        );
-      }
-    }
+    assertKindsReadable(ctx, rows[0]?.kinds ?? []);
 
     const sum = rows[0]?.total ?? "0";
 
     await audit(tx, ctx, "kpi.drill", "organization", ctx.actor.organizationId, null, {
       key: input.key, half: input.half, from: input.from, to: input.to, count, page: paged.page,
+      ...(grouping ? { by: grouping.key, group: input.group } : {}),
     });
 
     return {
@@ -520,6 +612,110 @@ export function drill(
       pages: paged.pages,
       perPage: paged.perPage,
       money: moneyHalf,
+      group: grouping
+        ? { by: grouping.key, byLabel: grouping.label, value: input.group!, label: rows[0]?.group_label ?? null }
+        : null,
+    };
+  });
+}
+
+/**
+ * ONE FIGURE BROKEN DOWN BY A GROUPING ITS RECORDS CARRY.
+ *
+ * Each half's records, the same queries the scorecard sums and the drill
+ * lists, added up by the group every record names: so each group's two halves
+ * open onto that group's records, and the groups add up to the figure. A
+ * group's figure is combined from its halves the way the figure is, so an
+ * empty denominator is "not this window" for that group too, never nought.
+ *
+ * Refused exactly where the records behind the figure are, because a
+ * breakdown names what the records name (a route, a person, a truck) and is
+ * the records added up: a reader who sees only part of the company, a record
+ * kind the reader may not read, and a money half without the financial
+ * reports permission.
+ */
+export function breakdown(
+  ctx: ServiceContext, input: { key: string; by: string; from: string; to: string },
+) {
+  return guardedRead(ctx, "report:read", async (tx): Promise<KpiBreakdown> => {
+    if (input.to < input.from) {
+      throw new ConflictError("The end of the window is before its start.");
+    }
+    const { entry, declared, trade } = await openFigure(tx, ctx, input.key);
+    const grouping = groupingOf(entry, input.by);
+    const numeratorMoney = halfIsMoney(entry, "numerator");
+    const denominatorMoney = halfIsMoney(entry, "denominator");
+    if ((numeratorMoney || denominatorMoney) && !can(ctx.actor, "report.financial:read")) {
+      throw new ConflictError(MONEY_REFUSAL);
+    }
+
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const halves: Array<[KpiHalf, Half]> = [
+      ["numerator", entry.measure.numerator],
+      ["denominator", entry.measure.denominator],
+      ...(Object.entries(entry.measure.besides ?? {}) as Array<[BesideKey, Half]>),
+    ];
+
+    const groups = new Map<string, { label: string; sums: Map<KpiHalf, string> }>();
+    for (const [name, half] of halves) {
+      const rows = await tx.execute<{ value: string; label: string | null; total: string; kinds: string[] | null }>(sql`
+        select ${sql.raw(`r."g_${grouping.key}"`)}::text as value,
+               max(${sql.raw(`r."g_${grouping.key}_label"`)})::text as label,
+               coalesce(sum(r.value), 0)::text as total,
+               array_remove(array_agg(distinct r.kind), null) as kinds
+        from (${half.records(input.from, input.to, zone, trade)}) as r
+        group by 1
+      `);
+      for (const row of rows) {
+        assertKindsReadable(ctx, row.kinds ?? []);
+        const group = groups.get(row.value) ?? { label: row.label ?? "Not set", sums: new Map() };
+        group.sums.set(name, row.total);
+        groups.set(row.value, group);
+      }
+    }
+
+    const ordered = [...groups.entries()].sort(([a, x], [b, y]) => grouping.order === "key"
+      ? Number(a) - Number(b) || a.localeCompare(b)
+      : x.label.localeCompare(y.label) || a.localeCompare(b));
+    const besideKeys = halves.slice(2).map(([key]) => key as BesideKey);
+    const asHalf = (money: boolean, value: number) => (money ? value.toFixed(4) : String(value));
+
+    let numerator = 0;
+    let denominator = 0;
+    const out: KpiGroup[] = ordered.map(([value, group]) => {
+      const top = Number(group.sums.get("numerator") ?? 0);
+      const bottom = Number(group.sums.get("denominator") ?? 0);
+      numerator += top;
+      denominator += bottom;
+      return {
+        value,
+        label: group.label,
+        figure: TOTALS.includes(input.key) ? top.toFixed(4) : combine(entry.format, top, bottom),
+        numerator: asHalf(numeratorMoney, top),
+        denominator: asHalf(denominatorMoney, bottom),
+        besides: besideKeys.map((key) => ({ key, count: String(Number(group.sums.get(key) ?? 0)) })),
+      };
+    });
+
+    await audit(tx, ctx, "kpi.breakdown", "organization", ctx.actor.organizationId, null, {
+      key: input.key, by: grouping.key, from: input.from, to: input.to, groups: out.length,
+    });
+
+    return {
+      key: input.key,
+      label: declared.label,
+      format: entry.format,
+      by: { key: grouping.key, label: grouping.label },
+      from: input.from,
+      to: input.to,
+      numeratorLabel: entry.measure.numerator.label,
+      denominatorLabel: entry.measure.denominator.label,
+      numeratorMoney,
+      denominatorMoney,
+      besides: besideKeys.map((key) => ({ key, label: entry.measure.besides![key]!.label })),
+      groups: out,
+      numerator: asHalf(numeratorMoney, numerator),
+      denominator: asHalf(denominatorMoney, denominator),
     };
   });
 }
@@ -528,6 +724,10 @@ export const handlers = {
   getKpiScorecard: (ctx: ServiceContext, input: { from: string; to: string }) =>
     scorecard(ctx, input),
   listKpiCatalogue: (ctx: ServiceContext, input: Record<string, never>) => catalogue(ctx, input),
-  getKpiRecords: (ctx: ServiceContext, input: { key: string; half: KpiHalf; from: string; to: string; page?: number | undefined }) =>
-    drill(ctx, input),
+  getKpiRecords: (ctx: ServiceContext, input: {
+    key: string; half: KpiHalf; from: string; to: string; page?: number | undefined;
+    by?: string | undefined; group?: string | undefined;
+  }) => drill(ctx, input),
+  getKpiBreakdown: (ctx: ServiceContext, input: { key: string; by: string; from: string; to: string }) =>
+    breakdown(ctx, input),
 } as const;

@@ -40,6 +40,12 @@ const KpiResult = z.object({
    * cancellation made before reasons were chosen from a list).
    */
   besides: z.array(z.object({ key: z.enum(["excluded", "unknown"]), label: z.string(), count: z.string() })),
+  /**
+   * What the figure can be broken down by (`GET /v1/kpi-breakdown`): the
+   * groupings every one of its records already names, such as a stop's route
+   * and weekday. Empty for a figure whose records carry none.
+   */
+  groupings: z.array(z.object({ key: z.string(), label: z.string() })),
 });
 
 export const getKpiScorecard = defineRoute({
@@ -109,6 +115,13 @@ export const getKpiRecords = defineRoute({
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     /** Which thousand of the records, from one. Left out, the first. */
     page: z.coerce.number().int().min(1).optional(),
+    /**
+     * One group of a breakdown: `by` is the grouping (`route`) and `group` the
+     * value the breakdown returned for it. Both or neither; the count and the
+     * total are then that group's half.
+     */
+    by: z.string().min(1).max(40).optional(),
+    group: z.string().min(1).max(200).optional(),
   }),
   output: z.object({
     key: z.string(),
@@ -136,7 +149,49 @@ export const getKpiRecords = defineRoute({
     perPage: z.number().int(),
     /** Every record's value is dollars, so the list and its total are shown as money. */
     money: z.boolean(),
+    /** The group these records are, when `by` and `group` were sent. */
+    group: z.object({ by: z.string(), byLabel: z.string(), value: z.string(), label: z.string().nullable() }).nullable(),
   }),
 });
 
-export const kpiRoutes = { getKpiScorecard, listKpiCatalogue, getKpiRecords } as const;
+export const getKpiBreakdown = defineRoute({
+  method: "get",
+  path: "/v1/kpi-breakdown",
+  summary: "One KPI broken down by a grouping its records carry",
+  description:
+    "The figure's records, the same ones the scorecard sums and `GET /v1/kpi-records` lists, added up by a grouping every one of them already names: the cancellation rate by route and by weekday, route density by person and by weekday, fresh water per stop by truck. `by` is one of the KPI's own `groupings` on the scorecard; anything else is refused naming the ones it has. Each group comes back with its two halves, its counts beside, and its figure combined the way the figure is (an empty denominator is null, never nought), and the groups add up to the scorecard's halves, which come back too. Each group's `value` opens its records through `GET /v1/kpi-records` with `by` and `group`. Refused, in words, exactly where those records are: a reader whose scope is narrower than the whole company, a record kind the reader may not read, a money half without report.financial:read.",
+  module: "M21",
+  permissions: ["report:read"],
+  idempotent: true,
+  input: z.object({
+    key: z.string().min(1).max(80),
+    by: z.string().min(1).max(40),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  output: z.object({
+    key: z.string(),
+    label: z.string(),
+    format: z.enum(["percent", "money", "number", "duration"]),
+    by: z.object({ key: z.string(), label: z.string() }),
+    from: z.string(),
+    to: z.string(),
+    numeratorLabel: z.string(),
+    denominatorLabel: z.string(),
+    numeratorMoney: z.boolean(),
+    denominatorMoney: z.boolean(),
+    besides: z.array(z.object({ key: z.enum(["excluded", "unknown"]), label: z.string() })),
+    groups: z.array(z.object({
+      value: z.string(),
+      label: z.string(),
+      figure: z.string().nullable(),
+      numerator: z.string(),
+      denominator: z.string(),
+      besides: z.array(z.object({ key: z.enum(["excluded", "unknown"]), count: z.string() })),
+    })),
+    numerator: z.string(),
+    denominator: z.string(),
+  }),
+});
+
+export const kpiRoutes = { getKpiScorecard, listKpiCatalogue, getKpiRecords, getKpiBreakdown } as const;

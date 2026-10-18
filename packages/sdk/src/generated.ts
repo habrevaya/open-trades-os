@@ -9654,6 +9654,39 @@ export interface GetJournalEntryOutput {
   } | null;
 }
 
+export interface GetKpiBreakdownOutput {
+  key: string;
+  label: string;
+  format: "percent" | "money" | "number" | "duration";
+  by: {
+    key: string;
+    label: string;
+  };
+  from: string;
+  to: string;
+  numeratorLabel: string;
+  denominatorLabel: string;
+  numeratorMoney: boolean;
+  denominatorMoney: boolean;
+  besides: Array<{
+    key: "excluded" | "unknown";
+    label: string;
+  }>;
+  groups: Array<{
+    value: string;
+    label: string;
+    figure: string | null;
+    numerator: string;
+    denominator: string;
+    besides: Array<{
+      key: "excluded" | "unknown";
+      count: string;
+    }>;
+  }>;
+  numerator: string;
+  denominator: string;
+}
+
 export interface GetKpiRecordsOutput {
   key: string;
   label: string;
@@ -9678,6 +9711,12 @@ export interface GetKpiRecordsOutput {
   pages: number;
   perPage: number;
   money: boolean;
+  group: {
+    by: string;
+    byLabel: string;
+    value: string;
+    label: string | null;
+  } | null;
 }
 
 export interface GetKpiScorecardOutput {
@@ -9705,6 +9744,10 @@ export interface GetKpiScorecardOutput {
       label: string;
       count: string;
     }>;
+    groupings: Array<{
+      key: string;
+      label: string;
+    }>;
   }>;
   unavailable: Array<{
     key: string;
@@ -9727,6 +9770,10 @@ export interface GetKpiScorecardOutput {
       label: string;
       count: string;
     }>;
+    groupings: Array<{
+      key: string;
+      label: string;
+    }>;
   }>;
   elsewhere: Array<{
     key: string;
@@ -9748,6 +9795,10 @@ export interface GetKpiScorecardOutput {
       key: "excluded" | "unknown";
       label: string;
       count: string;
+    }>;
+    groupings: Array<{
+      key: string;
+      label: string;
     }>;
   }>;
 }
@@ -30521,12 +30572,21 @@ export interface GetJournalEntryInput {
   id: string;
 }
 
+export interface GetKpiBreakdownInput {
+  key: string;
+  by: string;
+  from: string;
+  to: string;
+}
+
 export interface GetKpiRecordsInput {
   key: string;
   half: "numerator" | "denominator" | "excluded" | "unknown";
   from: string;
   to: string;
   page?: number;
+  by?: string;
+  group?: string;
 }
 
 export interface GetKpiScorecardInput {
@@ -33678,6 +33738,7 @@ export interface OperationTypes {
   getJobSkills: { input: GetJobSkillsInput; output: GetJobSkillsOutput };
   getJobStages: { input: GetJobStagesInput; output: GetJobStagesOutput };
   getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
+  getKpiBreakdown: { input: GetKpiBreakdownInput; output: GetKpiBreakdownOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
   getLeadInbox: { input: GetLeadInboxInput; output: GetLeadInboxOutput };
@@ -34866,7 +34927,8 @@ export const OPERATIONS = {
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobStages: { method: "GET", path: "/v1/jobs/{id}/stages", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
-  getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to","page"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getKpiBreakdown: { method: "GET", path: "/v1/kpi-breakdown", pathParams: [], queryParams: ["key","by","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to","page","by","group"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getLeadInbox: { method: "GET", path: "/v1/lead-inbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getLeadOffer: { method: "GET", path: "/v1/lead-offers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -38760,6 +38822,15 @@ export abstract class GeneratedOperations {
    */
   getJournalEntry(input: GetJournalEntryInput, options?: CallOptions): Promise<GetJournalEntryOutput> {
     return this.call("getJournalEntry", input, options);
+  }
+
+  /**
+   * One KPI broken down by a grouping its records carry.
+   *
+   * GET /v1/kpi-breakdown. Needs report:read.
+   */
+  getKpiBreakdown(input: GetKpiBreakdownInput, options?: CallOptions): Promise<GetKpiBreakdownOutput> {
+    return this.call("getKpiBreakdown", input, options);
   }
 
   /**
