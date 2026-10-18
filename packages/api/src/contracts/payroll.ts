@@ -180,7 +180,8 @@ export const settleCommission = defineRoute({
     planId: Uuid.optional(),
     /**
      * Weights, not percentages: "2" and "1" is a two thirds, one third split.
-     * Omitted to split evenly between the technicians assigned to the job.
+     * Omitted to take the split proposed between the technicians assigned to
+     * the job: even, or shaped by their standing shares.
      */
     shares: z.array(z.object({
       technicianId: Uuid,
@@ -219,8 +220,10 @@ const SettledSplit = z.object({
   eventId: Uuid,
   total: MoneyString,
   occurredAt: z.string().datetime(),
-  /** The reason the office gave for a split other than the even one, or null. */
+  /** The reason the office gave for a split other than the one proposed, or null. */
   splitNote: z.string().nullable(),
+  /** The standing shares it was settled as proposed with, in words, or null. */
+  standingNote: z.string().nullable(),
   /** How it was worked out, in the words the people paid read. */
   explanation: z.string(),
   itemRule: ItemRateRule,
@@ -233,7 +236,7 @@ export const listSharedCommissions = defineRoute({
   path: "/v1/commissions/shared",
   summary: "Commissions several people share: waiting to be settled, and the last ones settled",
   description:
-    "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the even split.",
+    "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Each waiting one carries the split proposed (even, or shaped by standing shares) worked out as settling it would be, or the refusal settling would give. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the proposed split.",
   module: "M17",
   permissions: ["commission:read"],
   input: z.object({}),
@@ -242,13 +245,86 @@ export const listSharedCommissions = defineRoute({
       invoiceId: Uuid, invoiceNumber: z.string(), status: z.string(), customerName: z.string(),
       jobNumber: z.string(), revenue: MoneyString, issuedAt: z.string().datetime(),
       people: z.array(z.object({ technicianId: Uuid, name: z.string() })),
+      /** The split proposed, worked out as settling it would be, or the refusal settling would give. */
+      proposed: z.object({
+        total: MoneyString.nullable(),
+        parts: z.array(z.object({ technicianId: Uuid, name: z.string(), amount: MoneyString })),
+        standingSentence: z.string().nullable(),
+        refusal: z.string().nullable(),
+      }),
     })),
     settled: z.array(z.object({
       invoiceId: Uuid, invoiceNumber: z.string(), total: MoneyString, occurredAt: z.string().datetime(),
       splitNote: z.string().nullable(),
+      standingNote: z.string().nullable(),
       parts: z.array(z.object({ technicianId: Uuid, name: z.string(), weight: RateString.nullable(), amount: MoneyString })),
     })),
   }),
+});
+
+/* ----------------------------------------- a standing share of shared commission */
+
+export const StandingApplies = z.enum(["always", "as_lead"]);
+
+const StandingShareView = z.object({
+  id: Uuid,
+  technicianId: Uuid,
+  name: z.string(),
+  /** Whole percent of a shared commission. */
+  percent: z.number().int(),
+  /** `always` whenever they are on the job's visits; `as_lead` only when they led one. */
+  applies: StandingApplies,
+  inWords: z.string(),
+  reason: z.string(),
+  setAt: z.string().datetime(),
+  endedAt: z.string().datetime().nullable(),
+});
+
+export const listCommissionStandingShares = defineRoute({
+  method: "get",
+  path: "/v1/commissions/standing-shares",
+  summary: "Standing shares of shared commission: in force, and the last ones stopped",
+  description:
+    "A standing share is a person who always takes the same part of a commission they share: the salesperson who always gets 30%, or a lead who gets 40% of the jobs they lead. When a shared commission is proposed, everybody on the job's visits with one that applies gets it and the rest is split evenly between the others. It only proposes: the office can change the split within the same rules, with a reason.",
+  module: "M17",
+  permissions: ["commission:read"],
+  input: z.object({}),
+  output: z.object({
+    live: z.array(StandingShareView),
+    ended: z.array(StandingShareView),
+    /** Everybody who can be given one. */
+    people: z.array(z.object({ technicianId: Uuid, name: z.string() })),
+  }),
+});
+
+export const setCommissionStandingShare = defineRoute({
+  method: "post",
+  path: "/v1/commissions/standing-shares",
+  summary: "Give somebody a standing share of the commissions they share",
+  description:
+    "A whole percent from 1 to 99, when it applies, and a reason the people sharing with them read on their pay statement. A share already in force for the same person is stopped, not edited, so what was proposed before can still be explained. Sent again with what is in force it answers with that. Commissions already settled are not touched.",
+  module: "M17",
+  permissions: ["commission:configure"],
+  idempotent: true,
+  input: z.object({
+    technicianId: Uuid,
+    percent: z.number().int(),
+    applies: StandingApplies,
+    reason: z.string().min(1).max(500),
+  }),
+  output: StandingShareView.extend({ replayed: z.boolean() }),
+});
+
+export const endCommissionStandingShare = defineRoute({
+  method: "post",
+  path: "/v1/commissions/standing-shares/{id}/end",
+  summary: "Stop a standing share",
+  description: "Proposals from now on leave it out. Commissions already settled keep the split they were settled with. Stopping one already stopped answers with it.",
+  module: "M17",
+  permissions: ["commission:configure"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: StandingShareView,
 });
 
 export const getCommissionSplit = defineRoute({
@@ -256,7 +332,7 @@ export const getCommissionSplit = defineRoute({
   path: "/v1/commissions/split-proposal",
   summary: "How an invoice's commission would be shared, worked out before it is settled",
   description:
-    "The even split between the people on the job's visits is proposed, and core works out each person's part under the plan. With `shares` (`technicianId:weight` pairs separated by commas, weights not percentages: \"2\" and \"1\" is two thirds and one third), the split given instead, worked out the same way. What settling would refuse comes back as `refusal`, in the same words. `changed` says the split is not the even one, which settling from the split screen needs a reason for. Writes nothing.",
+    "The split between the people on the job's visits is proposed (even, or shaped by the standing shares of the people on it, said in `standingSentence`), and core works out each person's part under the plan. With `shares` (`technicianId:weight` pairs separated by commas, weights not percentages: \"2\" and \"1\" is two thirds and one third), the split given instead, worked out the same way. What settling would refuse comes back as `refusal`, in the same words. `changed` says the split is not the one proposed, which settling from the split screen needs a reason for. Writes nothing.",
   module: "M17",
   permissions: ["commission:read"],
   input: z.object({
@@ -283,6 +359,14 @@ export const getCommissionSplit = defineRoute({
       amount: MoneyString.nullable(), explanation: z.string().nullable(),
     })),
     changed: z.boolean(),
+    /** The standing shares that shaped the proposal, empty when it is the even split. */
+    standing: z.array(z.object({
+      technicianId: Uuid, name: z.string(), percent: z.number().int(), applies: StandingApplies, reason: z.string(),
+    })),
+    /** The proposal in words when a standing share shaped it. */
+    standingSentence: z.string().nullable(),
+    /** Why standing shares on this job could not all be honoured, so the even split was proposed instead. */
+    standingConflict: z.string().nullable(),
     refusal: z.string().nullable(),
     /** The company's choice now, or the one the earning was made under once settled, and what each line paid under it. */
     itemRule: ItemRateRule,
@@ -297,7 +381,7 @@ export const settleCommissionSplit = defineRoute({
   path: "/v1/commissions/splits",
   summary: "Settle a commission several people share, from the split screen",
   description:
-    "The same settling as `POST /v1/commissions`, with one more rule: a split other than the even one between the people on the job needs `reason`, which is kept on the earning and written into each part's explanation, the sentence the person paid reads on their statement. A share of 0 leaves that person out. The plan's total is never changed here, only how it is divided. The audit records the split proposed beside the one settled. Sent again with the same split it answers with what was settled; a different split for an invoice that has already earned is refused.",
+    "The same settling as `POST /v1/commissions`, with one more rule: a split other than the one proposed (even between the people on the job, or shaped by their standing shares) needs `reason`, which is kept on the earning and written into each part's explanation, the sentence the person paid reads on their statement. A share of 0 leaves that person out. The plan's total is never changed here, only how it is divided. The audit records the split proposed beside the one settled. Sent again with the same split it answers with what was settled; a different split for an invoice that has already earned is refused.",
   module: "M17",
   permissions: ["commission:configure"],
   idempotent: true,
@@ -309,6 +393,32 @@ export const settleCommissionSplit = defineRoute({
   }),
   output: z.object({
     id: Uuid, invoiceId: Uuid, total: MoneyString, splitNote: z.string().nullable(), replayed: z.boolean(),
+  }),
+});
+
+export const settleCommissionSplitsAsProposed = defineRoute({
+  method: "post",
+  path: "/v1/commissions/splits/as-proposed",
+  summary: "Settle several shared commissions at once, each with the split proposed",
+  description:
+    "For the invoices whose proposed split nobody changed. Each one is settled exactly as `POST /v1/commissions/splits` would settle it alone with the split proposed (even between the people on the job, or shaped by their standing shares) and no reason: in its own transaction, audited as one earning with the proposal beside it. One that settling would refuse (two plans in force and none named, a margin plan with no cost, a closed pay period, a standing share changed since the proposal was read) is listed in `refused` with the reason and does not stop the rest. Sent again, an invoice already settled with its proposed split answers with that earning (`replayed`).",
+  module: "M17",
+  permissions: ["commission:configure"],
+  idempotent: true,
+  input: z.object({
+    invoiceIds: z.array(Uuid).min(1).max(50),
+    /** The plan they are all settled under, when more than one is in force. */
+    planId: Uuid.optional(),
+  }),
+  output: z.object({
+    settled: z.array(z.object({
+      invoiceId: Uuid, invoiceNumber: z.string().nullable(), eventId: Uuid.nullable(), total: MoneyString.nullable(),
+      replayed: z.boolean(), refusal: z.string().nullable(),
+    })),
+    refused: z.array(z.object({
+      invoiceId: Uuid, invoiceNumber: z.string().nullable(), eventId: Uuid.nullable(), total: MoneyString.nullable(),
+      replayed: z.boolean(), refusal: z.string().nullable(),
+    })),
   }),
 });
 
@@ -685,6 +795,8 @@ export const payrollRoutes = {
   listCommissionBases, listCommissionPlans, declareCommissionPlan, deactivateCommissionPlan,
   settleCommission, reverseCommission, listCommissionEarnings,
   listSharedCommissions, getCommissionSplit, settleCommissionSplit,
+  listCommissionStandingShares, setCommissionStandingShare, endCommissionStandingShare,
+  settleCommissionSplitsAsProposed,
   getCommissionItemRule, setCommissionItemRule,
   declarePayPeriod, listPayPeriods, closePayPeriod, reopenPayPeriod,
   getPayrollRegister, exportPayPeriod, listPayrollExports, payCommissions, payTips,

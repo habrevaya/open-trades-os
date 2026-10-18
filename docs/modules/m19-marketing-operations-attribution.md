@@ -1036,6 +1036,77 @@ also beat A (two that each beat A have not been compared with each other, and
 the headline says so). A is named only when it did clearly better than every
 other version on something and nothing beat it.
 
+### Hold part of the list back, and send it the winner
+
+A test can keep part of its audience back: `holdBackShare` on
+`POST /v1/campaigns` and `PATCH /v1/campaigns/{id}`, or "Hold back part of the
+list for the winner" on the new campaign form, in whole percent from 5 to 95.
+It is off unless the office sets it, and only a campaign with a version B can
+have one (taking the test off a draft that holds people back is refused until
+the hold back is taken off too, as shares are). The campaign reads back
+`holdBackShare` and `holdBackInWords` ("80% of the list is held back. The test
+goes to the other 20%, and once it is judged you send the winner to the 80%.
+Nothing goes to them by itself."), which the preview shows beside the split.
+
+**Who is held back.** When the test goes, each person is held back or tested
+by a hash of the campaign and the customer of its own (`campaign.heldBackFor`,
+in core with unit tests), separate from the version hash, so who is held back
+says nothing about which version they would have got and the people tested
+still split in the shares chosen. The held back people are written then, as
+recipients in the state `held` with `campaign_recipient.held_back` true, and
+sent nothing: they are a fact of the send, frozen like everybody else, and they
+take none of the carrier's cap. The list says "240 held back for the winner"
+beside what was queued, and the reach rate is out of the people a send was
+tried on, not out of everybody selected.
+
+**The test never counts them.** Every figure in "Compare the versions" (sent
+to, clicked, replied, booked) leaves out everybody held back, before and after
+they are sent anything, so sending the winner to more people never moves the
+result that chose it. A link in the message sent to them ends
+`utm_content=rest` rather than the version's letter (`campaign.REST_CONTENT`),
+so their clicks are neither in a version's column nor counted as followed
+without a version.
+
+**Sending them the winner is a person's act.** Under the comparison, "The rest
+of the list" says how many are waiting and what they may be sent, from the
+existing judgement as it stands (`campaign.restChoice`): the named winner, by
+name, with "Send version B to the 240 people held back"; or, when nothing won,
+"No version won, so there is no winner to send. You can wait for more results,
+or send version A, the words you already use." with "Send version A to the 240
+people held back". It is offered only once the whole test has gone out (the
+campaign is `sent`); while the test is still going out under a daily cap the
+page says so, and a cancelled campaign's held back people are sent nothing.
+Nothing schedules it and the worker never fires it.
+
+`POST /v1/campaigns/{id}/rest` takes the version the person means to send and
+refuses it unless it is what the test says now, so a page read before more
+clicks came in cannot send a version that no longer won. The first press fixes
+the version on the campaign (`restVersion`, with `restWasWinner` saying whether
+it had won or was version A because nothing did), audited as
+`campaign.rest_chosen` with the headline and every measure's verdict at that
+moment; every later press must name the same one. It is one batch per call and
+safe to repeat, like the send: a held row becomes queued or skipped once, the
+carrier's daily cap counts this part together with the test, and when the cap
+stops a batch the page says how many are still to go and offers "Send the next
+batch". Each person is checked again at send time: consent, a STOP reply and
+an unsubscribe by the same gate as the first send, and anybody who no longer
+fits the campaign's rules, was marked do not service or merged, or whose
+address changed since the test, is skipped as "no longer in the list, or their
+address changed" rather than sent to the address the test wrote down. Inside
+the company's quiet hours the whole press is refused and nothing is written,
+because writing everybody skipped for quiet hours would be for good. Afterwards
+the panel says which version went and why, what was queued, not sent and still
+to go, and how many of them clicked and booked, as facts beside the test, never
+part of it. Each held back recipient reads "Not yet" in the version column, and
+the version they were sent with ", later" once they have been.
+
+**A judgement the product owner has not made, and the conservative reading
+taken.** When nothing won, the only thing offered is version A, the words the
+company already sends, never the version that looks better; and the offer is
+there as soon as the test has gone, with the headline beside it (often "Too few
+people have acted to tell the versions apart yet"), rather than after a waiting
+period the product would have to choose. The owner decides when to press.
+
 ### What is deliberately not returned
 
 **A conversion rate.** Every tool in this category prints one. Jobs divided by
@@ -1161,6 +1232,8 @@ most real use:
   customer's answer about their details and advertising.
 - `POST /v1/campaigns/preview` before anything else, then `POST /v1/campaigns`
   and `POST /v1/campaigns/{id}/send`, and `GET /v1/campaigns/{id}/results`.
+  `POST /v1/campaigns/{id}/rest` (`campaign:write`) sends the winner to the
+  part of a test's list that was held back.
 
 ## Common questions
 
@@ -1334,11 +1407,15 @@ sample and therefore not a test of anything.
 - **An outbound campaign's own phone number.** A text campaign's credit comes
   from a click on its utm tag, not from a reply to a dedicated number.
 - **A/B tests' limits.** Up to four versions, in shares of whole percents of at
-  least five each, split by hash once at send time. There is no sending the
-  winner to the rest of the list: that needs part of the list held back until a
-  result is in, and deciding when a result is good enough to act on for the
-  owner is a judgement the product does not make, so the owner reads the result
-  and writes a new campaign. Versions after the first are compared only with the
+  least five each, split by hash once at send time. Part of the list can be held
+  back and sent the winner (or version A when nothing won) by a person once the
+  test has gone; the product does not decide when a result is good enough to
+  act on, and offers version A as soon as the test has gone if nothing won
+  rather than waiting a period of its own. When a carrier's daily cap stops the
+  send to the held back part, the next batch is pressed by a person the next
+  day: the worker does not carry it on, because nothing about that send is
+  automatic. The held back part is sent one version, so what it brought back is
+  shown as counts, not tested. Versions after the first are compared only with the
   first, never with each other. A click is counted by version only when the
   link carries `{{ campaign.utm }}` (or its own `utm_content` of `a` to `d`), a
   reply to an email only when the company's mail has a reply domain, and a

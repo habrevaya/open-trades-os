@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, date, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, date, jsonb, boolean } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization } from "./tenancy";
@@ -324,6 +324,12 @@ export const campaignVariant = pgEnum("campaign_variant", ["a", "b", "c", "d"]);
 
 export const campaignRecipientState = pgEnum("campaign_recipient_state", [
   "pending", "queued", "skipped",
+  /**
+   * Selected, and kept back from a test on purpose so a person can send them
+   * the winner afterwards. Not a skip: nothing refused them, and nothing has
+   * been sent to them yet.
+   */
+  "held",
 ]);
 
 /**
@@ -384,6 +390,27 @@ export const marketingCampaign = pgTable("marketing_campaign", {
   variantShares: integer("variant_shares").array(),
 
   /**
+   * THE PART OF THE LIST KEPT BACK FROM A TEST, in whole percent, or null for
+   * none (the default). Those people are written as `held` when the test goes
+   * and sent nothing; once the test has been judged a person sends them the
+   * winner, or version A when nothing won. Never automatically: whether a
+   * result is good enough to act on is the owner's call, and the product only
+   * says whether the gap is more than luck.
+   */
+  holdBackShare: integer("hold_back_share"),
+  /**
+   * The version the held back part was sent, chosen by a person, and fixed
+   * from the first batch so a send that carries on the next day under a
+   * carrier's cap never changes its mind.
+   */
+  restVariant: campaignVariant("rest_variant"),
+  /** True when that version was the test's named winner when it was chosen; false when nothing won and version A went. */
+  restWasWinner: boolean("rest_was_winner"),
+  restStartedAt: timestamp("rest_started_at", { withTimezone: true }),
+  restFinishedAt: timestamp("rest_finished_at", { withTimezone: true }),
+  restStartedByUserId: uuid("rest_started_by_user_id"),
+
+  /**
    * What a touch arriving later will carry in `utm_campaign`, so a click from
    * this send credits this send. Defaulted from the name rather than typed
    * twice, because two fields that have to agree and nothing making them
@@ -442,6 +469,12 @@ export const campaignRecipient = pgTable("campaign_recipient", {
    * results read what was sent rather than what the rule would say today.
    */
   variant: campaignVariant("variant").notNull().default("a"),
+  /**
+   * In the part kept back from the test, before and after they are sent the
+   * winner. The test's own counts leave these people out, so sending the
+   * winner to them never moves the result that chose it.
+   */
+  heldBack: boolean("held_back").notNull().default(false),
   state: campaignRecipientState("state").notNull().default("pending"),
   /** A `comms.SendRefusal`, or one of this service's own. Never null on a skip. */
   skipReason: text("skip_reason"),

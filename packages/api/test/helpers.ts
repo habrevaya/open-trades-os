@@ -36,7 +36,7 @@ const ORDER = [
   /** What a person spent for the company and a day away both point at the technician and the job. */
   "expense", "per_diem",
   "payroll_export", "pay_period_close", "commission_entry", "commission_reversal",
-  "commission_event", "commission_plan", "pay_period",
+  "commission_event", "commission_standing_share", "commission_plan", "pay_period",
   /**
    * A project's link to its work goes before the job, and the draws before
    * the invoices they became. Nothing points at a project but these, so the

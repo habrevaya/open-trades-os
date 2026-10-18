@@ -404,9 +404,11 @@ export type RecipientState =
   /** Handed to the outbox. Whether it arrives is the outbox's answer, not ours. */
   | "queued"
   /** Not sent, and the reason is on the row. Never silently dropped. */
-  | "skipped";
+  | "skipped"
+  /** Kept back from a test for a person to send the winner to afterwards. */
+  | "held";
 
-export const RECIPIENT_STATES: readonly RecipientState[] = ["pending", "queued", "skipped"];
+export const RECIPIENT_STATES: readonly RecipientState[] = ["pending", "queued", "skipped", "held"];
 
 export type CampaignState = "draft" | "scheduled" | "sending" | "sent" | "cancelled";
 
@@ -516,13 +518,13 @@ export function mergeScope(input: {
   companyName: string;
   companyPhone?: string | null | undefined;
   /** The campaign's own link tag and the version this person got, for `{{ campaign.utm }}`. */
-  campaign?: { utmCampaign: string; variant: Variant } | undefined;
+  campaign?: { utmCampaign: string; variant: Variant; rest?: boolean | undefined } | undefined;
 }): Record<string, unknown> {
   return {
     customer: { firstName: firstNameOf(input.customerName), name: input.customerName.trim() },
     company: { name: input.companyName, phone: input.companyPhone ?? "" },
     ...(input.campaign
-      ? { campaign: { utm: linkTag(input.campaign.utmCampaign, input.campaign.variant) } }
+      ? { campaign: { utm: linkTag(input.campaign.utmCampaign, input.campaign.variant, input.campaign.rest) } }
       : {}),
   };
 }
@@ -533,9 +535,17 @@ export function mergeScope(input: {
  * the merge field, so version A and version B can carry the very same link text
  * and a click still says which one it came from.
  */
-export function linkTag(utmCampaign: string, variant: Variant): string {
-  return `utm_campaign=${encodeURIComponent(utmCampaign)}&utm_content=${variant}`;
+export function linkTag(utmCampaign: string, variant: Variant, rest = false): string {
+  return `utm_campaign=${encodeURIComponent(utmCampaign)}&utm_content=${rest ? REST_CONTENT : variant}`;
 }
+
+/**
+ * The `utm_content` a click carries when it came from the winner sent to the
+ * held back part of the list. Its own value rather than the winner's letter, so
+ * those clicks are never counted in the test that chose the winner: they would
+ * make the winner look better the more people it was sent to.
+ */
+export const REST_CONTENT = "rest";
 
 /**
  * The second version of a campaign, checked the way the first is, and checked
@@ -635,6 +645,8 @@ export interface CampaignResult {
   skipped: number;
   /** Reason to count, for the skipped. The worklist, not diagnostics. */
   skippedBy: Record<string, number>;
+  /** Kept back from a test and not sent anything yet. Absent on a campaign that never held anybody back. */
+  held?: number;
 }
 
 /**
@@ -645,8 +657,14 @@ export interface CampaignResult {
  * figures to have been produced the same way.
  */
 export function reachRate(result: CampaignResult): string | null {
-  if (result.selected === 0) return null;
-  return ((result.queued / result.selected) * 100).toFixed(1);
+  /**
+   * Out of the people a send was tried on. Somebody held back for the winner
+   * has not been tried yet, and counting them would make a test with most of
+   * the list held back read as a send that could reach almost nobody.
+   */
+  const tried = result.selected - (result.held ?? 0);
+  if (tried <= 0) return null;
+  return ((result.queued / tried) * 100).toFixed(1);
 }
 
 export * from "./ab.js";

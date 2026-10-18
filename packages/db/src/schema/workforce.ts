@@ -290,6 +290,44 @@ export const commissionPlan = pgTable("commission_plan", {
 }));
 
 /**
+ * A STANDING SHARE OF SHARED COMMISSION
+ *
+ * A person who always takes the same part of a commission they share: the
+ * salesperson who always gets 30%, or a lead who gets 40% of the jobs they
+ * lead. When a commission several people share is proposed, everybody on the
+ * job with a standing share that applies is given it, and the rest is split
+ * evenly between the others. It only proposes: the office can still change
+ * the split on the screen within the same rules, with a reason, and the plan's
+ * total is never touched.
+ *
+ * STOPPED, NEVER EDITED. A new share for the same person ends the one before
+ * it, so what was in force when an earning was proposed can still be read,
+ * and the earning keeps its own copy in words (`commission_event.standing_note`).
+ */
+export const standingShareApplies = pgEnum("standing_share_applies", ["always", "as_lead"]);
+
+export const commissionStandingShare = pgTable("commission_standing_share", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  technicianId: uuid("technician_id").notNull().references(() => technician.id, { onDelete: "cascade" }),
+  /** Whole percent of the commission, 1 to 99. */
+  percent: integer("percent").notNull(),
+  /** `always` whenever they are on the job's visits; `as_lead` only when they led one of them. */
+  applies: standingShareApplies("applies").notNull(),
+  /** Why, in a sentence the people sharing with them read on their statement. */
+  reason: text("reason").notNull(),
+  setByUserId: uuid("set_by_user_id"),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  endedByUserId: uuid("ended_by_user_id"),
+  ...timestamps,
+}, (t) => ({
+  /** One standing share in force per person, so a proposal never has two answers for them. */
+  liveIdx: uniqueIndex("commission_standing_share_live_idx")
+    .on(t.organizationId, t.technicianId)
+    .where(sql`${t.endedAt} is null`),
+}));
+
+/**
  * ONE EARNING, AGAINST ONE INVOICE.
  *
  * The unique index is the whole point of the table. Settling an invoice twice
@@ -359,6 +397,16 @@ export const commissionEvent = pgTable("commission_event", {
    * reads on their statement.
    */
   splitNote: text("split_note"),
+  /**
+   * The standing shares the proposed split was made from, in words, when it
+   * was settled as proposed and somebody on the job had one ("Ray takes 30% of
+   * shared commission: he sells the systems."). Frozen here because a standing
+   * share can be stopped or changed later, and the earning has to keep saying
+   * why it was divided the way it was. Also written into each part's
+   * explanation. Null when no standing share shaped it, or when the office
+   * changed the split, which `split_note` then explains.
+   */
+  standingNote: text("standing_note"),
   /**
    * WHICH RULE PRODUCED IT: the company's choice of how an item's own
    * commission rate and the plan combine (`core/labor.ITEM_RATE_RULES`), as

@@ -1612,6 +1612,107 @@ export function sameSplit(a: readonly CommissionShare[], b: readonly CommissionS
   return true;
 }
 
+/* ------------------------------------------------- a standing share */
+
+/**
+ * A STANDING SHARE: somebody who always takes the same part of a commission
+ * they share. `always` applies whenever they are on the job; `as_lead` only
+ * when they led one of its visits.
+ */
+export interface StandingShare {
+  personId: string;
+  /** Whole percent, 1 to 99. */
+  percent: number;
+  applies: "always" | "as_lead";
+  /** Why, in a sentence. */
+  reason: string;
+  /** For the sentence the proposal says. */
+  name?: string | undefined;
+}
+
+export const STANDING_APPLIES: Record<StandingShare["applies"], string> = {
+  always: "whenever they are on the job",
+  as_lead: "when they lead a visit on the job",
+};
+
+/** Whether a standing share can be set: a whole percent from 1 to 99, and a reason. */
+export function checkStandingShare(input: { percent: number; reason: string }): SharesCheck {
+  if (!Number.isInteger(input.percent) || input.percent < 1 || input.percent > 99) {
+    return { ok: false, reason: "A standing share is a whole percent from 1 to 99." };
+  }
+  if (input.reason.trim() === "") {
+    return { ok: false, reason: "Say why they always get this share. The people sharing with them read it on their pay statement." };
+  }
+  return { ok: true };
+}
+
+export interface ProposedSplit {
+  /** The split proposed, one share per person on the job, in the order given. */
+  shares: CommissionShare[];
+  /** The standing shares that shaped it. Empty when it is the even split. */
+  applied: StandingShare[];
+  /** The proposal in words when a standing share shaped it, or null for the even split. */
+  sentence: string | null;
+  /** Why standing shares that applied could not be used, so the even split was proposed instead. */
+  conflict: string | null;
+}
+
+const named = (share: StandingShare) => share.name ?? "Somebody";
+
+/**
+ * THE SPLIT PROPOSED BETWEEN THE PEOPLE ON A JOB, with the standing shares that
+ * apply to them.
+ *
+ * Everybody with a standing share that applies gets it, and whatever is left is
+ * split evenly between everybody else. In weights rather than percents, so an
+ * even remainder that does not divide (70% between three) stays exact: a
+ * standing share of P beside K others is P times K, and each other is what is
+ * left, which comes to the same fractions with whole numbers.
+ *
+ * WHEN THEY CANNOT ALL BE HONOURED, NOTHING IS GUESSED. Standing shares that
+ * add up to a hundred or more with others on the job would leave the others
+ * nothing, and ones that do not add up to a hundred with nobody else on the job
+ * would have to be scaled by a rule nobody chose. Either way the even split is
+ * proposed, with the reason, and the office settles it as it sees fit.
+ */
+export function proposeSplit(
+  people: readonly { personId: string; isLead: boolean }[],
+  standing: readonly StandingShare[],
+): ProposedSplit {
+  const even: ProposedSplit = { shares: evenShares(people.map((p) => p.personId)), applied: [], sentence: null, conflict: null };
+  const applied = people.flatMap((person) => {
+    const rule = standing.find((s) => s.personId === person.personId);
+    return rule && (rule.applies === "always" || person.isLead) ? [rule] : [];
+  });
+  if (applied.length === 0 || people.length < 2) return even;
+  const total = applied.reduce((sum, s) => sum + s.percent, 0);
+  const others = people.filter((p) => !applied.some((s) => s.personId === p.personId));
+  const list = applied.map((s) => `${named(s)} ${s.percent}%`).join(", ");
+  if (others.length === 0 && total !== 100) {
+    return {
+      ...even,
+      conflict: `Everybody on the job has a standing share (${list}) and they add up to ${total}%, not 100%, `
+        + "so the even split is proposed instead. Change it here if it should be shared another way.",
+    };
+  }
+  if (others.length > 0 && total >= 100) {
+    return {
+      ...even,
+      conflict: `The standing shares on this job (${list}) add up to ${total}%, which would leave the others nothing, `
+        + "so the even split is proposed instead. Change it here if it should be shared another way.",
+    };
+  }
+  const k = others.length;
+  const shares = people.map((person) => {
+    const rule = applied.find((s) => s.personId === person.personId);
+    if (others.length === 0) return { personId: person.personId, weight: String(rule!.percent) };
+    return { personId: person.personId, weight: String(rule ? rule.percent * k : 100 - total) };
+  });
+  const each = applied.map((s) => `${named(s)} takes ${s.percent}% (${s.reason.trim().replace(/[.\s]+$/, "")})`).join(", ");
+  const rest = k === 0 ? "" : k === 1 ? ` The other person gets the remaining ${100 - total}%.` : ` The remaining ${100 - total}% is split evenly between the other ${k} people.`;
+  return { shares, applied, sentence: `Standing shares: ${each}.${rest}`, conflict: null };
+}
+
 /* ------------------------------------------------------------- clawback */
 
 export type CreditReason = "refund" | "credit_note" | "write_off" | "callback";

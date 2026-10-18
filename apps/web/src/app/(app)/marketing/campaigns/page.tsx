@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { campaigns, messageTemplates } from "@opentradesos/api/services";
 import { can, campaign as cp } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
-import { Campaigns, Audience, Recipients, AbTestResults, versionsInWords } from "./CampaignView";
+import { Campaigns, Audience, Recipients, AbTestResults, RestOfList, versionsInWords } from "./CampaignView";
 import { RuleBoxes } from "./RuleBoxes";
 import { ActionForm } from "./ActionForm";
 
@@ -146,7 +146,13 @@ export default async function CampaignsPage(
       {preview ? (
         <section className="mt-8">
           <h2 className="text-base font-semibold">Who it reaches</h2>
-          <Audience preview={{ ...preview, split: list.data.find((c) => c.id === previewed)?.splitInWords ?? null }} />
+          <Audience preview={{
+            ...preview,
+            split: (() => {
+              const shown = list.data.find((c) => c.id === previewed);
+              return [shown?.splitInWords, shown?.holdBackInWords].filter(Boolean).join(" ") || null;
+            })(),
+          }} />
         </section>
       ) : previewed ? (
         <Empty title="That audience could not be counted">
@@ -160,6 +166,17 @@ export default async function CampaignsPage(
             The {versionsInWords(comparison.abTest.versions.length)} versions: {comparison.campaign.name}
           </h2>
           <AbTestResults results={comparison.abTest} />
+          {comparison.abTest.rest ? (
+            <RestOfList
+              rest={comparison.abTest.rest}
+              state={comparison.campaign.state}
+              send={writes
+                ? (version, label) => (
+                  <ActionForm op="rest" label={label} hidden={{ id: comparison.campaign.id, version }} />
+                )
+                : undefined}
+            />
+          ) : null}
         </section>
       ) : compared ? (
         <Empty title="That campaign is not a test">
@@ -285,6 +302,15 @@ export default async function CampaignsPage(
                   <span className="text-ink-700">How to split the list, in percent, version A first (blank splits it evenly)</span>
                   <input name="variantShares" placeholder="90, 10" className={`${input} w-40`} />
                 </label>
+                <label className="mt-2 flex flex-col gap-1 text-sm">
+                  <span className="text-ink-700">Hold back part of the list for the winner, in percent (blank holds nobody back)</span>
+                  <input name="holdBackShare" placeholder="80" className={`${input} w-24`} />
+                </label>
+                <p className="mt-1 text-xs text-ink-500">
+                  Hold back 80 and the test goes to the other 20%. Once you have read the result, you send the winner to
+                  the 80% from the results on this page. If nothing won, you can send version A, the words you already
+                  use. Nothing goes to them by itself.
+                </p>
               </fieldset>
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-ink-700">Send it at, if not now</span>

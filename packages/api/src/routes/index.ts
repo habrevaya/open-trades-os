@@ -542,6 +542,10 @@ export const handlers = {
   listSharedCommissions: commissions.handlers.listSharedCommissions,
   getCommissionSplit: commissions.handlers.getCommissionSplit,
   settleCommissionSplit: commissions.handlers.settleCommissionSplit,
+  listCommissionStandingShares: commissions.handlers.listCommissionStandingShares,
+  setCommissionStandingShare: commissions.handlers.setCommissionStandingShare,
+  endCommissionStandingShare: commissions.handlers.endCommissionStandingShare,
+  settleCommissionSplitsAsProposed: commissions.handlers.settleCommissionSplitsAsProposed,
   getCommissionItemRule: commissions.handlers.getCommissionItemRule,
   setCommissionItemRule: commissions.handlers.setCommissionItemRule,
 
@@ -878,6 +882,7 @@ export const handlers = {
   listCampaigns: campaigns.handlers.listCampaigns,
   previewCampaign: campaigns.handlers.previewCampaign,
   sendCampaign: campaigns.handlers.sendCampaign,
+  sendCampaignRest: campaigns.handlers.sendCampaignRest,
   campaignRecipients: campaigns.handlers.campaignRecipients,
   campaignResults: campaigns.handlers.campaignResults,
   describeUnsubscribe: unsubscribe.handlers.describeUnsubscribe,

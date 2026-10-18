@@ -21650,7 +21650,8 @@
               "enum": [
                 "pending",
                 "queued",
-                "skipped"
+                "skipped",
+                "held"
               ]
             }
           },
@@ -21758,6 +21759,144 @@
         "x-authorization": "session",
         "x-permissions": [
           "campaign:read"
+        ]
+      }
+    },
+    "/v1/campaigns/{id}/rest": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "sendCampaignRest",
+        "summary": "Send the winner to the part of the list held back from the test",
+        "description": "Only a person does this, never the clock: whether a result is good enough to act on is the owner's call. Allowed once the test has all gone out (the campaign is sent). `version` must be what the test says now: the named winner, or version A when nothing won, so a page loaded before the counts moved cannot send a version that no longer won. The first call fixes the version on the campaign; later calls (the next batch under a carrier's daily cap) must name the same one. Consent, STOP replies, unsubscribes and quiet hours are checked again for every person at send time, and somebody who no longer fits the rules or whose address has changed is skipped with that reason. Inside quiet hours nothing is written and the call is refused. One batch per call and safe to repeat. Links in the message carry utm_content=rest, so the rest's clicks are never counted in the test that chose it.\n\nRequires a session holding: campaign:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendCampaignRestInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Send the winner to the part of the list held back from the test",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendCampaignRestOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "campaign:write"
         ]
       }
     },
@@ -25506,7 +25645,7 @@
       "get": {
         "operationId": "listSharedCommissions",
         "summary": "Commissions several people share: waiting to be settled, and the last ones settled",
-        "description": "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the even split.\n\nRequires a session holding: commission:read.",
+        "description": "Waiting: invoices sent or paid (not voided or written off) on a job more than one person was assigned to, made since the company's first commission plan, with no commission settled yet, newest first, fifty at most. Each waiting one carries the split proposed (even, or shaped by standing shares) worked out as settling it would be, or the refusal settling would give. Settled: the last twenty earnings paid to more than one person, each part with its weight, and the reason the office gave when it changed the proposed split.\n\nRequires a session holding: commission:read.",
         "tags": [
           "M17"
         ],
@@ -25604,7 +25743,7 @@
       "get": {
         "operationId": "getCommissionSplit",
         "summary": "How an invoice's commission would be shared, worked out before it is settled",
-        "description": "The even split between the people on the job's visits is proposed, and core works out each person's part under the plan. With `shares` (`technicianId:weight` pairs separated by commas, weights not percentages: \"2\" and \"1\" is two thirds and one third), the split given instead, worked out the same way. What settling would refuse comes back as `refusal`, in the same words. `changed` says the split is not the even one, which settling from the split screen needs a reason for. Writes nothing.\n\nRequires a session holding: commission:read.",
+        "description": "The split between the people on the job's visits is proposed (even, or shaped by the standing shares of the people on it, said in `standingSentence`), and core works out each person's part under the plan. With `shares` (`technicianId:weight` pairs separated by commas, weights not percentages: \"2\" and \"1\" is two thirds and one third), the split given instead, worked out the same way. What settling would refuse comes back as `refusal`, in the same words. `changed` says the split is not the one proposed, which settling from the split screen needs a reason for. Writes nothing.\n\nRequires a session holding: commission:read.",
         "tags": [
           "M17"
         ],
@@ -25731,7 +25870,7 @@
       "post": {
         "operationId": "settleCommissionSplit",
         "summary": "Settle a commission several people share, from the split screen",
-        "description": "The same settling as `POST /v1/commissions`, with one more rule: a split other than the even one between the people on the job needs `reason`, which is kept on the earning and written into each part's explanation, the sentence the person paid reads on their statement. A share of 0 leaves that person out. The plan's total is never changed here, only how it is divided. The audit records the split proposed beside the one settled. Sent again with the same split it answers with what was settled; a different split for an invoice that has already earned is refused.\n\nRequires a session holding: commission:configure.",
+        "description": "The same settling as `POST /v1/commissions`, with one more rule: a split other than the one proposed (even between the people on the job, or shaped by their standing shares) needs `reason`, which is kept on the earning and written into each part's explanation, the sentence the person paid reads on their statement. A share of 0 leaves that person out. The plan's total is never changed here, only how it is divided. The audit records the split proposed beside the one settled. Sent again with the same split it answers with what was settled; a different split for an invoice that has already earned is refused.\n\nRequires a session holding: commission:configure.",
         "tags": [
           "M17"
         ],
@@ -25763,6 +25902,495 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SettleCommissionSplitOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:configure"
+        ]
+      }
+    },
+    "/v1/commissions/splits/as-proposed": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "settleCommissionSplitsAsProposed",
+        "summary": "Settle several shared commissions at once, each with the split proposed",
+        "description": "For the invoices whose proposed split nobody changed. Each one is settled exactly as `POST /v1/commissions/splits` would settle it alone with the split proposed (even between the people on the job, or shaped by their standing shares) and no reason: in its own transaction, audited as one earning with the proposal beside it. One that settling would refuse (two plans in force and none named, a margin plan with no cost, a closed pay period, a standing share changed since the proposal was read) is listed in `refused` with the reason and does not stop the rest. Sent again, an invoice already settled with its proposed split answers with that earning (`replayed`).\n\nRequires a session holding: commission:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleCommissionSplitsAsProposedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Settle several shared commissions at once, each with the split proposed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettleCommissionSplitsAsProposedOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:configure"
+        ]
+      }
+    },
+    "/v1/commissions/standing-shares": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listCommissionStandingShares",
+        "summary": "Standing shares of shared commission: in force, and the last ones stopped",
+        "description": "A standing share is a person who always takes the same part of a commission they share: the salesperson who always gets 30%, or a lead who gets 40% of the jobs they lead. When a shared commission is proposed, everybody on the job's visits with one that applies gets it and the rest is split evenly between the others. It only proposes: the office can change the split within the same rules, with a reason.\n\nRequires a session holding: commission:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "Standing shares of shared commission: in force, and the last ones stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCommissionStandingSharesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:read"
+        ]
+      },
+      "post": {
+        "operationId": "setCommissionStandingShare",
+        "summary": "Give somebody a standing share of the commissions they share",
+        "description": "A whole percent from 1 to 99, when it applies, and a reason the people sharing with them read on their pay statement. A share already in force for the same person is stopped, not edited, so what was proposed before can still be explained. Sent again with what is in force it answers with that. Commissions already settled are not touched.\n\nRequires a session holding: commission:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCommissionStandingShareInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give somebody a standing share of the commissions they share",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCommissionStandingShareOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:configure"
+        ]
+      }
+    },
+    "/v1/commissions/standing-shares/{id}/end": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "endCommissionStandingShare",
+        "summary": "Stop a standing share",
+        "description": "Proposals from now on leave it out. Commissions already settled keep the split they were settled with. Stopping one already stopped answers with it.\n\nRequires a session holding: commission:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndCommissionStandingShareInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stop a standing share",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndCommissionStandingShareOutput"
                 }
               }
             }
@@ -154380,12 +155008,16 @@
                     "d"
                   ]
                 },
+                "heldBack": {
+                  "type": "boolean"
+                },
                 "state": {
                   "type": "string",
                   "enum": [
                     "pending",
                     "queued",
-                    "skipped"
+                    "skipped",
+                    "held"
                   ]
                 },
                 "skipReason": {
@@ -154420,6 +155052,7 @@
                 "customerName",
                 "address",
                 "variant",
+                "heldBack",
                 "state",
                 "skipReason",
                 "skipExplanation",
@@ -154539,6 +155172,48 @@
               "abTest": {
                 "type": "boolean"
               },
+              "holdBackShare": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "holdBackInWords": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "restVersion": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "a",
+                  "b",
+                  "c",
+                  "d"
+                ]
+              },
+              "restWasWinner": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "restStartedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "restFinishedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "utmCampaign": {
                 "type": "string"
               },
@@ -154602,6 +155277,12 @@
               "versions",
               "splitInWords",
               "abTest",
+              "holdBackShare",
+              "holdBackInWords",
+              "restVersion",
+              "restWasWinner",
+              "restStartedAt",
+              "restFinishedAt",
               "utmCampaign",
               "messagingCampaignId",
               "scheduledFor",
@@ -154629,6 +155310,9 @@
                 "additionalProperties": {
                   "type": "integer"
                 }
+              },
+              "held": {
+                "type": "integer"
               }
             },
             "required": [
@@ -154813,6 +155497,111 @@
               },
               "headline": {
                 "type": "string"
+              },
+              "rest": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "share": {
+                    "type": "integer"
+                  },
+                  "waiting": {
+                    "type": "integer"
+                  },
+                  "sent": {
+                    "type": "integer"
+                  },
+                  "skipped": {
+                    "type": "integer"
+                  },
+                  "version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "a",
+                      "b",
+                      "c",
+                      "d"
+                    ]
+                  },
+                  "wasWinner": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "startedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "finishedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "clicks": {
+                    "type": "integer"
+                  },
+                  "booked": {
+                    "type": "integer"
+                  },
+                  "jobs": {
+                    "type": "integer"
+                  },
+                  "revenue": {
+                    "type": "string"
+                  },
+                  "offer": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "version": {
+                        "type": "string",
+                        "enum": [
+                          "a",
+                          "b",
+                          "c",
+                          "d"
+                        ]
+                      },
+                      "won": {
+                        "type": "boolean"
+                      },
+                      "sentence": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "won",
+                      "sentence"
+                    ]
+                  }
+                },
+                "required": [
+                  "share",
+                  "waiting",
+                  "sent",
+                  "skipped",
+                  "version",
+                  "wasWinner",
+                  "startedAt",
+                  "finishedAt",
+                  "clicks",
+                  "booked",
+                  "jobs",
+                  "revenue",
+                  "offer"
+                ]
               }
             },
             "required": [
@@ -154821,7 +155610,8 @@
               "untaggedClicks",
               "measures",
               "winner",
-              "headline"
+              "headline",
+              "rest"
             ]
           }
         },
@@ -155148,6 +155938,48 @@
           "abTest": {
             "type": "boolean"
           },
+          "holdBackShare": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holdBackInWords": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ]
+          },
+          "restWasWinner": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "restStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restFinishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -155208,6 +156040,9 @@
                 "additionalProperties": {
                   "type": "integer"
                 }
+              },
+              "held": {
+                "type": "integer"
               }
             },
             "required": [
@@ -155237,6 +156072,12 @@
           "versions",
           "splitInWords",
           "abTest",
+          "holdBackShare",
+          "holdBackInWords",
+          "restVersion",
+          "restWasWinner",
+          "restStartedAt",
+          "restFinishedAt",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -160143,6 +160984,14 @@
             "minItems": 2,
             "maxItems": 4
           },
+          "holdBackShare": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
           "utmCampaign": {
             "type": "string",
             "minLength": 1,
@@ -160265,6 +161114,48 @@
           "abTest": {
             "type": "boolean"
           },
+          "holdBackShare": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holdBackInWords": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ]
+          },
+          "restWasWinner": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "restStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restFinishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -160325,6 +161216,9 @@
                 "additionalProperties": {
                   "type": "integer"
                 }
+              },
+              "held": {
+                "type": "integer"
               }
             },
             "required": [
@@ -160354,6 +161248,12 @@
           "versions",
           "splitInWords",
           "abTest",
+          "holdBackShare",
+          "holdBackInWords",
+          "restVersion",
+          "restWasWinner",
+          "restStartedAt",
+          "restFinishedAt",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -177050,6 +177950,64 @@
           "link"
         ]
       },
+      "EndCommissionStandingShareInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "EndCommissionStandingShareOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "applies": {
+            "type": "string",
+            "enum": [
+              "always",
+              "as_lead"
+            ]
+          },
+          "inWords": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "technicianId",
+          "name",
+          "percent",
+          "applies",
+          "inWords",
+          "reason",
+          "setAt",
+          "endedAt"
+        ]
+      },
       "EndContainerHoldInput": {
         "type": "object",
         "properties": {
@@ -181329,6 +182287,48 @@
           "abTest": {
             "type": "boolean"
           },
+          "holdBackShare": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holdBackInWords": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ]
+          },
+          "restWasWinner": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "restStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restFinishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -181389,6 +182389,9 @@
                 "additionalProperties": {
                   "type": "integer"
                 }
+              },
+              "held": {
+                "type": "integer"
               }
             },
             "required": [
@@ -181418,6 +182421,12 @@
           "versions",
           "splitInWords",
           "abTest",
+          "holdBackShare",
+          "holdBackInWords",
+          "restVersion",
+          "restWasWinner",
+          "restStartedAt",
+          "restFinishedAt",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",
@@ -182455,6 +183464,53 @@
           "changed": {
             "type": "boolean"
           },
+          "standing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "percent": {
+                  "type": "integer"
+                },
+                "applies": {
+                  "type": "string",
+                  "enum": [
+                    "always",
+                    "as_lead"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "technicianId",
+                "name",
+                "percent",
+                "applies",
+                "reason"
+              ]
+            }
+          },
+          "standingSentence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "standingConflict": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "refusal": {
             "type": [
               "string",
@@ -182559,6 +183615,12 @@
                 "format": "date-time"
               },
               "splitNote": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "standingNote": {
                 "type": [
                   "string",
                   "null"
@@ -182681,6 +183743,7 @@
               "total",
               "occurredAt",
               "splitNote",
+              "standingNote",
               "explanation",
               "itemRule",
               "lines",
@@ -182699,6 +183762,9 @@
           "explanation",
           "people",
           "changed",
+          "standing",
+          "standingSentence",
+          "standingConflict",
           "refusal",
           "itemRule",
           "itemRuleLabel",
@@ -215930,6 +216996,48 @@
                 "abTest": {
                   "type": "boolean"
                 },
+                "holdBackShare": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "holdBackInWords": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "restVersion": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "a",
+                    "b",
+                    "c",
+                    "d"
+                  ]
+                },
+                "restWasWinner": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "restStartedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "restFinishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "utmCampaign": {
                   "type": "string"
                 },
@@ -215990,6 +217098,9 @@
                       "additionalProperties": {
                         "type": "integer"
                       }
+                    },
+                    "held": {
+                      "type": "integer"
                     }
                   },
                   "required": [
@@ -216019,6 +217130,12 @@
                 "versions",
                 "splitInWords",
                 "abTest",
+                "holdBackShare",
+                "holdBackInWords",
+                "restVersion",
+                "restWasWinner",
+                "restStartedAt",
+                "restFinishedAt",
                 "utmCampaign",
                 "messagingCampaignId",
                 "scheduledFor",
@@ -217188,6 +218305,149 @@
         },
         "required": [
           "plans"
+        ]
+      },
+      "ListCommissionStandingSharesOutput": {
+        "type": "object",
+        "properties": {
+          "live": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "percent": {
+                  "type": "integer"
+                },
+                "applies": {
+                  "type": "string",
+                  "enum": [
+                    "always",
+                    "as_lead"
+                  ]
+                },
+                "inWords": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "setAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "name",
+                "percent",
+                "applies",
+                "inWords",
+                "reason",
+                "setAt",
+                "endedAt"
+              ]
+            }
+          },
+          "ended": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "percent": {
+                  "type": "integer"
+                },
+                "applies": {
+                  "type": "string",
+                  "enum": [
+                    "always",
+                    "as_lead"
+                  ]
+                },
+                "inWords": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "setAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "technicianId",
+                "name",
+                "percent",
+                "applies",
+                "inWords",
+                "reason",
+                "setAt",
+                "endedAt"
+              ]
+            }
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "technicianId",
+                "name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "live",
+          "ended",
+          "people"
         ]
       },
       "ListCommitmentsOutput": {
@@ -234802,6 +236062,60 @@
                       "name"
                     ]
                   }
+                },
+                "proposed": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "parts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "technicianId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "string",
+                            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                          }
+                        },
+                        "required": [
+                          "technicianId",
+                          "name",
+                          "amount"
+                        ]
+                      }
+                    },
+                    "standingSentence": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "refusal": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "total",
+                    "parts",
+                    "standingSentence",
+                    "refusal"
+                  ]
                 }
               },
               "required": [
@@ -234812,7 +236126,8 @@
                 "jobNumber",
                 "revenue",
                 "issuedAt",
-                "people"
+                "people",
+                "proposed"
               ]
             }
           },
@@ -234837,6 +236152,12 @@
                   "format": "date-time"
                 },
                 "splitNote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "standingNote": {
                   "type": [
                     "string",
                     "null"
@@ -234881,6 +236202,7 @@
                 "total",
                 "occurredAt",
                 "splitNote",
+                "standingNote",
                 "parts"
               ]
             }
@@ -265015,12 +266337,82 @@
           },
           "remaining": {
             "type": "integer"
+          },
+          "held": {
+            "type": "integer"
           }
         },
         "required": [
           "campaignId",
           "state",
           "selected",
+          "queued",
+          "skipped",
+          "skippedBy",
+          "remaining",
+          "held"
+        ]
+      },
+      "SendCampaignRestInput": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "enum": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "SendCampaignRestOutput": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "string",
+            "enum": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ]
+          },
+          "wasWinner": {
+            "type": "boolean"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          },
+          "skippedBy": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "remaining": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaignId",
+          "version",
+          "wasWinner",
           "queued",
           "skipped",
           "skippedBy",
@@ -267313,6 +268705,94 @@
         "required": [
           "rule",
           "rules"
+        ]
+      },
+      "SetCommissionStandingShareInput": {
+        "type": "object",
+        "properties": {
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "applies": {
+            "type": "string",
+            "enum": [
+              "always",
+              "as_lead"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "technicianId",
+          "percent",
+          "applies",
+          "reason"
+        ]
+      },
+      "SetCommissionStandingShareOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "applies": {
+            "type": "string",
+            "enum": [
+              "always",
+              "as_lead"
+            ]
+          },
+          "inWords": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "technicianId",
+          "name",
+          "percent",
+          "applies",
+          "inWords",
+          "reason",
+          "setAt",
+          "endedAt",
+          "replayed"
         ]
       },
       "SetContactPortalAccessInput": {
@@ -275258,6 +276738,134 @@
           "replayed"
         ]
       },
+      "SettleCommissionSplitsAsProposedInput": {
+        "type": "object",
+        "properties": {
+          "invoiceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "planId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "invoiceIds"
+        ]
+      },
+      "SettleCommissionSplitsAsProposedOutput": {
+        "type": "object",
+        "properties": {
+          "settled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "eventId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "total": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "replayed": {
+                  "type": "boolean"
+                },
+                "refusal": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "eventId",
+                "total",
+                "replayed",
+                "refusal"
+              ]
+            }
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "eventId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "total": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "replayed": {
+                  "type": "boolean"
+                },
+                "refusal": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "eventId",
+                "total",
+                "replayed",
+                "refusal"
+              ]
+            }
+          }
+        },
+        "required": [
+          "settled",
+          "refused"
+        ]
+      },
       "SettleReferralRewardInput": {
         "type": "object",
         "properties": {
@@ -281116,6 +282724,14 @@
             "minItems": 2,
             "maxItems": 4
           },
+          "holdBackShare": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
           "scheduledFor": {
             "type": [
               "string",
@@ -281235,6 +282851,48 @@
           "abTest": {
             "type": "boolean"
           },
+          "holdBackShare": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holdBackInWords": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ]
+          },
+          "restWasWinner": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "restStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "restFinishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "utmCampaign": {
             "type": "string"
           },
@@ -281295,6 +282953,9 @@
                 "additionalProperties": {
                   "type": "integer"
                 }
+              },
+              "held": {
+                "type": "integer"
               }
             },
             "required": [
@@ -281324,6 +282985,12 @@
           "versions",
           "splitInWords",
           "abTest",
+          "holdBackShare",
+          "holdBackInWords",
+          "restVersion",
+          "restWasWinner",
+          "restStartedAt",
+          "restFinishedAt",
           "utmCampaign",
           "messagingCampaignId",
           "scheduledFor",

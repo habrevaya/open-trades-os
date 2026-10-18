@@ -57,6 +57,7 @@ export async function act(_previous: CampaignState, form: FormData): Promise<Cam
           ...(field(form, "variantDBody") ? { variantDBody: field(form, "variantDBody")! } : {}),
           ...(channel === "email" && field(form, "variantDSubject") ? { variantDSubject: field(form, "variantDSubject")! } : {}),
           ...(field(form, "variantShares") ? { variantShares: sharesFrom(field(form, "variantShares")!) } : {}),
+          ...(field(form, "holdBackShare") ? { holdBackShare: holdBackFrom(field(form, "holdBackShare")!) } : {}),
           ...(field(form, "utmCampaign") ? { utmCampaign: field(form, "utmCampaign")! } : {}),
         });
         const at = whenFrom(form, zone);
@@ -82,6 +83,20 @@ export async function act(_previous: CampaignState, form: FormData): Promise<Cam
         const left = report.remaining > 0 ? `, ${report.remaining} left for tomorrow` : "";
         return {
           message: `${report.queued} queued, ${report.skipped} not sent${left}.`,
+        };
+      }
+      case "rest": {
+        /**
+         * The version comes from the page, and the service checks it against the
+         * test as it stands now, so a page read before the counts moved cannot
+         * send a version that no longer won.
+         */
+        const version = String(form.get("version") ?? "");
+        if (!["a", "b", "c", "d"].includes(version)) throw new ConflictError("Which version should go?");
+        const report = await campaigns.sendRest(ctx, { id, version: version as "a" | "b" | "c" | "d" });
+        const left = report.remaining > 0 ? `, ${report.remaining} still to go tomorrow` : "";
+        return {
+          message: `Version ${version.toUpperCase()} to the people held back: ${report.queued} queued, ${report.skipped} not sent${left}.`,
         };
       }
       case "cancel":
@@ -110,4 +125,11 @@ function sharesFrom(text: string): number[] {
     throw new ConflictError("Write the split as whole percents, version A first, like 90, 10.");
   }
   return parts.map(Number);
+}
+
+/** "80" or "80%", as a whole number. Whether it makes sense is the module's to say. */
+function holdBackFrom(text: string): number {
+  const cleaned = text.replace(/%/g, "").trim();
+  if (!/^\d+$/.test(cleaned)) throw new ConflictError("Write how much to hold back as a whole percent, like 80.");
+  return Number(cleaned);
 }

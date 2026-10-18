@@ -241,6 +241,8 @@ async function select(
   channel: "sms" | "email",
   rules: readonly cp.AudienceRule[],
   limit: number,
+  /** Only these customers: the people held back from a test, checked again before they are sent the winner. */
+  among?: readonly string[],
 ): Promise<Candidate[]> {
   if (rules.length === 0) {
     /**
@@ -265,6 +267,7 @@ async function select(
       and ${addressColumn} is not null
       and btrim(${addressColumn}) <> ''
       and ${sql.join(clauses, sql` and `)}
+      ${among ? sql`and c.id = any(${sql.param([...among])}::uuid[])` : sql``}
     order by c.name asc, c.id asc
     limit ${limit}
   `);
@@ -353,6 +356,12 @@ export interface CampaignInput {
   variantDSubject?: string | null | undefined;
   /** Each version's share in whole percent, A first. Absent or null is an even split. */
   variantShares?: number[] | null | undefined;
+  /**
+   * The part of the list kept back from the test for a person to send the
+   * winner to afterwards, in whole percent. Absent, null or zero holds nobody
+   * back, which is the default.
+   */
+  holdBackShare?: number | null | undefined;
 }
 
 /**
@@ -402,7 +411,7 @@ function personalise(
   words: { body: string; subject: string | null },
   scope: { companyName: string; companyPhone: string | null },
   customerName: string,
-  campaign: { utmCampaign: string; variant: cp.Variant },
+  campaign: { utmCampaign: string; variant: cp.Variant; rest?: boolean },
 ) {
   const values = cp.mergeScope({ customerName, ...scope, campaign });
   return {
@@ -506,6 +515,18 @@ function checkVersions(
   return { b, c, d, shares: verdict.shares };
 }
 
+/**
+ * The held back share, checked against the versions there will be. Kept from
+ * before and no longer fitting (the test taken off) is refused rather than
+ * dropped quietly, as shares are.
+ */
+function checkHoldBackShare(share: number | null | undefined, versions: { b: Words; c: Words; d: Words }): number | null {
+  const count = 1 + [versions.b, versions.c, versions.d].filter((w) => w.body !== null).length;
+  const verdict = cp.checkHoldBack(share, count);
+  if (!verdict.ok) throw new ConflictError(verdict.message);
+  return verdict.share;
+}
+
 /** The versions a campaign carries, A first, each with the words it is sent with. */
 function versionsOf(row: typeof schema.marketingCampaign.$inferSelect): { variant: cp.Variant; body: string; subject: string | null }[] {
   const channel = row.channel as "sms" | "email";
@@ -559,6 +580,7 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
       },
       input.variantShares,
     );
+    const holdBackShare = checkHoldBackShare(input.holdBackShare, versions);
 
     const utmCampaign = (input.utmCampaign?.trim() || utmFor(name));
 
@@ -591,6 +613,7 @@ export function create(ctx: ServiceContext, input: CampaignInput) {
         variantDBody: versions.d.body,
         variantDSubject: versions.d.subject,
         variantShares: versions.shares,
+        holdBackShare,
         utmCampaign,
         messagingCampaignId: input.messagingCampaignId ?? null,
         createdByUserId: ctx.actor.userId === NIL ? null : ctx.actor.userId,
@@ -641,6 +664,8 @@ export interface CampaignPatch {
   variantDSubject?: string | null | undefined;
   /** Each version's share. Null is an even split; absent keeps what there was. */
   variantShares?: number[] | null | undefined;
+  /** The part held back for the winner. Null holds nobody back; absent keeps what there was. */
+  holdBackShare?: number | null | undefined;
 }
 
 export function update(ctx: ServiceContext, input: CampaignPatch) {
@@ -697,6 +722,9 @@ export function update(ctx: ServiceContext, input: CampaignPatch) {
       },
       input.variantShares === undefined ? current.variantShares : input.variantShares,
     );
+    const holdBackShare = checkHoldBackShare(
+      input.holdBackShare === undefined ? current.holdBackShare : input.holdBackShare, versions,
+    );
 
     if (input.messagingCampaignId) {
       await assertCarrierCampaign(tx, ctx.actor.organizationId, input.messagingCampaignId);
@@ -725,6 +753,7 @@ export function update(ctx: ServiceContext, input: CampaignPatch) {
       variantDBody: versions.d.body,
       variantDSubject: versions.d.subject,
       variantShares: versions.shares,
+      holdBackShare,
       scheduledFor,
       state,
       ...(input.messagingCampaignId !== undefined
@@ -838,11 +867,12 @@ async function tallyWithin(tx: Database, campaignId: string): Promise<cp.Campaig
     group by state, skip_reason
   `);
 
-  const result: cp.CampaignResult = { selected: 0, queued: 0, skipped: 0, skippedBy: {} };
+  const result: cp.CampaignResult = { selected: 0, queued: 0, skipped: 0, skippedBy: {}, held: 0 };
   for (const row of rows) {
     const n = Number(row.n);
     result.selected += n;
     if (row.state === "queued") result.queued += n;
+    if (row.state === "held") result.held = (result.held ?? 0) + n;
     if (row.state === "skipped") {
       result.skipped += n;
       const reason = row.skip_reason ?? "unknown";
@@ -874,6 +904,14 @@ function viewOf(row: typeof schema.marketingCampaign.$inferSelect) {
     versions: versionsOf(row).length,
     splitInWords: row.variantBBody === null ? null : cp.splitInWords(versionsOf(row).length, row.variantShares),
     abTest: row.variantBBody !== null,
+    /** The part kept back from the test for the winner, in whole percent, or null. */
+    holdBackShare: row.holdBackShare,
+    holdBackInWords: cp.holdBackInWords(row.holdBackShare),
+    /** The version a person chose to send the held back part, once they have. */
+    restVersion: row.restVariant,
+    restWasWinner: row.restWasWinner,
+    restStartedAt: row.restStartedAt?.toISOString() ?? null,
+    restFinishedAt: row.restFinishedAt?.toISOString() ?? null,
     utmCampaign: row.utmCampaign,
     messagingCampaignId: row.messagingCampaignId,
     scheduledFor: row.scheduledFor?.toISOString() ?? null,
@@ -1069,6 +1107,8 @@ export interface SendReport {
   skippedBy: Record<string, number>;
   /** True when a daily cap left some of the audience for tomorrow. */
   remaining: number;
+  /** Kept back from the test for a person to send the winner to, and sent nothing yet. */
+  held: number;
 }
 
 /**
@@ -1158,11 +1198,37 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
      * person holding the phone, who does not want it twice.
      */
     const seen = new Set<string>();
-    const fresh = candidates.filter((candidate) => {
+    const deduped = candidates.filter((candidate) => {
       if (seen.has(candidate.address)) return false;
       seen.add(candidate.address);
       return true;
     });
+
+    /**
+     * THE PART HELD BACK FOR THE WINNER IS WRITTEN NOW AND SENT NOTHING. Each
+     * person's place is a hash of its own, so it is stable across batches and
+     * says nothing about which version they would have got. Written as `held`
+     * rather than left unwritten, so the people kept back are a fact of this
+     * send, frozen like everybody else, and a later send cannot quietly pick a
+     * different rest of the list. They take none of the carrier's cap: nothing
+     * goes to them until a person sends the winner.
+     */
+    const holding = row.variantBBody !== null && row.holdBackShare !== null;
+    const held = holding
+      ? deduped.filter((candidate) => cp.heldBackFor(row.id, candidate.customerId, row.holdBackShare))
+      : [];
+    const heldIds = new Set(held.map((candidate) => candidate.customerId));
+    const fresh = holding ? deduped.filter((candidate) => !heldIds.has(candidate.customerId)) : deduped;
+    for (const candidate of held) {
+      await tx.insert(schema.campaignRecipient).values({
+        organizationId: ctx.actor.organizationId,
+        campaignId: row.id,
+        customerId: candidate.customerId,
+        address: candidate.address,
+        heldBack: true,
+        state: "held",
+      });
+    }
 
     /**
      * THE DAILY CAP IS A DAY, NOT A CALL. `pace` answers how many one batch
@@ -1245,7 +1311,7 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
 
     const tally = await tallyWithin(tx, row.id);
     await audit(tx, ctx, "campaign.send", "marketing_campaign", row.id, row, {
-      ...updated, batch: batch.length, remaining,
+      ...updated, batch: batch.length, remaining, heldBack: held.length,
     });
 
     return {
@@ -1256,7 +1322,221 @@ export function send(ctx: ServiceContext, input: { id: string; at?: string | und
       skipped: tally.skipped,
       skippedBy: tally.skippedBy,
       remaining,
+      held: tally.held ?? 0,
     };
+  });
+}
+
+/* ------------------------------------------------- the rest of the list */
+
+export interface RestReport {
+  campaignId: string;
+  /** The version the held back part is being sent. */
+  version: cp.Variant;
+  /** True when it was the test's named winner when a person chose it; false when nothing won and version A went. */
+  wasWinner: boolean;
+  /** Of the held back part, all batches so far. */
+  queued: number;
+  skipped: number;
+  skippedBy: Record<string, number>;
+  /** Still held back, for the next batch when a carrier's daily cap stopped this one. */
+  remaining: number;
+}
+
+/** Why a held back person was not sent the winner, for reasons the comms gate does not give. */
+const REST_REASONS: Record<string, string> = {
+  no_longer_in_audience:
+    "No longer fits the campaign's rules, or their address changed, since the test went out, so they were not sent the rest of the list's message.",
+};
+
+/**
+ * SEND THE WINNER TO THE PART OF THE LIST HELD BACK FROM THE TEST.
+ *
+ * A PERSON DOES THIS, NEVER THE CLOCK. Whether a result is good enough to act
+ * on is the owner's call: the product says only whether a gap is more than
+ * luck. So nothing schedules it, and the worker that carries a test across
+ * days under a carrier's cap never touches this part.
+ *
+ * WHAT MAY BE SENT IS WHAT THE TEST SAYS NOW. The version a person asks for is
+ * checked against the judgement as it stands when they press: the named
+ * winner, or version A, the words the company already sends, when nothing won.
+ * A page loaded yesterday that offered version B, after more clicks have made
+ * it no winner at all, is refused rather than obeyed. Once chosen, the version
+ * is fixed on the campaign, so a send that carries on tomorrow under a cap
+ * sends the same words even if the counts have moved since.
+ *
+ * EVERYTHING IS CHECKED AGAIN AT SEND TIME. Weeks can pass between the test and
+ * this. Consent, a STOP reply and an unsubscribe are the comms gate's, per
+ * person, exactly as on the first send. Somebody who no longer fits the rules,
+ * was marked do not service, was merged into another record, or whose address
+ * has changed is skipped with that reason rather than sent to the address the
+ * test wrote down. Inside quiet hours the whole send is refused and nothing is
+ * written, because writing everybody skipped for quiet hours would be
+ * permanent.
+ *
+ * ONE BATCH PER CALL AND SAFE TO REPEAT, like `send`: a held row becomes queued
+ * or skipped once, and the carrier's daily cap counts this part with the test.
+ */
+export function sendRest(ctx: ServiceContext, input: { id: string; version: cp.Variant; at?: string | undefined }) {
+  return guardedWrite(ctx, "campaign:write", async (tx): Promise<RestReport> => {
+    await tx.execute(sql`select id from public.marketing_campaign where id = ${input.id} for update`);
+    const row = await loadWithin(tx, ctx, input.id);
+    const at = input.at ? new Date(input.at) : new Date();
+
+    if (row.holdBackShare === null) {
+      throw new ConflictError("This campaign held nobody back, so there is no rest of the list to send to.");
+    }
+    if (row.state !== "sent") {
+      throw new ConflictError(
+        row.state === "cancelled"
+          ? "This campaign was cancelled, so the people held back are not sent anything."
+          : row.state === "sending"
+            ? "The test is still going out. Send the rest of the list once all of it has gone and you have read the result."
+            : "The test has not gone out yet, so there is nothing to judge and no winner to send.",
+      );
+    }
+
+    const quiet = await commsSend.quietHoursFor(tx, ctx.actor.organizationId, at);
+    if (quiet.window && comms.inQuietHours(quiet.localHour, quiet.window)) {
+      throw new ConflictError("It is inside your quiet hours, so nothing was sent. Send the rest of the list after they end.");
+    }
+
+    let version: cp.Variant;
+    let wasWinner: boolean;
+    let current = row;
+    if (row.restVariant) {
+      version = row.restVariant as cp.Variant;
+      wasWinner = row.restWasWinner ?? false;
+      if (input.version !== version) {
+        throw new ConflictError(
+          `The people held back are already being sent version ${version.toUpperCase()}. `
+          + "The rest of them get the same words, so the send cannot change its mind part way.",
+        );
+      }
+    } else {
+      const judged = await abTestWithin(tx, ctx.actor.organizationId, row);
+      const choice = cp.restChoice(judged?.winner ?? null);
+      if (input.version !== choice.version) {
+        throw new ConflictError(
+          choice.won
+            ? `${cp.VARIANT_LABEL[choice.version]} won the test, so that is the version the people held back can be sent.`
+            : "No version won the test, so the people held back can only be sent version A, the words you already use.",
+        );
+      }
+      version = choice.version;
+      wasWinner = choice.won;
+      const [chosen] = await tx.update(schema.marketingCampaign).set({
+        restVariant: version,
+        restWasWinner: wasWinner,
+        restStartedAt: at,
+        restStartedByUserId: ctx.actor.userId === NIL ? null : ctx.actor.userId,
+        updatedAt: new Date(),
+      }).where(eq(schema.marketingCampaign.id, row.id)).returning();
+      current = chosen!;
+      await audit(tx, ctx, "campaign.rest_chosen", "marketing_campaign", row.id, row, {
+        version, wasWinner, headline: judged?.headline ?? null,
+        measures: judged?.measures.map((x) => ({ measure: x.measure, against: x.against, verdict: x.verdict, pValue: x.pValue })) ?? [],
+      });
+    }
+
+    const channel = row.channel as "sms" | "email";
+    const words = versionsOf(row).find((v) => v.variant === version);
+    if (!words) throw new ConflictError(`This campaign has no version ${version.toUpperCase()}.`);
+    checkContent({ channel, subject: words.subject, body: words.body });
+
+    const waiting = await tx.select({
+      id: schema.campaignRecipient.id,
+      customerId: schema.campaignRecipient.customerId,
+      address: schema.campaignRecipient.address,
+    }).from(schema.campaignRecipient)
+      .where(and(
+        eq(schema.campaignRecipient.campaignId, row.id),
+        eq(schema.campaignRecipient.state, "held"),
+      ))
+      .orderBy(asc(schema.campaignRecipient.address));
+
+    /** Who still fits the rules today, at the address they have today. */
+    const normalize = (address: string) => channel === "email"
+      ? email.normalizeAddress(address)
+      : comms.phoneAddress(address);
+    const still = new Map((await select(tx, channel, parseRules(row.audience), MAX_AUDIENCE, waiting.map((w) => w.customerId)))
+      .map((candidate) => [candidate.customerId, { name: candidate.name, address: normalize(candidate.address) }]));
+
+    const limits = await limitsWithin(tx, ctx.actor.organizationId, row);
+    const [sentToday] = await tx.select({ n: sql<number>`count(*)::int` })
+      .from(schema.campaignRecipient)
+      .where(and(
+        eq(schema.campaignRecipient.campaignId, row.id),
+        eq(schema.campaignRecipient.state, "queued"),
+        sql`${schema.campaignRecipient.queuedAt} > ${new Date(at.getTime() - 86_400_000).toISOString()}::timestamptz`,
+      ));
+    const capLeft = limits.dailyCap === null ? null : Math.max(0, limits.dailyCap - (sentToday?.n ?? 0));
+    const plan = cp.pace(waiting.length, { perSecond: limits.perSecond, dailyCap: capLeft });
+    const batch = waiting.slice(0, plan.firstBatch);
+    const remaining = waiting.length - batch.length;
+    const scope = await companyScope(tx, ctx.actor.organizationId);
+
+    for (const person of batch) {
+      const now = still.get(person.customerId);
+      if (!now || now.address !== person.address) {
+        await tx.update(schema.campaignRecipient).set({
+          variant: version, state: "skipped", skipReason: "no_longer_in_audience", updatedAt: new Date(),
+        }).where(eq(schema.campaignRecipient.id, person.id));
+        continue;
+      }
+      /** The rest's own link tag, so its clicks never count in the test that chose it. */
+      const personal = personalise(words, scope, now.name, { utmCampaign: row.utmCampaign, variant: version, rest: true });
+      const outcome = channel === "sms"
+        ? await commsSend.sendMarketing(tx, {
+          organizationId: ctx.actor.organizationId,
+          address: person.address,
+          body: personal.body,
+          customerId: person.customerId,
+          at,
+        })
+        : await sendCampaignEmail(tx, ctx, {
+          campaignId: row.id,
+          address: person.address,
+          customerId: person.customerId,
+          subject: personal.subject ?? "",
+          body: personal.body,
+          at,
+        });
+      await tx.update(schema.campaignRecipient).set({
+        variant: version,
+        state: outcome.sent ? "queued" : "skipped",
+        skipReason: outcome.sent ? null : outcome.reason,
+        messageId: outcome.sent ? outcome.messageId : null,
+        queuedAt: outcome.sent ? at : null,
+        updatedAt: new Date(),
+      }).where(eq(schema.campaignRecipient.id, person.id));
+    }
+
+    if (remaining === 0 && current.restFinishedAt === null) {
+      await tx.update(schema.marketingCampaign).set({ restFinishedAt: at, updatedAt: new Date() })
+        .where(eq(schema.marketingCampaign.id, row.id));
+    }
+
+    const tally = await tx.execute<{ state: string; skip_reason: string | null; n: string }>(sql`
+      select state::text as state, skip_reason, count(*)::text as n
+      from public.campaign_recipient
+      where campaign_id = ${row.id} and held_back
+      group by state, skip_reason
+    `);
+    const report: RestReport = { campaignId: row.id, version, wasWinner, queued: 0, skipped: 0, skippedBy: {}, remaining };
+    for (const t of tally) {
+      const n = Number(t.n);
+      if (t.state === "queued") report.queued += n;
+      if (t.state === "skipped") {
+        report.skipped += n;
+        const reason = t.skip_reason ?? "unknown";
+        report.skippedBy[reason] = (report.skippedBy[reason] ?? 0) + n;
+      }
+    }
+    await audit(tx, ctx, "campaign.send_rest", "marketing_campaign", row.id, null, {
+      version, wasWinner, batch: batch.length, remaining,
+    });
+    return report;
   });
 }
 
@@ -1507,6 +1787,7 @@ export const handlers = {
   listCampaigns: list,
   previewCampaign: preview,
   sendCampaign: send,
+  sendCampaignRest: sendRest,
   campaignRecipients: (ctx: ServiceContext, input: {
     id: string; state?: cp.RecipientState | undefined; limit: number;
   }) => recipients(ctx, input),
@@ -1532,6 +1813,7 @@ export function recipients(ctx: ServiceContext, input: {
       customerName: schema.customer.name,
       address: schema.campaignRecipient.address,
       variant: schema.campaignRecipient.variant,
+      heldBack: schema.campaignRecipient.heldBack,
       state: schema.campaignRecipient.state,
       skipReason: schema.campaignRecipient.skipReason,
       messageId: schema.campaignRecipient.messageId,
@@ -1562,11 +1844,13 @@ export function recipients(ctx: ServiceContext, input: {
         customerName: row.customerName,
         address: row.address,
         variant: row.variant,
+        /** Kept back from the test for the winner; their version is the one they were later sent, if they have been. */
+        heldBack: row.heldBack,
         state: row.state,
         skipReason: row.skipReason,
         /** The sentence, not the identifier. An operator reads this. */
         skipExplanation: row.skipReason
-          ? commsSend.refusal(row.skipReason as comms.SendRefusal)
+          ? REST_REASONS[row.skipReason] ?? commsSend.refusal(row.skipReason as comms.SendRefusal)
           : null,
         messageId: row.messageId,
         queuedAt: row.queuedAt?.toISOString() ?? null,
@@ -1681,7 +1965,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
 
   const sends = await tx.execute<{ variant: string; state: string; n: string }>(sql`
     select variant::text as variant, state::text as state, count(*)::text as n
-    from public.campaign_recipient where campaign_id = ${row.id}
+    from public.campaign_recipient where campaign_id = ${row.id} and not held_back
     group by variant, state
   `);
   const clickRows = await tx.execute<{ content: string | null; n: string }>(sql`
@@ -1698,7 +1982,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
     select count(distinct coalesce('c:' || customer_id::text, 'k:' || caller_e164, 'v:' || visitor_id))::text as n
     from public.marketing_touch
     where lower(utm_campaign) = lower(${row.utmCampaign})
-      and (utm_content is null or not (lower(utm_content) = any(${sql.raw(`array[${present.map((v) => `'${v}'`).join(",")}]`)})))
+      and (utm_content is null or not (lower(utm_content) = any(${sql.raw(`array[${[...present, ...(row.holdBackShare !== null ? [cp.REST_CONTENT] : [])].map((v) => `'${v}'`).join(",")}]`)})))
       and (${row.startedAt?.toISOString() ?? null}::timestamptz is null
            or occurred_at >= ${row.startedAt?.toISOString() ?? null}::timestamptz)
   `);
@@ -1708,7 +1992,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
     join public.message sent on sent.id = r.message_id
     join public.message m on m.conversation_id = sent.conversation_id
       and m.direction = 'inbound' and m.created_at >= sent.created_at
-    where r.campaign_id = ${row.id} and r.message_id is not null
+    where r.campaign_id = ${row.id} and r.message_id is not null and not r.held_back
     group by r.variant
   `);
   const bookedRows = await tx.execute<{ variant: string; customer_id: string; job_id: string }>(sql`
@@ -1716,7 +2000,7 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
     from public.campaign_recipient r
     join public.job job on job.customer_id = r.customer_id
       and job.campaign_id = ${row.id} and job.deleted_at is null
-    where r.campaign_id = ${row.id} and r.state = 'queued'
+    where r.campaign_id = ${row.id} and r.state = 'queued' and not r.held_back
   `);
   const revenue = await revenueByJob(tx, [...new Set(bookedRows.map((b) => b.job_id))]);
 
@@ -1762,5 +2046,63 @@ async function abTestWithin(tx: Database, organizationId: string, row: typeof sc
     /** Null unless the difference is more than luck explains. */
     winner: judged.winner,
     headline: judged.headline,
+    rest: await restWithin(tx, row, judged.winner),
+  };
+}
+
+/**
+ * THE PART HELD BACK FROM THE TEST, beside it and never in it.
+ *
+ * Who is still waiting, what they were sent once a person sent it, and what
+ * came back from them: clicks on the rest's own link tag, and people who
+ * booked. Shown as facts, not compared with anything, because the rest got one
+ * version and there is nothing to compare it with. `offer` is what may be sent
+ * to them now, from the judgement as it stands.
+ */
+async function restWithin(tx: Database, row: typeof schema.marketingCampaign.$inferSelect, winner: cp.Variant | null) {
+  if (row.holdBackShare === null) return null;
+  const states = await tx.execute<{ state: string; n: string }>(sql`
+    select state::text as state, count(*)::text as n
+    from public.campaign_recipient where campaign_id = ${row.id} and held_back
+    group by state
+  `);
+  const count = (state: string) => Number(states.find((x) => x.state === state)?.n ?? "0");
+  const [clicked] = row.restStartedAt
+    ? await tx.execute<{ n: string }>(sql`
+      select count(distinct coalesce('c:' || customer_id::text, 'k:' || caller_e164, 'v:' || visitor_id))::text as n
+      from public.marketing_touch
+      where lower(utm_campaign) = lower(${row.utmCampaign})
+        and lower(utm_content) = ${cp.REST_CONTENT}
+        and occurred_at >= ${row.restStartedAt.toISOString()}::timestamptz
+    `)
+    : [];
+  const booked = await tx.execute<{ customer_id: string; job_id: string }>(sql`
+    select r.customer_id, job.id as job_id
+    from public.campaign_recipient r
+    join public.job job on job.customer_id = r.customer_id
+      and job.campaign_id = ${row.id} and job.deleted_at is null
+    where r.campaign_id = ${row.id} and r.state = 'queued' and r.held_back
+  `);
+  const jobIds = [...new Set(booked.map((b) => b.job_id))];
+  const revenue = await revenueByJob(tx, jobIds);
+  const sent = count("queued");
+  const choice = cp.restChoice(winner);
+  return {
+    share: row.holdBackShare,
+    /** Held back and sent nothing yet. */
+    waiting: count("held"),
+    sent,
+    skipped: count("skipped"),
+    /** The version a person sent them, or null before anybody has. */
+    version: row.restVariant as cp.Variant | null,
+    wasWinner: row.restWasWinner,
+    startedAt: row.restStartedAt?.toISOString() ?? null,
+    finishedAt: row.restFinishedAt?.toISOString() ?? null,
+    clicks: Math.min(sent, Number(clicked?.n ?? "0")),
+    booked: new Set(booked.map((b) => b.customer_id)).size,
+    jobs: jobIds.length,
+    revenue: m.toString(jobIds.reduce((sum, id) => m.add(sum, revenue.get(id) ?? m.zero("USD")), m.zero("USD"))),
+    /** What may be sent to them now: the winner, or version A when nothing won. Null once a person has chosen. */
+    offer: row.restVariant ? null : choice,
   };
 }

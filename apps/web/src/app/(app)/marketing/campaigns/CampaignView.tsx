@@ -22,7 +22,7 @@ export interface CampaignRow {
   startedAt: string | null;
   cancelledAt: string | null;
   cancellationReason: string | null;
-  result: { selected: number; queued: number; skipped: number; skippedBy: Record<string, number> };
+  result: { selected: number; queued: number; skipped: number; skippedBy: Record<string, number>; held?: number | undefined };
 }
 
 export interface RecipientRow {
@@ -31,6 +31,8 @@ export interface RecipientRow {
   address: string;
   /** The version of an A/B test this person was given. */
   variant?: string;
+  /** Kept back from the test for the winner. */
+  heldBack?: boolean;
   state: string;
   skipReason: string | null;
 }
@@ -65,6 +67,23 @@ export interface AbResults {
   measures: { measure: string; label: string; against?: string; verdict: string; rateA: string | null; rateB: string | null; sentence: string }[];
   winner: string | null;
   headline: string;
+  /** The part held back from the test, or null when nobody was. */
+  rest?: RestPart | null;
+}
+
+/** The part of the list held back from a test, as the service returns it. */
+export interface RestPart {
+  share: number;
+  waiting: number;
+  sent: number;
+  skipped: number;
+  version: string | null;
+  wasWinner: boolean | null;
+  clicks: number;
+  booked: number;
+  jobs: number;
+  revenue: string;
+  offer: { version: string; won: boolean; sentence: string } | null;
 }
 
 /**
@@ -97,6 +116,9 @@ export function Tally({ result }: { result: CampaignRow["result"] }) {
       {result.skipped > 0 ? (
         <span className="tabular-nums text-amber-700">, {result.skipped} not sent</span>
       ) : null}
+      {result.held ? (
+        <span className="tabular-nums">, {result.held} held back for the winner</span>
+      ) : null}
       {reasons.length > 0 ? (
         <span className="block text-xs text-ink-700">
           {reasons.map(([reason, n]) => `${n} ${REASON[reason] ?? reason}`).join(", ")}
@@ -126,6 +148,7 @@ const REASON: Record<string, string> = {
   channel_not_registered: "no registered sending number",
   quiet_hours: "inside quiet hours",
   empty: "nothing to send",
+  no_longer_in_audience: "no longer in the list, or their address changed",
 };
 
 export function Campaigns({
@@ -320,9 +343,17 @@ export function Recipients({ recipients, showVersion = false }: { recipients: Re
         <tr key={recipient.id} className={recipient.state === "skipped" ? "text-ink-700" : undefined}>
           <Td>{recipient.customerName ?? "a customer"}</Td>
           <Td><span className="font-mono text-xs">{recipient.address}</span></Td>
-          {showVersion ? <Td>{(recipient.variant ?? "a").toUpperCase()}</Td> : null}
+          {showVersion ? (
+            <Td>
+              {recipient.state === "held"
+                ? "Not yet"
+                : `${(recipient.variant ?? "a").toUpperCase()}${recipient.heldBack ? ", later" : ""}`}
+            </Td>
+          ) : null}
           <Td>
-            {recipient.state === "skipped" ? (
+            {recipient.state === "held" ? (
+              <Chip tone="neutral">held back</Chip>
+            ) : recipient.state === "skipped" ? (
               <span className="text-amber-700">
                 Not sent: {REASON[recipient.skipReason ?? ""] ?? recipient.skipReason ?? "no reason recorded"}
               </span>
@@ -403,6 +434,88 @@ export function AbTestResults({ results }: { results: AbResults }) {
           every click.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * THE PART OF THE LIST HELD BACK FROM THE TEST
+ *
+ * Who is waiting, and what they may be sent: the winner when the test named
+ * one, and version A, the words the company already sends, when it did not. The
+ * page says which, plainly, and the button names the version and the number of
+ * people, because that is the whole decision. Nothing goes to them by itself.
+ * Once a person has sent it, what went and what came back are shown as facts,
+ * never compared with the test: the rest got one version and there is nothing
+ * to compare it with.
+ */
+export function RestOfList({
+  rest, state, send,
+}: {
+  rest: RestPart;
+  /** The campaign's state: the rest can be sent only once the whole test has gone. */
+  state: string;
+  /** The button, when the reader may send. Given the version and how many are waiting. */
+  send?: ((version: string, label: string) => ReactNode) | undefined;
+}) {
+  const people = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "person" : "people"}`;
+  return (
+    <div className="mt-6 max-w-2xl rounded-md border border-steel-200 bg-canvas p-4">
+      <h3 className="text-sm font-semibold">The rest of the list ({rest.share}% held back)</h3>
+      {rest.version === null ? (
+        <>
+          <p className="mt-1 text-sm text-ink-700">
+            {people(rest.waiting)} {rest.waiting === 1 ? "is" : "are"} held back and {rest.waiting === 1 ? "has" : "have"} been
+            sent nothing.
+          </p>
+          {state === "cancelled" ? (
+            <p className="mt-2 text-sm text-ink-700">This campaign was cancelled, so they are sent nothing.</p>
+          ) : state !== "sent" ? (
+            <p className="mt-2 text-sm text-ink-700">
+              The test is still going out. Once all of it has gone and you have read the result, you can send them the
+              winner here.
+            </p>
+          ) : rest.offer && rest.waiting > 0 ? (
+            <>
+              <p className={`mt-2 rounded border p-3 text-sm ${rest.offer.won ? "border-green-700" : "border-steel-200"}`}>
+                {rest.offer.sentence}
+              </p>
+              {send ? (
+                <div className="mt-3">
+                  {send(rest.offer.version, `Send version ${rest.offer.version.toUpperCase()} to the ${people(rest.waiting)} held back`)}
+                  <p className="mt-1 text-xs text-ink-500">
+                    Consent, unsubscribes and quiet hours are checked again for each person when you press it, and anybody
+                    who no longer fits the list is left out.
+                  </p>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <p className="mt-1 text-sm text-ink-700">
+            Version {rest.version.toUpperCase()} went to the people held back
+            {rest.wasWinner ? ", because it won the test." : ", because no version won and it is the words you already use."}
+          </p>
+          <p className="mt-1 text-sm tabular-nums">
+            {rest.sent} queued
+            {rest.skipped > 0 ? <span className="text-amber-700">, {rest.skipped} not sent</span> : null}
+            {rest.waiting > 0 ? `, ${rest.waiting} still to go` : ""}
+          </p>
+          {rest.waiting > 0 ? (
+            <>
+              <p className="mt-1 text-sm text-ink-700">
+                Your carrier's daily cap stopped the last batch. Send the next batch tomorrow.
+              </p>
+              {send ? <div className="mt-2">{send(rest.version, "Send the next batch")}</div> : null}
+            </>
+          ) : null}
+          <p className="mt-2 text-sm text-ink-700">
+            Of them, {rest.clicks} clicked the link and {rest.booked} booked a job. These are not part of the test above.
+          </p>
+        </>
+      )}
     </div>
   );
 }
