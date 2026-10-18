@@ -125,12 +125,21 @@ const Cadence = z.object({
 const Period = z.enum(["all", "yesterday", "last_7_days", "last_month", "month_to_date"]);
 
 export const ReportScheduleInput = z.object({
-  /** Exactly one of these: a report that ships, by slug, or a saved one. */
+  /**
+   * Exactly one of these: a report that ships, by slug, a saved one, a
+   * dashboard that ships, by slug (`operations`, `money`), or a saved
+   * dashboard, by id.
+   */
   builtIn: z.string().optional(),
   reportId: Uuid.optional(),
+  dashboard: z.string().optional(),
+  dashboardId: Uuid.optional(),
   name: z.string().max(200).optional(),
   ...Cadence.shape,
-  /** Which days it covers. Defaults to the day, week or month before. */
+  /**
+   * Which days it covers. Defaults to the day, week or month before. A
+   * dashboard is sent as it stands and takes only `all`, its default.
+   */
   period: Period.optional(),
   /** People in the company. Each must be able to run the report themselves. */
   userIds: z.array(Uuid).optional(),
@@ -143,6 +152,8 @@ export const ReportSchedule = z.object({
   name: z.string(),
   builtIn: z.string().nullable(),
   reportId: Uuid.nullable(),
+  dashboard: z.string().nullable(),
+  dashboardId: Uuid.nullable(),
   reportPath: z.string().nullable(),
   cadence: Cadence,
   cadenceText: z.string(),
@@ -165,6 +176,8 @@ const StoredSchedule = z.object({
   name: z.string(),
   builtInReport: z.string().nullable(),
   reportId: Uuid.nullable(),
+  builtInDashboard: z.string().nullable(),
+  dashboardId: Uuid.nullable(),
   frequency: z.string(),
   weekdays: z.array(z.number().int()),
   dayOfMonth: z.number().int().nullable(),
@@ -193,9 +206,9 @@ export const listReportSchedules = defineRoute({
 export const createReportSchedule = defineRoute({
   method: "post",
   path: "/v1/report-schedules",
-  summary: "Email a report on a schedule",
+  summary: "Email a report or a dashboard on a schedule",
   description:
-    "Daily, weekly on chosen days, or monthly on a day from 1 to 28, at a time in the company's timezone. It runs as the person who sets it up, re-checked on the day it runs, and goes to people in the company who could open it themselves and to any outside address named. Each delivery is a readable summary with every row in a CSV attached. The first one goes at the next occurrence, not now.",
+    "Daily, weekly on chosen days, or monthly on a day from 1 to 28, at a time in the company's timezone. It runs as the person who sets it up, re-checked on the day it runs, and goes to people in the company who could open it themselves and to any outside address named. Each delivery of a report is a readable summary with every row in a CSV and the same run as a PDF attached. A dashboard (`dashboard` or `dashboardId`) is sent as one PDF of every tile, drawn as each person in the company would see it, with the tiles they may not see left out and named; it is sent as it stands and takes no period but `all`, and a person who may see nothing on it is refused. The first one goes at the next occurrence, not now.",
   module: "M21",
   permissions: ["report:build"],
   idempotent: true,

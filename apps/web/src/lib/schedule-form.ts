@@ -5,7 +5,8 @@ import { field, fields } from "./actions";
  * The schedule a submitted form describes.
  *
  * The report arrives as `builtIn:{slug}` or `saved:{id}`, the same pair a
- * dashboard tile uses. Addresses arrive as one box, split on commas, spaces
+ * dashboard tile uses, and a dashboard as `dashboard:{slug}` or
+ * `savedDashboard:{id}`. Addresses arrive as one box, split on commas, spaces
  * and new lines, because that is how people paste a list of them. Nothing is
  * validated here: the service checks every field against the person saving it
  * and says what is wrong in its own words.
@@ -21,6 +22,8 @@ export function scheduleFromForm(form: FormData): deliverySchedules.ReportSchedu
   return {
     ...(report.startsWith("builtIn:") ? { builtIn: report.slice("builtIn:".length) } : {}),
     ...(report.startsWith("saved:") ? { reportId: report.slice("saved:".length) } : {}),
+    ...(report.startsWith("dashboard:") ? { dashboard: report.slice("dashboard:".length) } : {}),
+    ...(report.startsWith("savedDashboard:") ? { dashboardId: report.slice("savedDashboard:".length) } : {}),
     ...(name ? { name } : {}),
     frequency: field(form, "frequency") ?? "",
     weekdays: fields(form, "weekdays").map(Number),

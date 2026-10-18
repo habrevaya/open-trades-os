@@ -7,6 +7,7 @@ import { DashboardTile, tileSpan } from "@/components/DashboardTile";
 import { PageHeader, Empty } from "@/components/Table";
 import { AddTile, TileControls, type ReportOption } from "./TileEditor";
 import { DeleteDashboard } from "./DeleteDashboard";
+import { DashboardActions } from "../../DashboardActions";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,15 @@ export default async function SavedDashboardPage({ params }: { params: Promise<{
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 lg:px-6">
-      <PageHeader title={definition.name} />
+      <PageHeader
+        title={definition.name}
+        action={tiles.length > 0 ? (
+          <DashboardActions
+            pdf={`/dashboards/saved/${id}/pdf`}
+            schedule={edits ? `/reports/schedules/new?report=${encodeURIComponent(`savedDashboard:${id}`)}` : null}
+          />
+        ) : null}
+      />
       {definition.description && (
         <p className="mt-1 text-sm text-ink-500">{definition.description}</p>
       )}

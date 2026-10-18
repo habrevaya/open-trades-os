@@ -187,6 +187,13 @@ export interface DashboardDecision {
   definition: DashboardDefinition;
   /** In layout order, with the hidden ones already gone. */
   tiles: TileDecision[];
+  /**
+   * The tiles dropped because the reader may not run them, in layout order.
+   * The screen shows none of them. A printed or emailed copy names them, by
+   * title only, because a page that leaves part of a dashboard out without
+   * saying so reads as the whole dashboard to whoever it is handed to.
+   */
+  hidden: Tile[];
 }
 
 /**
@@ -212,12 +219,16 @@ export function resolveDashboard(
   held: Set<Permission>,
 ): DashboardDecision {
   const tiles: TileDecision[] = [];
+  const hidden: Tile[] = [];
 
   for (const tile of definition.tiles) {
     const report = resolveReport(tile.definition, catalogue, held);
 
     if (!report.ok) {
-      if (report.reason === "missing_permission") continue;
+      if (report.reason === "missing_permission") {
+        hidden.push(tile);
+        continue;
+      }
       tiles.push({ ok: false, tile, detail: explainRefusal(report as ReportRefusal) });
       continue;
     }
@@ -236,7 +247,7 @@ export function resolveDashboard(
     });
   }
 
-  return { definition, tiles };
+  return { definition, tiles, hidden };
 }
 
 /**

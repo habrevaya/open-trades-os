@@ -1068,6 +1068,27 @@ name, the report, its dates, filters and branch in words, who printed it and
 when, the chart and every row, with nothing else on the page. The browser's
 own print dialog makes the PDF.
 
+### Print a whole dashboard, or save it as a PDF
+
+"Download as PDF" on any dashboard (`/dashboards/{slug}/pdf` for one that
+ships, `/dashboards/saved/{id}/pdf` for one somebody assembled) is one file
+of every tile, in the dashboard's order: a number tile as its number, a chart
+tile as the chart the screen draws (cut by its second grouping, with the
+legend in words, when the tile is broken down) with its rows printed under
+it, and a broken tile as the sentence the screen shows in its place. It is
+drawn through the same function the screen is, so it has the same readers,
+scope and permissions: each tile is the reader's own run of its report. A
+tile the reader may not see is left out of the file and NAMED at the end of
+it, by title only ("Not on this copy ... Dee Dispatch may not see it:
+Receivables by age"). The screen still drops such a tile without a word, as
+the navigation drops a link; a page handed to somebody else that left part of
+the dashboard out without saying so would read as the whole dashboard. A
+dashboard with nothing on it the reader may see is missing for them, as its
+page is. The file is written by the product (`pdf.dashboardPdf` in core), not
+the browser's print of the page, because a grid of cards laid out for a wide
+screen splits its charts across pages when a browser prints it. It needs
+`report:read`, and each tile what its own report needs.
+
 ### Narrow a report to one branch
 
 For somebody who sees the whole company in a company with branches, every
@@ -1154,6 +1175,30 @@ back on the clock without catching up on what it missed; Change makes the
 person saving it whose authority it runs under; Stop deletes it and keeps what
 it sent.
 
+### Have a dashboard emailed
+
+"Email on a schedule" on a dashboard opens the same form, starting on that
+dashboard; the form's list offers every dashboard beside the reports. The
+same cadence, the same people and outside addresses, the same once per
+occurrence, the same authority (the person who set it up, as they are on the
+day), and the same outbox and do-not-email list: an address that bounced or
+asked to stop is not sent it, and the delivery says so. What arrives is one
+PDF of every tile, the file "Download as PDF" makes, with the number tiles
+listed in the email's body. Each person in the company is sent the dashboard
+drawn AS THEM, their scope on every tile and the tiles they may not see named
+and left out (the email says which too); somebody who may see nothing on it
+is refused at the save and again on the day. An outside address is sent the
+copy of the person who set it up. There is no CSV, because a dashboard is not
+one table.
+
+A dashboard is sent as it stands, each tile with its own report's dates (most
+have none and read "as of now"), and the page says when it was drawn. So a
+dashboard schedule takes no dates of its own: "Everything, with no dates" is
+its only period, and any other is refused in words rather than laid over
+every tile, which would turn "Outstanding, every unpaid balance" into last
+week's invoices without a word on the page. That is the conservative reading,
+and the product owner has not been asked for another.
+
 ### Email a report from an automation
 
 "Run and email a report" is a step on the automation canvas. It goes through the
@@ -1193,12 +1238,15 @@ caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
 | `GET /v1/kpis` | `report:read` |
 | `GET /v1/kpi-records` | `report:read`, and see above |
 | `GET /v1/report-schedules` | `report:read` |
-| `POST /v1/report-schedules` | `report:build` |
+| `POST /v1/report-schedules` | `report:build` (a report, or a dashboard by `dashboard` or `dashboardId`) |
 | `PATCH /v1/report-schedules/{id}` | `report:build` |
 | `POST /v1/report-schedules/{id}/paused` | `report:build` |
 | `POST /v1/report-schedules/{id}/send` | `report:build` |
 | `DELETE /v1/report-schedules/{id}` | `report:build` |
 | `GET /v1/report-deliveries` | `report:read` |
+
+A dashboard has no API of its own: a schedule names one that ships by its
+slug (`operations`, `money`) or a saved one by the id in its address.
 
 The worker sends what is due on every pass (`docs/self-hosting/worker.md`), and
 then hands that company's outbox to its mail provider.
@@ -1405,6 +1453,9 @@ Nothing is emailed until an email provider is connected. A chart draws one
 measure at a time. A tile is broken down only by the second grouping of the
 report it points at, in the order that report groups (first drawn, second cut
 by); to cut it the other way round, save the report grouped the other way.
-A dashboard is not emailed or printed: a schedule points at a report, so what
-arrives is the report as its own chart draws it, never a tile broken down. No cross company report
+A dashboard is printed and emailed whole (above), and only on a schedule: the
+"Run and email a report" step of an automation sends a report and not a
+dashboard. A dashboard emailed or printed takes no dates of its own, and its
+PDF prints the screen's chart with the usual scale, never "Around the data".
+No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

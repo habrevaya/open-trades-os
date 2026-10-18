@@ -57,8 +57,8 @@ export default async function SchedulesPage() {
         />
       </div>
       <p className="mt-1 text-sm text-ink-700">
-        Reports emailed on their own, with a spreadsheet of every row. Each one runs as the person who set it
-        up and only goes to people who could open it themselves.
+        Reports emailed on their own, with a spreadsheet of every row, and dashboards as one PDF of every
+        tile. Each one runs as the person who set it up and only goes to people who could open it themselves.
       </p>
 
       {schedules.length === 0 ? (
@@ -83,7 +83,9 @@ export default async function SchedulesPage() {
                       <span className="font-medium">{schedule.name}</span>
                     )}
                     <p className="mt-0.5 text-sm text-ink-700">
-                      {schedule.cadenceText}. {schedule.periodText}.
+                      {schedule.dashboard || schedule.dashboardId
+                        ? <>A dashboard, as one PDF. {schedule.cadenceText}. As it stands when it goes.</>
+                        : <>{schedule.cadenceText}. {schedule.periodText}.</>}
                     </p>
                     <p className="mt-0.5 text-sm text-ink-500">
                       To {[...schedule.people.map((p) => p.name), ...schedule.addresses].join(", ") || "nobody"}

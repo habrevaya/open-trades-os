@@ -4513,6 +4513,8 @@ export interface CreateRecurringScheduleOutput {
 export interface CreateReportScheduleInput {
   builtIn?: string;
   reportId?: string;
+  dashboard?: string;
+  dashboardId?: string;
   name?: string;
   frequency: "daily" | "weekly" | "monthly";
   weekdays?: number[];
@@ -4528,6 +4530,8 @@ export interface CreateReportScheduleOutput {
   name: string;
   builtInReport: string | null;
   reportId: string | null;
+  builtInDashboard: string | null;
+  dashboardId: string | null;
   frequency: string;
   weekdays: number[];
   dayOfMonth: number | null;
@@ -16934,6 +16938,8 @@ export interface ListReportSchedulesOutput {
     name: string;
     builtIn: string | null;
     reportId: string | null;
+    dashboard: string | null;
+    dashboardId: string | null;
     reportPath: string | null;
     cadence: {
       frequency: "daily" | "weekly" | "monthly";
@@ -25229,6 +25235,8 @@ export interface SetReportSchedulePausedOutput {
   name: string;
   builtInReport: string | null;
   reportId: string | null;
+  builtInDashboard: string | null;
+  dashboardId: string | null;
   frequency: string;
   weekdays: number[];
   dayOfMonth: number | null;
@@ -28180,6 +28188,8 @@ export interface UpdateProposalTemplateOutput {
 export interface UpdateReportScheduleInput {
   builtIn?: string;
   reportId?: string;
+  dashboard?: string;
+  dashboardId?: string;
   name?: string;
   frequency: "daily" | "weekly" | "monthly";
   weekdays?: number[];
@@ -28195,6 +28205,8 @@ export interface UpdateReportScheduleOutput {
   name: string;
   builtInReport: string | null;
   reportId: string | null;
+  builtInDashboard: string | null;
+  dashboardId: string | null;
   frequency: string;
   weekdays: number[];
   dayOfMonth: number | null;
@@ -37086,7 +37098,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Email a report on a schedule.
+   * Email a report or a dashboard on a schedule.
    *
    * POST /v1/report-schedules. Needs report:build.
    */

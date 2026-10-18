@@ -1,8 +1,8 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { permissionsFor, dashboard, type reporting } from "@opentradesos/core";
+import { assertCan, permissionsFor, dashboard, pdf, reporting } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, inTenant, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { CATALOGUE } from "./report-catalogue";
@@ -10,6 +10,7 @@ import { catalogueFor } from "./report-company";
 import { BUILT_IN } from "./report-built-in";
 import { BUILT_IN_DASHBOARDS, type BuiltInDashboard } from "./dashboard-built-in";
 import { run, type ReportResult } from "./reports";
+import { companyOf, RENDER, type PdfFile } from "./documents";
 
 export { BUILT_IN_DASHBOARDS };
 
@@ -81,9 +82,31 @@ export function catalogue(ctx: ServiceContext): BuiltInDashboard[] {
   });
 }
 
+/**
+ * How a dashboard's tiles are run.
+ *
+ * In parallel on a screen, where each tile has a connection of its own from
+ * the pool. One after another inside a transaction somebody else opened (a
+ * delivery, which claims its occurrence first and sends in the same
+ * transaction): every tile then shares one connection, and savepoints opened
+ * on it at the same moment would interleave.
+ */
+export interface DrawOptions {
+  inOrder?: boolean | undefined;
+}
+
+async function drawAll(
+  ctx: ServiceContext, entries: dashboard.TileDecision[], options: DrawOptions,
+): Promise<TileResult[]> {
+  if (!options.inOrder) return Promise.all(entries.map((entry) => drawTile(ctx, entry)));
+  const drawn: TileResult[] = [];
+  for (const entry of entries) drawn.push(await drawTile(ctx, entry));
+  return drawn;
+}
+
 export async function get(
-  ctx: ServiceContext, input: { slug: string },
-): Promise<{ definition: BuiltInDashboard; tiles: TileResult[] }> {
+  ctx: ServiceContext, input: { slug: string }, options: DrawOptions = {},
+): Promise<{ definition: BuiltInDashboard; tiles: TileResult[]; leftOut: string[] }> {
   const found = BUILT_IN_DASHBOARDS.find((d) => d.slug === input.slug);
   if (!found) throw new NotFoundError("Dashboard");
 
@@ -96,8 +119,8 @@ export async function get(
    */
   if (decision.tiles.length === 0) throw new NotFoundError("Dashboard");
 
-  const tiles = await Promise.all(decision.tiles.map((entry) => drawTile(ctx, entry)));
-  return { definition: found, tiles };
+  const tiles = await drawAll(ctx, decision.tiles, options);
+  return { definition: found, tiles, leftOut: decision.hidden.map((tile) => tile.title) };
 }
 
 /**
@@ -203,6 +226,7 @@ export interface StoredTile {
 }
 
 const WIDTHS = [3, 6, 12] as const;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KINDS: dashboard.TileKind[] = ["number", "bars", "trend"];
 const BREAKDOWNS: reporting.ChartArrangement[] = ["stacked", "grouped"];
 
@@ -359,17 +383,44 @@ export async function setTiles(
  * neither.
  */
 export async function getSaved(
-  ctx: ServiceContext, input: { id: string },
-): Promise<{ definition: { id: string; name: string; description: string | null }; tiles: TileResult[] }> {
-  const [saved] = await inTenant(ctx, async (tx) =>
-    tx.select().from(schema.dashboard)
-      .where(and(eq(schema.dashboard.id, input.id), isNull(schema.dashboard.deletedAt))).limit(1));
-  if (!saved) throw new NotFoundError("Dashboard");
+  ctx: ServiceContext, input: { id: string }, options: DrawOptions = {},
+): Promise<{ definition: { id: string; name: string; description: string | null }; tiles: TileResult[]; leftOut: string[] }> {
+  const resolved = await inTenant(ctx, (tx) => resolveSaved(tx, ctx.actor, input.id));
+  if (!resolved) throw new NotFoundError("Dashboard");
+  const { saved, stored, decision, missing } = resolved;
+
+  const drawn = await drawAll(ctx, decision.tiles, options);
+  /**
+   * The missing ones go back where they were, by key, rather than on the
+   * end. A tile that moves to the bottom of the page the day its report is
+   * deleted takes the rest of the layout with it.
+   */
+  const byKey = new Map([...drawn, ...missing].map((tile) => [tile.key, tile]));
+  const tiles = stored.map((tile) => byKey.get(tile.key)).filter((tile) => tile !== undefined);
+
+  return {
+    definition: { id: saved.id, name: saved.name, description: saved.description },
+    tiles,
+    leftOut: decision.hidden.map((tile) => tile.title),
+  };
+}
+
+/**
+ * A saved dashboard's tiles turned into definitions and resolved for this
+ * actor, without running any of them. Shared by the screen and by the check
+ * a schedule makes of whether somebody could open the dashboard at all.
+ */
+async function resolveSaved(tx: Database, actor: ServiceContext["actor"], id: string) {
+  // An id off a URL that is not one is a dashboard that does not exist, not a database error.
+  if (!UUID.test(id)) return null;
+  const [saved] = await tx.select().from(schema.dashboard)
+    .where(and(eq(schema.dashboard.id, id), isNull(schema.dashboard.deletedAt))).limit(1);
+  if (!saved) return null;
 
   const stored = saved.tiles as unknown as StoredTile[];
-  const sources = await inTenant(ctx, async (tx) =>
-    Promise.all(stored.map((tile) => sourceFor(tx, tile))));
-  const companyCatalogue = await inTenant(ctx, (tx) => catalogueFor(tx, ctx.actor.organizationId));
+  const sources: (Source | null)[] = [];
+  for (const tile of stored) sources.push(await sourceFor(tx, tile));
+  const companyCatalogue = await catalogueFor(tx, actor.organizationId);
 
   const resolvable: dashboard.Tile[] = [];
   const missing: TileResult[] = [];
@@ -402,20 +453,195 @@ export async function getSaved(
   const decision = dashboard.resolveDashboard(
     { key: saved.id, title: saved.name, description: saved.description ?? "", tiles: resolvable },
     companyCatalogue,
-    permissionsFor(ctx.actor),
+    permissionsFor(actor),
   );
+  return { saved, stored, decision, missing };
+}
 
-  const drawn = await Promise.all(decision.tiles.map((entry) => drawTile(ctx, entry)));
+// ---------------------------------------------------------------------------
+// A whole dashboard as one PDF
+// ---------------------------------------------------------------------------
+
+/**
+ * A dashboard, by what a schedule or a link names: one that ships, by slug,
+ * or one somebody assembled, by id.
+ */
+export type DashboardSource = { builtInDashboard: string } | { dashboardId: string };
+
+/** A dashboard a schedule points at, as it is now, or null when it has gone. */
+export async function dashboardSourceOf(tx: Database, source: DashboardSource): Promise<{
+  name: string;
+  description: string | null;
+  /** Where it lives in the app. */
+  path: string;
+} | null> {
+  if ("builtInDashboard" in source) {
+    const found = BUILT_IN_DASHBOARDS.find((d) => d.slug === source.builtInDashboard);
+    return found ? { name: found.title, description: found.description, path: `/dashboards/${found.slug}` } : null;
+  }
+  if (!UUID.test(source.dashboardId)) return null;
+  const [saved] = await tx.select().from(schema.dashboard)
+    .where(and(eq(schema.dashboard.id, source.dashboardId), isNull(schema.dashboard.deletedAt))).limit(1);
+  return saved ? { name: saved.name, description: saved.description, path: `/dashboards/saved/${saved.id}` } : null;
+}
+
+export interface DrawnDashboard {
+  name: string;
+  description: string | null;
+  tiles: TileResult[];
+  /** The titles of the tiles this reader may not see, in layout order. */
+  leftOut: string[];
+}
+
+/**
+ * A dashboard drawn as this reader sees it, through exactly the path the
+ * screen takes (`get` or `getSaved`), so a printed copy and the screen cannot
+ * disagree about a tile. NotFound when the reader may see none of it, as the
+ * screen says.
+ */
+export async function drawDashboard(
+  ctx: ServiceContext, source: DashboardSource, options: DrawOptions = {},
+): Promise<DrawnDashboard> {
+  if ("builtInDashboard" in source) {
+    const drawn = await get(ctx, { slug: source.builtInDashboard }, options);
+    return { name: drawn.definition.title, description: drawn.definition.description, tiles: drawn.tiles, leftOut: drawn.leftOut };
+  }
+  const drawn = await getSaved(ctx, { id: source.dashboardId }, options);
   /**
-   * The missing ones go back where they were, by key, rather than on the
-   * end. A tile that moves to the bottom of the page the day its report is
-   * deleted takes the rest of the layout with it.
+   * A saved dashboard with tiles on it and none the reader may see is gone
+   * for them, as a built-in one is: a PDF of a title and a list of what they
+   * may not see is the same disclosure the screen avoids.
    */
-  const byKey = new Map([...drawn, ...missing].map((tile) => [tile.key, tile]));
-  const tiles = stored.map((tile) => byKey.get(tile.key)).filter((tile) => tile !== undefined);
+  if (drawn.tiles.length === 0 && drawn.leftOut.length > 0) throw new NotFoundError("Dashboard");
+  return { name: drawn.definition.name, description: drawn.definition.description, tiles: drawn.tiles, leftOut: drawn.leftOut };
+}
 
+/**
+ * Whether this person could open this dashboard and see something on it,
+ * decided without running a tile: null when they could, the reason in words
+ * when they could not. The question a schedule asks of each person it would
+ * email, at its save and again on the day it goes.
+ */
+export async function couldOpen(
+  tx: Database, actor: ServiceContext["actor"], source: DashboardSource,
+): Promise<string | null> {
+  const held = permissionsFor(actor);
+  if (!held.has("report:read")) return "may not read reports";
+  if ("builtInDashboard" in source) {
+    const found = BUILT_IN_DASHBOARDS.find((d) => d.slug === source.builtInDashboard);
+    if (!found) return "cannot open a dashboard that does not exist";
+    const decision = dashboard.resolveDashboard(found, CATALOGUE, held);
+    return decision.tiles.length > 0 ? null : "may not see anything on this dashboard";
+  }
+  const resolved = await resolveSaved(tx, actor, source.dashboardId);
+  if (!resolved) return "cannot open a dashboard that has been deleted";
+  /** The same line `drawDashboard` draws: refused only when something is there and none of it is theirs. */
+  const { decision } = resolved;
+  return decision.tiles.length === 0 && decision.hidden.length > 0 ? "may not see anything on this dashboard" : null;
+}
+
+const NUMBER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
+/**
+ * One tile as the PDF prints it: a number tile's number as the screen shows
+ * it, a chart tile's chart planned by `chartFor` with the same choices the
+ * screen's tile makes (columns over time, cut by the second grouping when the
+ * tile is broken down), and its rows for the table under the chart.
+ */
+export function printedTile(tile: TileResult): pdf.DashboardPdfTile {
+  const base = { title: tile.title, caption: tile.caption ?? null };
+  if (tile.problem) return { ...base, note: tile.problem };
+  const measure = tile.measure;
+  const rows = tile.result?.rows ?? [];
+  if (!measure || !tile.result) return { ...base, note: "Nothing to show yet." };
+
+  if (tile.kind === "number") {
+    const value = rows[0]?.[measure.key] ?? (measure.type === "money" ? "0" : 0);
+    const figure = value === null
+      ? "None"
+      : measure.type === "money" ? pdf.reportCell({ type: "money" }, value) : NUMBER.format(Number(value));
+    return { ...base, figure };
+  }
+  if (rows.length === 0) return { ...base, note: "Nothing to show yet." };
+
+  const columns = [
+    ...(tile.dimension ? [{ ...tile.dimension, role: "dimension" as const }] : []),
+    ...(tile.breakdown
+      ? [{
+          key: tile.breakdown.key, label: tile.breakdown.label, type: tile.breakdown.type, role: "dimension" as const,
+          ...(tile.breakdown.sortPrefix ? { sortPrefix: true } : {}),
+        }]
+      : []),
+    { key: measure.key, label: measure.label, type: measure.type, role: "measure" as const },
+  ];
+  const decision = reporting.chartFor({ columns, rows }, {
+    measure: measure.key,
+    prefer: "columns",
+    split: tile.breakdown?.key,
+    arrange: tile.breakdown?.arrange,
+    additive: () => tile.additive ?? false,
+  });
   return {
-    definition: { id: saved.id, name: saved.name, description: saved.description },
-    tiles,
+    ...base,
+    chart: decision.ok ? decision.plan : null,
+    ...(decision.ok ? {} : { note: decision.reason }),
+    table: { columns, rows },
   };
+}
+
+/** A dashboard as a file name: its name, and the day it was drawn. */
+export function dashboardFilename(name: string, day: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "dashboard";
+  return `${slug}-${day}.pdf`;
+}
+
+/** When a dashboard was drawn, in the company's own time: "October 18, 2026 at 7:00 AM". */
+export function asOfWords(at: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeStyle: "short", timeZone: timezone }).format(at);
+}
+
+/** A drawn dashboard as its PDF. Nothing here reads anything: the drawing did. */
+export function dashboardFile(input: {
+  company: pdf.Company;
+  drawn: DrawnDashboard;
+  ranAs: string | null;
+  at: Date;
+  timezone: string;
+}): PdfFile {
+  return {
+    filename: dashboardFilename(input.drawn.name, reporting.deliveryDay(input.at, input.timezone)),
+    bytes: pdf.dashboardPdf({
+      company: input.company,
+      name: input.drawn.name,
+      description: input.drawn.description,
+      asOf: asOfWords(input.at, input.timezone),
+      ranAs: input.ranAs,
+      tiles: input.drawn.tiles.map(printedTile),
+      leftOut: input.drawn.leftOut,
+      generatedAt: input.at,
+    }, RENDER),
+  };
+}
+
+/**
+ * THE DASHBOARD AS ONE PDF, for the person looking at it.
+ *
+ * Every tile they may see, drawn as they see it on the screen; the tiles they
+ * may not see named at the end of the file and never drawn. `report:read`,
+ * because a dashboard is a page of reports and the dashboards list asks for
+ * it; each tile then asks for what its own report needs, as on the screen.
+ */
+export async function dashboardPdf(ctx: ServiceContext, source: DashboardSource): Promise<PdfFile> {
+  assertCan(ctx.actor, "report:read");
+  const drawn = await drawDashboard(ctx, source);
+  return inTenant(ctx, async (tx) => {
+    const timezone = await timezoneOf(tx, ctx.actor.organizationId);
+    const company = await companyOf(tx, ctx.actor.organizationId);
+    const [person] = await tx.execute<{ name: string | null; email: string }>(
+      sql`select name, email from app.organization_people() where user_id = ${ctx.actor.userId}`,
+    );
+    return dashboardFile({
+      company, drawn, ranAs: person ? person.name ?? person.email : null, at: new Date(), timezone,
+    });
+  });
 }

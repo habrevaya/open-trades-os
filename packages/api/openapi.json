@@ -115455,8 +115455,8 @@
       ],
       "post": {
         "operationId": "createReportSchedule",
-        "summary": "Email a report on a schedule",
-        "description": "Daily, weekly on chosen days, or monthly on a day from 1 to 28, at a time in the company's timezone. It runs as the person who sets it up, re-checked on the day it runs, and goes to people in the company who could open it themselves and to any outside address named. Each delivery is a readable summary with every row in a CSV attached. The first one goes at the next occurrence, not now.\n\nRequires a session holding: report:build.",
+        "summary": "Email a report or a dashboard on a schedule",
+        "description": "Daily, weekly on chosen days, or monthly on a day from 1 to 28, at a time in the company's timezone. It runs as the person who sets it up, re-checked on the day it runs, and goes to people in the company who could open it themselves and to any outside address named. Each delivery of a report is a readable summary with every row in a CSV and the same run as a PDF attached. A dashboard (`dashboard` or `dashboardId`) is sent as one PDF of every tile, drawn as each person in the company would see it, with the tiles they may not see left out and named; it is sent as it stands and takes no period but `all`, and a person who may see nothing on it is refused. The first one goes at the next occurrence, not now.\n\nRequires a session holding: report:build.",
         "tags": [
           "M21"
         ],
@@ -115483,7 +115483,7 @@
         },
         "responses": {
           "201": {
-            "description": "Email a report on a schedule",
+            "description": "Email a report or a dashboard on a schedule",
             "content": {
               "application/json": {
                 "schema": {
@@ -169197,6 +169197,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "dashboard": {
+            "type": "string"
+          },
+          "dashboardId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": "string",
             "maxLength": 200
@@ -169278,6 +169285,19 @@
             ],
             "format": "uuid"
           },
+          "builtInDashboard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "frequency": {
             "type": "string"
           },
@@ -169345,6 +169365,8 @@
           "name",
           "builtInReport",
           "reportId",
+          "builtInDashboard",
+          "dashboardId",
           "frequency",
           "weekdays",
           "dayOfMonth",
@@ -234376,6 +234398,19 @@
                   ],
                   "format": "uuid"
                 },
+                "dashboard": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dashboardId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "reportPath": {
                   "type": [
                     "string",
@@ -234585,6 +234620,8 @@
                 "name",
                 "builtIn",
                 "reportId",
+                "dashboard",
+                "dashboardId",
                 "reportPath",
                 "cadence",
                 "cadenceText",
@@ -275046,6 +275083,19 @@
             ],
             "format": "uuid"
           },
+          "builtInDashboard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "frequency": {
             "type": "string"
           },
@@ -275113,6 +275163,8 @@
           "name",
           "builtInReport",
           "reportId",
+          "builtInDashboard",
+          "dashboardId",
           "frequency",
           "weekdays",
           "dayOfMonth",
@@ -290223,6 +290275,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "dashboard": {
+            "type": "string"
+          },
+          "dashboardId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": "string",
             "maxLength": 200
@@ -290304,6 +290363,19 @@
             ],
             "format": "uuid"
           },
+          "builtInDashboard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "frequency": {
             "type": "string"
           },
@@ -290371,6 +290443,8 @@
           "name",
           "builtInReport",
           "reportId",
+          "builtInDashboard",
+          "dashboardId",
           "frequency",
           "weekdays",
           "dayOfMonth",

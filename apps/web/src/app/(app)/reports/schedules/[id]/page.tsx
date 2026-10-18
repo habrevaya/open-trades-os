@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { reports, deliverySchedules, NotFoundError } from "@opentradesos/api/services";
+import { reports, dashboards, deliverySchedules, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { PageHeader } from "@/components/Table";
-import { ScheduleForm, reportOptions } from "../ScheduleForm";
+import { ScheduleForm, reportOptions, chosenSource } from "../ScheduleForm";
 import { updateSchedule } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,9 @@ export default async function EditSchedulePage({ params }: { params: Promise<{ i
     if (error instanceof NotFoundError) notFound();
     throw error;
   });
-  const options = reportOptions(reports.builtIn(ctx), await reports.list(ctx));
+  const options = reportOptions(reports.builtIn(ctx), await reports.list(ctx), {
+    builtIn: dashboards.catalogue(ctx), saved: await dashboards.list(ctx),
+  });
   const people = await deliverySchedules.recipientChoices(ctx);
 
   return (
@@ -37,7 +39,7 @@ export default async function EditSchedulePage({ params }: { params: Promise<{ i
         action={updateSchedule} submit="Save changes" hidden={{ id }}
         reports={options} people={people} timezone={user.organizationTimezone}
         defaults={{
-          report: schedule.builtInReport ? `builtIn:${schedule.builtInReport}` : `saved:${schedule.reportId}`,
+          report: chosenSource(schedule),
           name: schedule.name,
           frequency: schedule.frequency,
           weekdays: schedule.weekdays,
