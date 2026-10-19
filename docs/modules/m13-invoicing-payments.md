@@ -93,7 +93,8 @@ refund id.
 
 **A tip is the technicians' money, held, never the company's revenue.** A
 customer paying from the portal can add one when the company has turned
-tipping on, and so can one paying cash or a check to the technician on site. The card is charged the balance and the tip together; when the
+tipping on, and so can one paying cash or a check to the technician on site, or
+paying the office by card, cash, a check or a transfer. The card is charged the balance and the tip together; when the
 money arrives the payment's amount is the balance, which goes on the invoice,
 and its tip amount is credited to Tips payable (2250), a liability, by the
 same `postPayment` that has always had a tip leg. Nothing of it touches
@@ -272,6 +273,26 @@ company takes them (`POST /v1/portal/invoice/pay` and
 `POST /v1/portal/cards/{cardId}/pay`. The invoice screen lists the tips that
 came with its payments and who each is for, under **Tips**, and
 `GET /v1/invoices/{id}/tips` is the same list. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
+
+**The office takes a tip too**, when the customer on the phone or at the counter
+adds one. Taking a card on the invoice screen asks "Did the customer add a tip for
+Sam?" with the company's suggested percentages, and the card is charged the balance
+and the tip together (`tip` on `POST /v1/payments/intents`), exactly as on the
+portal. **Record a payment**, opened from the invoice, has "Tip on top, for Sam"
+beside the amount received (`POST /v1/invoices/{id}/tipped-payments`): up to the
+balance of what was received goes on the invoice, anything over is held for the
+customer as with any payment, and the tip is on top. Both are held to the limits a
+tip on the portal or on site is, in the same words: only when the company takes
+tips, dollars and cents, never more than what goes on the bill, only with paying one
+invoice, and only when somebody is recorded on the job. Neither is offered on an
+invoice somebody other than the customer pays, such as a warranty company. The
+payment is recorded and audited as every payment is (`payment.recorded`, with its
+tip), the tip is credited to Tips payable, and it is shared between the technicians
+on the job by the company's tip rule (M17) in the same step, so it is never owed to
+nobody. `GET /v1/invoices/{id}/tip-offer` (`payment:collect`) is what both screens
+offer. A tip on a payment recorded with `POST /v1/payments` alone, as an integration
+or a migration may send, is booked to Tips payable and not shared, as before; the
+office screens never use it for a tip.
 
 ### Charge a card the customer agreed may be charged
 
@@ -590,6 +611,8 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
 | `GET /v1/invoices/{id}/tips` | `invoice:read` |
+| `GET /v1/invoices/{id}/tip-offer` | `payment:collect` |
+| `POST /v1/invoices/{id}/tipped-payments` | `payment:collect` |
 | `GET /v1/invoices/{invoiceId}/financing` | `invoice:read` |
 | `GET /v1/financing/applications` | `payment:read` |
 | `POST /v1/financing/applications` | `payment:collect` |
@@ -652,9 +675,12 @@ person. A statement can be copied to one more person, by email only and only
 to one of the payer's own contacts: a third person, a copy by text, or a copy
 to an address that is not a contact's are not offered, and the monthly run
 copies nobody whom the customer record does not name. Text statement copies
-nobody. A tip is taken from the portal and, with cash or a check, on site; the office's own card
-and cash screens record none, and refunding a payment refunds the invoice part and leaves its tip owed to the
-technicians, because handing a tip back is a decision nobody here has made for the company. A refund made in
+nobody. A tip is taken from the portal, with cash or a check on site, and by the office with a card
+on the invoice or with cash, a check or a transfer on Record a payment, one invoice at a time. Refunding a
+payment refunds the invoice part and leaves its tip owed to the technicians, because handing a tip back is a
+decision nobody here has made for the company. A tip sent with `POST /v1/payments` alone is booked to Tips
+payable and shared with nobody, as it always was, because whether a tip on a payment brought in from another
+system is still owed to anybody is that company's question. A refund made in
 Stripe's own dashboard for the whole charge books only the invoice part, and the tip stays owed in the books
 until somebody corrects it by hand. Saved cards are
 Stripe's only, and so is charging one on file. A card saved before its customer

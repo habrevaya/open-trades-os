@@ -18,6 +18,7 @@ import { InvoiceActions } from "./Panels";
 import { actOnInvoice } from "../actions";
 import { startCardPayment } from "../../payments/actions";
 import { PayNow } from "../../../(portal)/PayNow";
+import { PayInvoice } from "../../../(portal)/PayInvoice";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
 import { fileClaim } from "../claims/actions";
 import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../credit-notes/labels";
@@ -102,6 +103,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const cards = collects && (can(user.actor, "integration:read")
     ? (await payments.status(ctx)).connected
     : true);
+  /** The tip the customer may add when the office takes their card: the portal's offer, never on an invoice somebody else pays. */
+  const tipOffer = collects ? await tips.officeOffer(ctx, { invoiceId: id }) : null;
   const zero = (v: string) => Number(v) === 0;
   /** A claim on this invoice, or whether one could be filed: a third party's invoice on a covered job. */
   const [claim] = can(user.actor, "invoice:read") && invoice.jobId
@@ -278,15 +281,22 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
               Record a payment
             </a>
           </div>
-          <p className="mt-1 text-sm text-ink-700">Cash, a cheque or a bank transfer, recorded against this invoice.</p>
+          <p className="mt-1 text-sm text-ink-700">
+            Cash, a cheque or a bank transfer, recorded against this invoice{tipOffer?.available ? ", with a tip on top if the customer added one" : ""}.
+          </p>
           {cards && (
             <div className="mt-4 max-w-md">
               <p className="mb-2 text-sm text-ink-700">
                 Or take a card now. It shows as paid when the processor confirms the money moved.
               </p>
-              <PayNow start={startCardPayment.bind(null, invoice.customerId, id)}
-                      balance={`$${Number(invoice.balance ?? "0").toFixed(2)}`} label={`invoice ${invoice.number}`}
-                      cta={`Take card payment of $${Number(invoice.balance ?? "0").toFixed(2)}`} />
+              {tipOffer?.available ? (
+                <PayInvoice office tipping={tipOffer} start={startCardPayment.bind(null, invoice.customerId, id)}
+                            balance={invoice.balance ?? "0"} currency="USD" label={`invoice ${invoice.number}`} />
+              ) : (
+                <PayNow start={startCardPayment.bind(null, invoice.customerId, id)}
+                        balance={`$${Number(invoice.balance ?? "0").toFixed(2)}`} label={`invoice ${invoice.number}`}
+                        cta={`Take card payment of $${Number(invoice.balance ?? "0").toFixed(2)}`} />
+              )}
             </div>
           )}
         </section>

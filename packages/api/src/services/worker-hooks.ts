@@ -11,6 +11,7 @@ import * as websiteTracking from "./website-tracking";
 import * as voice from "./voice";
 import * as transcription from "./transcription";
 import * as referrals from "./referrals";
+import * as commissions from "./commissions";
 import { AccountingNotConfiguredError } from "../accounting/provider";
 import { EmailProviderNotConfiguredError } from "../email/provider";
 // The email adapters, registered the same way, so the worker can find the
@@ -168,6 +169,19 @@ async function transcribeCalls(db: Database, readSecret: SecretReader | undefine
 }
 
 /**
+ * Settle the commission on invoices paid in full, for a company that lets
+ * it settle by itself (M17). Here because `invoice.paid` is an event, so a
+ * company with an invoice just paid is a company this hook is called for; a
+ * company with the setting off only has its place in the log moved on.
+ */
+async function settleCommissionsOnPayment(db: Database, organizationId: string): Promise<void> {
+  const pass = await commissions.settleOnPaymentFor(db, organizationId);
+  if (pass.left.length > 0) {
+    console.info(`[worker] ${pass.left.length} commissions left for a person in ${organizationId}; the reason is on the commission screen.`);
+  }
+}
+
+/**
  * BOTH RUN, AND NEITHER CAN STOP THE OTHER.
  *
  * `afterDrain` is awaited inside the worker's pass, so a throw from any of
@@ -193,6 +207,7 @@ export function backgroundHooks(
     { name: "syncAccounting", run: (org: string) => syncAccounting(db, org) },
     { name: "marketingUpkeep", run: (org: string) => marketingUpkeep(db, org) },
     { name: "transcribeCalls", run: (org: string) => transcribeCalls(db, readSecret, org) },
+    { name: "settleCommissionsOnPayment", run: (org: string) => settleCommissionsOnPayment(db, org) },
   ];
   return async (organizationId: string) => {
     for (const step of steps) {

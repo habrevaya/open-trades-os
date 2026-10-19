@@ -1,10 +1,12 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { schema, type Database } from "@opentradesos/db";
-import { claims as rules, coverage, money as m } from "@opentradesos/core";
+import { claims as rules, coverage, money as m, work } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import * as billing from "./billing";
+import { createInvoice } from "../contracts/billing";
 import * as contractClocks from "./contract-clocks";
 import { remember, replayed } from "./once";
 
@@ -62,7 +64,20 @@ export interface ClaimView {
   decidedAt: Date | null;
   paidAt: Date | null;
   decisionNote: string | null;
+  /** The invoice to the customer for what the payer did not pay, once somebody billed it on. Null when none stands. */
+  billedInvoice: { id: string; number: string; status: string; total: string } | null;
+  /**
+   * Whether "Bill the rest to the customer" can be pressed now, and for how
+   * much, or why not, in the words the refusal would use.
+   */
+  billOn: { amount: string | null; refusal: string | null };
 }
+
+/** The invoice made from a claim, alias of the invoice table for the second join. */
+const billed = alias(schema.invoice, "billed_invoice");
+
+/** A draft deleted is gone; a voided one no longer bills anybody. Either way the claim can be billed on again. */
+const stands = (status: string | null | undefined) => status != null && status !== "void";
 
 async function views(tx: Database, where: ReturnType<typeof and>, limit = 200): Promise<ClaimView[]> {
   const rows = await tx.select({
@@ -71,10 +86,15 @@ async function views(tx: Database, where: ReturnType<typeof and>, limit = 200): 
     invoiceNumber: schema.invoice.number,
     invoiceBalance: schema.invoice.balance,
     payerName: schema.customer.name,
+    billed: {
+      id: billed.id, number: billed.number, prefix: billed.numberPrefix, status: billed.status,
+      total: billed.total, deletedAt: billed.deletedAt,
+    },
   }).from(schema.coverageClaim)
     .innerJoin(schema.job, eq(schema.job.id, schema.coverageClaim.jobId))
     .innerJoin(schema.invoice, eq(schema.invoice.id, schema.coverageClaim.invoiceId))
     .innerJoin(schema.customer, eq(schema.customer.id, schema.coverageClaim.payerCustomerId))
+    .leftJoin(billed, eq(billed.id, schema.coverageClaim.billedInvoiceId))
     .where(where)
     .orderBy(desc(schema.coverageClaim.submittedAt))
     .limit(limit);
@@ -105,8 +125,24 @@ async function views(tx: Database, where: ReturnType<typeof and>, limit = 200): 
       decidedAt: claim.decidedAt,
       paidAt: claim.paidAt,
       decisionNote: claim.decisionNote,
+      ...billedView(state, row.invoiceBalance, row.billed),
     };
   });
+}
+
+function billedView(
+  state: rules.ClaimState, payerOwes: string,
+  row: { id: string | null; number: number | null; prefix: string | null; status: string | null; total: string | null; deletedAt: Date | null } | null,
+): Pick<ClaimView, "billedInvoice" | "billOn"> {
+  const live = row?.id && row.number !== null && row.deletedAt === null && stands(row.status) ? row : null;
+  const billedInvoice = live ? {
+    id: live.id!, number: work.documentNumber(live.prefix, live.number!), status: live.status!, total: live.total!,
+  } : null;
+  const verdict = rules.billOn(state, { payerOwes: usd(payerOwes), alreadyBilled: billedInvoice?.number ?? null });
+  return {
+    billedInvoice,
+    billOn: verdict.ok ? { amount: m.toString(verdict.amount), refusal: null } : { amount: null, refusal: verdict.reason },
+  };
 }
 
 async function load(tx: Database, organizationId: string, id: string) {
@@ -304,6 +340,79 @@ export async function recordPayment(
   });
 }
 
+/**
+ * BILL THE REST TO THE CUSTOMER.
+ *
+ * When the payer paid less than was claimed, or nothing, the office can ask
+ * the customer for the rest: a DRAFT invoice to the job's own customer for
+ * what was claimed less what the payer paid, one line saying what it is.
+ * Explicit and per claim, pressed by a person on the claim's page, never done
+ * by itself, because whether a homeowner owes what their warranty would not
+ * pay is a conversation the office has with them. A draft posts nothing, so
+ * the office reads it, changes it if the conversation went another way, and
+ * issues it or deletes it.
+ *
+ * Refused, in core's words (`claims.billOn`), when the payer has not
+ * finished with the claim, when their invoice still owes the money (credit it
+ * or write it off there first, so it is never owed by two people and never
+ * counted as revenue twice), when it was already billed on, and when there is
+ * nothing to bill. A draft deleted or an invoice voided no longer stands, and
+ * the claim can be billed on again.
+ *
+ * The line names the customer as who pays it (`coverageSource: customer`), so
+ * the job's coverage does not take its share off again, and it is not
+ * taxable: what was claimed already carried the tax charged on the work. The
+ * office can change both on the draft.
+ */
+export async function billRest(ctx: ServiceContext, input: { id: string }): Promise<ClaimView> {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const seen = await replayed<{ id: string }>(tx, ctx, "coverage_claim_bill_on");
+    if (seen) return viewOne(tx, ctx.actor.organizationId, seen.id);
+
+    const claim = await load(tx, ctx.actor.organizationId, input.id);
+    /** One person at a time per claim, so two presses cannot make two invoices. */
+    await tx.select({ id: schema.coverageClaim.id }).from(schema.coverageClaim)
+      .where(eq(schema.coverageClaim.id, claim.id)).for("update");
+    const view = await viewOne(tx, ctx.actor.organizationId, claim.id);
+    if (!view.billOn.amount) throw new ConflictError(view.billOn.refusal ?? "This claim cannot be billed on.");
+
+    const [job] = await tx.select({ customerId: schema.job.customerId, number: schema.job.number, prefix: schema.job.numberPrefix })
+      .from(schema.job).where(eq(schema.job.id, claim.jobId)).limit(1);
+    if (!job) throw new NotFoundError("Job");
+    const reference = claim.externalReference ? ` (their reference ${claim.externalReference})` : "";
+    const description = `${view.sourceLabel}, ${view.payerName}${reference}, was claimed ${m.format(m.round(usd(claim.claimedAmount), 2))} `
+      + `for job ${work.documentNumber(job.prefix, job.number)} and paid ${m.format(m.round(usd(claim.paidAmount), 2))}`
+      + `${claim.status === "denied" ? ", having denied the claim" : ""}. This is the rest.`;
+
+    /** Without the caller's key: that key is this claim's, and the invoice is answered through it above. */
+    const { idempotencyKey: _key, ...plain } = ctx;
+    const invoice = await billing.createIn(tx, { ...plain, db: tx }, createInvoice.input.parse({
+      customerId: job.customerId,
+      jobId: claim.jobId,
+      draft: true,
+      lines: [{
+        name: `Not paid by ${view.payerName}`,
+        description,
+        quantity: "1",
+        unitPrice: view.billOn.amount,
+        discountAmount: "0",
+        taxable: false,
+        coverageSource: "customer",
+      }],
+    }));
+
+    const now = new Date();
+    const [after] = await tx.update(schema.coverageClaim)
+      .set({ billedInvoiceId: invoice.id as string, billedAt: now, updatedAt: now })
+      .where(eq(schema.coverageClaim.id, claim.id)).returning();
+    await audit(tx, ctx, "claim.billed_on", "coverage_claim", claim.id, claim, {
+      ...after!, amount: view.billOn.amount,
+    });
+    await remember(tx, ctx, "coverage_claim_bill_on", claim.id, { id: claim.id });
+    return viewOne(tx, ctx.actor.organizationId, claim.id);
+  });
+}
+
 /* --------------------------------------------------------------- handlers */
 
 export const handlers = {
@@ -315,6 +424,7 @@ export const handlers = {
     id: string; outcome: "approved" | "denied"; amount?: string | undefined;
     note?: string | undefined; externalReference?: string | undefined;
   }) => decide(ctx, input),
+  billClaimRestToCustomer: (ctx: ServiceContext, input: { id: string }) => billRest(ctx, input),
   recordClaimPayment: (ctx: ServiceContext, input: {
     id: string; amount: string; method: "check" | "ach" | "card" | "other";
     reference?: string | undefined; receivedAt?: string | undefined;

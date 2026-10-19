@@ -408,6 +408,10 @@ export const Claim = z.object({
   decidedAt: z.string().datetime().nullable(),
   paidAt: z.string().datetime().nullable(),
   decisionNote: z.string().nullable(),
+  /** The invoice to the customer for what the payer did not pay, once somebody billed it on. Null when none stands. */
+  billedInvoice: z.object({ id: Uuid, number: z.string(), status: z.string(), total: MoneyString }).nullable(),
+  /** Whether the rest can be billed to the customer now, and for how much, or why not. */
+  billOn: z.object({ amount: MoneyString.nullable(), refusal: z.string().nullable() }),
 });
 
 export const listClaims = defineRoute({
@@ -462,6 +466,19 @@ export const decideClaim = defineRoute({
     note: z.string().max(1000).optional(),
     externalReference: z.string().max(100).optional(),
   }),
+  output: Claim,
+});
+
+export const billClaimRestToCustomer = defineRoute({
+  method: "post",
+  path: "/v1/claims/{id}/bill-rest",
+  summary: "Bill the customer for what the payer did not pay",
+  description:
+    "Explicit and per claim, never automatic. Makes a DRAFT invoice to the job's own customer for what was claimed less what the payer paid, with one line saying what it is, and the claim keeps it. Refused while the payer has not finished with the claim (it must be paid, short paid or denied), while the payer's own invoice still owes the money (credit it or write it off there first, so the same money is never owed by two people), when it has already been billed on, and when there is nothing left to bill. A draft deleted or an invoice voided no longer stands, and the claim can then be billed on again. The line names the customer as who pays it and is not taxable, because what was claimed already carried its tax; both can be changed on the draft. Sent again with the same idempotency key, it answers with the claim as it was billed.",
+  module: "M32",
+  permissions: ["invoice:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
   output: Claim,
 });
 
@@ -570,6 +587,6 @@ export const commercialBillingRoutes = {
   getRateCardTerms, setRateCardTerms,
   previewJobBilling, billJob, setJobContract, listJobClocks, setJobParties, setJobCoverage,
   resolveCoverageFromEquipment,
-  listClaims, getClaim, fileClaim, decideClaim, recordClaimPayment,
+  listClaims, getClaim, fileClaim, decideClaim, recordClaimPayment, billClaimRestToCustomer,
   exportPayerInvoices, issuePayerPortalLink, viewPayerPortal,
 } as const;

@@ -24309,6 +24309,144 @@
         ]
       }
     },
+    "/v1/claims/{id}/bill-rest": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "billClaimRestToCustomer",
+        "summary": "Bill the customer for what the payer did not pay",
+        "description": "Explicit and per claim, never automatic. Makes a DRAFT invoice to the job's own customer for what was claimed less what the payer paid, with one line saying what it is, and the claim keeps it. Refused while the payer has not finished with the claim (it must be paid, short paid or denied), while the payer's own invoice still owes the money (credit it or write it off there first, so the same money is never owed by two people), when it has already been billed on, and when there is nothing left to bill. A draft deleted or an invoice voided no longer stands, and the claim can then be billed on again. The line names the customer as who pays it and is not taxable, because what was claimed already carried its tax; both can be changed on the draft. Sent again with the same idempotency key, it answers with the claim as it was billed.\n\nRequires a session holding: invoice:write.",
+        "tags": [
+          "M32"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillClaimRestToCustomerInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Bill the customer for what the payer did not pay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillClaimRestToCustomerOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write"
+        ]
+      }
+    },
     "/v1/claims/{id}/decision": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -25548,6 +25686,228 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReverseCommissionOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:configure"
+        ]
+      }
+    },
+    "/v1/commissions/settle-on-payment": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "getCommissionOnPayment",
+        "summary": "Whether a commission settles by itself when its invoice is paid in full, and what it has done",
+        "description": "Off unless the company turned it on. When on, each invoice paid in full from then whose one plan in force pays on what was collected is settled by the worker with the split proposed between the people on the job (standing shares included), exactly as settling it as proposed from the split screen would, and audited as done by the system. One whose plan is not known (two plans in force), whose split would need a person (nobody on the job, standing shares that cannot all be honoured) or which settling refuses is left, and listed here with why until somebody settles it.\n\nRequires a session holding: commission:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether a commission settles by itself when its invoice is paid in full, and what it has done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetCommissionOnPaymentOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "commission:read"
+        ]
+      },
+      "post": {
+        "operationId": "setCommissionOnPayment",
+        "summary": "Turn settling a commission by itself on payment on or off",
+        "description": "`commission:configure`, audited with the setting before and after. It applies to invoices paid in full from the moment it is turned on, never to ones paid before. A refund or a void after it settled is handled as for any earning: nothing reverses by itself, and `POST /v1/commissions/reversals` takes it back. Sent again with the same setting, it changes nothing.\n\nRequires a session holding: commission:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCommissionOnPaymentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Turn settling a commission by itself on payment on or off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCommissionOnPaymentOutput"
                 }
               }
             }
@@ -61987,6 +62347,253 @@
         "x-authorization": "session",
         "x-permissions": [
           "invoice:write"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/tip-offer": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getInvoiceTipOffer",
+        "summary": "Whether a payment on this invoice can carry a tip, and who it would go to",
+        "description": "What the office's card and cash screens offer: the company's suggested percentages worked out on what is owed, and the first names of the technicians on the job. Not offered when the company does not take tips, when somebody other than the customer pays the invoice, when nothing is owed, or when nobody is recorded on the job.\n\nRequires a session holding: payment:collect.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether a payment on this invoice can carry a tip, and who it would go to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetInvoiceTipOfferOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:collect"
+        ]
+      }
+    },
+    "/v1/invoices/{id}/tipped-payments": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordInvoicePaymentWithTip",
+        "summary": "Record cash, a check or a transfer on one invoice, with a tip on top",
+        "description": "The office's own tip, held to the limits a tip on the portal or on site is: only when the company takes tips, dollars and cents, never more than what is being paid on the bill, and only when somebody is recorded on the job. `amount` is what was received for the bill (up to the balance goes on the invoice and anything over is held for the customer) and `tip` is on top of it. The payment is recorded and audited as any payment is, the tip is credited to Tips payable, and it is shared between the technicians on the job by the company's tip rule in the same step. Sent again with the same idempotency key, it answers with the payment already recorded.\n\nRequires a session holding: payment:collect.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordInvoicePaymentWithTipInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Record cash, a check or a transfer on one invoice, with a tip on top",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordInvoicePaymentWithTipOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payment:collect"
         ]
       }
     },
@@ -155338,6 +155945,200 @@
           "stoppedBecause"
         ]
       },
+      "BillClaimRestToCustomerInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "BillClaimRestToCustomerOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": "integer"
+          },
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": "integer"
+          },
+          "invoiceBalance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "payerCustomerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payerName": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "agreement",
+              "parts_warranty",
+              "labour_warranty",
+              "our_warranty",
+              "home_warranty",
+              "insurance",
+              "goodwill",
+              "no_charge_callback",
+              "contract"
+            ]
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "approved",
+              "paid",
+              "short_paid",
+              "denied"
+            ]
+          },
+          "claimedAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "approvedAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "paidAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "outstanding": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "shortfall": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "externalReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decisionNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billedInvoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "status",
+              "total"
+            ]
+          },
+          "billOn": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "refusal": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "refusal"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "jobId",
+          "jobNumber",
+          "invoiceId",
+          "invoiceNumber",
+          "invoiceBalance",
+          "payerCustomerId",
+          "payerName",
+          "source",
+          "sourceLabel",
+          "status",
+          "claimedAmount",
+          "approvedAmount",
+          "paidAmount",
+          "outstanding",
+          "shortfall",
+          "externalReference",
+          "submittedAt",
+          "decidedAt",
+          "paidAt",
+          "decisionNote",
+          "billedInvoice",
+          "billOn"
+        ]
+      },
       "BillJobInput": {
         "type": "object",
         "properties": {
@@ -167032,6 +167833,10 @@
             "type": "string",
             "maxLength": 320,
             "format": "email"
+          },
+          "tip": {
+            "type": "string",
+            "maxLength": 20
           }
         },
         "required": [
@@ -173320,6 +174125,56 @@
               "string",
               "null"
             ]
+          },
+          "billedInvoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "status",
+              "total"
+            ]
+          },
+          "billOn": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "refusal": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "refusal"
+            ]
           }
         },
         "required": [
@@ -173343,7 +174198,9 @@
           "submittedAt",
           "decidedAt",
           "paidAt",
-          "decisionNote"
+          "decisionNote",
+          "billedInvoice",
+          "billOn"
         ]
       },
       "DecideExpenseInput": {
@@ -179913,6 +180770,56 @@
               "string",
               "null"
             ]
+          },
+          "billedInvoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "status",
+              "total"
+            ]
+          },
+          "billOn": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "refusal": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "refusal"
+            ]
           }
         },
         "required": [
@@ -179936,7 +180843,9 @@
           "submittedAt",
           "decidedAt",
           "paidAt",
-          "decisionNote"
+          "decisionNote",
+          "billedInvoice",
+          "billOn"
         ]
       },
       "FilePriceBookItemsInput": {
@@ -184032,6 +184941,56 @@
               "string",
               "null"
             ]
+          },
+          "billedInvoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "status",
+              "total"
+            ]
+          },
+          "billOn": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "refusal": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "refusal"
+            ]
           }
         },
         "required": [
@@ -184055,7 +185014,9 @@
           "submittedAt",
           "decidedAt",
           "paidAt",
-          "decisionNote"
+          "decisionNote",
+          "billedInvoice",
+          "billOn"
         ]
       },
       "GetCommissionItemRuleOutput": {
@@ -184102,6 +185063,112 @@
         "required": [
           "rule",
           "rules"
+        ]
+      },
+      "GetCommissionOnPaymentOutput": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean"
+          },
+          "since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "earnsOnPayment": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "string"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "customerName",
+                "reason",
+                "at"
+              ]
+            }
+          },
+          "settled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "string"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "customerName",
+                "total",
+                "at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "on",
+          "since",
+          "earnsOnPayment",
+          "left",
+          "settled"
         ]
       },
       "GetCommissionSplitOutput": {
@@ -194546,6 +195613,44 @@
           "offer",
           "applicable",
           "applications"
+        ]
+      },
+      "GetInvoiceTipOfferOutput": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "presets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "percent": {
+                  "type": "number"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "percent",
+                "amount"
+              ]
+            }
+          },
+          "for": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "available",
+          "presets",
+          "for"
         ]
       },
       "GetJobOutput": {
@@ -219134,6 +220239,56 @@
                     "string",
                     "null"
                   ]
+                },
+                "billedInvoice": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "number",
+                    "status",
+                    "total"
+                  ]
+                },
+                "billOn": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "refusal": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "amount",
+                    "refusal"
+                  ]
                 }
               },
               "required": [
@@ -219157,7 +220312,9 @@
                 "submittedAt",
                 "decidedAt",
                 "paidAt",
-                "decisionNote"
+                "decisionNote",
+                "billedInvoice",
+                "billOn"
               ]
             }
           }
@@ -252653,6 +253810,56 @@
               "string",
               "null"
             ]
+          },
+          "billedInvoice": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "total": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              }
+            },
+            "required": [
+              "id",
+              "number",
+              "status",
+              "total"
+            ]
+          },
+          "billOn": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "refusal": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "refusal"
+            ]
           }
         },
         "required": [
@@ -252676,7 +253883,9 @@
           "submittedAt",
           "decidedAt",
           "paidAt",
-          "decisionNote"
+          "decisionNote",
+          "billedInvoice",
+          "billOn"
         ]
       },
       "RecordCustomerCardAgreementInput": {
@@ -253539,6 +254748,98 @@
           "counts",
           "nextDueOn",
           "deficiencies"
+        ]
+      },
+      "RecordInvoicePaymentWithTipInput": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "check",
+              "ach",
+              "other"
+            ]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tip": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "checkNumber": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "method",
+          "amount",
+          "tip"
+        ]
+      },
+      "RecordInvoicePaymentWithTipOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "tipAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "amount"
+              ]
+            }
+          },
+          "unappliedAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "ledgerTransactionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "tipAmount",
+          "allocations",
+          "unappliedAmount",
+          "ledgerTransactionId"
         ]
       },
       "RecordLateLandedCostInput": {
@@ -270151,6 +271452,123 @@
         "required": [
           "rule",
           "rules"
+        ]
+      },
+      "SetCommissionOnPaymentInput": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ]
+      },
+      "SetCommissionOnPaymentOutput": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean"
+          },
+          "since": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "earnsOnPayment": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "label"
+              ]
+            }
+          },
+          "left": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "string"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "customerName",
+                "reason",
+                "at"
+              ]
+            }
+          },
+          "settled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "invoiceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": "string"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "invoiceId",
+                "invoiceNumber",
+                "customerName",
+                "total",
+                "at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "on",
+          "since",
+          "earnsOnPayment",
+          "left",
+          "settled"
         ]
       },
       "SetCommissionStandingShareInput": {

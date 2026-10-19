@@ -1745,6 +1745,42 @@ export interface BackfillCallTrackingOutput {
   stoppedBecause: string | null;
 }
 
+export type BillClaimRestToCustomerInput = Record<string, unknown>;
+
+export interface BillClaimRestToCustomerOutput {
+  id: string;
+  jobId: string;
+  jobNumber: number;
+  invoiceId: string;
+  invoiceNumber: number;
+  invoiceBalance: string;
+  payerCustomerId: string;
+  payerName: string;
+  source: "customer" | "agreement" | "parts_warranty" | "labour_warranty" | "our_warranty" | "home_warranty" | "insurance" | "goodwill" | "no_charge_callback" | "contract";
+  sourceLabel: string;
+  status: "submitted" | "approved" | "paid" | "short_paid" | "denied";
+  claimedAmount: string;
+  approvedAmount: string | null;
+  paidAmount: string;
+  outstanding: string;
+  shortfall: string;
+  externalReference: string | null;
+  submittedAt: string;
+  decidedAt: string | null;
+  paidAt: string | null;
+  decisionNote: string | null;
+  billedInvoice: {
+    id: string;
+    number: string;
+    status: string;
+    total: string;
+  } | null;
+  billOn: {
+    amount: string | null;
+    refusal: string | null;
+  };
+}
+
 export interface BillJobInput {
   draft?: boolean;
   taxRate?: string;
@@ -4029,6 +4065,7 @@ export interface CreatePaymentIntentInput {
   invoiceIds?: string[];
   description?: string;
   receiptEmail?: string;
+  tip?: string;
 }
 
 export interface CreatePaymentIntentOutput {
@@ -5207,6 +5244,16 @@ export interface DecideClaimOutput {
   decidedAt: string | null;
   paidAt: string | null;
   decisionNote: string | null;
+  billedInvoice: {
+    id: string;
+    number: string;
+    status: string;
+    total: string;
+  } | null;
+  billOn: {
+    amount: string | null;
+    refusal: string | null;
+  };
 }
 
 export interface DecideExpenseInput {
@@ -6582,6 +6629,16 @@ export interface FileClaimOutput {
   decidedAt: string | null;
   paidAt: string | null;
   decisionNote: string | null;
+  billedInvoice: {
+    id: string;
+    number: string;
+    status: string;
+    total: string;
+  } | null;
+  billOn: {
+    amount: string | null;
+    refusal: string | null;
+  };
 }
 
 export interface FilePriceBookItemsInput {
@@ -7364,6 +7421,16 @@ export interface GetClaimOutput {
   decidedAt: string | null;
   paidAt: string | null;
   decisionNote: string | null;
+  billedInvoice: {
+    id: string;
+    number: string;
+    status: string;
+    total: string;
+  } | null;
+  billOn: {
+    amount: string | null;
+    refusal: string | null;
+  };
 }
 
 export interface GetCommissionItemRuleOutput {
@@ -7372,6 +7439,29 @@ export interface GetCommissionItemRuleOutput {
     rule: "plan_only" | "item_wins" | "higher" | "item_adds";
     label: string;
     meaning: string;
+  }>;
+}
+
+export interface GetCommissionOnPaymentOutput {
+  on: boolean;
+  since: string | null;
+  earnsOnPayment: Array<{
+    id: string;
+    label: string;
+  }>;
+  left: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    customerName: string;
+    reason: string;
+    at: string;
+  }>;
+  settled: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    customerName: string;
+    total: string;
+    at: string;
   }>;
 }
 
@@ -9343,6 +9433,15 @@ export interface GetInvoiceOutput {
   customFields?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface GetInvoiceTipOfferOutput {
+  available: boolean;
+  presets: Array<{
+    percent: number;
+    amount: string;
+  }>;
+  for: string[];
 }
 
 export interface GetJobAttributionOutput {
@@ -14001,6 +14100,16 @@ export interface ListClaimsOutput {
     decidedAt: string | null;
     paidAt: string | null;
     decisionNote: string | null;
+    billedInvoice: {
+      id: string;
+      number: string;
+      status: string;
+      total: string;
+    } | null;
+    billOn: {
+      amount: string | null;
+      refusal: string | null;
+    };
   }>;
 }
 
@@ -20463,6 +20572,16 @@ export interface RecordClaimPaymentOutput {
   decidedAt: string | null;
   paidAt: string | null;
   decisionNote: string | null;
+  billedInvoice: {
+    id: string;
+    number: string;
+    status: string;
+    total: string;
+  } | null;
+  billOn: {
+    amount: string | null;
+    refusal: string | null;
+  };
 }
 
 export interface RecordCustomerCardAgreementInput {
@@ -20626,6 +20745,27 @@ export interface RecordInspectionOutput {
   counts: Record<string, number>;
   nextDueOn: string | null;
   deficiencies: number;
+}
+
+export interface RecordInvoicePaymentWithTipInput {
+  method: "cash" | "check" | "ach" | "other";
+  amount: string;
+  tip: string;
+  receivedAt?: string;
+  checkNumber?: string;
+  notes?: string;
+}
+
+export interface RecordInvoicePaymentWithTipOutput {
+  id: string;
+  amount: string;
+  tipAmount: string;
+  allocations: Array<{
+    invoiceId: string;
+    amount: string;
+  }>;
+  unappliedAmount: string;
+  ledgerTransactionId: string;
 }
 
 export interface RecordLateLandedCostInput {
@@ -24105,6 +24245,33 @@ export interface SetCommissionItemRuleOutput {
     rule: "plan_only" | "item_wins" | "higher" | "item_adds";
     label: string;
     meaning: string;
+  }>;
+}
+
+export interface SetCommissionOnPaymentInput {
+  on: boolean;
+}
+
+export interface SetCommissionOnPaymentOutput {
+  on: boolean;
+  since: string | null;
+  earnsOnPayment: Array<{
+    id: string;
+    label: string;
+  }>;
+  left: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    customerName: string;
+    reason: string;
+    at: string;
+  }>;
+  settled: Array<{
+    invoiceId: string;
+    invoiceNumber: string;
+    customerName: string;
+    total: string;
+    at: string;
   }>;
 }
 
@@ -29853,6 +30020,10 @@ export interface AttachTranscriptParams {
   id: string;
 }
 
+export interface BillClaimRestToCustomerParams {
+  id: string;
+}
+
 export interface BillJobParams {
   id: string;
 }
@@ -30340,6 +30511,8 @@ export interface GetClaimInput {
 
 export type GetCommissionItemRuleInput = Record<string, never>;
 
+export type GetCommissionOnPaymentInput = Record<string, never>;
+
 export interface GetCommissionSplitInput {
   invoiceId: string;
   planId?: string;
@@ -30540,6 +30713,10 @@ export interface GetInvoiceInput {
 
 export interface GetInvoiceFinancingInput {
   invoiceId: string;
+}
+
+export interface GetInvoiceTipOfferInput {
+  id: string;
 }
 
 export interface GetJobInput {
@@ -32298,6 +32475,10 @@ export interface RecordCustomerCardAgreementParams {
   id: string;
 }
 
+export interface RecordInvoicePaymentWithTipParams {
+  id: string;
+}
+
 export interface RecordLateLandedCostParams {
   id: string;
 }
@@ -33471,6 +33652,7 @@ export interface OperationTypes {
   attachRecording: { input: AttachRecordingParams & AttachRecordingInput; output: AttachRecordingOutput };
   attachTranscript: { input: AttachTranscriptParams & AttachTranscriptInput; output: AttachTranscriptOutput };
   backfillCallTracking: { input: BackfillCallTrackingInput; output: BackfillCallTrackingOutput };
+  billClaimRestToCustomer: { input: BillClaimRestToCustomerParams & BillClaimRestToCustomerInput; output: BillClaimRestToCustomerOutput };
   billJob: { input: BillJobParams & BillJobInput; output: BillJobOutput };
   bookAgreementVisit: { input: BookAgreementVisitParams & BookAgreementVisitInput; output: BookAgreementVisitOutput };
   bookBookingRequest: { input: BookBookingRequestParams & BookBookingRequestInput; output: BookBookingRequestOutput };
@@ -33685,6 +33867,7 @@ export interface OperationTypes {
   getChatWidget: { input: GetChatWidgetInput; output: GetChatWidgetOutput };
   getClaim: { input: GetClaimInput; output: GetClaimOutput };
   getCommissionItemRule: { input: GetCommissionItemRuleInput; output: GetCommissionItemRuleOutput };
+  getCommissionOnPayment: { input: GetCommissionOnPaymentInput; output: GetCommissionOnPaymentOutput };
   getCommissionSplit: { input: GetCommissionSplitInput; output: GetCommissionSplitOutput };
   getCompanyDetails: { input: GetCompanyDetailsInput; output: GetCompanyDetailsOutput };
   getComplianceSummary: { input: GetComplianceSummaryInput; output: GetComplianceSummaryOutput };
@@ -33733,6 +33916,7 @@ export interface OperationTypes {
   getInviteLifetime: { input: GetInviteLifetimeInput; output: GetInviteLifetimeOutput };
   getInvoice: { input: GetInvoiceInput; output: GetInvoiceOutput };
   getInvoiceFinancing: { input: GetInvoiceFinancingInput; output: GetInvoiceFinancingOutput };
+  getInvoiceTipOffer: { input: GetInvoiceTipOfferInput; output: GetInvoiceTipOfferOutput };
   getJob: { input: GetJobInput; output: GetJobOutput };
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
   getJobExpenses: { input: GetJobExpensesInput; output: GetJobExpensesOutput };
@@ -34200,6 +34384,7 @@ export interface OperationTypes {
   recordDelivery: { input: RecordDeliveryInput; output: RecordDeliveryOutput };
   recordExpense: { input: RecordExpenseInput; output: RecordExpenseOutput };
   recordInspection: { input: RecordInspectionInput; output: RecordInspectionOutput };
+  recordInvoicePaymentWithTip: { input: RecordInvoicePaymentWithTipParams & RecordInvoicePaymentWithTipInput; output: RecordInvoicePaymentWithTipOutput };
   recordLateLandedCost: { input: RecordLateLandedCostParams & RecordLateLandedCostInput; output: RecordLateLandedCostOutput };
   recordMessagingBrand: { input: RecordMessagingBrandInput; output: RecordMessagingBrandOutput };
   recordMessagingCampaign: { input: RecordMessagingCampaignInput; output: RecordMessagingCampaignOutput };
@@ -34375,6 +34560,7 @@ export interface OperationTypes {
   setCancellationNotice: { input: SetCancellationNoticeInput; output: SetCancellationNoticeOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
   setCommissionItemRule: { input: SetCommissionItemRuleInput; output: SetCommissionItemRuleOutput };
+  setCommissionOnPayment: { input: SetCommissionOnPaymentInput; output: SetCommissionOnPaymentOutput };
   setCommissionStandingShare: { input: SetCommissionStandingShareInput; output: SetCommissionStandingShareOutput };
   setContactPortalAccess: { input: SetContactPortalAccessParams & SetContactPortalAccessInput; output: SetContactPortalAccessOutput };
   setContractBilling: { input: SetContractBillingParams & SetContractBillingInput; output: SetContractBillingOutput };
@@ -34663,6 +34849,7 @@ export const OPERATIONS = {
   attachRecording: { method: "POST", path: "/v1/calls/{id}/recording", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   attachTranscript: { method: "POST", path: "/v1/calls/{id}/transcript", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   backfillCallTracking: { method: "POST", path: "/v1/call-tracking/backfill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  billClaimRestToCustomer: { method: "POST", path: "/v1/claims/{id}/bill-rest", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   billJob: { method: "POST", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   bookAgreementVisit: { method: "POST", path: "/v1/agreement-visits/{id}/book", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   bookBookingRequest: { method: "POST", path: "/v1/ai/intake/requests/{id}/book", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide","visit:write"] },
@@ -34877,6 +35064,7 @@ export const OPERATIONS = {
   getChatWidget: { method: "GET", path: "/v1/public/chat", pathParams: [], queryParams: ["companyKey"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getClaim: { method: "GET", path: "/v1/claims/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getCommissionItemRule: { method: "GET", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
+  getCommissionOnPayment: { method: "GET", path: "/v1/commissions/settle-on-payment", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   getCommissionSplit: { method: "GET", path: "/v1/commissions/split-proposal", pathParams: [], queryParams: ["invoiceId","planId","shares"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   getCompanyDetails: { method: "GET", path: "/v1/company", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getComplianceSummary: { method: "GET", path: "/v1/compliance/documents/summary", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read"] },
@@ -34925,6 +35113,7 @@ export const OPERATIONS = {
   getInviteLifetime: { method: "GET", path: "/v1/invite-lifetime", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:invite"] },
   getInvoice: { method: "GET", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getInvoiceFinancing: { method: "GET", path: "/v1/invoices/{invoiceId}/financing", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  getInvoiceTipOffer: { method: "GET", path: "/v1/invoices/{id}/tip-offer", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   getJob: { method: "GET", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getJobExpenses: { method: "GET", path: "/v1/jobs/{jobId}/expenses", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
@@ -35392,6 +35581,7 @@ export const OPERATIONS = {
   recordDelivery: { method: "POST", path: "/v1/deliveries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   recordExpense: { method: "POST", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   recordInspection: { method: "POST", path: "/v1/inspections", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  recordInvoicePaymentWithTip: { method: "POST", path: "/v1/invoices/{id}/tipped-payments", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   recordLateLandedCost: { method: "POST", path: "/v1/purchase-order-receipts/{id}/late-charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordMessagingBrand: { method: "POST", path: "/v1/messaging/brands", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   recordMessagingCampaign: { method: "POST", path: "/v1/messaging/campaigns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -35567,6 +35757,7 @@ export const OPERATIONS = {
   setCancellationNotice: { method: "PATCH", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCommissionItemRule: { method: "POST", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
+  setCommissionOnPayment: { method: "POST", path: "/v1/commissions/settle-on-payment", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setCommissionStandingShare: { method: "POST", path: "/v1/commissions/standing-shares", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setContactPortalAccess: { method: "POST", path: "/v1/contacts/{id}/portal-access", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write","portal:revoke"] },
   setContractBilling: { method: "PUT", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
@@ -36401,6 +36592,15 @@ export abstract class GeneratedOperations {
    */
   backfillCallTracking(input: BackfillCallTrackingInput, options?: CallOptions): Promise<BackfillCallTrackingOutput> {
     return this.call("backfillCallTracking", input, options);
+  }
+
+  /**
+   * Bill the customer for what the payer did not pay.
+   *
+   * POST /v1/claims/{id}/bill-rest. Needs invoice:write.
+   */
+  billClaimRestToCustomer(input: BillClaimRestToCustomerParams & BillClaimRestToCustomerInput, options?: CallOptions): Promise<BillClaimRestToCustomerOutput> {
+    return this.call("billClaimRestToCustomer", input, options);
   }
 
   /**
@@ -38330,6 +38530,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Whether a commission settles by itself when its invoice is paid in full, and what it has done.
+   *
+   * GET /v1/commissions/settle-on-payment. Needs commission:read.
+   */
+  getCommissionOnPayment(input: GetCommissionOnPaymentInput = {} as GetCommissionOnPaymentInput, options?: CallOptions): Promise<GetCommissionOnPaymentOutput> {
+    return this.call("getCommissionOnPayment", input, options);
+  }
+
+  /**
    * How an invoice's commission would be shared, worked out before it is settled.
    *
    * GET /v1/commissions/split-proposal. Needs commission:read.
@@ -38759,6 +38968,15 @@ export abstract class GeneratedOperations {
    */
   getInvoiceFinancing(input: GetInvoiceFinancingInput, options?: CallOptions): Promise<GetInvoiceFinancingOutput> {
     return this.call("getInvoiceFinancing", input, options);
+  }
+
+  /**
+   * Whether a payment on this invoice can carry a tip, and who it would go to.
+   *
+   * GET /v1/invoices/{id}/tip-offer. Needs payment:collect.
+   */
+  getInvoiceTipOffer(input: GetInvoiceTipOfferInput, options?: CallOptions): Promise<GetInvoiceTipOfferOutput> {
+    return this.call("getInvoiceTipOffer", input, options);
   }
 
   /**
@@ -42965,6 +43183,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record cash, a check or a transfer on one invoice, with a tip on top.
+   *
+   * POST /v1/invoices/{id}/tipped-payments. Needs payment:collect.
+   */
+  recordInvoicePaymentWithTip(input: RecordInvoicePaymentWithTipParams & RecordInvoicePaymentWithTipInput, options?: CallOptions): Promise<RecordInvoicePaymentWithTipOutput> {
+    return this.call("recordInvoicePaymentWithTip", input, options);
+  }
+
+  /**
    * Spread a freight or duty bill that came after the delivery.
    *
    * POST /v1/purchase-order-receipts/{id}/late-charges. Needs po:write.
@@ -44537,6 +44764,15 @@ export abstract class GeneratedOperations {
    */
   setCommissionItemRule(input: SetCommissionItemRuleInput, options?: CallOptions): Promise<SetCommissionItemRuleOutput> {
     return this.call("setCommissionItemRule", input, options);
+  }
+
+  /**
+   * Turn settling a commission by itself on payment on or off.
+   *
+   * POST /v1/commissions/settle-on-payment. Needs commission:configure.
+   */
+  setCommissionOnPayment(input: SetCommissionOnPaymentInput, options?: CallOptions): Promise<SetCommissionOnPaymentOutput> {
+    return this.call("setCommissionOnPayment", input, options);
   }
 
   /**

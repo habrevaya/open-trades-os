@@ -2,7 +2,9 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { commissions } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
-import { Empty, PageHeader } from "@/components/Table";
+import { Money } from "@opentradesos/ui";
+import { Empty, PageHeader, Table, Th, Td } from "@/components/Table";
+import { formatIn } from "@/lib/dates";
 import { Plans, Bases } from "./CommissionView";
 import { ActionForm } from "./ActionForm";
 
@@ -44,11 +46,13 @@ export default async function CommissionsPage() {
     );
   }
 
-  const [plans, bases, itemRule] = await Promise.all([
+  const [plans, bases, itemRule, onPayment] = await Promise.all([
     commissions.plans(ctx),
     commissions.bases(ctx),
     commissions.itemRule(ctx),
+    commissions.onPayment(ctx),
   ]);
+  const day = (at: Date) => formatIn(at, user.organizationTimezone, { month: "short", day: "numeric", year: "numeric" });
   const chosen = itemRule.rules.find((r) => r.rule === itemRule.rule)!;
   const configures = can(user.actor, "commission:configure");
 
@@ -107,6 +111,75 @@ export default async function CommissionsPage() {
               worked out under.
             </p>
           </ActionForm>
+        ) : null}
+      </section>
+
+      {/*
+        SETTLING BY ITSELF WHEN AN INVOICE IS PAID IN FULL. Off unless turned
+        on. Only a plan that pays on what was collected earns on payment, so
+        the screen says plainly when turning it on would do nothing. What it
+        left for a person is listed with why, until somebody settles it.
+      */}
+      <section aria-label="When an invoice is paid in full" className="mt-10">
+        <h2 className="text-base font-semibold">When an invoice is paid in full</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          The commission can settle by itself when the customer has paid the whole invoice. It is split the way the
+          shared commission page proposes, with any standing shares, exactly as if you settled it there. Anything that
+          needs a person to decide is left for you below, with the reason.
+        </p>
+        <p className="mt-2 text-sm" data-testid="on-payment">
+          {onPayment.on && onPayment.since
+            ? <span className="font-medium">On since {day(onPayment.since)}. Invoices paid in full from then on settle by themselves.</span>
+            : <span className="font-medium">Off. A person settles every commission.</span>}
+        </p>
+        {onPayment.earnsOnPayment.length === 0 ? (
+          <p className="mt-1 max-w-2xl text-sm text-ink-500">
+            Only a plan that pays a share of what was collected is earned on payment, and none is in force, so this
+            settles nothing until there is one.
+          </p>
+        ) : null}
+        {configures ? (
+          <ActionForm op="onPayment" label={onPayment.on ? "Turn it off" : "Turn it on"} className="mt-3"
+                      quiet={onPayment.on} hidden={{ on: onPayment.on ? "off" : "on" }} />
+        ) : null}
+
+        {onPayment.left.length > 0 ? (
+          <>
+            <h3 className="mt-6 text-sm font-medium text-ink-700">Left for you</h3>
+            <Table label="Left for you" head={<><Th>Invoice</Th><Th>Customer</Th><Th>Why it was left</Th><Th>{""}</Th></>}>
+              {onPayment.left.map((row) => (
+                <tr key={row.invoiceId}>
+                  <Td>
+                    <span className="font-medium">{row.invoiceNumber}</span>
+                    <span className="block text-xs text-ink-500">Paid {day(row.at)}</span>
+                  </Td>
+                  <Td>{row.customerName}</Td>
+                  <Td className="text-ink-700">{row.reason}</Td>
+                  <Td>
+                    <a href={`/payroll/commissions/splits/${row.invoiceId}`} className="text-sm font-medium underline underline-offset-4">Settle it</a>
+                  </Td>
+                </tr>
+              ))}
+            </Table>
+          </>
+        ) : null}
+
+        {onPayment.settled.length > 0 ? (
+          <>
+            <h3 className="mt-6 text-sm font-medium text-ink-700">Settled by itself lately</h3>
+            <Table label="Settled by itself lately" head={<><Th>Invoice</Th><Th>Customer</Th><Th className="text-right">Commission</Th></>}>
+              {onPayment.settled.map((row) => (
+                <tr key={row.invoiceId}>
+                  <Td>
+                    <a href={`/payroll/commissions/splits/${row.invoiceId}`} className="font-medium underline underline-offset-4">{row.invoiceNumber}</a>
+                    <span className="block text-xs text-ink-500">{day(row.at)}</span>
+                  </Td>
+                  <Td>{row.customerName}</Td>
+                  <Td className="text-right"><Money value={row.total} /></Td>
+                </tr>
+              ))}
+            </Table>
+          </>
         ) : null}
       </section>
 

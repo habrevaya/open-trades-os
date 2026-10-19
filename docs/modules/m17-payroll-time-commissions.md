@@ -353,6 +353,57 @@ split nobody saw. Sent again, an invoice already settled with its proposed split
 answers with that earning, and one settled another way since is refused. At most
 fifty at a time, the length of the waiting list.
 
+### Settle by itself when an invoice is paid in full
+
+A company can let a commission settle by itself the moment its invoice is paid in
+full. It is off until somebody with `commission:configure` presses **Turn it on**
+under "When an invoice is paid in full" on `/payroll/commissions`
+(`POST /v1/commissions/settle-on-payment` with `on`, audited with the setting before
+and after as `commission_on_payment.set`; `GET /v1/commissions/settle-on-payment`
+with `commission:read` reads it). It counts from the moment it is turned on: an
+invoice paid in full before then is never settled by it, so turning it on is not a
+way to settle last year's invoices in one go.
+
+**Only a plan that earns on payment.** A plan paying a share of what was collected
+cannot be settled until the invoice is paid in full, so the money arriving is when
+it is earned. A revenue, margin or flat plan earns when the work is invoiced, and a
+margin plan's cost is often still landing on the day the money arrives, so none of
+them settles by itself; with no collected plan in force the screen says turning it
+on settles nothing. The rule is core's (`labor.onPaymentDecision`, with unit tests).
+
+**Exactly as a person pressing the button.** After each pass that finds a company's
+events, the worker reads each `invoice.paid` in its log (paid in full is the event;
+a part payment is not) and settles the invoice through the same settling "Settle the
+ticked ones as proposed" uses (`POST /v1/commissions/splits` with the split proposed):
+the split proposed between the people on the job's visits, with their standing
+shares, the same parts, the same words on each person's part, the same posting to
+the ledger, and the same `commission.earned` audit with the proposal beside it
+(`changed: false`). It is audited as done by the system: no user, and
+`commission-on-payment` as the agent, with `commission_on_payment.settled` beside it.
+
+**Left for a person, with why.** An invoice is left when a person has to decide:
+two or more plans in force (which one it is under is theirs to say), an invoice not
+on a job or a job nobody was put on (there is nobody to propose a split between), or
+standing shares that cannot all be honoured (the even split proposed in their place
+is a fallback for a person to look at, not a decision). One that settling refuses (a
+plan with no note, a pay period already closed) is left with settling's own words.
+Each is listed under "Left for you" with the reason, audited as
+`commission_on_payment.left`, and links to its split page to be settled there; once
+somebody settles it, or it is voided or written off, it drops off the list. The last
+twenty it settled are under "Settled by itself lately".
+
+**Never twice.** An invoice that already has its commission, settled by a person or
+by an earlier pass, is passed over, and the earning's unique index is the guard
+underneath; two workers reading the same payment settle it once. Each pass keeps its
+own place in the company's log (`event_cursor`, consumer `commission-on-payment`) and
+moves it on while the setting is off, too. What it did is kept per invoice in
+`commission_on_payment`.
+
+**A refund or a void afterwards** is handled exactly as for an earning a person
+made: nothing reverses by itself, and `POST /v1/commissions/reversals` takes it back
+off. An invoice paid in full again after a refund already has its earning and is
+passed over; one left for a person is tried again when it is paid in full again.
+
 ### A standing share
 
 Somebody can always take the same part of a commission they share: the
@@ -521,9 +572,9 @@ the office is not counted, and the job's margin says so in words while there is 
 
 ### Tips
 
-A tip a customer adds when paying an invoice from the portal (M05, M13) is
-shared between the technicians on the job's visits by the company's rule and
-arrives owed to them. Each share is its own line on that technician's register and export,
+A tip a customer adds when paying an invoice from the portal (M05, M13), or
+gives the office with a card, cash or a check (M13), is shared between the
+technicians on the job's visits by the company's rule and arrives owed to them. Each share is its own line on that technician's register and export,
 `tip` in the pay category column, in the period the payment arrived in, and a
 technician who was tipped and not on the clock that period is still on the
 register. A commission reversal is never taken out of a tip: it is measured
@@ -567,8 +618,8 @@ recorded or no lead marked, shares the tip evenly and says so in a sentence kept
 the share and shown on the invoice's tips. **It applies to tips from then on:** a
 tip is shared the moment the money arrives with the rule in force then, the rule is
 kept on each share, and a change never re-splits one already shared. The arithmetic
-is core's (`payExtras.splitTipByRule`), with unit tests, and the portal and the
-phone's cash payment both go through it.
+is core's (`payExtras.splitTipByRule`), with unit tests, and the portal, the
+phone's cash payment and the office's card and cash screens all go through it.
 
 **The office and a cash tip.** A tip the technician kept normally comes from their
 phone. When they did not record it, or got the amount wrong, whoever holds `tip:record`
@@ -659,6 +710,8 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `POST /v1/commissions/standing-shares/{id}/end` | `commission:configure` |
 | `GET /v1/commissions/item-rule` | `commission:read` |
 | `POST /v1/commissions/item-rule` | `commission:configure` |
+| `GET /v1/commissions/settle-on-payment` | `commission:read` |
+| `POST /v1/commissions/settle-on-payment` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
 | `POST /v1/payroll/tip-payments` | `payroll:export` |
 | `GET /v1/payroll/overtime-policies` | `timesheet:read` |
@@ -748,8 +801,14 @@ reason. A person can have a standing share
 that the split proposes, but there is no standing rule per job type, a standing
 share applies only to the people on the job's visits (somebody added by hand gets
 what the office types), and standing shares that cannot all be honoured propose
-the even split rather than being scaled. Nothing settles a commission by itself
-when an invoice is paid. A split already settled is not changed on the
+the even split rather than being scaled. A commission settles by itself when its
+invoice is paid in full only when the company turns that on and only under a plan
+that pays on what was collected: a revenue, margin or flat plan is settled by a
+person, as is any invoice whose plan or split a person has to decide (the
+conservative reading, taken because whether a revenue plan should wait for payment
+is a pay decision the product owner has not made). It acts on invoices paid in full
+after it was turned on, never earlier ones, and a refund or a void afterwards is
+still taken back by a person, as for any earning. A split already settled is not changed on the
 screen: the way to put one right is a reversal and settling again. Only the split
 screen asks for a reason for an uneven split; the older settling route does not. A person's own statement is gross pay: what the
 bureau withheld is on the bureau's statement, and this product never knows it.

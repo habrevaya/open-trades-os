@@ -541,6 +541,40 @@ export const commissionEntry = pgTable("commission_entry", {
   unpaidIdx: index("commission_entry_unpaid_idx").on(t.organizationId, t.paidAt),
 }));
 
+export const commissionOnPaymentOutcome = pgEnum("commission_on_payment_outcome", ["settled", "left"]);
+
+/**
+ * WHAT THE WORKER DID WITH AN INVOICE PAID IN FULL, when the company lets a
+ * commission settle by itself on payment (M17).
+ *
+ * One row per invoice. `settled` names the earning it made, through the same
+ * settling a person uses; `left` says why it was left for a person, in the
+ * words settling would have refused with, which is what the commission screen
+ * lists. The earning's own unique index is still the guard against settling
+ * twice: this row is the record of what the system did and why, not the lock.
+ *
+ * A `left` row is tried again when the invoice is paid in full again (after a
+ * refund, say), and the row then says what happened that time. Once a person
+ * settles the invoice, the earning exists and the row drops off the list by
+ * itself, so nobody has to tidy it.
+ */
+export const commissionOnPayment = pgTable("commission_on_payment", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoice.id, { onDelete: "cascade" }),
+  outcome: commissionOnPaymentOutcome("outcome").notNull(),
+  /** Why it was left for a person. Null when it settled. */
+  reason: text("reason"),
+  /** The earning it made. Null when it was left. */
+  commissionEventId: uuid("commission_event_id").references(() => commissionEvent.id, { onDelete: "set null" }),
+  /** The `invoice.paid` event in the company's log it acted on. */
+  eventSequence: integer("event_sequence").notNull(),
+  ...timestamps,
+}, (t) => ({
+  invoiceIdx: uniqueIndex("commission_on_payment_invoice_idx").on(t.organizationId, t.invoiceId),
+  outcomeIdx: index("commission_on_payment_outcome_idx").on(t.organizationId, t.outcome, t.updatedAt),
+}));
+
 /* ========================================================================
  * PAY PERIODS, AND WHY ONE HAS TO BE CLOSABLE
  * ======================================================================== */

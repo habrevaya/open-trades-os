@@ -1,7 +1,8 @@
 import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { customerPortal as cp, money as m, payExtras as px } from "@opentradesos/core";
-import { guardedRead, type ServiceContext } from "./context";
+import { guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext } from "./context";
+import * as billing from "./billing";
 import { settingsWithin } from "./portal-settings";
 import { settingsWithin as payExtrasWithin } from "./pay-extras";
 
@@ -250,6 +251,144 @@ export async function markPaid(tx: Database, ids: string[], paidAt: Date, period
     .where(inArray(schema.tipShare.id, ids));
 }
 
+/* ------------------------------------------------- a tip the office takes */
+
+/**
+ * The tip a payment on this invoice can carry, for the office's own card and
+ * cash screens: the company's suggestions on what is owed and who it is for,
+ * or not offered. `payment:collect`, the permission that takes the money.
+ *
+ * Never offered on an invoice somebody else pays (a warranty company, a
+ * landlord): a tip is the thanks of the person the work was done for, and the
+ * on site payment leaves those invoices alone for the same reason.
+ */
+export async function officeOffer(ctx: ServiceContext, input: { invoiceId: string }): Promise<TipOffer> {
+  return guardedRead(ctx, "payment:collect", async (tx) => {
+    const [invoice] = await tx.select({
+      customerId: schema.invoice.customerId, payer: schema.invoice.payerCustomerId, balance: schema.invoice.balance,
+    }).from(schema.invoice)
+      .where(and(eq(schema.invoice.id, input.invoiceId), isNull(schema.invoice.deletedAt))).limit(1);
+    if (!invoice || (invoice.payer && invoice.payer !== invoice.customerId)) return { available: false, presets: [], for: [] };
+    return offerFor(tx, ctx.actor.organizationId, input.invoiceId, m.money(invoice.balance, "USD"));
+  });
+}
+
+export interface PayWithTipInput {
+  invoiceId: string;
+  /** Cash, a check, a bank transfer: money that arrived some way other than a card the processor confirms. */
+  method: "cash" | "check" | "ach" | "other";
+  /** What was received for the bill. Up to the balance goes on this invoice; anything over is held for the customer. */
+  amount: string;
+  /** On top of `amount`, for the technicians. */
+  tip: string;
+  receivedAt?: string | undefined;
+  checkNumber?: string | undefined;
+  notes?: string | undefined;
+}
+
+/**
+ * A PAYMENT THE OFFICE RECORDS WITH A TIP ON TOP.
+ *
+ * The same tip as one added on the portal or handed over on site, held to the
+ * same limits in the same words (`customerPortal.checkTip`): only when the
+ * company takes tips, an amount in dollars and cents, never more than what
+ * is being paid on the bill, only with paying one invoice, and only when
+ * somebody is recorded on the job to give it to. The payment goes through
+ * `billing.pay`, which posts the tip to Tips payable and audits the payment
+ * with its tip as every payment is (`payment.recorded`), and the tip is
+ * shared by the company's own rule through `writeShares`, in the same
+ * transaction, so a tip is never owed to nobody.
+ *
+ * Retried with the same idempotency key, `billing.pay` answers with the
+ * payment already recorded and the shares, written once per payment, are not
+ * written again.
+ */
+export async function payWithTip(ctx: ServiceContext, input: PayWithTipInput) {
+  return guardedWrite(ctx, "payment:collect", async (tx) => {
+    const [invoice] = await tx.select({
+      id: schema.invoice.id, customerId: schema.invoice.customerId, payer: schema.invoice.payerCustomerId,
+      balance: schema.invoice.balance, status: schema.invoice.status,
+    }).from(schema.invoice)
+      .where(and(eq(schema.invoice.id, input.invoiceId), isNull(schema.invoice.deletedAt))).limit(1);
+    if (!invoice) throw new NotFoundError("Invoice");
+    /**
+     * A retry of one already recorded answers with it, before anything is
+     * checked: the invoice it paid owes nothing now, and refusing the retry
+     * for that would tell the office a payment that went through had not.
+     */
+    if (ctx.idempotencyKey) {
+      const [seen] = await tx.select({ paymentId: schema.integrationEvent.entityId }).from(schema.integrationEvent)
+        .where(and(eq(schema.integrationEvent.idempotencyKey, ctx.idempotencyKey), eq(schema.integrationEvent.entityType, "payment")))
+        .limit(1);
+      const [payment] = seen?.paymentId
+        ? await tx.select({ tipAmount: schema.payment.tipAmount }).from(schema.payment).where(eq(schema.payment.id, seen.paymentId)).limit(1)
+        : [];
+      if (payment) {
+        const again = await billing.pay({ ...ctx, db: tx }, {
+          customerId: invoice.customerId, method: input.method, amount: input.amount, tipAmount: payment.tipAmount,
+        });
+        return { ...again, tipAmount: payment.tipAmount };
+      }
+    }
+    if (invoice.payer && invoice.payer !== invoice.customerId) {
+      throw new ConflictError("This invoice is paid by somebody other than the customer, so it takes no tip. Record the payment without one.");
+    }
+    if (!/^\d+(\.\d{1,2})?$/.test(input.amount.trim())) {
+      throw new ConflictError("The amount received is dollars and cents, like 150 or 149.50.");
+    }
+    const received = m.money(input.amount.trim(), "USD");
+    const balance = m.money(invoice.balance, "USD");
+    if (!m.isPositive(received)) throw new ConflictError("A tip goes with a payment. Enter what was received for the bill.");
+    if (!m.isPositive(balance)) throw new ConflictError("This invoice has nothing owing, so there is no bill for a tip to go with.");
+    /** What goes on this invoice; anything over is held for the customer, as any payment's is. */
+    const paying = m.min(received, balance);
+
+    const settings = await settingsWithin(tx, ctx.actor.organizationId);
+    if (!settings.tipping.enabled) {
+      throw new ConflictError("This company does not take tips with a payment. Record the payment without one.");
+    }
+    const checked = cp.checkTip(input.tip, paying, settings.tipping);
+    if (!checked.ok) throw new ConflictError(checked.reason);
+    const crew = await techniciansFor(tx, invoice.id);
+    if (m.isPositive(checked.tip) && crew.technicians.length === 0) {
+      throw new ConflictError(
+        "Nobody is recorded as having done this work yet, so there is nobody to give a tip to. "
+        + "Record the payment without one.",
+      );
+    }
+
+    const paid = await billing.pay({ ...ctx, db: tx }, {
+      customerId: invoice.customerId,
+      method: input.method,
+      amount: m.toString(received),
+      tipAmount: m.toString(checked.tip),
+      ...(input.receivedAt ? { receivedAt: input.receivedAt } : {}),
+      ...(input.checkNumber ? { checkNumber: input.checkNumber } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
+      allocations: [{ invoiceId: invoice.id, amount: m.toString(paying) }],
+    });
+    if (m.isPositive(checked.tip)) {
+      const [row] = await tx.select({ receivedAt: schema.payment.receivedAt })
+        .from(schema.payment).where(eq(schema.payment.id, paid.id)).limit(1);
+      await writeShares(tx, {
+        organizationId: ctx.actor.organizationId,
+        paymentId: paid.id,
+        invoiceId: invoice.id,
+        jobId: crew.jobId,
+        tip: checked.tip,
+        technicianIds: crew.technicians.map((t) => t.id),
+        occurredAt: row?.receivedAt ?? new Date(),
+      });
+    }
+    return { ...paid, tipAmount: m.toString(checked.tip) };
+  });
+}
+
 export const handlers = {
   listInvoiceTips: (ctx: ServiceContext, input: { invoiceId: string }) => forInvoice(ctx, input),
+  getInvoiceTipOffer: (ctx: ServiceContext, input: { invoiceId: string }) => officeOffer(ctx, input),
+  recordInvoicePaymentWithTip: (ctx: ServiceContext, input: {
+    invoiceId: string; method: "cash" | "check" | "ach" | "other"; amount: string; tip: string;
+    receivedAt?: string | undefined; checkNumber?: string | undefined; notes?: string | undefined;
+  }) => payWithTip(ctx, input),
 } as const;

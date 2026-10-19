@@ -223,6 +223,7 @@ export const handlers = {
   fileClaim: claims.handlers.fileClaim,
   decideClaim: claims.handlers.decideClaim,
   recordClaimPayment: claims.handlers.recordClaimPayment,
+  billClaimRestToCustomer: claims.handlers.billClaimRestToCustomer,
   exportPayerInvoices: payerDelivery.handlers.exportPayerInvoices,
   issuePayerPortalLink: payerDelivery.handlers.issuePayerPortalLink,
   viewPayerPortal: payerDelivery.handlers.viewPayerPortal,
@@ -550,6 +551,8 @@ export const handlers = {
   settleCommissionSplitsAsProposed: commissions.handlers.settleCommissionSplitsAsProposed,
   getCommissionItemRule: commissions.handlers.getCommissionItemRule,
   setCommissionItemRule: commissions.handlers.setCommissionItemRule,
+  getCommissionOnPayment: commissions.handlers.getCommissionOnPayment,
+  setCommissionOnPayment: commissions.handlers.setCommissionOnPayment,
 
   declarePayPeriod: payroll.handlers.declarePayPeriod,
   listPayPeriods: payroll.handlers.listPayPeriods,
@@ -1095,6 +1098,16 @@ export const handlers = {
   getPortalSettings: portalSettings.handlers.getPortalSettings,
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
+  getInvoiceTipOffer: (ctx: ServiceContext, input: { id: string }) => tips.officeOffer(ctx, { invoiceId: input.id }),
+  recordInvoicePaymentWithTip: (ctx: ServiceContext, input: {
+    id: string; method: "cash" | "check" | "ach" | "other"; amount: string; tip: string;
+    receivedAt?: string | undefined; checkNumber?: string | undefined; notes?: string | undefined;
+  }) => tips.payWithTip(ctx, {
+    invoiceId: input.id, method: input.method, amount: input.amount, tip: input.tip,
+    ...(input.receivedAt ? { receivedAt: input.receivedAt } : {}),
+    ...(input.checkNumber ? { checkNumber: input.checkNumber } : {}),
+    ...(input.notes ? { notes: input.notes } : {}),
+  }),
   shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
   markAttachmentSeen: files.handlers.markAttachmentSeen,
   // Sign ins seen from the office, the public brand, visit notes, bank payments, booking from the account (M05, M13)

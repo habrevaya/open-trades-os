@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, customers, NotFoundError } from "@opentradesos/api/services";
+import { billing, customers, tips, NotFoundError } from "@opentradesos/api/services";
 import { assertCan, money } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
@@ -37,6 +37,13 @@ export default async function RecordPaymentPage({
   const open = (await billing.list(ctx, { limit: 100, customerId, status: ["open", "partially_paid"] })).data;
   const chosen = open.find((i) => i.id === invoiceId);
   const edit = (v: string | undefined) => money.edit(money.money(v ?? "0", "USD"));
+  /**
+   * A tip goes with paying one invoice, so it is offered only when the page
+   * was opened for one, the company takes tips, and somebody is on its job.
+   */
+  const tipping = chosen ? await tips.officeOffer(ctx, { invoiceId: chosen.id }) : null;
+  const tipFor = tipping?.for ?? [];
+  const tipNames = tipFor.length <= 1 ? (tipFor[0] ?? "") : `${tipFor.slice(0, -1).join(", ")} and ${tipFor.at(-1)}`;
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 lg:px-6">
@@ -47,7 +54,8 @@ export default async function RecordPaymentPage({
       </p>
 
       <ActionForm action={recordPaymentFromOffice} submit="Record payment"
-                  hidden={{ customerId, ...(back ? { back } : {}) }} className="mt-6 space-y-5">
+                  hidden={{ customerId, ...(back ? { back } : {}), ...(tipping?.available && chosen ? { tipInvoiceId: chosen.id } : {}) }}
+                  className="mt-6 space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Select label="How it was paid" name="method" options={METHODS} />
           <TextField label="Amount received" name="amount" required inputMode="decimal"
@@ -55,6 +63,15 @@ export default async function RecordPaymentPage({
           <TextField label="Received on" name="receivedOn" type="date" defaultValue={todayIn(user.organizationTimezone)} />
           <TextField label="Cheque number" name="checkNumber" maxLength={50} />
         </div>
+        {tipping?.available && chosen ? (
+          <div>
+            <TextField label={`Tip on top, for ${tipNames}`} name="tip" inputMode="decimal" placeholder="0.00" className="block max-w-xs" />
+            <p className="mt-1 text-xs text-ink-500">
+              Only if the customer added one. It is on top of the amount received for invoice {chosen.number}, never
+              more than what goes on the bill, and every cent goes to the technicians by your tip rule.
+            </p>
+          </div>
+        ) : null}
         <TextField label="Notes" name="notes" maxLength={1000} />
 
         <fieldset className="space-y-2">

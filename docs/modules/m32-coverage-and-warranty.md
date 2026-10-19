@@ -182,7 +182,50 @@ they do:
 - **denied**, with their reason, which is final: an appeal is a new claim.
 
 A shortfall stays on the invoice, to chase or write off there.
-`Invoices > Claims` (`/invoices/claims`) lists them, waiting first.
+`Invoices > Claims` (`/invoices/claims`) lists them, waiting first, and each has
+its own page, `/invoices/claims/{id}`.
+
+### Bill the rest to the customer
+
+When the warranty company paid less than was claimed, or denied the claim, the
+office can ask the homeowner for the rest. On the claim's page, "Bill the rest to
+the customer" (`POST /v1/claims/{id}/bill-rest`, `invoice:write`) makes a **draft**
+invoice to the job's own customer for what was claimed less what the payer paid,
+with one line saying what it is ("Not paid by Shield Home Warranty": "A home
+warranty administrator, Shield Home Warranty (their reference SHW-7001), was
+claimed $290.00 for job 1042 and paid $260.00. This is the rest."), and opens it.
+Nothing is sent or posted until somebody issues it, so the office reads it after
+talking to the customer, changes it if the conversation went another way, and
+issues it or deletes it. The claim then shows the invoice it made under "Billed to
+the customer", and `GET /v1/claims/{id}` carries it as `billedInvoice`, with
+`billOn` saying whether the rest can be billed now and for how much, or why not.
+It is audited as `claim.billed_on` with the amount.
+
+**Explicit and per claim, never automatic.** Whether a homeowner owes what their
+warranty would not pay is a conversation, so nothing bills it by itself and there
+is no button for several claims at once. It is refused, in core's words
+(`claims.billOn`, with unit tests):
+
+- while the payer has not finished with the claim: it has to be paid (what they
+  agreed, which may be less than was claimed), short paid or denied;
+- while the payer's own invoice still shows the money owing: credit it or write it
+  off on their invoice first (a credit when their schedule never covered it, a
+  write off when they simply will not pay), so the same money is never owed by two
+  people, and never counted as revenue twice once the homeowner's invoice is issued;
+- when the claim has already been billed on;
+- when there is nothing left: they paid everything that was claimed.
+
+A draft deleted, or an invoice voided, no longer stands, and the claim can be billed
+on again. Sent again with the same idempotency key, it answers with the claim as it
+was billed rather than making a second draft.
+
+**Two judgements the product owner has not made, and the conservative reading
+taken.** The payer's invoice has to be settled first rather than the shortfall
+being moved off it by this button, because how it leaves (a credit or bad debt) is
+an accounting decision the office makes on that invoice. And the line is not
+taxable and names the customer as who pays it: what was claimed already carried the
+tax charged on the work, and the job's coverage must not take its share off again.
+Both can be changed on the draft.
 
 ### Find out what free work cost
 
@@ -195,17 +238,22 @@ attached to it.
 
 Resolving coverage needs `job:write`, because it is a decision about the job. Recording that a unit was registered with its maker needs `equipment:write`, not the task permissions, because the person who registers a unit is usually the technician who installed it, and the register is theirs to write (M04); it closes only that unit's registration deadline.
 Quoting needs `invoice:read`. The coverage report needs
-`report.financial:read`, because it is a revenue number. Filing a claim and
-recording its decision need `invoice:write`; recording their payment needs
-`payment:collect`.
+`report.financial:read`, because it is a revenue number. Filing a claim,
+recording its decision and billing the rest to the customer need `invoice:write`;
+recording their payment needs `payment:collect`.
 
 ## Not built
 
 No claim is submitted to anybody's system: filing records that the claim was
 made, with their reference, and the submission itself happens in the warranty
-company's or manufacturer's portal. A short payment is not billed on to the
-customer automatically; whether the homeowner owes it is a conversation, and
-the shortfall stays on the third party's invoice until somebody decides.
+company's or manufacturer's portal. What a payer did not pay is billed on
+to the customer only when somebody presses "Bill the rest to the customer" on one
+claim, as a draft: never automatically and never for several claims at once, because
+whether the homeowner owes it is a conversation. The shortfall stays on the third
+party's invoice until somebody credits it or writes it off there, and the button
+waits for that rather than moving it, because how it leaves that invoice is an
+accounting decision. The line it makes is untaxed whatever the work was; the office
+changes that on the draft when the customer's part should carry tax.
 Coverage read from a unit covers what the dates say and nothing about why: a
 warranty voided by an unlicensed install is not something the dates know.
 
