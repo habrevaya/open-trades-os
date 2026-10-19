@@ -1,4 +1,4 @@
-import { and, eq, desc, gt, inArray, lt, lte, or, ilike, isNull } from "drizzle-orm";
+import { and, eq, desc, gt, inArray, lt, lte, or, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, tax } from "@opentradesos/core";
 import type { z } from "zod";
@@ -7,6 +7,7 @@ import {
   UnprocessableError,
 } from "./context";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
+import { closeMatching, textFilter } from "./text-search";
 import type {
   listPriceBook, createPriceBookItem, revisePriceBookItem,
 } from "../contracts/pricebook";
@@ -191,8 +192,13 @@ function shape(ctx: ServiceContext, row: ItemRow) {
   };
 }
 
-export async function list(ctx: ServiceContext, input: ListInput) {
+/**
+ * `close` is the search box's second look, after its exact one: each word may
+ * also be close to one that is written (`text-search.ts`). Not on the API.
+ */
+export async function list(ctx: ServiceContext, input: ListInput & { close?: boolean | undefined }) {
   return guardedRead(ctx, "pricebook:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
     const cursor = decodeCursor(input.cursor);
 
     const where = and(
@@ -206,14 +212,12 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       input.categoryId ? eq(schema.priceBookItem.categoryId, input.categoryId) : undefined,
       byExternal(schema.priceBookItem, input),
       // A technician in a truck searches by what the part is called, and the
-      // office searches by code. Both have to work from one box.
-      input.q
-        ? or(
-            ilike(schema.priceBookItemVersion.name, `%${input.q}%`),
-            ilike(schema.priceBookItem.code, `%${input.q}%`),
-            ilike(schema.priceBookItemVersion.description, `%${input.q}%`),
-          )
-        : undefined,
+      // office searches by code. Both have to work from one box, which reads
+      // the words the way every other list does (`text-search.ts`): each word
+      // somewhere, and `%` the character it is rather than "anything".
+      textFilter(input.q, [
+        schema.priceBookItemVersion.name, schema.priceBookItem.code, schema.priceBookItemVersion.description,
+      ], undefined, { close: input.close }),
       cursor ? lt(schema.priceBookItem.createdAt, new Date(cursor)) : undefined,
     );
 

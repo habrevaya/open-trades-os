@@ -23507,6 +23507,7 @@ export interface SearchEverythingOutput {
       title: string;
       detail: string | null;
       href: string;
+      close: boolean;
     }>;
     more: boolean;
     seeAll: string | null;
@@ -32648,7 +32649,7 @@ export interface SearchAvailableNumbersInput {
 
 export interface SearchEverythingInput {
   q: string;
-  in?: "customers" | "jobs" | "invoices" | "estimates" | "addresses" | "units";
+  in?: "customers" | "jobs" | "invoices" | "estimates" | "addresses" | "units" | "notes" | "pricebook" | "people";
 }
 
 export interface SendArrivalNoticeParams {
@@ -44179,7 +44180,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Find customers, jobs, invoices, estimates, addresses, units and the company's own records.
+   * Find customers, jobs, invoices, estimates, addresses, units, customer notes, price book items, people and the company's own records.
    *
    * GET /v1/search.
    */

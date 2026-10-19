@@ -13,7 +13,7 @@ import { enforceWithin, listFilter } from "./custom-fields";
 import { releaseAllFor } from "./inventory";
 import * as obligations from "./obligations";
 import { jobScopeFilter, jobBranchFilter } from "./scope";
-import { textFilter } from "./text-search";
+import { closeMatching, textFilter } from "./text-search";
 import { assertPlaceable } from "./branches";
 import { crews as crewsInView, dispatchPeople } from "./people-scope";
 import { shopNames, shopOfCrew, shopOfPeople } from "./visit-shop";
@@ -144,8 +144,14 @@ async function claimNumber(
   return requested;
 }
 
-export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.input>) {
+/**
+ * `close` is the search box's second look, after its exact one: each word may
+ * also be close to one that is written (`text-search.ts`). Not on the API.
+ */
+type Looking = { close?: boolean | undefined };
+export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.input> & Looking) {
   return guardedRead(ctx, "job:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
     const cursor = decodeCursor(input.cursor);
     /**
      * A technician is scoped to their own work. This is a SCOPE question, not
@@ -197,12 +203,12 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listJobs.i
          */
         textFilter(input.q, [
           schema.job.summary, schema.customer.name, schema.job.description, schema.job.customerComplaint,
-          (pattern) => sql`exists (
+          (match) => sql`exists (
             select 1 from public.visit sv
             where sv.job_id = ${schema.job.id}
-              and (sv.technician_notes ilike ${pattern} or sv.customer_notes ilike ${pattern})
+              and (${match(sql`sv.technician_notes`)} or ${match(sql`sv.customer_notes`)})
           )`,
-        ], schema.job.number),
+        ], schema.job.number, { close: input.close }),
         /**
          * A branch somebody picked, or `none` for the jobs nobody has put in
          * one. On top of the scope below, never instead of it.

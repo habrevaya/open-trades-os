@@ -6,6 +6,7 @@ import {
   type ServiceContext,
 } from "./context";
 import * as scoped from "./people-scope";
+import { closeMatching, textFilter } from "./text-search";
 import { listFilter } from "./custom-fields";
 
 /**
@@ -898,6 +899,52 @@ export async function listPeople(
       technicianActive: row.technicianActive,
       customFields: row.customFields,
     })).filter((person) => wanted === undefined || person.email.toLowerCase() === wanted);
+  });
+}
+
+/** A person the search box found. */
+export interface FoundPerson { membershipId: string; name: string | null; email: string; displayName: string | null; active: boolean }
+
+/**
+ * THE PEOPLE WHOSE NAME OR ADDRESS HAS THESE WORDS, for the search box.
+ *
+ * Behind `user:read` and narrowed as the people list is (`people-scope.ts`):
+ * a branch manager finds their branch's people. The name and address come
+ * through `app.organization_people()`, the path every people read takes,
+ * because the user table shows each account only its own row. Somebody who
+ * has left is found after everybody who is here, since their record is
+ * still the answer to "who was that". A company has tens of people, not
+ * thousands, so the words are compared on the directory as read rather than
+ * through an index.
+ */
+export async function find(
+  ctx: ServiceContext, input: { q: string; limit: number; close?: boolean | undefined },
+): Promise<{ data: FoundPerson[]; hasMore: boolean }> {
+  return guardedRead(ctx, "user:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
+    const words = textFilter(input.q, [sql`directory.name`, sql`directory.email`, schema.technician.displayName],
+      undefined, { close: input.close });
+    const rows = await tx.execute<{
+      membership_id: string; name: string | null; email: string; display_name: string | null; active: boolean;
+    }>(sql`
+      select ${schema.membership.id} as membership_id, directory.name, directory.email,
+        ${schema.technician.displayName} as display_name, ${schema.membership.active} as active
+      from public.membership
+      join app.organization_people() directory on directory.membership_id = ${schema.membership.id}
+      left join public.technician on ${schema.technician.membershipId} = ${schema.membership.id}
+      where ${schema.membership.organizationId} = ${ctx.actor.organizationId}
+        and ${scoped.members(ctx) ?? sql`true`}
+        and ${words ?? sql`false`}
+      order by ${schema.membership.active} desc, lower(coalesce(directory.name, directory.email)), ${schema.membership.id}
+      limit ${input.limit + 1}`);
+    const found = [...rows];
+    return {
+      data: found.slice(0, input.limit).map((row) => ({
+        membershipId: row.membership_id, name: row.name, email: row.email,
+        displayName: row.display_name, active: row.active,
+      })),
+      hasMore: found.length > input.limit,
+    };
   });
 }
 

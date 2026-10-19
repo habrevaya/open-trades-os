@@ -8,7 +8,7 @@ import {
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { enforceWithin } from "./custom-fields";
 import { propertyVisibility } from "./scope";
-import { textFilter } from "./text-search";
+import { closeMatching, textFilter } from "./text-search";
 import * as warrantyRegistration from "./warranty-registration";
 
 /**
@@ -740,8 +740,10 @@ function treeFor(rows: ReturnType<typeof shape>[]): EquipmentView[] {
  * (`propertyVisibility`): a technician finds the units where they have been
  * sent, not the register.
  */
-export async function findUnits(ctx: ServiceContext, input: { q: string; limit: number }) {
+export async function findUnits(ctx: ServiceContext, input: { q: string; limit: number; close?: boolean | undefined }) {
   return guardedRead(ctx, "equipment:read", async (tx) => {
+    /** The search box's second look, close as well as exact (`text-search.ts`). */
+    if (input.close) await closeMatching(tx);
     const rows = await tx.select({
       id: schema.equipment.id, category: schema.equipment.category, tag: schema.equipment.tag,
       manufacturer: schema.equipment.manufacturer, model: schema.equipment.model,
@@ -751,7 +753,9 @@ export async function findUnits(ctx: ServiceContext, input: { q: string; limit: 
       .where(and(
         isNull(schema.equipment.deletedAt),
         eq(schema.equipment.active, true),
-        textFilter(input.q, [schema.equipment.serialNumber, schema.equipment.manufacturer, schema.equipment.model]) ?? sql`false`,
+        textFilter(input.q, [schema.equipment.serialNumber, schema.equipment.manufacturer, schema.equipment.model], undefined, {
+          close: input.close,
+        }) ?? sql`false`,
         propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.equipment.propertyId}`),
       ))
       .orderBy(asc(schema.equipment.category), asc(schema.equipment.id))

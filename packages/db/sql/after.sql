@@ -276,6 +276,37 @@ create index if not exists estimate_option_text_trgm_idx
 create index if not exists estimate_line_text_trgm_idx
   on public.estimate_line using gin (name gin_trgm_ops, description gin_trgm_ops);
 
+-- The search box's other groups: a customer's notes, and a price book item by
+-- its name, its code and what it says. The same indexes answer a close match
+-- (`%>`, pg_trgm's word similarity) as well as a word typed exactly.
+create index if not exists customer_note_body_trgm_idx
+  on public.customer_note using gin (body gin_trgm_ops);
+create index if not exists price_book_item_version_text_trgm_idx
+  on public.price_book_item_version using gin (name gin_trgm_ops, description gin_trgm_ops);
+create index if not exists price_book_item_code_trgm_idx
+  on public.price_book_item using gin (code gin_trgm_ops);
+
+-- A TYPO, COUNTED IN LETTERS. The search box's second look (core `search`,
+-- api/services/text-search.ts) finds a row when a word written in it is one
+-- letter off what was typed, or two for a long word. The trigram index hands
+-- over the candidates (`%>>`, pg_trgm's strict word similarity, at a low
+-- threshold set per transaction), and this counts the letters on each word of
+-- each candidate, so "furnice" finds "furnace" and "cobalt" never finds
+-- "basalt". `levenshtein_less_equal` stops counting past the allowance.
+create extension if not exists fuzzystrmatch;
+
+create or replace function app.has_close_word(body text, word text, edits integer)
+returns boolean
+language sql immutable parallel safe
+as $$
+  select exists (
+    select 1 from regexp_split_to_table(lower(body), '[^[:alpha:]]+') as written
+    where written <> ''
+      and abs(length(written) - length(lower(word))) <= edits
+      and levenshtein_less_equal(written, lower(word), edits) <= edits
+  )
+$$;
+
 -- ---- Login, without the application role ever reading a hash ------------
 -- SECURITY DEFINER so it runs as the owner and can read `credential` past the
 -- deny-all policy above. It returns a user id or null, never the hash.

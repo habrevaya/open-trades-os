@@ -491,8 +491,10 @@ that hangs off a customer; "any" is one choice for every field applied, not a mi
 "and" and "or".
 
 A customer note is never deleted and, after its writer's 15 minutes, never
-changed: a wrong note stays, with its correction beside it. Notes are not
-searched by the customer search box. The phone app shows the notes marked
+changed: a wrong note stays, with its correction beside it. The customer
+list's own search does not read notes; the search box at the top of the menu
+does (M29), through the customer's scope, a technician only the notes marked
+for the field. The phone app shows the notes marked
 for the field and cannot add, pin or fix one; that is the office's. A
 note is on a customer, not on an address or a job.
 
