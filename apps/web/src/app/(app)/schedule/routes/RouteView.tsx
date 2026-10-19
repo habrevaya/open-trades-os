@@ -49,6 +49,12 @@ export interface DensityRow {
   closedOn?: string | null;
   /** Stops left out that date because their own cadence does not fall on it. */
   notDueCount?: number;
+  /** On a date: whether the day fits the hours the servicer has left, and why not. */
+  fits?: boolean | null;
+  refusedBecause?: string | null;
+  /** On a date: the visits already on the servicer's day. */
+  madeVisits?: number;
+  servicer?: { name: string; availableMinutes: number | null; leaveMinutes: number; membersOff: string[] } | null;
 }
 
 /**
@@ -125,9 +131,11 @@ export function Routes({
  * zero would tell somebody a fifteen stop day fits.
  */
 export function Fit({ density }: { density: DensityRow }) {
+  /** On a date, a day the servicer cannot take is said first: overtime is a later question. */
+  const refused = !density.closedOn && density.fits === false;
   const tone = density.closedOn
     ? "text-ink-700"
-    : density.runsIntoOvertime === true
+    : refused || density.runsIntoOvertime === true
       ? "text-red-600"
       : density.runsIntoOvertime === false ? "text-green-700" : "text-amber-700";
   return (
@@ -136,12 +144,17 @@ export function Fit({ density }: { density: DensityRow }) {
         {density.on ? `${density.on}: ` : ""}
         {density.closedOn
           ? "Closed that day"
+          : refused
+            ? `Does not fit ${density.servicer?.name ?? "the servicer"}'s day`
           : density.runsIntoOvertime === true
             ? `Runs into overtime by ${density.minutesOverThreshold ?? 0} minutes`
             : density.runsIntoOvertime === false
               ? "Fits the working day"
               : "Cannot tell from what has been declared"}
       </p>
+      {refused && density.refusedBecause ? (
+        <p role="alert" className="mt-1 text-sm text-red-600">{density.refusedBecause}</p>
+      ) : null}
       <p className="mt-1 text-sm text-ink-700">{density.explanation}</p>
       <p className="mt-2 text-sm tabular-nums text-ink-700">
         {density.stopCount} stops, {density.serviceMinutes} minutes of work

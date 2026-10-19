@@ -386,6 +386,29 @@ says when overtime starts and the short day's hours are said beside it. A
 date on another weekday than the route's is refused in words, as making a
 day of it is. The weekday's template reads the same branch's week.
 
+**On a date, the fit reads the real day.** The work counted is the day as it
+is: the visits already on the servicer's day, made from the route or not (a
+stop called off or moved to somebody else on the board is not counted, a stop
+or a service call added to their day is, each with its own length), and the
+route's stops due that date that have not been made yet (`madeVisits` says how
+many visits it read). Their own day is read too (`servicer`): a technician's
+own working hours when they keep some (their hours on the People screen), the
+hours the branch keeps that date otherwise, less any approved leave inside
+them; a crew works the company's day, and the members on leave that day are
+named ("Ana is on leave that day, so the crew is short"). `fits` says whether
+the work and the whole drive fit the hours left, and `refusedBecause` says
+why a day is refused, in words: the servicer on leave all of it ("Dana is on
+leave all of 2026-11-03, so nothing on this route fits that day"), every
+member of a crew on leave, or more work than hours ("Dana has 240 minutes that
+day (the hours you keep that day, 8:00 AM to 4:00 PM less leave from 12:00 PM
+to 5:00 PM) and the day comes to 290, 50 minutes too many"). With no hours
+known it cannot be said, and a total that is a floor inside the hours is not
+called a fit. "Minutes for a new stop" beside "Check a date" asks the same
+with a new customer on the day (`addingStopOfMinutes`). The overtime verdict
+beside it is a different question and is unchanged: somebody can be inside the
+overtime threshold and still not have the hours, because they took the
+afternoon off.
+
 **A driver's day with containers on it is ordered by what is on the
 truck.** "Optimise route" on a roll off driver's column knows that a drop
 needs an empty container on the truck, a collection needs room on it, and a
@@ -646,10 +669,14 @@ ask every time. A visit cancelled before who asked was recorded,
 or by an API caller that did not say, stays not known; nothing guesses it from
 notes. No live traffic: drive times by road are the roads as the provider knows them,
 and a routing answer is kept for the provider's whole cache period. A route's
-fit for a date counts the route's stops as the template has them that date: it
-does not read the visits already made from it (a stop moved, added or removed
-on the board that day is not in the figure), nor the servicer's own leave or
-hours that day. Making a day of a route on a date its branch is closed is not
+fit for a date reads the visits on the servicer's day and their own hours and
+leave, but not the minutes between visits as the board has them (the drive is
+still the route's declared figure, or by road through the visits in the
+route's order), nor a person's own hours on a crew: a crew is measured against
+the company's day, and a member on part day leave is named, not taken off its
+hours. A crew's members are read as they are now. A template with no date is
+the weekday's company or branch week, not anybody's own day. Leave is only
+leave somebody approved. Making a day of a route on a date its branch is closed is not
 refused; its fit for that date says the day is closed. A route
 template's density by road counts the drive out from where the day starts
 and back, while a declared drive time counts only the hops between stops;

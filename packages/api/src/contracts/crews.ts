@@ -447,7 +447,7 @@ export const getServiceRouteDensity = defineRoute({
   path: "/v1/service-routes/{id}/density",
   summary: "Will this day fit",
   description:
-    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours (the week of the route's branch, whoever runs it, or the company's), and with neither the answer is null rather than a guess. Asked for a date (`on`), it is that day: only the stops whose own cadence falls on it (`notDueCount` says how many were left out), and the hours kept that date, so a holiday or a weekday the branch keeps closed changes it. A closed date answers `dayBasis: closed` with `closedOn` saying why and no overtime verdict; a short day is measured against its own hours when there is no overtime policy, and said beside the policy when there is one. A date on another weekday than the route's is refused.",
+    "Density is the whole economics of a route business: revenue is stops times price per stop and cost is the driver's day. The drive is the figure the operator declared between stops when there is one; otherwise, with a routing service connected, the drive by road between the stops in order and out from where the day starts and back, counting only legs the service answered; otherwise none. Whenever some of the drive is unknown the total is reported as a floor and says so (`travelComplete`), rather than claiming a fifteen stop day fits, and never with a straight line guess. The overtime threshold comes from the overtime policy's daily figure or from declared business hours (the week of the route's branch, whoever runs it, or the company's), and with neither the answer is null rather than a guess. Asked for a date (`on`), it is that day: only the stops whose own cadence falls on it (`notDueCount` says how many were left out), and the hours kept that date, so a holiday or a weekday the branch keeps closed changes it. A closed date answers `dayBasis: closed` with `closedOn` saying why and no overtime verdict; a short day is measured against its own hours when there is no overtime policy, and said beside the policy when there is one. A date on another weekday than the route's is refused. On a date the work is the day as it is: the visits already on the servicer's day (made from the route, moved onto it, or other work of theirs) and the stops due and not yet made (`madeVisits`), and the servicer's own day is read (`servicer`): their own working hours or the hours kept that date, less approved leave, or for a crew the company's day with the members on leave named. `fits` and `refusedBecause` say whether the day, with any extra stop, fits the hours left, and why not: the servicer on leave all day, or more work than hours. The overtime verdict is unchanged.",
   module: "M09",
   permissions: ["job:read"],
   input: z.object({
@@ -488,6 +488,26 @@ export const getServiceRouteDensity = defineRoute({
     openMinutes: z.number().int().nullable(),
     /** Stops left out because their own cadence does not fall on the date. */
     notDueCount: z.number().int(),
+    /** On a date, the visits already on the servicer's day, counted as they are now. Zero for the template. */
+    madeVisits: z.number().int(),
+    /** On a date, the servicer's own day: their hours, their leave and what is left. Null for the template and a closed date. */
+    servicer: z.object({
+      name: z.string(),
+      kind: z.enum(["technician", "crew"]),
+      /** `own` for a person's own working hours, `company` for the hours kept that date, null when neither says. */
+      hoursFrom: z.enum(["own", "company"]).nullable(),
+      startsAt: z.string().nullable(),
+      endsAt: z.string().nullable(),
+      leaveMinutes: z.number().int(),
+      availableMinutes: z.number().int().nullable(),
+      offAllDay: z.boolean(),
+      /** A crew's members with leave that day. */
+      membersOff: z.array(z.string()),
+    }).nullable(),
+    /** On a date: false when refused, true when the work and the whole drive fit the hours left, null when it cannot be said. Null for the template. */
+    fits: z.boolean().nullable(),
+    /** Why the date is refused, in a sentence: closed, the servicer on leave, or more work than hours. */
+    refusedBecause: z.string().nullable(),
     minutesOverThreshold: z.number().int().nullable(),
     /** Null is a real answer: it means nobody has declared enough to say. */
     runsIntoOvertime: z.boolean().nullable(),

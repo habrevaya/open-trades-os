@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, isNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, max, notInArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { geo, holidays as holidayRules, recurrence as rc, time } from "@opentradesos/core";
+import { geo, holidays as holidayRules, recurrence as rc, routing, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf,
   type ServiceContext,
@@ -661,6 +661,22 @@ export interface Density {
   openMinutes: number | null;
   /** Stops left out because their own cadence does not fall on the date asked about. Zero for the template. */
   notDueCount: number;
+  /**
+   * On a date, the visits already on the servicer's day (made from the route,
+   * moved onto it on the board, or other work of theirs), counted as they
+   * are now. Zero for the template.
+   */
+  madeVisits: number;
+  /** On a date, the servicer's own day: their hours, their leave and what is left. Null for the template. */
+  servicer: ServicerDay | null;
+  /**
+   * On a date, whether the day's work fits the hours the servicer has left:
+   * false when refused (see `refusedBecause`), true when it fits with the
+   * whole drive counted, null when it cannot be said. Null for the template.
+   */
+  fits: boolean | null;
+  /** Why the date is refused, in a sentence: closed, the servicer off, or more work than hours. */
+  refusedBecause: string | null;
   minutesOverThreshold: number | null;
   /**
    * TRUE, FALSE OR NULL, and null is a real answer rather than a missing one.
@@ -669,6 +685,177 @@ export interface Density {
    */
   runsIntoOvertime: boolean | null;
   explanation: string;
+}
+
+export interface ServicerDay {
+  name: string;
+  kind: "technician" | "crew";
+  /** `own` for a person's own working hours, `company` for the hours kept that date, null when neither says. */
+  hoursFrom: "own" | "company" | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  /** Minutes of approved leave inside those hours (for a crew, when every member is off). */
+  leaveMinutes: number;
+  /** The hours less the leave. Null when no hours are known. */
+  availableMinutes: number | null;
+  offAllDay: boolean;
+  /** A crew's members with leave that day, by name. */
+  membersOff: string[];
+}
+
+/** "08:00" from minutes after midnight. */
+const hhmm = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+/** "8:00 AM" from minutes after midnight. */
+const clockWords = (minutes: number) => {
+  const h = Math.floor(minutes / 60) % 24;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(minutes % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
+/** "HH:MM" as minutes after midnight, or null. */
+const minuteOf = (value: string | null | undefined) => {
+  const found = /^(\d{1,2}):(\d{2})/.exec(value ?? "");
+  return found ? Number(found[1]) * 60 + Number(found[2]) : null;
+};
+
+/** A visit in one of these does not take any of the day. */
+const NOT_ON_THE_DAY = ["cancelled", "no_show", "completed_after_cancellation"] as const;
+
+/**
+ * THE REAL DAY BEHIND A DATE: the visits already on the servicer's day, the
+ * route's stops due that date and not yet made, and the servicer's own hours
+ * and leave. Read inside the density's own transaction.
+ *
+ * A stop already made for the date is counted as the visit it became, where
+ * that visit now is: still on the servicer's day, it is counted with its own
+ * length; moved to somebody else or called off, it is not. Anything else the
+ * servicer has that day (a service call, a stop added on the board) is
+ * counted too, because it takes the same hours.
+ */
+async function realDay(
+  tx: Database, organizationId: string, route: typeof schema.route.$inferSelect, on: string,
+  due: Awaited<ReturnType<typeof listStops>>, kept: { openMinute: number; closeMinute: number } | null,
+) {
+  const zone = await timezoneOf(tx, organizationId);
+  const { start: dayStart, end: dayEnd } = time.dayBoundsIn(on, zone);
+  const refs = due.map((s) => `${s.id}:${on}`);
+  const made = refs.length === 0 ? [] : await tx.select({ ref: schema.job.sourceId }).from(schema.job)
+    .where(and(
+      eq(schema.job.organizationId, organizationId), eq(schema.job.sourceSystem, "route_stop"), inArray(schema.job.sourceId, refs),
+    ));
+  const madeStops = new Set(made.map((m) => m.ref?.split(":")[0]));
+  const unmade = due.filter((s) => !madeStops.has(s.id));
+
+  const columns = {
+    id: schema.visit.id, minutes: schema.visit.estimatedDurationMinutes, routeOrder: schema.visit.routeOrder,
+    windowStart: schema.visit.windowStart, latitude: schema.property.latitude, longitude: schema.property.longitude,
+  };
+  const onTheDay = and(
+    eq(schema.visit.organizationId, organizationId),
+    gte(schema.visit.windowStart, dayStart), lt(schema.visit.windowStart, dayEnd),
+    notInArray(schema.visit.status, [...NOT_ON_THE_DAY]),
+  );
+  const visits = route.technicianId
+    ? await tx.select(columns).from(schema.visitAssignment)
+      .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
+      .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+      .innerJoin(schema.property, eq(schema.property.id, schema.job.propertyId))
+      .where(and(onTheDay, eq(schema.visitAssignment.technicianId, route.technicianId)))
+    : route.crewId
+      ? await tx.select(columns).from(schema.visit)
+        .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+        .innerJoin(schema.property, eq(schema.property.id, schema.job.propertyId))
+        .where(and(onTheDay, eq(schema.visit.crewId, route.crewId)))
+      /** Nobody runs it: the visits made from it that day, wherever they went. */
+      : await tx.select(columns).from(schema.visit)
+        .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+        .innerJoin(schema.property, eq(schema.property.id, schema.job.propertyId))
+        .where(and(onTheDay, eq(schema.visit.routeId, route.id)));
+  visits.sort((a, b) => (a.routeOrder ?? 1e9) - (b.routeOrder ?? 1e9)
+    || (a.windowStart?.getTime() ?? 0) - (b.windowStart?.getTime() ?? 0) || a.id.localeCompare(b.id));
+
+  /** Leave as minutes after the day's local midnight, clipped to the day. */
+  const asSpan = (row: { startsAt: Date; endsAt: Date }) => ({
+    start: Math.max(0, Math.round((row.startsAt.getTime() - dayStart.getTime()) / 60_000)),
+    end: Math.min(1440, Math.round((row.endsAt.getTime() - dayStart.getTime()) / 60_000)),
+  });
+  const leaveOf = async (technicianIds: string[]) => technicianIds.length === 0 ? [] : tx.select({
+    technicianId: schema.timeOff.technicianId, startsAt: schema.timeOff.startsAt, endsAt: schema.timeOff.endsAt,
+  }).from(schema.timeOff)
+    .where(and(
+      eq(schema.timeOff.organizationId, organizationId), eq(schema.timeOff.approved, true), isNull(schema.timeOff.deletedAt),
+      inArray(schema.timeOff.technicianId, technicianIds), lt(schema.timeOff.startsAt, dayEnd), gt(schema.timeOff.endsAt, dayStart),
+    ));
+
+  let servicer: (Omit<ServicerDay, "leaveMinutes" | "availableMinutes" | "offAllDay"> & { window: routing.Span | null; leave: routing.Span[] }) | null;
+  const company = kept ? { start: kept.openMinute, end: kept.closeMinute } : null;
+  if (!route.technicianId && !route.crewId) {
+    /** A route nobody runs yet has nobody's day to fit. */
+    servicer = null;
+  } else if (route.technicianId) {
+    const [person] = await tx.select({ name: schema.technician.displayName, workday: schema.technician.workday })
+      .from(schema.technician).where(eq(schema.technician.id, route.technicianId)).limit(1);
+    const own = person?.workday ? { start: minuteOf(person.workday.startsAt), end: minuteOf(person.workday.endsAt) } : null;
+    const window = own && own.start !== null && own.end !== null && own.end > own.start ? { start: own.start, end: own.end } : company;
+    servicer = {
+      name: person?.name ?? "The technician", kind: "technician",
+      hoursFrom: window === null ? null : window === company ? "company" : "own",
+      startsAt: window ? hhmm(window.start) : null, endsAt: window ? hhmm(window.end) : null,
+      membersOff: [], window, leave: (await leaveOf([route.technicianId])).map(asSpan),
+    };
+  } else {
+    const [crew] = route.crewId
+      ? await tx.select({ name: schema.crew.name }).from(schema.crew).where(eq(schema.crew.id, route.crewId)).limit(1) : [];
+    const members = route.crewId ? await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
+      .from(schema.crewMember).innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+      .where(eq(schema.crewMember.crewId, route.crewId)) : [];
+    const away = await leaveOf(members.map((m) => m.id));
+    /** A crew works the company's day; it is off only when every member is off for all of it. */
+    const whole = company ?? { start: 0, end: 1440 };
+    const allOff = members.length > 0 && members.every((m) =>
+      routing.coveredMinutes(away.filter((a) => a.technicianId === m.id).map(asSpan), whole) >= whole.end - whole.start);
+    servicer = {
+      name: crew?.name ?? "The crew", kind: "crew", hoursFrom: company ? "company" : null,
+      startsAt: company ? hhmm(company.start) : null, endsAt: company ? hhmm(company.end) : null,
+      membersOff: members.filter((m) => away.some((a) => a.technicianId === m.id)).map((m) => m.name).sort(),
+      window: company, leave: allOff ? [whole] : [],
+    };
+  }
+  return { visits, unmade, servicer };
+}
+
+/** The sentence for a date the servicer cannot take, or the day's fit in a sentence. */
+function realDayWords(d: {
+  servicer: ServicerDay; fits: boolean | null; overBy: number | null; totalMinutes: number; travelComplete: boolean;
+  on: string; madeVisits: number; unmade: number; leave: routing.Span[];
+}): { refused: string | null; note: string } {
+  const s = d.servicer;
+  const counted = d.madeVisits > 0
+    ? `Counted from the day as it is: ${d.madeVisits} ${d.madeVisits === 1 ? "visit" : "visits"} already on it and ${d.unmade} ${d.unmade === 1 ? "stop" : "stops"} still to make.`
+    : "";
+  const hours = s.startsAt && s.endsAt
+    ? `${s.hoursFrom === "own" ? `${s.kind === "technician" ? "their own hours" : "its hours"}` : "the hours you keep that day"}, ${clockWords(minuteOf(s.startsAt)!)} to ${clockWords(minuteOf(s.endsAt)!)}`
+    : null;
+  const leaveText = d.leave.length > 0
+    ? ` less leave ${d.leave.map((l) => `from ${l.start <= 0 ? "the start of the day" : clockWords(l.start)} to ${l.end >= 1440 ? "the end of the day" : clockWords(l.end)}`).join(" and ")}`
+    : "";
+  let refused: string | null = null;
+  let fit = "";
+  if (s.offAllDay) {
+    refused = s.kind === "technician"
+      ? `${s.name} is on leave all of ${d.on}, so nothing on this route fits that day.`
+      : `Everybody on ${s.name} is on leave all of ${d.on}, so nothing on this route fits that day.`;
+  } else if (d.fits === false && s.availableMinutes !== null) {
+    refused = `${s.name} has ${s.availableMinutes} minutes that day (${hours}${leaveText}) and the day comes to ${d.travelComplete ? "" : "at least "}${d.totalMinutes}, ${d.overBy} minutes too many.`;
+  } else if (d.fits === true && s.availableMinutes !== null) {
+    fit = `It fits the ${s.availableMinutes} minutes ${s.name} has that day (${hours}${leaveText}).`;
+  } else if (s.availableMinutes === null) {
+    fit = `Nobody has said what hours ${s.name} works that day, so whether it fits ${s.kind === "technician" ? "them" : "it"} cannot be said.`;
+  } else {
+    fit = `The work alone fits the ${s.availableMinutes} minutes ${s.name} has that day, but without the whole drive nobody can say whether the day does.`;
+  }
+  const off = s.kind === "crew" && s.membersOff.length > 0 && !s.offAllDay
+    ? ` ${s.membersOff.join(", ")} ${s.membersOff.length === 1 ? "is" : "are"} on leave that day, so the crew is short.`
+    : "";
+  return { refused, note: [counted, refused ?? fit].filter(Boolean).join(" ") + off };
 }
 
 /**
@@ -742,9 +929,21 @@ export async function density(
     const branchId = await branchOfRoute(tx, route);
     const day = await workingDay(tx, ctx.actor.organizationId, route.dayOfWeek, branchId, on);
     const start = await servicerStart(tx, ctx.actor.organizationId, route);
-    return { route, active: due, notDueCount: listed.length - due.length, day, start };
+    /** On a date, the day as it is: what is already on it and whose day it is. */
+    const real = on === null || day.basis === "closed" ? null : await realDay(tx, ctx.actor.organizationId, route, on, due, day.hours);
+    return { route, active: due, notDueCount: listed.length - due.length, day, start, real };
   });
-  const { route, active } = loaded;
+  const { route, real } = loaded;
+  /**
+   * The stops counted: on a date, the visits already on the servicer's day
+   * and the stops due and not yet made; for the template, the stops.
+   */
+  const active: { id: string; estimatedMinutes: number; latitude: string | null; longitude: string | null }[] = real
+    ? [
+      ...real.visits.map((v) => ({ id: v.id, estimatedMinutes: v.minutes, latitude: v.latitude, longitude: v.longitude })),
+      ...real.unmade,
+    ]
+    : loaded.active;
 
   const extra = input.addingStopOfMinutes ?? 0;
   if (extra < 0) throw new ConflictError("A stop cannot take negative time.");
@@ -779,6 +978,20 @@ export async function density(
   const totalMinutes = serviceMinutes + (travelMinutes ?? 0);
 
   const { minutes: overtimeAfterMinutes, basis: dayBasis, closedOn, holiday, openMinutes } = loaded.day;
+
+  /** The servicer's own day against the work, on a date that is not closed. */
+  const verdict = real?.servicer ? routing.realDayFit({ window: real.servicer.window, leave: real.servicer.leave, totalMinutes, travelComplete }) : null;
+  const servicer: ServicerDay | null = real?.servicer && verdict ? {
+    name: real.servicer.name, kind: real.servicer.kind, hoursFrom: real.servicer.hoursFrom,
+    startsAt: real.servicer.startsAt, endsAt: real.servicer.endsAt, membersOff: real.servicer.membersOff,
+    leaveMinutes: verdict.leaveMinutes, availableMinutes: verdict.availableMinutes, offAllDay: verdict.offAllDay,
+  } : null;
+  const said = real && verdict && servicer && on ? realDayWords({
+    servicer, fits: verdict.fits, overBy: verdict.overBy, totalMinutes, travelComplete, on,
+    madeVisits: real.visits.length, unmade: real.unmade.length, leave: real.servicer!.leave,
+  }) : null;
+  const fits = closedOn ? false : verdict?.fits ?? null;
+  const refusedBecause = closedOn ?? said?.refused ?? null;
 
   const minutesOverThreshold = overtimeAfterMinutes === null
     ? null
@@ -817,12 +1030,16 @@ export async function density(
     closedOn,
     openMinutes,
     notDueCount: loaded.notDueCount,
+    madeVisits: real?.visits.length ?? 0,
+    servicer,
+    fits: on === null ? null : fits,
+    refusedBecause,
     minutesOverThreshold,
     runsIntoOvertime,
     explanation: explain({
       stopCount, totalMinutes, travelComplete, travelSource,
       overtimeAfterMinutes, dayBasis, runsIntoOvertime, extra, on, holiday, closedOn, openMinutes,
-    }),
+    }) + (said?.note ? ` ${said.note}` : ""),
   };
 }
 
@@ -968,6 +1185,8 @@ async function workingDay(
   tx: Database, organizationId: string, dayOfWeek: number | null, branchId: string | null, on: string | null,
 ): Promise<{
   minutes: number | null; basis: DayBasis; closedOn: string | null; holiday: string | null; openMinutes: number | null;
+  /** The hours kept that date or weekday, in minutes after local midnight, when they are known. */
+  hours: { openMinute: number; closeMinute: number } | null;
 }> {
   /**
    * The hours the route's branch keeps on the date, or on the weekday: its
@@ -985,7 +1204,7 @@ async function workingDay(
 
   if (on !== null && kept.known && kept.hours === null) {
     return {
-      minutes: null, basis: "closed", holiday, openMinutes: null,
+      minutes: null, basis: "closed", holiday, openMinutes: null, hours: null,
       closedOn: kept.holiday
         ? `You are closed on ${on} for ${kept.holiday.name}.`
         : `You are closed on ${DAY_NAMES[weekdayOf(on)]}s, so ${on} is not a working day.`,
@@ -1001,13 +1220,14 @@ async function workingDay(
       isNull(schema.overtimePolicy.deletedAt),
     )).limit(1);
 
+  const hours = kept.hours ? { openMinute: kept.hours.openMinute, closeMinute: kept.hours.closeMinute } : null;
   if (policy?.dailyThresholdMinutes) {
-    return { minutes: policy.dailyThresholdMinutes, basis: "overtime_policy", closedOn: null, holiday, openMinutes };
+    return { minutes: policy.dailyThresholdMinutes, basis: "overtime_policy", closedOn: null, holiday, openMinutes, hours };
   }
   if (openMinutes === null || openMinutes <= 0) {
-    return { minutes: null, basis: "unknown", closedOn: null, holiday, openMinutes: null };
+    return { minutes: null, basis: "unknown", closedOn: null, holiday, openMinutes: null, hours: null };
   }
-  return { minutes: openMinutes, basis: "business_hours", closedOn: null, holiday, openMinutes };
+  return { minutes: openMinutes, basis: "business_hours", closedOn: null, holiday, openMinutes, hours };
 }
 
 /**

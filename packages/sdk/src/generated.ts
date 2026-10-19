@@ -12396,6 +12396,20 @@ export interface GetServiceRouteDensityOutput {
   closedOn: string | null;
   openMinutes: number | null;
   notDueCount: number;
+  madeVisits: number;
+  servicer: {
+    name: string;
+    kind: "technician" | "crew";
+    hoursFrom: "own" | "company" | null;
+    startsAt: string | null;
+    endsAt: string | null;
+    leaveMinutes: number;
+    availableMinutes: number | null;
+    offAllDay: boolean;
+    membersOff: string[];
+  } | null;
+  fits: boolean | null;
+  refusedBecause: string | null;
   minutesOverThreshold: number | null;
   runsIntoOvertime: boolean | null;
   explanation: string;
