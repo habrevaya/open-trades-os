@@ -155,18 +155,52 @@ It starts empty: this product writes no safety content, because what a crew is
 told is the company's to decide and answer for. A talk recorded on
 `/compliance/safety` can be taken from the library (`topicId`), and keeps a copy
 of the topic's words, so editing a topic later does not change a sheet already
-signed. A topic is retired, not deleted.
+signed. A topic is retired, not deleted. Its title and words are changed on
+`/compliance/safety/topics` ("Change the words" under the topic, with a note that
+a talk already held keeps the words it was held with), or with `PATCH`; the next
+talk raised from it, by a schedule or from the library, uses the new words, and
+the change is in the audit log with the old words beside the new.
 
 **Talks on a schedule.** `/compliance/safety/schedules` puts a topic on a schedule
-for one crew or one person (`GET /v1/safety/schedules`, `POST /v1/safety/schedules`,
+(`GET /v1/safety/schedules`, `POST /v1/safety/schedules`,
 `POST /v1/safety/schedules/{id}/active` to pause and resume), on the same
 schedules a recurring task uses (M34): every day, every weekday, a weekday every
 week or every other week, a date every month, or the last given weekday of the
 month, at a time of day. The worker raises the talk on its day in the company's
-zone, with the crew's members as they are that day on the sheet, once whatever it
+zone, with the people it is for as they are that day on the sheet, once whatever it
 does (a unique index on the schedule and the day), and only the latest occurrence
 after it was down. A paused schedule, or one whose topic is retired, raises
 nothing.
+
+*Who it is for* is exactly one of: a crew (`crewId`), one person (`technicianId`),
+everybody who holds a role (`role` for one that came with the product, `roleId`
+for one the company defined, which replaces the preset on whoever holds it, so a
+talk for "Technician" leaves out the person whose own role is Apprentice), everybody
+in a branch (`branchId`), or the whole company (`everybody`). On the screen they are
+the "For" choices: everybody in the field, everybody in each open branch, everybody
+with each role, each crew and each person (`GET /v1/safety/schedule-audiences`
+lists the roles and branches by name). A role, a branch or the company means the
+people who work in the field: an active account AND an active technician profile on
+the day it is raised, because the sheet is signed from My day on the phone and a
+person with no technician profile has nowhere to sign it (the dispatcher and the
+office manager are not put on it unless they also have one). A talk for a role, a
+branch or the company with nobody to put on the sheet that day is not raised, the
+day is written down as dealt with, and the audit log says so
+(`safety.talk_skipped_nobody`), so an empty sheet does not teach the office to ignore
+the unsigned list; a crew or one person is raised as it always was, so the office can
+add whoever is there by hand.
+
+*Holidays.* A schedule can skip the company's holidays (`skipHolidays`, the box
+"Skip the days the company is closed"), as a recurring task can: on a day the
+company is closed all day (`/settings/holidays`) it raises nothing, writes the day
+down as dealt with, and the audit log says which holiday
+(`safety.talk_skipped_holiday`). It is skipped, not moved to the next day. A short
+day is a working day and is not skipped. A talk for a branch also honours that
+branch's own days off; every other audience only the company's own list, because a
+crew or a person may work across branches and one branch's day off is not theirs.
+It is off for a schedule written before this existed, which raised its talks on
+holidays and keeps doing so until a new schedule is made, and a schedule's audience,
+topic and days are not edited (it is paused and a new one made).
 
 **Signed on the phone app.** The talks on a technician's own sheet lines come with
 their day on the phone, and "Toolbox talks to sign" opens them: what was covered,
@@ -287,7 +321,7 @@ talk with `field:sync`.
 | `GET /v1/safety/meetings` | `safety:read` |
 | `POST /v1/safety/meetings` | `safety:write` |
 | `POST /v1/safety/meetings/{id}/sign` | `field:sync`, for your own line |
-| `GET /v1/safety/topics`, `GET /v1/safety/schedules`, `GET /v1/safety/unsigned` | `safety:read` |
+| `GET /v1/safety/topics`, `GET /v1/safety/schedules`, `GET /v1/safety/schedule-audiences`, `GET /v1/safety/unsigned` | `safety:read` |
 | `POST /v1/safety/topics`, `PATCH /v1/safety/topics/{id}`, `POST /v1/safety/schedules` | `safety:write` |
 | `POST /v1/safety/incidents` | `safety:report` |
 | `GET /v1/safety/incidents` | `safety:report`; the register needs `safety:read` |
@@ -339,11 +373,12 @@ recorded as whichever of passed or failed the office judges it to be.
 
 Incident reports are not sent to anybody: no authority form (an OSHA 300 log, for
 one) is produced, and nothing decides whether an incident is reportable. The talk
-library holds only what the company writes; no topic is shipped, deliberately. A
-scheduled talk is for one crew or one person, not for a role or the whole company,
-and is not skipped for a holiday. A topic is not editable on the screen once
-written, only retired and put back (the API changes its words), and a schedule is
-paused rather than changed: a different topic, crew or time is a new schedule.
+library holds only what the company writes; no topic is shipped, deliberately. A scheduled talk for a role, a branch or the whole company is put in front of the
+people who work in the field (an active account and an active technician profile), not
+the office staff who have no phone to sign on, and a schedule is paused rather than
+changed: a different topic, audience or time is a new schedule. A schedule written
+before holidays could be skipped raises its talks on them until it is replaced. A
+branch's own days off are honoured only by a talk for that branch.
 The phone app signs a talk; it does not record one, add people to one or close
 one, which stay with the office. A signature refused on the phone is told to the
 technician as a problem on their day; the talk is not offered for signing again

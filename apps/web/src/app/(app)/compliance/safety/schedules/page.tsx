@@ -17,10 +17,11 @@ const clock = (minutes: number) =>
 /**
  * TALKS ON A SCHEDULE
  *
- * A topic from the library for a crew or one person, on the same schedules a
- * recurring task uses. On its day the talk is raised with the crew's members
- * as they are that day, and each signs from their own phone. Paused and
- * resumed here.
+ * A topic from the library for a crew, one person, everybody who holds a role,
+ * everybody in a branch or the whole company, on the same schedules a
+ * recurring task uses. On its day the talk is raised with those people as
+ * they are that day, and each signs from their own phone. A schedule can skip
+ * the company's holidays. Paused and resumed here.
  */
 export default async function TalkSchedulesPage() {
   const user = await requireSetupUser();
@@ -39,6 +40,7 @@ export default async function TalkSchedulesPage() {
   const topics = writes ? await safetyTalks.listTopics(ctx) : [];
   const people = writes ? await safety.people(ctx) : [];
   const crewList = writes && can(user.actor, "visit:read") ? (await crews.list(ctx)).filter((c) => c.active) : [];
+  const audiences = writes ? await safetyTalks.audienceChoices(ctx) : { roles: [], branches: [] };
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -82,6 +84,9 @@ export default async function TalkSchedulesPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Select label="Topic" name="topicId" options={topics.map((t) => ({ value: t.id, label: t.title }))} />
                 <Select label="For" name="who" options={[
+                  { value: "everybody", label: "Everybody in the field" },
+                  ...audiences.branches.map((b) => ({ value: `branch:${b.id}`, label: `Everybody in ${b.name}` })),
+                  ...audiences.roles.map((r) => ({ value: `role:${r.value}`, label: r.own ? `Everybody with your ${r.label} role` : `Everybody with the ${r.label} role` })),
                   ...crewList.map((c) => ({ value: `crew:${c.id}`, label: `${c.name} (crew)` })),
                   ...people.map((p) => ({ value: `tech:${p.value}`, label: p.label })),
                 ]} />
@@ -105,6 +110,15 @@ export default async function TalkSchedulesPage() {
                 <TextField label="Where (optional)" name="location" maxLength={300} placeholder="The shop" />
                 <TextField label="Led by (optional)" name="ledBy" maxLength={200} />
               </div>
+              <label className="flex items-start gap-2 text-sm text-ink-700">
+                <input type="checkbox" name="skipHolidays" className="mt-0.5 h-4 w-4 rounded border-steel-300" />
+                <span>Skip the days the company is closed (your holidays). The talk is not moved to another day.</span>
+              </label>
+              <p className="max-w-2xl text-xs text-ink-500">
+                A talk for a role, a branch or everybody is put in front of the people who work in the field and are
+                active on the day, because the sheet is signed from My day on the phone. If nobody is on it that day,
+                no talk is raised.
+              </p>
             </ActionForm>
           )}
         </section>

@@ -6,7 +6,7 @@ import { Chip } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
 import { ActionForm, TextArea, TextField } from "@/components/ActionForm";
 import { Empty, PageHeader } from "@/components/Table";
-import { addTopic, setTopicRetired } from "../talk-actions";
+import { addTopic, editTopic, setTopicRetired } from "../talk-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -53,9 +53,24 @@ export default async function TalkTopicsPage() {
               </div>
               <p className="mt-1 whitespace-pre-wrap text-sm text-ink-700">{topic.body}</p>
               {writes ? (
-                <ActionForm action={setTopicRetired} tone="quiet" className="mt-2"
-                            submit={topic.retired ? "Put it back" : "Retire it"}
-                            hidden={{ id: topic.id, retired: topic.retired ? "no" : "yes" }} />
+                <div className="mt-2 flex flex-wrap items-start gap-3">
+                  <details className="min-w-0 flex-1">
+                    <summary className="cursor-pointer text-sm font-medium text-blue-600 underline underline-offset-4">
+                      Change the words
+                    </summary>
+                    <ActionForm action={editTopic} submit="Save the new words" className="mt-3 space-y-3" hidden={{ id: topic.id }}>
+                      <TextField label="Title" name="title" required maxLength={200} defaultValue={topic.title} />
+                      <TextArea label="What the talk covers" name="body" rows={6} required maxLength={20000} defaultValue={topic.body} />
+                      <p className="max-w-2xl text-xs text-ink-500">
+                        A talk already held keeps the words it was held with, so a signed sheet still says what was
+                        covered that day. The next talk raised from this topic uses the new words.
+                      </p>
+                    </ActionForm>
+                  </details>
+                  <ActionForm action={setTopicRetired} tone="quiet" className="mt-0"
+                              submit={topic.retired ? "Put it back" : "Retire it"}
+                              hidden={{ id: topic.id, retired: topic.retired ? "no" : "yes" }} />
+                </div>
               ) : null}
             </li>
           ))}
