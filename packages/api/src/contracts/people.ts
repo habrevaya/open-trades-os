@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { notices } from "@opentradesos/core";
 import { defineRoute } from "../lib/define";
 import { Uuid } from "./common";
 import { CustomFieldListFilter } from "./custom-fields";
@@ -79,6 +80,10 @@ const HeldCertification = z.object({
   lapseReason: z.enum(["expired", "suspended", "revoked"]).nullable(),
   verifiedAt: z.string().datetime().nullable(),
   verifiedByUserId: Uuid.nullable(),
+  /** Days before it runs out that it is warned: its own number when it has one, else its type's. */
+  renewalLeadDays: z.number().int(),
+  /** Its own number, or null when it follows its type's. */
+  ownRenewalLeadDays: z.number().int().nullable(),
 });
 
 export const listPeople = defineRoute({
@@ -223,6 +228,8 @@ export const recordCertification = defineRoute({
     reference: z.string().max(120).nullable().optional(),
     issuedOn: z.string().date().nullable().optional(),
     expiresOn: z.string().date().nullable().optional(),
+    /** Days before it runs out that this one holding is warned. Left out or null follows the type's number. */
+    renewalLeadDays: z.number().int().min(0).max(3650).nullable().optional(),
   }),
   output: z.object({
     id: Uuid,
@@ -231,6 +238,29 @@ export const recordCertification = defineRoute({
     issuedOn: z.string().date().nullable(),
     expiresOn: z.string().date().nullable(),
     status: CertificationStatus,
+    /** The holding's own number, or null when it follows its type's. */
+    renewalLeadDays: z.number().int().nullable(),
+  }),
+});
+
+export const setCertificationRenewalDays = defineRoute({
+  method: "post",
+  path: "/v1/certifications/{id}/renewal-days",
+  summary: "Change how many days ahead one holding is warned",
+  description:
+    "A holding follows its type's renewal period unless it carries a number of its own, for the one person whose renewal takes longer or shorter than usual. "
+    + "The number puts the holding on the renewals list and starts the notices to the holder, their manager and whoever keeps the list, and the emails that go with them. "
+    + "`null` hands it back to the type's number, as the type stands on the day. A notice already sent is not sent again. Refused for a type that does not expire. Audited, with the earlier number.",
+  module: "M24",
+  permissions: ["compliance:write"],
+  /** Setting a state: the same number again is the first answer. */
+  idempotent: true,
+  input: z.object({ id: Uuid, renewalLeadDays: z.number().int().min(0).max(3650).nullable() }),
+  output: z.object({
+    id: Uuid,
+    renewalLeadDays: z.number().int().nullable(),
+    /** The number it follows when it has none of its own. */
+    typeRenewalLeadDays: z.number().int(),
   }),
 });
 
@@ -275,14 +305,13 @@ export const listExpiringCertifications = defineRoute({
   path: "/v1/certifications/expiring",
   summary: "What is about to run out, and what already has",
   description:
-    "The window is each certification type's own renewal notice period unless one is given, because a licence that takes a day of paperwork and one that takes six weeks of continuing education do not want the same warning. Already expired rows are included and flagged: a renewal list that drops a certification the moment it lapses is empty exactly when somebody needed it.",
+    "The window is each holding's own renewal notice period when it has one, else its type's, unless one is given, because a licence that takes a day of paperwork and one that takes six weeks of continuing education do not want the same warning. Already expired rows are included and flagged: a renewal list that drops a certification the moment it lapses is empty exactly when somebody needed it.",
   module: "M24",
   permissions: ["compliance:read"],
   input: z.object({ within: z.number().int().min(0).max(3650).optional() }),
   output: z.object({
     expiring: z.array(HeldCertification.extend({
       daysRemaining: z.number().int(),
-      renewalLeadDays: z.number().int(),
     })),
   }),
 });
@@ -332,10 +361,22 @@ const RenewalsKeeper = z.object({
   active: z.boolean(),
 });
 
+const RenewalsKeepers = z.object({
+  keepers: z.array(z.object({
+    userId: Uuid,
+    name: z.string(),
+    /** Still here and able to read the list. False: they are told nothing until they can again, or somebody else is chosen. */
+    active: z.boolean(),
+  })),
+});
+
 export const getRenewalsKeeper = defineRoute({
   method: "get",
   path: "/v1/certification-renewals/keeper",
-  summary: "Who keeps the renewals list, and is told what is running out",
+  summary: "One person who keeps the renewals list (older clients: use keepers)",
+  description:
+    "Kept for clients written when a company could name one person. Answers with the first of them by name, or `null` when nobody is named; "
+    + "`GET /v1/certification-renewals/keepers` answers with everybody.",
   module: "M24",
   permissions: ["compliance:read"],
   input: z.object({}),
@@ -345,20 +386,48 @@ export const getRenewalsKeeper = defineRoute({
 export const setRenewalsKeeper = defineRoute({
   method: "put",
   path: "/v1/certification-renewals/keeper",
-  summary: "Name who keeps the renewals list, or nobody",
+  summary: "Name one person to keep the renewals list, or nobody (older clients: use keepers)",
   description:
-    "Off (`null`) unless the company names somebody. When named, they are told as well as the holder and the holder's manager when a certification or a skill reaches its renewal period (the type's, or the skill record's own number of days) and on its last day, once each. Only somebody active here who can read the renewals list (`compliance:read`). Audited.",
+    "Kept for clients written when a company could name one person. It replaces everybody who was named with this one person, or with nobody for `null`; "
+    + "`PUT /v1/certification-renewals/keepers` names several. Only somebody active here who can read the renewals list (`compliance:read`). Audited.",
   module: "M24",
   permissions: ["compliance:write"],
   input: z.object({ userId: Uuid.nullable() }),
   output: RenewalsKeeper,
 });
 
+export const getRenewalsKeepers = defineRoute({
+  method: "get",
+  path: "/v1/certification-renewals/keepers",
+  summary: "Who keeps the renewals list, and is told what is running out",
+  description:
+    "Everybody the company named, by name. Empty unless the company names somebody. They are told as well as the holder and the holder's manager.",
+  module: "M24",
+  permissions: ["compliance:read"],
+  input: z.object({}),
+  output: RenewalsKeepers,
+});
+
+export const setRenewalsKeepers = defineRoute({
+  method: "put",
+  path: "/v1/certification-renewals/keepers",
+  summary: "Name who keeps the renewals list: nobody, one person or several",
+  description:
+    "Replaces everybody named with exactly these people (`[]` for nobody). When a certification or a skill reaches its renewal period (the holding's own number of days, else the type's, else the skill record's) and on its last day, each is told once, in the app, on the phone or by text as they chose, and by email unless they switched that off on `/me`, and nobody is told twice when they are also the holder or the holder's manager. "
+    + `Each must be active here and able to read the renewals list (\`compliance:read\`), up to ${notices.MAX_RENEWALS_KEEPERS}. Naming the same people again changes nothing. Audited.`,
+  module: "M24",
+  permissions: ["compliance:write"],
+  /** Setting a state: the same people again is the first answer. */
+  idempotent: true,
+  input: z.object({ userIds: z.array(Uuid).max(notices.MAX_RENEWALS_KEEPERS) }),
+  output: RenewalsKeepers,
+});
+
 export const peopleRoutes = {
-  getRenewalsKeeper, setRenewalsKeeper,
+  getRenewalsKeeper, setRenewalsKeeper, getRenewalsKeepers, setRenewalsKeepers,
   setMembershipActive,
   listPeople,
   listCertificationTypes, defineCertificationType, updateCertificationType,
-  listCertifications, recordCertification, verifyCertification, setCertificationStatus,
+  listCertifications, recordCertification, verifyCertification, setCertificationStatus, setCertificationRenewalDays,
   listExpiringCertifications, getSkillStanding,
 } as const;

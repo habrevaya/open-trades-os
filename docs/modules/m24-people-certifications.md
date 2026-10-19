@@ -79,9 +79,17 @@ here.** Both sides are ISO dates in the same format, so string ordering is date
 ordering, and it avoids turning a calendar date into an instant, which is how an
 expiry moves a day for half the country twice a year.
 
-**The renewal window is per certification type, not one number for the company.** A
-licence whose renewal takes a day of paperwork and one that takes six weeks of
-continuing education do not want the same warning.
+**The renewal window is per certification type, not one number for the company, and one
+holding can have a number of its own.** A licence whose renewal takes a day of paperwork
+and one that takes six weeks of continuing education do not want the same warning, and
+neither does one person whose card has to go to another state. A holding follows its
+type's `renewalLeadDays` as it stands on the day somebody looks, so changing the type's
+number moves every card that never chose its own; a holding that carries a number of its
+own (`renewalLeadDays` on the holding, 0 to 3650) keeps it. Either number puts the
+holding on the renewals list and starts the notices, and `GET /v1/certifications` and
+`GET /v1/certifications/expiring` give both, as `renewalLeadDays` (the one in force) and
+`ownRenewalLeadDays` (null when it follows the type). A type that does not expire refuses
+one, because there is nothing to warn about.
 
 **Already expired rows are included and flagged.** A renewal list that drops a
 certification the moment it lapses is a list that is empty exactly when somebody
@@ -172,11 +180,12 @@ expired included and flagged. `/certifications` is the screen.
 The worker tells the person who holds a certification, or a skill with a last
 day, when its renewal period starts and again on the day, once each (a worker
 that was down on the day says so within the following six days, and not
-after). The renewal period is the certification type's (`renewalLeadDays`,
-the same number that puts it on the renewals list) or, for a skill, the
-record's own number of days, so a licence with a six week renewal is on the
-person's phone the day it goes on the list. A period of nothing means only the
-day itself is said, and one past a year is read as a year. The
+after). The renewal period is the holding's own number of days when it has one,
+else the certification type's (`renewalLeadDays`, the same number that puts it on
+the renewals list) or, for a skill, the record's own number of days, so a licence
+with a six week renewal is on the person's phone the day it goes on the list. A
+period of nothing means only the day itself is said, and one past a year is read
+as a year. The
 notice goes on their bell, their phone app and a text, as they chose on `/me`,
 and opens their own record there. The person they report to (the reporting
 line recorded on `/tasks/escalation`) is told the same, opening the holder's
@@ -185,15 +194,43 @@ holder's record: a branch manager whose scope does not reach the holder is not
 told. Only the current holding counts: a renewal recorded with a later day
 stops anything more about the old one. The notices themselves are M34's.
 
+**By email as well.** Each notice about a licence or skill running out is also
+emailed to the person it is for, at the address they sign in with, through the
+company's own email (the same outbox every other email takes, so a person on the
+do-not-email list is not written to). One email per person per notice: the one
+when the renewal period starts and the one on the day, however many times the
+worker looks. It carries the notice's own words and a link to the same page the
+bell opens. A person switches it off for themselves on `/me`, in the Email
+column (`email` on `POST /v1/me/notice-settings`); it is on until they do, and the
+column is there only for the kinds that are emailed. A company with no email
+connected, or an address that cannot be written to, gets the reason in words on
+the delivery row ("No email provider is connected with a From address...") and
+the bell as before; connecting email later does not send what was news days ago
+(three days is the longest an email waits). An email is not held for quiet hours,
+which belong to texts.
+
+Change one card's number of days ahead on `/certifications` ("Change days ahead"
+beside the card, or "Warn days ahead" when recording it) or with
+`POST /v1/certifications/{id}/renewal-days` (`compliance:write`); blank or `null`
+hands it back to its type's number. The earlier number is kept in the audit log.
+A notice already sent is not sent again by moving the number.
+
 Whoever keeps the renewals list can be told too. Off until the company names
 somebody, under **Who keeps this list** on `/certifications`
-(`PUT /v1/certification-renewals/keeper`, `compliance:write`;
-`GET /v1/certification-renewals/keeper`, `compliance:read`): one person,
-active here, who can read the list (`compliance:read`). They get the same two
-notices about everybody's licences and skills, saying why they were told, and
-nobody is told twice when they are also the holder or the holder's manager.
-Somebody who has left, or can no longer read the list, is shown as chosen and
-told nothing until somebody chooses again. Naming one is audited.
+(`PUT /v1/certification-renewals/keepers`, `compliance:write`;
+`GET /v1/certification-renewals/keepers`, `compliance:read`): any number of
+people up to twenty, each active here and able to read the list
+(`compliance:read`). Each gets the same two notices, and the same email, about
+everybody's licences and skills, saying why they were told, and nobody is told
+twice when they are also the holder or the holder's manager. On the screen, "Also
+tell" adds one person, "Stop telling" beside a name takes one off and "Nobody
+else" takes everybody off. Somebody who has left, or can no longer read the list,
+is shown as chosen but unable and told nothing until somebody chooses again. The
+call replaces everybody with exactly the people sent, and naming the same people
+again changes nothing. Changing who keeps it is audited. The older one person
+routes, `GET` and `PUT /v1/certification-renewals/keeper`, still work for clients
+written before: `GET` answers with the first of them by name and `PUT` replaces
+everybody with the one person sent, or with nobody for `null`.
 
 ### Ask whether people can do the work
 
@@ -387,7 +424,10 @@ Everybody holds `profile:own`: their own record, and nobody else's.
 | `POST /v1/certifications` | `compliance:write` |
 | `POST /v1/certifications/{id}/verify` | `compliance:write` |
 | `POST /v1/certifications/{id}/status` | `compliance:write` |
+| `POST /v1/certifications/{id}/renewal-days` | `compliance:write` |
 | `GET /v1/certifications/expiring` | `compliance:read` |
+| `GET /v1/certification-renewals/keepers` | `compliance:read` |
+| `PUT /v1/certification-renewals/keepers` | `compliance:write` |
 | `GET /v1/certification-renewals/keeper` | `compliance:read` |
 | `PUT /v1/certification-renewals/keeper` | `compliance:write` |
 | `POST /v1/people/skill-standing` | `compliance:read` |
@@ -452,11 +492,20 @@ a sign in code for the phone app is sent to (`/settings/phones`, M11), and chang
 and the office sees that they ticked it rather than the office. A skill's
 record can have an expiry of its own, and its renewals list and its notice follow its
 own number of days: there is no per type notice period for a skill, because a skill has
-no type. A certification's notice follows its type's renewal period, not one of its own:
-a holding has no number of days of its own. Nobody is emailed about one running out, and
-whoever keeps the renewals list is one person the company names, not everybody who can
-read the list; the office manager preset cannot read it, so cannot be named until the role
-is given `compliance:read`. A skill whose record has expired still counts as "recorded" for the
+no type. A certification's holding follows its type's renewal period unless it was given a
+number of its own, one card at a time: there is no way to give a number to a set of
+holdings at once, and a number of a card's own is not carried to the next card when it is
+renewed (the renewal is a new row, and follows the type's number until given one). A
+licence or skill running out is emailed to the holder, their manager and each keeper at
+the address they sign in with, and to no other address: a person cannot choose a second
+mailbox, and the email is not a weekly summary but one message per notice. It lands in the
+company's email outbox, so whoever may read the inbox can read it, as with the other
+emails to the company's own people; it carries the notice's words and a link, not the
+card's number. Only a licence or skill running out is emailed: the other kinds of notice
+(M34) still come in the app, on the phone and by text only. Whoever keeps the renewals
+list is a person the company names, up to twenty, and not everybody who can read the
+list; the office manager preset cannot read it, so cannot be named until the role is given
+`compliance:read`. A skill whose record has expired still counts as "recorded" for the
 rule that once anybody does a skill the others are refused for it, so letting the only
 holder's record lapse does not quietly stop the check. Continuing education counts hours
 toward a renewal and does not check that a course is one the authority accepts, and the

@@ -34,7 +34,11 @@ const Notice = z.object({
 const Switches = z.object({ inApp: z.boolean(), push: z.boolean(), text: z.boolean() });
 
 const Settings = z.object({
-  kinds: z.array(Switches.extend({ kind: Kind, label: z.string(), description: z.string() })),
+  kinds: z.array(Switches.extend({
+    kind: Kind, label: z.string(), description: z.string(),
+    /** Whether it also comes by email. Null for a kind that is never emailed, which has no such choice. */
+    email: z.boolean().nullable(),
+  })),
   texts: z.object({
     on: z.boolean(),
     mobile: z.string().nullable(),
@@ -83,6 +87,7 @@ export const getMyNoticeSettings = defineRoute({
   summary: "Where each kind of notice reaches you",
   description:
     "Per kind, in the app, on the phone app and by text. Until you change one, a kind comes in the app and on the phone and never by text. "
+    + "A licence or skill running out also comes by email to your address, unless you switch that off (`email`; null on a kind that is never emailed). "
     + "`phones` is how many phones you have the app signed in on; `companyCanText` is whether the company has a number that can send texts.",
   module: "M34",
   permissions: ["profile:own"],
@@ -95,12 +100,18 @@ export const setMyNoticeSettings = defineRoute({
   path: "/v1/me/notice-settings",
   summary: "Choose where each kind of notice reaches you",
   description:
-    "Only the kinds sent change. A text switch cannot be turned on before texts are, with your own number, on `POST /v1/me/notice-texts`.",
+    "Only the kinds sent change. A text switch cannot be turned on before texts are, with your own number, on `POST /v1/me/notice-texts`. `email` is for the kinds that are emailed and is refused on the others.",
   module: "M34",
   permissions: ["profile:own"],
   /** Setting a state. */
   idempotent: true,
-  input: z.object({ kinds: z.array(Switches.extend({ kind: Kind })).min(1).max(notices.NOTICE_KINDS.length) }),
+  input: z.object({
+    kinds: z.array(Switches.extend({
+      kind: Kind,
+      /** Only for a kind that is emailed (a licence or skill running out). Left out keeps what you chose; `true` on any other kind is refused. */
+      email: z.boolean().optional(),
+    })).min(1).max(notices.NOTICE_KINDS.length),
+  }),
   output: Settings,
 });
 

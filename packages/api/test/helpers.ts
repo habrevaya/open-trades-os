@@ -163,6 +163,8 @@ const ORDER = [
    * notice, a person's switches and their text consent point at the person.
    */
   "staff_notice_delivery", "staff_notice", "staff_notice_setting", "staff_text_consent",
+  /** The people named to keep the renewals list point at the company and the person, and nothing points at them. */
+  "certification_renewals_keeper",
   "route_day", "technician_position", "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",
   "arrival_notice",
   // Automation. A step run points at a run, a run at a version, a version at

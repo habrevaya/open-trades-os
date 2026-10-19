@@ -1,7 +1,7 @@
 import { pgTable, pgEnum, uuid, text, integer, boolean, date, check, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
-import { organization, user, technician } from "./tenancy";
+import { organization, user, technician, businessUnit, role, memberRole } from "./tenancy";
 import { property } from "./crm";
 import { job } from "./work";
 import { taskFrequency } from "./automation";
@@ -47,21 +47,41 @@ export const safetyTopic = pgTable("safety_topic", {
 }));
 
 /**
- * A TALK THAT COMES ROUND: one topic, for one crew or one person, on the same
- * schedule a recurring task uses (core's `tasks` rules, so the two cannot
- * count a month differently).
+ * WHO A SCHEDULED TALK IS FOR.
+ *
+ * One crew, one person, everybody in the field who holds a role, everybody in
+ * one branch, or the whole company. Always the people who work in the field
+ * (a technician profile) and have an active membership on the day the talk is
+ * raised, because the sheet is signed from My day on the phone and a person
+ * with no technician profile has nowhere to sign it.
+ */
+export const safetyTalkAudience = pgEnum("safety_talk_audience", ["crew", "person", "role", "branch", "company"]);
+
+/**
+ * A TALK THAT COMES ROUND: one topic, for a crew, a person, a role, a branch
+ * or the whole company, on the same schedule a recurring task uses (core's
+ * `tasks` rules, so the two cannot count a month differently).
  *
  * The worker raises the talk on its day, in the company's zone, at the time
- * held: a sheet with the crew's members on it as they are that day, or the
- * one person, each signing from their own phone. One talk per schedule per
- * day, by the unique index on the talk.
+ * held: a sheet with the audience on it as they are that day, each signing
+ * from their own phone. One talk per schedule per day, by the unique index on
+ * the talk. A schedule told to skip holidays raises nothing on a day the
+ * company (or, for a branch's own, the branch) is closed all day.
  */
 export const safetyTalkSchedule = pgTable("safety_talk_schedule", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   topicId: uuid("topic_id").notNull().references(() => safetyTopic.id, { onDelete: "cascade" }),
+  /** Who it is for; the one column beside it that names them is set, and the others are not. */
+  audience: safetyTalkAudience("audience").notNull(),
   crewId: uuid("crew_id").references(() => crew.id, { onDelete: "cascade" }),
   technicianId: uuid("technician_id").references(() => technician.id, { onDelete: "cascade" }),
+  /** A role the company did not define itself (the presets), for a role audience. */
+  audienceRole: memberRole("audience_role"),
+  /** A role the company defined, for a role audience. Exactly one of the two is set. */
+  audienceRoleId: uuid("audience_role_id").references(() => role.id, { onDelete: "cascade" }),
+  /** The branch (a business unit), for a branch audience. */
+  audienceBusinessUnitId: uuid("audience_business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
   frequency: taskFrequency("frequency").notNull(),
   /** For weekly, every other week and the last of the month: 0 is Sunday. */
   weekday: integer("weekday"),
@@ -73,6 +93,13 @@ export const safetyTalkSchedule = pgTable("safety_talk_schedule", {
   location: text("location"),
   ledBy: text("led_by"),
   active: boolean("active").notNull().default(true),
+  /**
+   * Whether a day the company is closed all day is skipped, as a recurring
+   * task's template can. Skipped, not moved: the next occurrence is the next
+   * day the schedule falls on. Off for a schedule written before this existed,
+   * which raised its talks on holidays and keeps doing so until told not to.
+   */
+  skipHolidays: boolean("skip_holidays").notNull().default(false),
   /** The last day it raised a talk for. Bookkeeping; the unique index on the talk is the guarantee. */
   lastRaisedOn: date("last_raised_on"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
@@ -80,8 +107,27 @@ export const safetyTalkSchedule = pgTable("safety_talk_schedule", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   orgIdx: index("safety_talk_schedule_org_idx").on(t.organizationId, t.active),
-  /** A crew or a person, never both and never neither. */
-  whoCheck: check("safety_talk_schedule_who", sql`(${t.crewId} is null) <> (${t.technicianId} is null)`),
+  /**
+   * The audience and the column that names it agree, and nothing else names
+   * anybody: a crew has a crew, a person a technician, a role exactly one of a
+   * preset or a defined role, a branch a business unit, and the company none.
+   */
+  whoCheck: check("safety_talk_schedule_audience", sql`(
+    ${t.audience} = 'crew' and ${t.crewId} is not null and ${t.technicianId} is null
+      and ${t.audienceRole} is null and ${t.audienceRoleId} is null and ${t.audienceBusinessUnitId} is null
+  ) or (
+    ${t.audience} = 'person' and ${t.technicianId} is not null and ${t.crewId} is null
+      and ${t.audienceRole} is null and ${t.audienceRoleId} is null and ${t.audienceBusinessUnitId} is null
+  ) or (
+    ${t.audience} = 'role' and ${t.crewId} is null and ${t.technicianId} is null and ${t.audienceBusinessUnitId} is null
+      and ((${t.audienceRole} is not null) <> (${t.audienceRoleId} is not null))
+  ) or (
+    ${t.audience} = 'branch' and ${t.audienceBusinessUnitId} is not null and ${t.crewId} is null and ${t.technicianId} is null
+      and ${t.audienceRole} is null and ${t.audienceRoleId} is null
+  ) or (
+    ${t.audience} = 'company' and ${t.crewId} is null and ${t.technicianId} is null
+      and ${t.audienceRole} is null and ${t.audienceRoleId} is null and ${t.audienceBusinessUnitId} is null
+  )`),
 }));
 
 /**

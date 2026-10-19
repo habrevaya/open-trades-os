@@ -75,6 +75,14 @@ export const staffNoticeSetting = pgTable("staff_notice_setting", {
   inApp: boolean("in_app").notNull(),
   push: boolean("push").notNull(),
   text: boolean("text").notNull(),
+  /**
+   * Whether this kind also comes by email to their address on the company's
+   * own email. Null, the default, is "not chosen": the kind's own default
+   * applies (on for a licence or skill running out, which is emailed, and
+   * meaningless for a kind nothing emails). Only a kind core lists as emailed
+   * ever reads it.
+   */
+  email: boolean("email"),
   ...timestamps,
 }, (t) => ({
   kindIdx: uniqueIndex("staff_notice_setting_kind_idx").on(t.organizationId, t.userId, t.kind),
@@ -114,7 +122,7 @@ export const staffTextConsent = pgTable("staff_text_consent", {
     .where(sql`${t.supersededAt} is null`),
 }));
 
-export const staffDeliveryChannel = pgEnum("staff_delivery_channel", ["push", "sms"]);
+export const staffDeliveryChannel = pgEnum("staff_delivery_channel", ["push", "sms", "email"]);
 
 export const staffDeliveryStatus = pgEnum("staff_delivery_status", [
   /** Waiting to go on the next pass. */
@@ -130,12 +138,13 @@ export const staffDeliveryStatus = pgEnum("staff_delivery_status", [
 ]);
 
 /**
- * ONE NOTICE GOING TO ONE PHONE APP OR ONE MOBILE NUMBER.
+ * ONE NOTICE GOING TO ONE PHONE APP, ONE MOBILE NUMBER OR ONE MAILBOX.
  *
  * A row per channel per destination rather than a call that leaves no trace,
  * for the question somebody asks the day after: was I told, and if not, why
- * not. Keyed on the notice, the channel and the destination (a device id or a
- * number), so a pass cut short and repeated sends one buzz and one text.
+ * not. Keyed on the notice, the channel and the destination (a device id, a
+ * number or a mailbox), so a pass cut short and repeated sends one buzz, one
+ * text and one email.
  */
 export const staffNoticeDelivery = pgTable("staff_notice_delivery", {
   id: pk(),
@@ -144,9 +153,9 @@ export const staffNoticeDelivery = pgTable("staff_notice_delivery", {
   channel: staffDeliveryChannel("channel").notNull(),
   /** The phone, for a push. */
   deviceId: uuid("device_id").references(() => device.id, { onDelete: "cascade" }),
-  /** The number, for a text: the one their consent named when it was raised. */
+  /** The number, for a text: the one their consent named when it was raised. The mailbox, for an email. */
   address: text("address"),
-  /** The device id or the number, whichever this is, for the unique key. */
+  /** The device id, the number or the mailbox, whichever this is, for the unique key. */
   target: text("target").notNull(),
   status: staffDeliveryStatus("status").notNull().default("queued"),
   /** A push inside quiet hours goes without sound, as a technician's does. */

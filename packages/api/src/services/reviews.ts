@@ -784,18 +784,42 @@ export async function withheld(ctx: ServiceContext, limit = 50) {
 
 /* ------------------------------------------------- reviews that exist */
 
-const toCore = (row: typeof schema.review.$inferSelect): rv.Review => ({
+type ReviewRow = typeof schema.review.$inferSelect;
+
+/**
+ * A star review for core's averages. A recommendation is not a rating, so it
+ * is left out of every average: callers filter with `isStars` first.
+ */
+const toCore = (row: ReviewRow): rv.Review => ({
   id: row.id,
   platform: row.platform,
-  rating: row.rating,
+  rating: row.rating ?? 0,
   postedAt: row.postedAt,
   respondedAt: row.respondedAt,
   ...(row.technicianId ? { technicianId: row.technicianId } : {}),
 });
 
+const isStars = (row: ReviewRow): boolean => row.kind === "stars" && row.rating !== null;
+const isRecommendation = (row: ReviewRow): row is ReviewRow & { recommends: boolean } =>
+  row.kind === "recommendation" && row.recommends !== null;
+
+/**
+ * The same review for the reply queue, which decides what is OWED, not what is
+ * counted: a recommendation is given the rating a yes or a no is owed as
+ * (`rv.owedRating`, five and one), so a no still starts the clock for a reply
+ * and a call exactly as a one star does, while it stays out of the averages.
+ */
+const toWork = (row: ReviewRow): rv.Review => ({
+  ...toCore(row),
+  rating: isRecommendation(row) ? rv.owedRating(row.recommends) : row.rating ?? 0,
+});
+
 export interface ReviewInput {
   platform: string;
-  rating: number;
+  /** One to five, for a star review. */
+  rating?: number | undefined;
+  /** For a recommendation, a yes or a no. Exactly one of this and `rating`. */
+  recommends?: boolean | undefined;
   postedAt: Date;
   externalId?: string | null;
   authorName?: string | null;
@@ -823,16 +847,25 @@ export interface ReviewInput {
  */
 export async function record(ctx: ServiceContext, input: ReviewInput) {
   return guardedWrite(ctx, "review:respond", async (tx) => {
-    if (!Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5) {
-      throw new ConflictError("A rating is a whole number from one to five.");
+    const recommendation = input.recommends !== undefined;
+    if (recommendation && input.rating !== undefined) {
+      throw new ConflictError("A recommendation is a yes or a no and has no rating. Send one or the other.");
     }
+    if (!recommendation && (input.rating === undefined || !Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5)) {
+      throw new ConflictError("A rating is a whole number from one to five, or a recommendation is a yes or a no.");
+    }
+    const kind = recommendation ? "recommendation" as const : "stars" as const;
+    const stars = recommendation ? null : input.rating!;
+    const recommends = recommendation ? input.recommends! : null;
+    /** What the reply and the call are owed as: the rating, or five for a yes and one for a no. */
+    const owed = recommendation ? rv.owedRating(recommends!) : stars!;
 
     const policyRow = await policyFor(tx, ctx.actor.organizationId);
     const recovery = rv.routeReply(
       {
         jobId: input.jobId ?? "",
         customerId: input.customerId ?? "",
-        rating: input.rating,
+        rating: owed,
         receivedAt: input.postedAt,
       },
       {
@@ -849,7 +882,9 @@ export async function record(ctx: ServiceContext, input: ReviewInput) {
       organizationId: ctx.actor.organizationId,
       platform: input.platform,
       externalId: input.externalId ?? null,
-      rating: input.rating,
+      kind,
+      rating: stars,
+      recommends,
       authorName: input.authorName ?? null,
       body: input.body ?? null,
       postedAt: input.postedAt,
@@ -866,7 +901,9 @@ export async function record(ctx: ServiceContext, input: ReviewInput) {
       target: [schema.review.organizationId, schema.review.platform, schema.review.externalId],
       targetWhere: sql`external_id is not null and deleted_at is null`,
       set: {
-        rating: input.rating,
+        kind,
+        rating: stars,
+        recommends,
         authorName: input.authorName ?? null,
         body: input.body ?? null,
         postedAt: input.postedAt,
@@ -875,13 +912,15 @@ export async function record(ctx: ServiceContext, input: ReviewInput) {
     }).returning();
 
     await audit(tx, ctx, "review.recorded", "review", row!.id, null, {
-      platform: input.platform, rating: input.rating,
+      platform: input.platform, kind, rating: stars, recommends,
       recoveryOwed: recovery.recover,
     });
 
     return {
       id: row!.id,
+      kind,
       rating: row!.rating,
+      recommends: row!.recommends,
       /**
        * Returned with the row, because the caller who just typed in a one
        * star needs to be told a phone call is owed and by when. Leaving
@@ -925,14 +964,17 @@ export async function workList(ctx: ServiceContext, now = new Date()) {
      * hours.
      */
     const policy = { ...responsePolicy(policyRow), holidays: await loadHolidays(tx, ctx.actor.organizationId) };
-    const items = rv.responseWorkList(rows.map(toCore), policy, now);
+    const items = rv.responseWorkList(rows.map(toWork), policy, now);
 
     return items.map((item) => {
       const row = byId.get(item.review.id)!;
       return {
         id: item.review.id,
         platform: item.review.platform,
-        rating: item.review.rating,
+        kind: row.kind,
+        /** Null for a recommendation, whose place in the queue is as a five for a yes and a one for a no. */
+        rating: row.rating,
+        recommends: row.recommends,
         authorName: row.authorName,
         /** The text, because a work list showing only a star count sends somebody to another tab. */
         body: row.body,
@@ -1058,11 +1100,15 @@ export async function rating(ctx: ServiceContext, input: { platform?: string } =
         ...(input.platform ? [eq(schema.review.platform, input.platform)] : []),
       ));
 
-    return rv.summarise(
-      rows.map(toCore),
-      { halfLifeDays: policyRow.halfLifeDays },
-      new Date(),
-    );
+    return {
+      /** Star reviews only: a recommendation is not a rating and would make every yes a perfect score. */
+      ...rv.summarise(
+        rows.filter(isStars).map(toCore),
+        { halfLifeDays: policyRow.halfLifeDays },
+        new Date(),
+      ),
+      recommendations: rv.recommendationShare(rows.filter(isRecommendation)),
+    };
   });
 }
 
@@ -1088,6 +1134,8 @@ export async function byTechnician(ctx: ServiceContext) {
 
     const groups = new Map<string, { name: string; reviews: rv.Review[] }>();
     for (const { review: row, name } of rows) {
+      /** A technician is ranked by their star reviews; a recommendation is not a rating. */
+      if (!isStars(row)) continue;
       const key = row.technicianId!;
       const entry = groups.get(key) ?? { name, reviews: [] };
       entry.reviews.push(toCore(row));
@@ -1166,7 +1214,7 @@ export const handlers = {
   }> => ({ reasons: await withheld(ctx) }),
 
   recordReview: (ctx: ServiceContext, input: {
-    platform: string; rating: number; postedAt: string;
+    platform: string; rating?: number | undefined; recommends?: boolean | undefined; postedAt: string;
     externalId?: string | null | undefined;
     authorName?: string | null | undefined;
     body?: string | null | undefined;
@@ -1174,11 +1222,12 @@ export const handlers = {
     customerId?: string | null | undefined;
     technicianId?: string | null | undefined;
   }): Promise<{
-    id: string; rating: number; recoveryOwed: boolean;
+    id: string; kind: "stars" | "recommendation"; rating: number | null; recommends: boolean | null; recoveryOwed: boolean;
     recoveryUrgency: string | null; because: string; recoveryDueAt: Date | null;
   }> => record(ctx, {
     platform: input.platform,
     rating: input.rating,
+    recommends: input.recommends,
     postedAt: new Date(input.postedAt),
     externalId: input.externalId ?? null,
     authorName: input.authorName ?? null,
@@ -1190,7 +1239,7 @@ export const handlers = {
 
   getReviewWorkList: async (ctx: ServiceContext): Promise<{
     items: {
-      id: string; platform: string; rating: number;
+      id: string; platform: string; kind: "stars" | "recommendation"; rating: number | null; recommends: boolean | null;
       authorName: string | null; body: string | null;
       postedAt: Date; dueAt: Date; reason: string;
       overdueBy: number; overdue: boolean;

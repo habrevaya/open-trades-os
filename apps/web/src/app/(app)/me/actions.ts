@@ -251,6 +251,8 @@ export async function saveNoticeSwitches(_previous: FormState, form: FormData): 
         inApp: form.get(`${kind}.inApp`) === "on",
         push: form.get(`${kind}.push`) === "on",
         text: form.get(`${kind}.text`) === "on",
+        /** Only the kinds that are emailed have the box; for the rest there is nothing to send. */
+        ...(notices.isEmailKind(kind) ? { email: form.get(`${kind}.email`) === "on" } : {}),
       })),
     }));
     return { message: "Saved." };

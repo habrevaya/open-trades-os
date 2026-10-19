@@ -1,13 +1,15 @@
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  SYSTEM_USER_ID, assertCan, can, field, safety as rules, taskRules, time, type Actor,
+  SYSTEM_USER_ID, ROLE_IDS, ROLE_PRESETS, assertCan, can, field, holidays as holidayRules, safety as rules, taskRules, time,
+  type Actor, type RoleId,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { replayed, remember } from "./once";
 import { attach } from "./files";
+import { loadHolidays } from "./holidays";
 
 /**
  * THE TALK LIBRARY, TALKS ON A SCHEDULE, AND WHO HAS NOT SIGNED
@@ -21,10 +23,12 @@ import { attach } from "./files";
  * its title and words onto the talk, so a topic edited next year does not
  * change what this year's signed sheet says was covered.
  *
- * TALKS ON A SCHEDULE, per crew or per person, on the same schedules a
+ * TALKS ON A SCHEDULE, for a crew, a person, everybody who holds a role,
+ * everybody in a branch or the whole company, on the same schedules a
  * recurring task uses (core's `tasks` rules). The worker raises the talk on
- * its day in the company's zone, with the crew's members as they are that
- * day, and a unique index on (schedule, day) is what makes it once.
+ * its day in the company's zone, with the audience as it is that day, and a
+ * unique index on (schedule, day) is what makes it once. A schedule can be
+ * told to skip the company's holidays, as a recurring task can.
  *
  * SIGNED ON THE PHONE APP, through the field queue, as everything else the
  * phone does: the drawn signature is kept on the phone and sent as an upload,
@@ -103,8 +107,16 @@ export async function updateTopic(
 
 export interface ScheduleInput {
   topicId: string;
+  /**
+   * Who it is for: exactly one of these. A crew, a person, a role (a preset
+   * by name, or one the company defined by id), a branch, or everybody.
+   */
   crewId?: string | null | undefined;
   technicianId?: string | null | undefined;
+  role?: RoleId | null | undefined;
+  roleId?: string | null | undefined;
+  branchId?: string | null | undefined;
+  everybody?: boolean | undefined;
   frequency: taskRules.TaskFrequency;
   weekday?: number | null | undefined;
   monthDay?: number | null | undefined;
@@ -113,16 +125,26 @@ export interface ScheduleInput {
   startsOn?: string | undefined;
   location?: string | null | undefined;
   ledBy?: string | null | undefined;
+  /** Raise nothing on a day the company is closed all day. Off when not said. */
+  skipHolidays?: boolean | undefined;
 }
+
+export type Audience = typeof schema.safetyTalkAudience.enumValues[number];
 
 export interface ScheduleView {
   id: string;
   topicId: string;
   topicTitle: string;
   topicRetired: boolean;
+  audience: Audience;
   crewId: string | null;
   technicianId: string | null;
-  /** The crew's name or the person's. */
+  /** The preset role, for a role audience that names one. */
+  role: string | null;
+  /** The role the company defined, for a role audience that names one. */
+  roleId: string | null;
+  branchId: string | null;
+  /** The crew's name, the person's, the role's, the branch's, or "Everybody". */
   who: string;
   frequency: taskRules.TaskFrequency;
   weekday: number | null;
@@ -132,8 +154,9 @@ export interface ScheduleView {
   location: string | null;
   ledBy: string | null;
   active: boolean;
+  skipHolidays: boolean;
   lastRaisedOn: string | null;
-  /** "Every Monday", from the same function the worker uses. */
+  /** "Every Monday", from the same function the worker uses; ", not on a holiday" when it skips them. */
   schedule: string;
   /** The next day it raises a talk for. Null when paused or its topic is retired. */
   nextOn: string | null;
@@ -145,26 +168,42 @@ async function scheduleViews(tx: Database, rows: Array<typeof schema.safetyTalkS
     .where(inArray(schema.safetyTopic.id, [...new Set(rows.map((r) => r.topicId))]));
   const crewIds = rows.map((r) => r.crewId).filter((id): id is string => id !== null);
   const techIds = rows.map((r) => r.technicianId).filter((id): id is string => id !== null);
+  const roleIds = rows.map((r) => r.audienceRoleId).filter((id): id is string => id !== null);
+  const branchIds = rows.map((r) => r.audienceBusinessUnitId).filter((id): id is string => id !== null);
   const crews = crewIds.length === 0 ? [] : await tx.select({ id: schema.crew.id, name: schema.crew.name })
     .from(schema.crew).where(inArray(schema.crew.id, crewIds));
   const techs = techIds.length === 0 ? [] : await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
     .from(schema.technician).where(inArray(schema.technician.id, techIds));
+  const roles = roleIds.length === 0 ? [] : await tx.select({ id: schema.role.id, name: schema.role.name })
+    .from(schema.role).where(inArray(schema.role.id, roleIds));
+  const branches = branchIds.length === 0 ? [] : await tx.select({ id: schema.businessUnit.id, name: schema.businessUnit.name })
+    .from(schema.businessUnit).where(inArray(schema.businessUnit.id, branchIds));
   return rows.map((row) => {
     const topic = topics.find((t) => t.id === row.topicId);
     const plan = { frequency: row.frequency, weekday: row.weekday, monthDay: row.monthDay, startsOn: row.startsOn };
     const raisedToday = row.lastRaisedOn !== null && row.lastRaisedOn >= today;
     const dueToday = taskRules.occurrenceOnOrBefore(plan, today) === today;
     const live = row.active && !topic?.retiredAt;
+    const who = row.audience === "crew" ? `${crews.find((c) => c.id === row.crewId)?.name ?? "A crew"} (crew)`
+      : row.audience === "person" ? techs.find((t) => t.id === row.technicianId)?.name ?? "Somebody"
+        : row.audience === "role"
+          ? `Everybody with the ${row.audienceRoleId
+            ? roles.find((r) => r.id === row.audienceRoleId)?.name ?? "role that has gone"
+            : ROLE_PRESETS[row.audienceRole as RoleId]?.label ?? "role"} role`
+          : row.audience === "branch" ? `Everybody in ${branches.find((b) => b.id === row.audienceBusinessUnitId)?.name ?? "a branch that has gone"}`
+            : "Everybody";
     return {
       id: row.id,
       topicId: row.topicId,
       topicTitle: topic?.title ?? "A topic that has gone",
       topicRetired: Boolean(topic?.retiredAt),
+      audience: row.audience,
       crewId: row.crewId,
       technicianId: row.technicianId,
-      who: row.crewId
-        ? `${crews.find((c) => c.id === row.crewId)?.name ?? "A crew"} (crew)`
-        : techs.find((t) => t.id === row.technicianId)?.name ?? "Somebody",
+      role: row.audienceRole,
+      roleId: row.audienceRoleId,
+      branchId: row.audienceBusinessUnitId,
+      who,
       frequency: row.frequency,
       weekday: row.weekday,
       monthDay: row.monthDay,
@@ -173,8 +212,9 @@ async function scheduleViews(tx: Database, rows: Array<typeof schema.safetyTalkS
       location: row.location,
       ledBy: row.ledBy,
       active: row.active,
+      skipHolidays: row.skipHolidays,
       lastRaisedOn: row.lastRaisedOn,
-      schedule: taskRules.describeSchedule(plan),
+      schedule: `${taskRules.describeSchedule(plan)}${row.skipHolidays ? ", not on a holiday" : ""}`,
       nextOn: !live ? null : dueToday && !raisedToday ? today : taskRules.occurrenceAfter(plan, today),
     };
   });
@@ -191,9 +231,21 @@ export async function listSchedules(ctx: ServiceContext): Promise<ScheduleView[]
 
 export async function createSchedule(ctx: ServiceContext, input: ScheduleInput): Promise<ScheduleView> {
   assertCan(ctx.actor, "safety:write");
-  if (Boolean(input.crewId) === Boolean(input.technicianId)) {
-    throw new ConflictError("A scheduled talk is for one crew or one person. Choose one of them.");
+  const chosen = [
+    input.crewId ? "crew" : null, input.technicianId ? "person" : null,
+    input.role || input.roleId ? "role" : null, input.branchId ? "branch" : null, input.everybody ? "company" : null,
+  ].filter((a): a is Audience => a !== null);
+  if (chosen.length > 1) {
+    throw new ConflictError("A scheduled talk is for one crew or one person, one role, one branch, or everybody. Choose only one of them.");
   }
+  if (input.role && input.roleId) {
+    throw new ConflictError("Choose a role from the list, either one the company defined or one that came with it, not both.");
+  }
+  const audience = chosen[0];
+  if (!audience) {
+    throw new ConflictError("Choose who the talk is for: a crew, a person, a role, a branch, or everybody.");
+  }
+  if (input.role && !ROLE_IDS.includes(input.role)) throw new ConflictError("That is not a role.");
   const held = input.heldMinutes ?? 7 * 60;
   if (!Number.isInteger(held) || held < 0 || held >= 24 * 60) throw new ConflictError("The time it is held has to be a time of day.");
   return guardedWrite(ctx, "safety:write", async (tx) => {
@@ -218,12 +270,28 @@ export async function createSchedule(ctx: ServiceContext, input: ScheduleInput):
         .where(eq(schema.technician.id, input.technicianId)).limit(1);
       if (!tech) throw new NotFoundError("Technician");
     }
+    if (input.roleId) {
+      const [found] = await tx.select({ id: schema.role.id }).from(schema.role)
+        .where(and(eq(schema.role.id, input.roleId), isNull(schema.role.deletedAt))).limit(1);
+      if (!found) throw new NotFoundError("Role");
+    }
+    if (input.branchId) {
+      const [found] = await tx.select({ id: schema.businessUnit.id, active: schema.businessUnit.active }).from(schema.businessUnit)
+        .where(eq(schema.businessUnit.id, input.branchId)).limit(1);
+      if (!found) throw new NotFoundError("Branch");
+      if (!found.active) throw new ConflictError("That branch has been closed, so nobody works in it to hold a talk for.");
+    }
 
     const [row] = await tx.insert(schema.safetyTalkSchedule).values({
       organizationId: ctx.actor.organizationId,
       topicId: topic.id,
+      audience,
       crewId: input.crewId ?? null,
       technicianId: input.technicianId ?? null,
+      audienceRole: input.role ?? null,
+      audienceRoleId: input.roleId ?? null,
+      audienceBusinessUnitId: input.branchId ?? null,
+      skipHolidays: input.skipHolidays ?? false,
       frequency: input.frequency,
       weekday: taskRules.NEEDS_WEEKDAY.includes(input.frequency) ? input.weekday ?? null : null,
       monthDay: input.frequency === "monthly" ? input.monthDay ?? null : null,
@@ -263,20 +331,39 @@ function workerActor(organizationId: string): Actor {
   };
 }
 
-/** Who is on the sheet: the crew's members whose accounts are still active, or the one person. */
+/**
+ * Who is on the sheet, as they are today.
+ *
+ * A crew's members or the one person, as it always was (their account
+ * active). A role, a branch or the company is everybody in the field who is
+ * active on the day: an active account AND an active technician profile,
+ * because the sheet is signed from My day and a person with no technician
+ * profile has no place to sign it. A custom role REPLACES the preset on a
+ * membership, so a preset audience is the people on that preset with no
+ * custom role, and a custom role is the people who hold that one.
+ */
 async function peopleFor(tx: Database, schedule: typeof schema.safetyTalkSchedule.$inferSelect) {
-  const rows = await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
+  const m = schema.membership;
+  const audience = schedule.audience === "crew"
+    ? inArray(schema.technician.id, tx.select({ id: schema.crewMember.technicianId }).from(schema.crewMember)
+      .where(eq(schema.crewMember.crewId, schedule.crewId!)))
+    : schedule.audience === "person"
+      ? eq(schema.technician.id, schedule.technicianId!)
+      : and(
+        eq(schema.technician.active, true),
+        schedule.audience === "role"
+          ? schedule.audienceRoleId
+            ? eq(m.roleId, schedule.audienceRoleId)
+            : and(eq(m.role, schedule.audienceRole!), isNull(m.roleId))
+          : schedule.audience === "branch"
+            ? eq(m.businessUnitId, schedule.audienceBusinessUnitId!)
+            : undefined,
+      );
+  return tx.select({ id: schema.technician.id, name: schema.technician.displayName })
     .from(schema.technician)
-    .innerJoin(schema.membership, eq(schema.membership.id, schema.technician.membershipId))
-    .where(and(
-      eq(schema.membership.active, true),
-      schedule.crewId
-        ? inArray(schema.technician.id, tx.select({ id: schema.crewMember.technicianId }).from(schema.crewMember)
-          .where(eq(schema.crewMember.crewId, schedule.crewId)))
-        : eq(schema.technician.id, schedule.technicianId!),
-    ))
+    .innerJoin(m, eq(m.id, schema.technician.membershipId))
+    .where(and(eq(m.active, true), audience))
     .orderBy(asc(schema.technician.displayName));
-  return rows;
 }
 
 /**
@@ -293,6 +380,8 @@ export async function raiseTalksFor(db: Database, organizationId: string, now: D
     const today = time.dateIn(now, zone);
     const schedules = await tx.select().from(schema.safetyTalkSchedule).where(eq(schema.safetyTalkSchedule.active, true));
     const raised: string[] = [];
+    /** The company's list, and a branch's own beside it for a talk held for that branch. Read once per list wanted. */
+    const lists = new Map<string, holidayRules.CompanyHoliday[]>();
     for (const schedule of schedules) {
       const day = taskRules.occurrenceToRaise(
         { frequency: schedule.frequency, weekday: schedule.weekday, monthDay: schedule.monthDay, startsOn: schedule.startsOn },
@@ -301,6 +390,45 @@ export async function raiseTalksFor(db: Database, organizationId: string, now: D
       if (!day) continue;
       const [topic] = await tx.select().from(schema.safetyTopic).where(eq(schema.safetyTopic.id, schedule.topicId)).limit(1);
       if (!topic || topic.retiredAt) continue;
+
+      /**
+       * A schedule told to skip holidays raises nothing on a day the company
+       * is closed all day, and the day is written down as dealt with, so the
+       * next pass does not look again and the talk is not raised the day
+       * after instead. Skipped, not moved. A short day is a working day. A
+       * branch's talk also honours the branch's own days off; every other
+       * audience only the company's, since a crew or a person may span
+       * branches and one branch's day off is not theirs.
+       */
+      if (schedule.skipHolidays) {
+        const branchId = schedule.audience === "branch" ? schedule.audienceBusinessUnitId : null;
+        const key = branchId ?? "";
+        if (!lists.has(key)) lists.set(key, await loadHolidays(tx, organizationId, branchId));
+        const holiday = holidayRules.holidayOn(lists.get(key)!, day);
+        if (holiday?.closed) {
+          await tx.update(schema.safetyTalkSchedule).set({ lastRaisedOn: day, updatedAt: new Date() })
+            .where(eq(schema.safetyTalkSchedule.id, schedule.id));
+          await audit(tx, ctx, "safety.talk_skipped_holiday", "safety_talk_schedule", schedule.id, null,
+            { occurrenceOn: day, holiday: holiday.name });
+          continue;
+        }
+      }
+
+      /**
+       * A talk for a role, a branch or the company that finds nobody to put on
+       * the sheet today is not raised: a sheet nobody can sign shows up on no
+       * list and teaches the office to ignore the lists. Said in the audit
+       * log. A crew or one person keeps the older behaviour of a sheet raised
+       * as it was, so the office can add whoever is there by hand.
+       */
+      if (schedule.audience !== "crew" && schedule.audience !== "person") {
+        if ((await peopleFor(tx, schedule)).length === 0) {
+          await tx.update(schema.safetyTalkSchedule).set({ lastRaisedOn: day, updatedAt: new Date() })
+            .where(eq(schema.safetyTalkSchedule.id, schedule.id));
+          await audit(tx, ctx, "safety.talk_skipped_nobody", "safety_talk_schedule", schedule.id, null, { occurrenceOn: day });
+          continue;
+        }
+      }
 
       const [made] = await tx.insert(schema.safetyMeeting).values({
         organizationId,
@@ -349,6 +477,37 @@ export async function talkPass(
     }
   }
   return results;
+}
+
+/* ------------------------------------------- who a talk can be held for */
+
+export interface AudienceChoices {
+  /** Presets and roles the company defined: the role's own name, and whether the company defined it. */
+  roles: { value: string; label: string; own: boolean }[];
+  /** Branches still open. */
+  branches: { id: string; name: string }[];
+}
+
+/**
+ * The roles and branches a schedule can be for, by name. A role is
+ * `preset:{id}` for one that came with the product and `custom:{uuid}` for
+ * one the company defined. Read with `safety:read`: names of the company's own
+ * roles and branches, nothing about who holds them.
+ */
+export async function audienceChoices(ctx: ServiceContext): Promise<AudienceChoices> {
+  return guardedRead(ctx, "safety:read", async (tx) => {
+    const custom = await tx.select({ id: schema.role.id, name: schema.role.name }).from(schema.role)
+      .where(isNull(schema.role.deletedAt)).orderBy(asc(schema.role.name));
+    const branches = await tx.select({ id: schema.businessUnit.id, name: schema.businessUnit.name }).from(schema.businessUnit)
+      .where(eq(schema.businessUnit.active, true)).orderBy(asc(schema.businessUnit.name));
+    return {
+      roles: [
+        ...ROLE_IDS.map((id) => ({ value: `preset:${id}`, label: ROLE_PRESETS[id].label, own: false })),
+        ...custom.map((r) => ({ value: `custom:${r.id}`, label: r.name, own: true })),
+      ],
+      branches,
+    };
+  });
 }
 
 /* ------------------------------------------------- who has not signed yet */
@@ -508,6 +667,7 @@ export const handlers = {
     input: { id: string; title?: string | undefined; body?: string | undefined; retired?: boolean | undefined },
   ) => updateTopic(ctx, input),
   listSafetyTalkSchedules: async (ctx: ServiceContext) => ({ schedules: await listSchedules(ctx) }),
+  listSafetyTalkAudiences: (ctx: ServiceContext) => audienceChoices(ctx),
   createSafetyTalkSchedule: (ctx: ServiceContext, input: ScheduleInput) => createSchedule(ctx, input),
   setSafetyTalkScheduleActive: (ctx: ServiceContext, input: { id: string; active: boolean }) => setScheduleActive(ctx, input),
   listUnsignedSafetyLines: async (ctx: ServiceContext) => ({ lines: await unsigned(ctx) }),

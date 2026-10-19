@@ -241,6 +241,20 @@ export interface CertificationInput {
   reference?: string | null | undefined;
   issuedOn?: string | null | undefined;
   expiresOn?: string | null | undefined;
+  /** Days before it runs out this one holding is warned. Null or left out follows the type's number. */
+  renewalLeadDays?: number | null | undefined;
+}
+
+/** The most days a holding may be warned ahead: ten years, the same ceiling a type has. */
+const MAX_LEAD_DAYS = 3650;
+
+/** A notice period of a holding's own, or null for the type's; refused when it is not whole days. */
+function ownLead(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isInteger(value) || value < 0 || value > MAX_LEAD_DAYS) {
+    throw new ConflictError(`Warn days ahead is a whole number of days, from 0 to ${MAX_LEAD_DAYS}. Leave it blank to use the kind's own.`);
+  }
+  return value;
 }
 
 /**
@@ -324,6 +338,11 @@ export async function recordCertification(ctx: ServiceContext, input: Certificat
       }
     }
 
+    const lead = ownLead(input.renewalLeadDays);
+    if (lead !== null && !type.expires) {
+      throw new ConflictError(`${type.name} does not expire, so there is nothing to warn about ahead of time.`);
+    }
+
     const [row] = await tx.insert(schema.personCertification).values({
       organizationId: ctx.actor.organizationId,
       technicianId: technician.id,
@@ -331,6 +350,7 @@ export async function recordCertification(ctx: ServiceContext, input: Certificat
       reference: reference === "" ? null : reference,
       issuedOn,
       expiresOn,
+      renewalLeadDays: lead,
       status: "active",
     }).returning();
 
@@ -416,6 +436,34 @@ export async function setCertificationStatus(
   });
 }
 
+/**
+ * Change how many days ahead one holding is warned, or hand it back to its
+ * type's number with `null`.
+ *
+ * Not a re-record: the dates, the card number and who verified it are what
+ * they were, and the only thing that moves is when the notices start. The
+ * earlier number stays in the audit log. A notice already sent is not sent
+ * again by moving the number earlier, and one not yet sent follows the new
+ * number from the next time the worker looks.
+ */
+export async function setCertificationRenewalDays(
+  ctx: ServiceContext, input: { id: string; renewalLeadDays: number | null },
+) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const before = await loadCertification(tx, ctx.actor.organizationId, input.id);
+    const lead = ownLead(input.renewalLeadDays);
+    const type = await loadType(tx, ctx.actor.organizationId, before.certificationTypeId);
+    if (lead !== null && !type.expires) {
+      throw new ConflictError(`${type.name} does not expire, so there is nothing to warn about ahead of time.`);
+    }
+    const [row] = await tx.update(schema.personCertification).set({ renewalLeadDays: lead, updatedAt: new Date() })
+      .where(eq(schema.personCertification.id, before.id)).returning();
+    await audit(tx, ctx, "certification.renewal_days_set", "person_certification", before.id,
+      { renewalLeadDays: before.renewalLeadDays }, { renewalLeadDays: lead });
+    return { id: row!.id, renewalLeadDays: row!.renewalLeadDays, typeRenewalLeadDays: type.renewalLeadDays };
+  });
+}
+
 export interface HeldCertification {
   id: string;
   technicianId: string;
@@ -436,6 +484,13 @@ export interface HeldCertification {
   lapseReason: "expired" | "suspended" | "revoked" | null;
   verifiedAt: Date | null;
   verifiedByUserId: string | null;
+  /**
+   * Days before it runs out that it is warned: this holding's own number when
+   * it has one, and otherwise its type's as it stands today.
+   */
+  renewalLeadDays: number;
+  /** The holding's own number, or null when it follows the type's. */
+  ownRenewalLeadDays: number | null;
 }
 
 /**
@@ -484,6 +539,8 @@ export async function held(
     statusReason: schema.personCertification.statusReason,
     verifiedAt: schema.personCertification.verifiedAt,
     verifiedByUserId: schema.personCertification.verifiedByUserId,
+    ownRenewalLeadDays: schema.personCertification.renewalLeadDays,
+    typeRenewalLeadDays: schema.certificationType.renewalLeadDays,
   }).from(schema.personCertification)
     .innerJoin(schema.technician, eq(schema.technician.id, schema.personCertification.technicianId))
     .innerJoin(
@@ -499,9 +556,12 @@ export async function held(
     ))
     .orderBy(asc(schema.technician.displayName), asc(schema.certificationType.code));
 
-  return rows.map((row) => {
+  return rows.map(({ typeRenewalLeadDays, ...row }) => {
     const lapseReason = lapse(row.status, row.expiresOn, input.on);
-    return { ...row, current: lapseReason === null, lapseReason };
+    return {
+      ...row, current: lapseReason === null, lapseReason,
+      renewalLeadDays: row.ownRenewalLeadDays ?? typeRenewalLeadDays,
+    };
   });
 }
 
@@ -553,8 +613,6 @@ function addMonths(date: string, months: number): string {
 export interface ExpiringCertification extends HeldCertification {
   /** Negative once it has already gone. */
   daysRemaining: number;
-  /** The type's own notice period, which is what put this row on the list. */
-  renewalLeadDays: number;
 }
 
 /**
@@ -563,7 +621,9 @@ export interface ExpiringCertification extends HeldCertification {
  * The window is per certification type by default rather than one number for
  * the company, because the notice period is a property of the certification:
  * a licence whose renewal takes a day of paperwork and one that takes six
- * weeks of continuing education do not want the same warning. `within` is
+ * weeks of continuing education do not want the same warning. A holding can
+ * carry a number of its own over its type's, for the one person whose renewal
+ * takes longer or shorter than usual. `within` is
  * there for the screen that asks "what is coming up in the next thirty days"
  * regardless of type.
  *
@@ -606,7 +666,9 @@ export async function expiringSoon(
       const expiresOn = row.certification.expiresOn;
       if (expiresOn === null) continue;
       const remaining = daysBetween(today, expiresOn);
-      const window = input.within ?? row.type.renewalLeadDays;
+      /** This holding's own notice period when it has one, else its type's. */
+      const lead = row.certification.renewalLeadDays ?? row.type.renewalLeadDays;
+      const window = input.within ?? lead;
       if (remaining > window) continue;
 
       const lapseReason = lapse(row.certification.status, expiresOn, today);
@@ -629,7 +691,8 @@ export async function expiringSoon(
         verifiedAt: row.certification.verifiedAt,
         verifiedByUserId: row.certification.verifiedByUserId,
         daysRemaining: remaining,
-        renewalLeadDays: row.type.renewalLeadDays,
+        renewalLeadDays: lead,
+        ownRenewalLeadDays: row.certification.renewalLeadDays,
       });
     }
     return out;
@@ -1022,14 +1085,19 @@ export const handlers = {
 
   recordCertification: async (ctx: ServiceContext, input: CertificationInput): Promise<{
     id: string; technicianId: string; certificationTypeId: string;
-    issuedOn: string | null; expiresOn: string | null; status: string;
+    issuedOn: string | null; expiresOn: string | null; status: string; renewalLeadDays: number | null;
   }> => {
     const row = await recordCertification(ctx, input);
     return {
       id: row.id, technicianId: row.technicianId, certificationTypeId: row.certificationTypeId,
-      issuedOn: row.issuedOn, expiresOn: row.expiresOn, status: row.status,
+      issuedOn: row.issuedOn, expiresOn: row.expiresOn, status: row.status, renewalLeadDays: row.renewalLeadDays,
     };
   },
+
+  setCertificationRenewalDays: (ctx: ServiceContext, input: {
+    id: string; renewalLeadDays: number | null;
+  }): Promise<{ id: string; renewalLeadDays: number | null; typeRenewalLeadDays: number }> =>
+    setCertificationRenewalDays(ctx, input),
 
   verifyCertification: async (ctx: ServiceContext, input: {
     id: string; note?: string | null | undefined;

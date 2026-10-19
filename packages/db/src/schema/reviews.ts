@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, integer, jsonb, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, integer, jsonb, check, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user, technician } from "./tenancy";
@@ -266,6 +266,17 @@ export const reviewRequest = pgTable("review_request", {
 }));
 
 /**
+ * WHAT KIND OF REVIEW IT IS.
+ *
+ * `stars` is a rating from one to five. `recommendation` is a yes or a no to
+ * "do you recommend this business?", which is what Facebook has asked since
+ * 2018. A recommendation is not a rating: counted as five or one it makes the
+ * average say a yes is a perfect score, so it is kept as its own kind, left
+ * out of every star average, and counted as the share who recommend.
+ */
+export const reviewKind = pgEnum("review_kind", ["stars", "recommendation"]);
+
+/**
  * A REVIEW THAT EXISTS IN THE WORLD
  *
  * Entered by hand, or read from a Google Business Profile listing by its
@@ -285,8 +296,11 @@ export const review = pgTable("review", {
   platform: text("platform").notNull(),
   /** The platform's own id, where it has one. Makes an import idempotent. */
   externalId: text("external_id"),
-  /** One to five. */
-  rating: integer("rating").notNull(),
+  kind: reviewKind("kind").notNull().default("stars"),
+  /** One to five, for a star review. Null for a recommendation, which has none. */
+  rating: integer("rating"),
+  /** Whether they recommend the business, for a recommendation. Null for a star review. */
+  recommends: boolean("recommends"),
   authorName: text("author_name"),
   body: text("body"),
   postedAt: timestamp("posted_at", { withTimezone: true }).notNull(),
@@ -352,4 +366,13 @@ export const review = pgTable("review", {
   /** The work list: unanswered, oldest first. */
   openIdx: index("review_open_idx").on(t.organizationId, t.respondedAt, t.postedAt),
   technicianIdx: index("review_technician_idx").on(t.organizationId, t.technicianId),
+  /**
+   * Stars have a rating from one to five and no yes or no; a recommendation has a yes or no and no rating.
+   * `is not null` is spelled out: a check passes when it comes out unknown, and `null between 1 and 5` is unknown.
+   */
+  kindCheck: check("review_kind_fields", sql`(
+    ${t.kind} = 'stars' and ${t.rating} is not null and ${t.rating} between 1 and 5 and ${t.recommends} is null
+  ) or (
+    ${t.kind} = 'recommendation' and ${t.rating} is null and ${t.recommends} is not null
+  )`),
 }));

@@ -176,6 +176,19 @@ export const personCertification = pgTable("person_certification", {
   issuedOn: date("issued_on"),
   /** Null means it does not expire, and the type has to agree. */
   expiresOn: date("expires_on"),
+  /**
+   * HOW MANY DAYS BEFORE IT RUNS OUT THIS ONE HOLDING IS WARNED, when it needs
+   * a number of its own. Null, the default, follows the type's
+   * `renewal_lead_days` as it stands on the day somebody looks, so a company
+   * that changes a type's number moves every holding that never chose its own.
+   *
+   * Why a holding can carry one: the type's number is the usual time a renewal
+   * takes, and one person's can be longer (a course with a waiting list, a
+   * card that has to go to another state) or shorter (the office renews it
+   * the same day). It puts the holding on the renewals list and starts the
+   * notices to the holder, the manager and whoever keeps the list.
+   */
+  renewalLeadDays: integer("renewal_lead_days"),
   status: certificationStatus("status").notNull().default("active"),
   /** Why it was suspended or revoked, in the words of whoever did it. */
   statusReason: text("status_reason"),
@@ -208,4 +221,30 @@ export const personCertification = pgTable("person_certification", {
   referenceIdx: uniqueIndex("person_certification_reference_idx")
     .on(t.technicianId, t.certificationTypeId, t.reference)
     .where(sql`${t.reference} is not null`),
+}));
+
+/**
+ * WHO KEEPS THE RENEWALS LIST. One row per person the company named.
+ *
+ * Told, as well as the holder and their manager, when a certification or a
+ * skill reaches its renewal period and on its last day (M34's notices). None
+ * is the default and tells nobody extra, because a notice to everybody who can
+ * read the list about every card is how notices get switched off. Each is
+ * somebody active here who can read the list (`compliance:read`); the service
+ * checks that when they are named and the worker checks it again when it
+ * tells them, since a role can be narrowed after.
+ *
+ * A table rather than a column on the organization, because a company with an
+ * office manager and an owner who both chase renewals is the ordinary case.
+ * The organization's old `renewals_keeper_user_id` column held one person; the
+ * migration copied that person here and it is no longer read.
+ */
+export const certificationRenewalsKeeper = pgTable("certification_renewals_keeper", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  ...timestamps,
+}, (t) => ({
+  /** A person is named once. */
+  personIdx: uniqueIndex("certification_renewals_keeper_person_idx").on(t.organizationId, t.userId),
 }));

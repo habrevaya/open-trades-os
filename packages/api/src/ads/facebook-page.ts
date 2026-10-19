@@ -27,8 +27,9 @@ import { metaError } from "./meta-lead-ads";
  * under an id made from who left it and when, and a reply to it is refused
  * in words rather than sent somewhere it cannot land.
  *
- * Stars or a recommendation become a rating through `facebookRating` in
- * core, which says why a yes is five and a no is one.
+ * Stars stay stars and a recommendation stays a recommendation (`facebookReview`
+ * in core): a yes is not five stars, it is a yes, and it is counted as the share
+ * who recommend and left out of the star average.
  */
 
 const DEFAULT_BASE = "https://graph.facebook.com";
@@ -104,8 +105,8 @@ function createFacebookPage(input: AdapterInput): AdsAdapter {
           paging?: { cursors?: { after?: unknown }; next?: unknown };
         };
         for (const raw of body.data ?? []) {
-          const rating = ads.facebookRating(raw);
-          if (rating === null) continue;
+          const verdict = ads.facebookReview(raw);
+          if (verdict === null) continue;
           const reviewer = (raw["reviewer"] ?? {}) as { id?: unknown; name?: unknown };
           const story = (raw["open_graph_story"] ?? {}) as {
             id?: unknown;
@@ -123,7 +124,8 @@ function createFacebookPage(input: AdapterInput): AdsAdapter {
               ? story.id
               : `${LOOSE_PREFIX}${String(reviewer.id ?? reviewer.name ?? "someone")}:${created.toISOString()}`,
             authorName: typeof reviewer.name === "string" ? reviewer.name : null,
-            rating,
+            rating: verdict.kind === "stars" ? verdict.rating : null,
+            ...(verdict.kind === "recommendation" ? { recommends: verdict.recommends } : {}),
             comment: text,
             createdAt: created,
             updatedAt: created,

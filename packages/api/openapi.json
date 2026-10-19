@@ -22757,14 +22757,14 @@
       ],
       "get": {
         "operationId": "getRenewalsKeeper",
-        "summary": "Who keeps the renewals list, and is told what is running out",
-        "description": "Requires a session holding: compliance:read.",
+        "summary": "One person who keeps the renewals list (older clients: use keepers)",
+        "description": "Kept for clients written when a company could name one person. Answers with the first of them by name, or `null` when nobody is named; `GET /v1/certification-renewals/keepers` answers with everybody.\n\nRequires a session holding: compliance:read.",
         "tags": [
           "M24"
         ],
         "responses": {
           "200": {
-            "description": "Who keeps the renewals list, and is told what is running out",
+            "description": "One person who keeps the renewals list (older clients: use keepers)",
             "content": {
               "application/json": {
                 "schema": {
@@ -22849,8 +22849,8 @@
       },
       "put": {
         "operationId": "setRenewalsKeeper",
-        "summary": "Name who keeps the renewals list, or nobody",
-        "description": "Off (`null`) unless the company names somebody. When named, they are told as well as the holder and the holder's manager when a certification or a skill reaches its renewal period (the type's, or the skill record's own number of days) and on its last day, once each. Only somebody active here who can read the renewals list (`compliance:read`). Audited.\n\nRequires a session holding: compliance:write.",
+        "summary": "Name one person to keep the renewals list, or nobody (older clients: use keepers)",
+        "description": "Kept for clients written when a company could name one person. It replaces everybody who was named with this one person, or with nobody for `null`; `PUT /v1/certification-renewals/keepers` names several. Only somebody active here who can read the renewals list (`compliance:read`). Audited.\n\nRequires a session holding: compliance:write.",
         "tags": [
           "M24"
         ],
@@ -22866,11 +22866,233 @@
         },
         "responses": {
           "200": {
-            "description": "Name who keeps the renewals list, or nobody",
+            "description": "Name one person to keep the renewals list, or nobody (older clients: use keepers)",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetRenewalsKeeperOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/certification-renewals/keepers": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getRenewalsKeepers",
+        "summary": "Who keeps the renewals list, and is told what is running out",
+        "description": "Everybody the company named, by name. Empty unless the company names somebody. They are told as well as the holder and the holder's manager.\n\nRequires a session holding: compliance:read.",
+        "tags": [
+          "M24"
+        ],
+        "responses": {
+          "200": {
+            "description": "Who keeps the renewals list, and is told what is running out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetRenewalsKeepersOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      },
+      "put": {
+        "operationId": "setRenewalsKeepers",
+        "summary": "Name who keeps the renewals list: nobody, one person or several",
+        "description": "Replaces everybody named with exactly these people (`[]` for nobody). When a certification or a skill reaches its renewal period (the holding's own number of days, else the type's, else the skill record's) and on its last day, each is told once, in the app, on the phone or by text as they chose, and by email unless they switched that off on `/me`, and nobody is told twice when they are also the holder or the holder's manager. Each must be active here and able to read the renewals list (`compliance:read`), up to 20. Naming the same people again changes nothing. Audited.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRenewalsKeepersInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Name who keeps the renewals list: nobody, one person or several",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetRenewalsKeepersOutput"
                 }
               }
             }
@@ -23570,7 +23792,7 @@
       "get": {
         "operationId": "listExpiringCertifications",
         "summary": "What is about to run out, and what already has",
-        "description": "The window is each certification type's own renewal notice period unless one is given, because a licence that takes a day of paperwork and one that takes six weeks of continuing education do not want the same warning. Already expired rows are included and flagged: a renewal list that drops a certification the moment it lapses is empty exactly when somebody needed it.\n\nRequires a session holding: compliance:read.",
+        "description": "The window is each holding's own renewal notice period when it has one, else its type's, unless one is given, because a licence that takes a day of paperwork and one that takes six weeks of continuing education do not want the same warning. Already expired rows are included and flagged: a renewal list that drops a certification the moment it lapses is empty exactly when somebody needed it.\n\nRequires a session holding: compliance:read.",
         "tags": [
           "M24"
         ],
@@ -23669,6 +23891,144 @@
         "x-authorization": "session",
         "x-permissions": [
           "compliance:read"
+        ]
+      }
+    },
+    "/v1/certifications/{id}/renewal-days": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setCertificationRenewalDays",
+        "summary": "Change how many days ahead one holding is warned",
+        "description": "A holding follows its type's renewal period unless it carries a number of its own, for the one person whose renewal takes longer or shorter than usual. The number puts the holding on the renewals list and starts the notices to the holder, their manager and whoever keeps the list, and the emails that go with them. `null` hands it back to the type's number, as the type stands on the day. A notice already sent is not sent again. Refused for a type that does not expire. Audited, with the earlier number.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCertificationRenewalDaysInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Change how many days ahead one holding is warned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCertificationRenewalDaysOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
         ]
       }
     },
@@ -80177,7 +80537,7 @@
       "get": {
         "operationId": "getMyNoticeSettings",
         "summary": "Where each kind of notice reaches you",
-        "description": "Per kind, in the app, on the phone app and by text. Until you change one, a kind comes in the app and on the phone and never by text. `phones` is how many phones you have the app signed in on; `companyCanText` is whether the company has a number that can send texts.\n\nRequires a session holding: profile:own.",
+        "description": "Per kind, in the app, on the phone app and by text. Until you change one, a kind comes in the app and on the phone and never by text. A licence or skill running out also comes by email to your address, unless you switch that off (`email`; null on a kind that is never emailed). `phones` is how many phones you have the app signed in on; `companyCanText` is whether the company has a number that can send texts.\n\nRequires a session holding: profile:own.",
         "tags": [
           "M34"
         ],
@@ -80269,7 +80629,7 @@
       "post": {
         "operationId": "setMyNoticeSettings",
         "summary": "Choose where each kind of notice reaches you",
-        "description": "Only the kinds sent change. A text switch cannot be turned on before texts are, with your own number, on `POST /v1/me/notice-texts`.\n\nRequires a session holding: profile:own.",
+        "description": "Only the kinds sent change. A text switch cannot be turned on before texts are, with your own number, on `POST /v1/me/notice-texts`. `email` is for the kinds that are emailed and is refused on the others.\n\nRequires a session holding: profile:own.",
         "tags": [
           "M34"
         ],
@@ -118365,7 +118725,7 @@
       "post": {
         "operationId": "recordReview",
         "summary": "Record a review that exists",
-        "description": "Entered by hand today: no review platform connector is built and the catalogue says so. That is not a placeholder, because a company with forty reviews and a work list naming the three owed a reply is better off than one waiting for an API. The response says whether a phone call is owed and by when, so the person who just typed in a one star is told rather than left to notice it later.\n\nRequires a session holding: review:respond.",
+        "description": "Entered by hand for a platform with no connector, and read by the connectors for Google and Facebook. That is not a placeholder, because a company with forty reviews and a work list naming the three owed a reply is better off than one waiting for an API. The response says whether a phone call is owed and by when, so the person who just typed in a one star is told rather than left to notice it later. A review is either a rating from one to five (`rating`) or a recommendation, a yes or a no (`recommends`), never both and never neither: Facebook asks \"do you recommend\" and not for stars, and a recommendation counted as five or one would make the average call every yes a perfect score. A recommendation is left out of every star average and counted as the share who recommend, but it still owes a reply, and a no still owes a call, as a one star does.\n\nRequires a session holding: review:respond.",
         "tags": [
           "M20"
         ],
@@ -119036,7 +119396,7 @@
       "get": {
         "operationId": "getRating",
         "summary": "Three views of the same reviews, because no single number is honest",
-        "description": "The mean is wrong about time: a shop run badly two years ago reads as mediocre forever. The recency weighted view is wrong about volume: on a dozen reviews one swings it. The lower bound is wrong about how good you are, deliberately and always downward, which makes it safe to sort by and unsafe to print on a van. Every caveat travels with its number.\n\nRequires a session holding: review:respond.",
+        "description": "The mean is wrong about time: a shop run badly two years ago reads as mediocre forever. The recency weighted view is wrong about volume: on a dozen reviews one swings it. The lower bound is wrong about how good you are, deliberately and always downward, which makes it safe to sort by and unsafe to print on a van. Every caveat travels with its number. The three are over the star reviews only; a recommendation (Facebook's yes or no) is not a rating and is counted apart, as `recommendations`: how many, how many said yes, and the share. `platform` narrows both.\n\nRequires a session holding: review:respond.",
         "tags": [
           "M20"
         ],
@@ -123571,6 +123931,104 @@
         ]
       }
     },
+    "/v1/safety/schedule-audiences": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listSafetyTalkAudiences",
+        "summary": "The roles and branches a talk can be held for",
+        "description": "Roles by name (`preset:{id}` for one that came with the product, `custom:{uuid}` for one the company defined, with `own` true) and the branches still open. Names only; nothing about who holds them.\n\nRequires a session holding: safety:read.",
+        "tags": [
+          "M23"
+        ],
+        "responses": {
+          "200": {
+            "description": "The roles and branches a talk can be held for",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSafetyTalkAudiencesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:read"
+        ]
+      }
+    },
     "/v1/safety/schedules": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -123580,7 +124038,7 @@
       "post": {
         "operationId": "createSafetyTalkSchedule",
         "summary": "Hold a talk from the library on a schedule",
-        "description": "For one crew (`crewId`) or one person (`technicianId`), never both. `frequency` is the same as a recurring task's. The worker raises the talk on its day in the company's zone at `heldMinutes`, with the crew's members as they are that day, once per day whatever it does, and only the latest occurrence after it was down.\n\nRequires a session holding: safety:write.",
+        "description": "For exactly one audience: a crew (`crewId`), a person (`technicianId`), everybody who holds a role (`role`, a preset by name, or `roleId`, one the company defined), everybody in a branch (`branchId`), or the whole company (`everybody: true`). A role, a branch or the company means the people who work in the field and have an active account on the day, because the sheet is signed from My day on the phone; a role the company defined replaces the preset on whoever holds it. `frequency` is the same as a recurring task's. The worker raises the talk on its day in the company's zone at `heldMinutes`, with the audience as it is that day, once per day whatever it does, and only the latest occurrence after it was down. A talk for a role, a branch or the company with nobody to put on the sheet that day is not raised, and the audit log says so. `skipHolidays` raises nothing on a day the company is closed all day (a branch's talk also honours the branch's own days off) and does not move the talk to another day; a short day is a working day.\n\nRequires a session holding: safety:write.",
         "tags": [
           "M23"
         ],
@@ -123702,14 +124160,14 @@
       },
       "get": {
         "operationId": "listSafetyTalkSchedules",
-        "summary": "Toolbox talks that come round, per crew or per person",
+        "summary": "Toolbox talks that come round, for a crew, a person, a role, a branch or everybody",
         "description": "Requires a session holding: safety:read.",
         "tags": [
           "M23"
         ],
         "responses": {
           "200": {
-            "description": "Toolbox talks that come round, per crew or per person",
+            "description": "Toolbox talks that come round, for a crew, a person, a role, a branch or everybody",
             "content": {
               "application/json": {
                 "schema": {
@@ -171613,6 +172071,41 @@
             ],
             "format": "uuid"
           },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "technician",
+              "crew_lead",
+              "accountant",
+              "readonly"
+            ]
+          },
+          "roleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "everybody": {
+            "type": "boolean"
+          },
           "frequency": {
             "type": "string",
             "enum": [
@@ -171662,6 +172155,9 @@
               "null"
             ],
             "maxLength": 200
+          },
+          "skipHolidays": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -171686,6 +172182,16 @@
           "topicRetired": {
             "type": "boolean"
           },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "crew",
+              "person",
+              "role",
+              "branch",
+              "company"
+            ]
+          },
           "crewId": {
             "type": [
               "string",
@@ -171694,6 +172200,26 @@
             "format": "uuid"
           },
           "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchId": {
             "type": [
               "string",
               "null"
@@ -171748,6 +172274,9 @@
           "active": {
             "type": "boolean"
           },
+          "skipHolidays": {
+            "type": "boolean"
+          },
           "lastRaisedOn": {
             "type": [
               "string",
@@ -171771,8 +172300,12 @@
           "topicId",
           "topicTitle",
           "topicRetired",
+          "audience",
           "crewId",
           "technicianId",
+          "role",
+          "roleId",
+          "branchId",
           "who",
           "frequency",
           "weekday",
@@ -171782,6 +172315,7 @@
           "location",
           "ledBy",
           "active",
+          "skipHolidays",
           "lastRaisedOn",
           "schedule",
           "nextOn"
@@ -200873,6 +201407,12 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "email": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -200881,7 +201421,8 @@
                 "text",
                 "kind",
                 "label",
-                "description"
+                "description",
+                "email"
               ]
             }
           },
@@ -208054,6 +208595,36 @@
               "recentMean",
               "confidence"
             ]
+          },
+          "recommendations": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "recommend": {
+                "type": "integer"
+              },
+              "doNot": {
+                "type": "integer"
+              },
+              "share": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "caveat": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "count",
+              "recommend",
+              "doNot",
+              "share",
+              "caveat"
+            ]
           }
         },
         "required": [
@@ -208062,7 +208633,8 @@
           "recentMean",
           "confidence",
           "method",
-          "caveats"
+          "caveats",
+          "recommendations"
         ]
       },
       "GetRatingByTechnicianOutput": {
@@ -209237,6 +209809,37 @@
           "active"
         ]
       },
+      "GetRenewalsKeepersOutput": {
+        "type": "object",
+        "properties": {
+          "keepers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "userId",
+                "name",
+                "active"
+              ]
+            }
+          }
+        },
+        "required": [
+          "keepers"
+        ]
+      },
       "GetRentalOutput": {
         "type": "object",
         "properties": {
@@ -209818,8 +210421,24 @@
                 "platform": {
                   "type": "string"
                 },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "stars",
+                    "recommendation"
+                  ]
+                },
                 "rating": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "recommends": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "authorName": {
                   "type": [
@@ -209868,7 +210487,9 @@
               "required": [
                 "id",
                 "platform",
+                "kind",
                 "rating",
+                "recommends",
                 "authorName",
                 "body",
                 "postedAt",
@@ -211506,6 +212127,15 @@
                           "null"
                         ],
                         "format": "uuid"
+                      },
+                      "renewalLeadDays": {
+                        "type": "integer"
+                      },
+                      "ownRenewalLeadDays": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
                       }
                     },
                     "required": [
@@ -211525,7 +212155,9 @@
                       "current",
                       "lapseReason",
                       "verifiedAt",
-                      "verifiedByUserId"
+                      "verifiedByUserId",
+                      "renewalLeadDays",
+                      "ownRenewalLeadDays"
                     ]
                   }
                 }
@@ -220193,6 +220825,15 @@
                     "null"
                   ],
                   "format": "uuid"
+                },
+                "renewalLeadDays": {
+                  "type": "integer"
+                },
+                "ownRenewalLeadDays": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -220212,7 +220853,9 @@
                 "current",
                 "lapseReason",
                 "verifiedAt",
-                "verifiedByUserId"
+                "verifiedByUserId",
+                "renewalLeadDays",
+                "ownRenewalLeadDays"
               ]
             }
           }
@@ -226676,10 +227319,16 @@
                   ],
                   "format": "uuid"
                 },
-                "daysRemaining": {
+                "renewalLeadDays": {
                   "type": "integer"
                 },
-                "renewalLeadDays": {
+                "ownRenewalLeadDays": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "daysRemaining": {
                   "type": "integer"
                 }
               },
@@ -226701,8 +227350,9 @@
                 "lapseReason",
                 "verifiedAt",
                 "verifiedByUserId",
-                "daysRemaining",
-                "renewalLeadDays"
+                "renewalLeadDays",
+                "ownRenewalLeadDays",
+                "daysRemaining"
               ]
             }
           }
@@ -238127,6 +238777,56 @@
           "meetings"
         ]
       },
+      "ListSafetyTalkAudiencesOutput": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "own": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "value",
+                "label",
+                "own"
+              ]
+            }
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "roles",
+          "branches"
+        ]
+      },
       "ListSafetyTalkSchedulesOutput": {
         "type": "object",
         "properties": {
@@ -238149,6 +238849,16 @@
                 "topicRetired": {
                   "type": "boolean"
                 },
+                "audience": {
+                  "type": "string",
+                  "enum": [
+                    "crew",
+                    "person",
+                    "role",
+                    "branch",
+                    "company"
+                  ]
+                },
                 "crewId": {
                   "type": [
                     "string",
@@ -238157,6 +238867,26 @@
                   "format": "uuid"
                 },
                 "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "role": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "roleId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchId": {
                   "type": [
                     "string",
                     "null"
@@ -238211,6 +238941,9 @@
                 "active": {
                   "type": "boolean"
                 },
+                "skipHolidays": {
+                  "type": "boolean"
+                },
                 "lastRaisedOn": {
                   "type": [
                     "string",
@@ -238234,8 +238967,12 @@
                 "topicId",
                 "topicTitle",
                 "topicRetired",
+                "audience",
                 "crewId",
                 "technicianId",
+                "role",
+                "roleId",
+                "branchId",
                 "who",
                 "frequency",
                 "weekday",
@@ -238245,6 +238982,7 @@
                 "location",
                 "ledBy",
                 "active",
+                "skipHolidays",
                 "lastRaisedOn",
                 "schedule",
                 "nextOn"
@@ -254073,6 +254811,14 @@
               "null"
             ],
             "format": "date"
+          },
+          "renewalLeadDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 3650
           }
         },
         "required": [
@@ -254116,6 +254862,12 @@
               "suspended",
               "revoked"
             ]
+          },
+          "renewalLeadDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
@@ -254124,7 +254876,8 @@
           "certificationTypeId",
           "issuedOn",
           "expiresOn",
-          "status"
+          "status",
+          "renewalLeadDays"
         ]
       },
       "RecordClaimPaymentInput": {
@@ -256861,6 +257614,9 @@
             "minimum": 1,
             "maximum": 5
           },
+          "recommends": {
+            "type": "boolean"
+          },
           "postedAt": {
             "type": "string",
             "format": "date-time"
@@ -256910,7 +257666,6 @@
         },
         "required": [
           "platform",
-          "rating",
           "postedAt"
         ]
       },
@@ -256921,8 +257676,24 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "stars",
+              "recommendation"
+            ]
+          },
           "rating": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recommends": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "recoveryOwed": {
             "type": "boolean"
@@ -256950,7 +257721,9 @@
         },
         "required": [
           "id",
+          "kind",
           "rating",
+          "recommends",
           "recoveryOwed",
           "recoveryUrgency",
           "because",
@@ -271799,6 +272572,45 @@
           "hours"
         ]
       },
+      "SetCertificationRenewalDaysInput": {
+        "type": "object",
+        "properties": {
+          "renewalLeadDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "renewalLeadDays"
+        ]
+      },
+      "SetCertificationRenewalDaysOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "renewalLeadDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "typeRenewalLeadDays": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "renewalLeadDays",
+          "typeRenewalLeadDays"
+        ]
+      },
       "SetCertificationStatusInput": {
         "type": "object",
         "properties": {
@@ -274891,6 +275703,9 @@
                     "expense_decided",
                     "qualification_expiry"
                   ]
+                },
+                "email": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -274942,6 +275757,12 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "email": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -274950,7 +275771,8 @@
                 "text",
                 "kind",
                 "label",
-                "description"
+                "description",
+                "email"
               ]
             }
           },
@@ -275053,6 +275875,12 @@
                 },
                 "description": {
                   "type": "string"
+                },
+                "email": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -275061,7 +275889,8 @@
                 "text",
                 "kind",
                 "label",
-                "description"
+                "description",
+                "email"
               ]
             }
           },
@@ -277451,6 +278280,53 @@
           "active"
         ]
       },
+      "SetRenewalsKeepersInput": {
+        "type": "object",
+        "properties": {
+          "userIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "userIds"
+        ]
+      },
+      "SetRenewalsKeepersOutput": {
+        "type": "object",
+        "properties": {
+          "keepers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "userId",
+                "name",
+                "active"
+              ]
+            }
+          }
+        },
+        "required": [
+          "keepers"
+        ]
+      },
       "SetRentalBillingTermsInput": {
         "type": "object",
         "properties": {
@@ -278314,6 +279190,16 @@
           "topicRetired": {
             "type": "boolean"
           },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "crew",
+              "person",
+              "role",
+              "branch",
+              "company"
+            ]
+          },
           "crewId": {
             "type": [
               "string",
@@ -278322,6 +279208,26 @@
             "format": "uuid"
           },
           "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchId": {
             "type": [
               "string",
               "null"
@@ -278376,6 +279282,9 @@
           "active": {
             "type": "boolean"
           },
+          "skipHolidays": {
+            "type": "boolean"
+          },
           "lastRaisedOn": {
             "type": [
               "string",
@@ -278399,8 +279308,12 @@
           "topicId",
           "topicTitle",
           "topicRetired",
+          "audience",
           "crewId",
           "technicianId",
+          "role",
+          "roleId",
+          "branchId",
           "who",
           "frequency",
           "weekday",
@@ -278410,6 +279323,7 @@
           "location",
           "ledBy",
           "active",
+          "skipHolidays",
           "lastRaisedOn",
           "schedule",
           "nextOn"

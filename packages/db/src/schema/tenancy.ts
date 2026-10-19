@@ -131,12 +131,11 @@ export const organization = pgTable("organization", {
    */
   demoUserId: uuid("demo_user_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
   /**
-   * WHO KEEPS THE RENEWALS LIST, when the company says somebody does: told,
-   * as well as the holder and their manager, when a certification or a skill
-   * is about to run out and on the day. Null, the default, tells nobody
-   * extra, because a notice to everybody who can read the list about every
-   * card is how notices get switched off. One person, chosen on
-   * `/certifications`, who can read the list (`compliance:read`).
+   * RETIRED. The one person who kept the renewals list before a company could
+   * name several. The people who keep it are now `certification_renewals_keeper`
+   * (M24); the migration copied this person there and set this to null, and
+   * nothing reads or writes it. Left in place for a release so a database
+   * restored from before can still be migrated, and dropped after.
    */
   renewalsKeeperUserId: uuid("renewals_keeper_user_id").references((): AnyPgColumn => user.id, { onDelete: "set null" }),
   /**
