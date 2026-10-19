@@ -21,7 +21,7 @@ import { emit } from "./events";
 import * as plugins from "./plugins";
 import { announce, NEW_VISIT, sideOf } from "./visit-notices";
 import { awayBetween } from "./time-off";
-import { inForceAt } from "./pricebook";
+import { costPerUseUnit, inForceAt } from "./pricebook";
 import { gate as qualificationGate, workDay, workSkills } from "./qualification";
 import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
@@ -1474,7 +1474,7 @@ export async function complete(ctx: ServiceContext, input: z.infer<typeof comple
         name: schema.priceBookItemVersion.name,
         description: schema.priceBookItemVersion.description,
         price: schema.priceBookItemVersion.price,
-        cost: schema.priceBookItemVersion.cost,
+        cost: costPerUseUnit,
         taxable: schema.priceBookItemVersion.taxable,
         kind: schema.priceBookItem.kind,
       }).from(schema.priceBookItemVersion)

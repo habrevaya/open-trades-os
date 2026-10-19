@@ -155,7 +155,9 @@ before this is the company's. A retired branch's year can be read and is given
 no new lines.
 
 **Material cost is the job's lines plus the cost posted on the job.** A job's
-material cost is what its lines cost, and on top of that its cost of goods sold
+material cost is what its lines cost (each line's cost taken from the price book
+version per the unit the line counts: an item bought by the gallon and used by
+the ounce is costed per ounce, M06), and on top of that its cost of goods sold
 entries in the ledger: the share of a freight or duty bill that arrived after a
 delivery and landed on parts this job had already used (M16), less any taken
 back when a unit came back off the job, and any cost an accountant journalled to

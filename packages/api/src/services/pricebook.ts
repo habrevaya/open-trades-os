@@ -1,6 +1,6 @@
-import { and, eq, desc, gt, inArray, lt, lte, or, isNull } from "drizzle-orm";
+import { and, eq, desc, gt, inArray, lt, lte, or, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, tax } from "@opentradesos/core";
+import { assertCan, catalogue, tax } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, clean, decodeCursor, paginate, NotFoundError, ConflictError,
@@ -82,6 +82,38 @@ export function inForceAt(at: Date = new Date()) {
  */
 
 /**
+ * BOUGHT IN ONE UNIT, USED IN ANOTHER.
+ *
+ * A version that says it is bought by the gallon and used by the ounce has
+ * its cost per gallon, as the supplier bills it, and every line that counts
+ * it counts ounces. So everything that takes a line's cost from the book
+ * takes the cost per USE unit: a job line, an invoice line and an estimate
+ * line, and so job costing and every margin. A version with no units is what
+ * it always was. This is that one expression, for the selects that read a
+ * version's cost onto a line, so no copy of it can drift.
+ */
+export const costPerUseUnit = sql<string | null>`(case when ${schema.priceBookItemVersion.usePerBuy} > 0
+  then round(${schema.priceBookItemVersion.cost} / ${schema.priceBookItemVersion.usePerBuy}, 4)
+  else ${schema.priceBookItemVersion.cost} end)`;
+
+/** A version's units, when it says it is bought in one and used in another. */
+export function unitsOf(version: { buyUnit: string | null; useUnit: string | null; usePerBuy: string | null }): catalogue.Units | null {
+  return version.buyUnit && version.useUnit && version.usePerBuy && Number(version.usePerBuy) > 0
+    ? { buy: version.buyUnit, use: version.useUnit, usePerBuy: version.usePerBuy.includes(".") ? version.usePerBuy.replace(/\.?0+$/, "") : version.usePerBuy }
+    : null;
+}
+
+/** Units as a caller sends them, checked: all three or none, refused in words. */
+export function checkedUnits(units: { buy: string; use: string; usePerBuy: string } | null): {
+  buyUnit: string | null; useUnit: string | null; usePerBuy: string | null;
+} {
+  if (units === null) return { buyUnit: null, useUnit: null, usePerBuy: null };
+  const problem = catalogue.unitsProblem(units);
+  if (problem) throw new UnprocessableError("Units it is bought and used in", [{ path: "units", message: problem }]);
+  return { buyUnit: units.buy.trim(), useUnit: units.use.trim(), usePerBuy: units.usePerBuy.trim() };
+}
+
+/**
  * Margin is derived rather than stored, because a stored one goes stale the
  * moment either side of it changes and nobody notices.
  *
@@ -113,7 +145,11 @@ export function chemicalOf(item: { chemicalUnit: string | null; epaRegistrationN
  */
 export async function chemicalAt(
   tx: Database, organizationId: string, itemId: string, at: Date,
-): Promise<{ itemId: string; name: string; unit: string; epaRegistrationNumber: string | null } | null> {
+): Promise<{
+  itemId: string; name: string; unit: string; epaRegistrationNumber: string | null;
+  /** The units of the version in force then, when it is bought in one and used in another. */
+  units: catalogue.Units | null;
+} | null> {
   const [item] = await tx.select({
     id: schema.priceBookItem.id, unit: schema.priceBookItem.chemicalUnit,
     epa: schema.priceBookItem.epaRegistrationNumber,
@@ -124,12 +160,34 @@ export async function chemicalAt(
       isNull(schema.priceBookItem.deletedAt),
     )).limit(1);
   if (!item?.unit) return null;
-  const [named] = await tx.select({ name: schema.priceBookItemVersion.name }).from(schema.priceBookItemVersion)
+  const pick = {
+    name: schema.priceBookItemVersion.name, buyUnit: schema.priceBookItemVersion.buyUnit,
+    useUnit: schema.priceBookItemVersion.useUnit, usePerBuy: schema.priceBookItemVersion.usePerBuy,
+  };
+  const [named] = await tx.select(pick).from(schema.priceBookItemVersion)
     .where(and(eq(schema.priceBookItemVersion.itemId, itemId), inForceAt(at))).limit(1);
-  const [latest] = named ? [named] : await tx.select({ name: schema.priceBookItemVersion.name })
+  const [latest] = named ? [named] : await tx.select(pick)
     .from(schema.priceBookItemVersion).where(eq(schema.priceBookItemVersion.itemId, itemId))
     .orderBy(desc(schema.priceBookItemVersion.version)).limit(1);
-  return { itemId: item.id, name: latest?.name ?? "", unit: item.unit, epaRegistrationNumber: item.epa };
+  return {
+    itemId: item.id, name: latest?.name ?? "", unit: item.unit, epaRegistrationNumber: item.epa,
+    units: latest ? unitsOf(latest) : null,
+  };
+}
+
+/**
+ * The unit an application chosen from the book is recorded in: the one the
+ * person said when it is the version's buy unit or its use unit, spelt as the
+ * book spells it, and otherwise the unit the chemical mark says, as it always
+ * was. A version with no units always takes the mark's.
+ */
+export function applicationUnitFor(
+  chemical: { unit: string; units: catalogue.Units | null }, said: unknown,
+): string {
+  if (typeof said !== "string" || !chemical.units) return chemical.unit;
+  if (catalogue.sameUnit(said, chemical.units.buy)) return chemical.units.buy;
+  if (catalogue.sameUnit(said, chemical.units.use)) return chemical.units.use;
+  return chemical.unit;
 }
 
 export interface ItemRow {
@@ -147,6 +205,9 @@ function shape(ctx: ServiceContext, row: ItemRow) {
   const version = clean(ctx, "priceBookItemVersion", row.version);
   const visible = version as Record<string, unknown>;
   const cost = (visible["cost"] ?? null) as string | null;
+  const units = unitsOf(row.version);
+  /** What one use unit costs, which is what a line counts and what the margin is of. */
+  const perUse = cost !== null && units ? catalogue.costPerUse(cost, units) : cost;
 
   /**
    * The fields that redaction can never remove are read from the ROW, not
@@ -178,6 +239,8 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     warrantyMonths: row.version.warrantyMonths ?? null,
     warrantyRegistrationDays: row.version.warrantyRegistrationDays ?? null,
     components: row.version.components,
+    /** Bought in one unit and used in another, when the version says so: its cost is per the buy unit. */
+    units,
     active: row.item.active,
     externalRef: row.item.sourceSystem && row.item.sourceId
       ? { source: row.item.sourceSystem, id: row.item.sourceId }
@@ -185,7 +248,9 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     // Absent entirely, rather than null, when the caller may not see it. A
     // null reads as "this item has no cost recorded", which is a different
     // fact from "you are not allowed to know".
-    ...("cost" in visible ? { cost, margin: marginOf(row.version.price, cost) } : {}),
+    ...("cost" in visible
+      ? { cost, margin: marginOf(row.version.price, perUse), ...(units && perUse !== null ? { costPerUse: perUse } : {}) }
+      : {}),
     ...("commissionRate" in visible ? { commissionRate: row.version.commissionRate } : {}),
     createdAt: row.item.createdAt,
     updatedAt: row.version.updatedAt,
@@ -304,6 +369,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       laborMinutes: input.laborMinutes ?? null,
       warrantyMonths: input.warrantyMonths ?? null,
       warrantyRegistrationDays: input.warrantyRegistrationDays ?? null,
+      ...checkedUnits(input.units ?? null),
       effectiveFrom: new Date(),
     }).returning();
 
@@ -362,6 +428,7 @@ export async function revise(ctx: ServiceContext, input: z.infer<typeof revisePr
       ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
       ...(input.commissionRate !== undefined ? { commissionRate: input.commissionRate } : {}),
       ...(input.components !== undefined ? { components: await checkedComponents(tx, current.item.id, input.components) } : {}),
+      ...(input.units !== undefined ? { units: checkedUnits(input.units) } : {}),
     }, effectiveFrom);
 
     if (ctx.idempotencyKey) {
@@ -399,6 +466,8 @@ export interface RevisionChanges {
   imageUrl?: string | null;
   /** What a seller is paid on it, as a share of the line; null goes back to their plan, left out it carries forward. */
   commissionRate?: string | null;
+  /** Bought in one unit and used in another, already checked by `checkedUnits`; all null takes them off, left out they carry forward. */
+  units?: { buyUnit: string | null; useUnit: string | null; usePerBuy: string | null };
 }
 
 /**
@@ -509,6 +578,9 @@ export async function reviseWithin(
     warrantyRegistrationDays: changes.warrantyRegistrationDays !== undefined
       ? changes.warrantyRegistrationDays : current.version.warrantyRegistrationDays,
     components: changes.components ?? current.version.components,
+    buyUnit: changes.units ? changes.units.buyUnit : current.version.buyUnit,
+    useUnit: changes.units ? changes.units.useUnit : current.version.useUnit,
+    usePerBuy: changes.units ? changes.units.usePerBuy : current.version.usePerBuy,
     effectiveFrom,
   }).returning();
 
@@ -517,10 +589,12 @@ export async function reviseWithin(
     {
       version: current.version.version, price: current.version.price,
       imageUrl: current.version.imageUrl, commissionRate: current.version.commissionRate,
+      ...(changes.units ? { units: unitsOf(current.version) } : {}),
     },
     {
       version: version!.version, price: version!.price,
       imageUrl: version!.imageUrl, commissionRate: version!.commissionRate,
+      ...(changes.units ? { units: unitsOf(version!) } : {}),
     },
   );
   return version!;

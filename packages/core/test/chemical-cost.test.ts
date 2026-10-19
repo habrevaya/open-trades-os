@@ -41,3 +41,22 @@ describe("the company's chemical cost per stop", () => {
       .toEqual({ cost: 10, stops: 3, notValued: 1 });
   });
 });
+
+describe("a product bought by the gallon and applied by the ounce", () => {
+  const gallon = { buy: "gal", use: "oz", usePerBuy: 128 };
+  const applied = (quantity: number, unit: string, units: typeof gallon | null = gallon) => ({
+    quantity, unit, itemId: "item", itemUnit: "oz", costPerUnit: 40, units,
+  });
+
+  it("values an application in the buy unit at the cost, and in the use unit at the cost over the ratio", () => {
+    expect(reporting.chemicalCostOf([applied(1, "gal")])).toEqual({ counted: true, cost: 40 });
+    expect(reporting.chemicalCostOf([applied(16, "oz")])).toEqual({ counted: true, cost: 5 });
+    expect(reporting.chemicalCostOf([applied(16, "OZ "), applied(0.5, "gal")])).toEqual({ counted: true, cost: 25 });
+  });
+
+  it("leaves the stop out for a third unit, and values a version with no units exactly as before", () => {
+    expect(reporting.chemicalCostOf([applied(1, "quart")])).toEqual({ counted: false });
+    expect(reporting.chemicalCostOf([applied(2, "oz", null)])).toEqual({ counted: true, cost: 80 });
+    expect(reporting.chemicalCostOf([applied(2, "gal", null)])).toEqual({ counted: false });
+  });
+});

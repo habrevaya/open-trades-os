@@ -75,7 +75,10 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
       </div>
       <p className="mt-1 text-sm text-ink-700">
         {label(PRICE_BOOK_KIND, item.kind)}, <Money value={item.price} />
-        {"cost" in item && item.cost ? <>, costs <Money value={item.cost} /> {item.margin ? `(${(Number(item.margin) * 100).toFixed(1)}% margin)` : ""}</> : null}
+        {item.units ? <> per {item.units.use}</> : null}
+        {"cost" in item && item.cost ? <>, costs <Money value={item.cost} />{item.units ? <> per {item.units.buy}</> : null}
+          {"costPerUse" in item && item.costPerUse && item.units ? <> (<Money value={item.costPerUse} /> per {item.units.use}, {Number(item.units.usePerBuy)} to the {item.units.buy})</> : null}
+          {" "}{item.margin ? `(${(Number(item.margin) * 100).toFixed(1)}% margin)` : ""}</> : null}
         {!item.inForce ? " Not in force yet: its only version starts later." : null}
       </p>
 

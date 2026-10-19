@@ -4287,6 +4287,11 @@ export interface CreatePriceBookItemInput {
   laborMinutes?: number;
   warrantyMonths?: number;
   warrantyRegistrationDays?: number;
+  units?: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  };
   feeRole?: "diagnostic" | "after_hours";
   externalRef?: {
     source: string;
@@ -4319,8 +4324,14 @@ export interface CreatePriceBookItemOutput {
     itemId: string;
     quantity: number;
   }>;
+  units: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  } | null;
   active: boolean;
   cost?: string | null;
+  costPerUse?: string;
   margin?: string | null;
   commissionRate?: string | null;
   externalRef: {
@@ -11301,8 +11312,14 @@ export interface GetPriceBookItemOutput {
     itemId: string;
     quantity: number;
   }>;
+  units: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  } | null;
   active: boolean;
   cost?: string | null;
+  costPerUse?: string;
   margin?: string | null;
   commissionRate?: string | null;
   externalRef: {
@@ -12778,6 +12795,10 @@ export interface GetVisitProductsOutput {
     name: string;
     unit: string;
     epaRegistrationNumber: string | null;
+    units: {
+      buy: string;
+      use: string;
+    } | null;
   }>;
   applied: Array<{
     id: string;
@@ -16793,8 +16814,14 @@ export interface ListPriceBookOutput {
       itemId: string;
       quantity: number;
     }>;
+    units: {
+      buy: string;
+      use: string;
+      usePerBuy: string;
+    } | null;
     active: boolean;
     cost?: string | null;
+    costPerUse?: string;
     margin?: string | null;
     commissionRate?: string | null;
     externalRef: {
@@ -21450,6 +21477,7 @@ export interface RecordVisitProductInput {
   quantity: string;
   applicatorLicense?: string;
   targetPest?: string;
+  unit?: string;
 }
 
 export interface RecordVisitProductOutput {
@@ -21465,6 +21493,10 @@ export interface RecordVisitProductOutput {
     name: string;
     unit: string;
     epaRegistrationNumber: string | null;
+    units: {
+      buy: string;
+      use: string;
+    } | null;
   }>;
   applied: Array<{
     id: string;
@@ -23341,6 +23373,11 @@ export interface RevisePriceBookItemInput {
   laborMinutes?: number;
   warrantyMonths?: number | null;
   warrantyRegistrationDays?: number | null;
+  units?: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  } | null;
   components?: Array<{
     itemId: string;
     quantity: number;
@@ -23375,8 +23412,14 @@ export interface RevisePriceBookItemOutput {
     itemId: string;
     quantity: number;
   }>;
+  units: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  } | null;
   active: boolean;
   cost?: string | null;
+  costPerUse?: string;
   margin?: string | null;
   commissionRate?: string | null;
   externalRef: {
@@ -28491,8 +28534,14 @@ export type UpdatePriceBookItemOutput = {
     itemId: string;
     quantity: number;
   }>;
+  units: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  } | null;
   active: boolean;
   cost?: string | null;
+  costPerUse?: string;
   margin?: string | null;
   commissionRate?: string | null;
   externalRef: {

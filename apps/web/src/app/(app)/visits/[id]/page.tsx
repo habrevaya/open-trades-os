@@ -276,8 +276,13 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
               <div className="grid gap-3 sm:grid-cols-2">
                 <Select label="Question it answers" name="field" options={products.fields.map((f) => ({ value: f.key, label: f.label }))} />
                 <Select label="Product" name="priceBookItemId" required
-                        options={[{ value: "", label: "Choose the product" }, ...products.chemicals.map((c) => ({ value: c.id, label: `${c.name}, per ${c.unit}` }))]} />
+                        options={[{ value: "", label: "Choose the product" }, ...products.chemicals.map((c) => ({
+                          value: c.id, label: c.units ? `${c.name}, per ${c.units.use} or ${c.units.buy}` : `${c.name}, per ${c.unit}`,
+                        }))]} />
                 <TextField label="How much" name="quantity" inputMode="decimal" required />
+                {products.chemicals.some((c) => c.units) && (
+                  <TextField label="In what, for a product bought in one unit and used in another (like oz or gal)" name="unit" maxLength={20} />
+                )}
                 <TextField label="Target pest" name="targetPest" maxLength={120} />
                 <TextField label="Applicator licence" name="applicatorLicense" maxLength={120} />
               </div>

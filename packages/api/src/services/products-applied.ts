@@ -4,7 +4,7 @@ import {
   audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { jobVisibility } from "./scope";
-import { chemicalAt, inForceAt } from "./pricebook";
+import { applicationUnitFor, chemicalAt, inForceAt, unitsOf } from "./pricebook";
 import { fileReport, templateFor } from "./field";
 
 /**
@@ -53,7 +53,11 @@ export interface ProductsOnVisit {
   /** The product fields this visit's report asks for, from its template. Empty when it asks for none. */
   fields: Array<{ key: string; label: string }>;
   /** The chemicals in the price book, by name, with their unit and EPA number. Never a cost. */
-  chemicals: Array<{ id: string; name: string; unit: string; epaRegistrationNumber: string | null }>;
+  chemicals: Array<{
+    id: string; name: string; unit: string; epaRegistrationNumber: string | null;
+    /** The units the version in force is bought and used in, when it has both: either can be recorded. */
+    units: { buy: string; use: string } | null;
+  }>;
   /** The latest answer to each product field on each report on the visit. */
   applied: AppliedProduct[];
 }
@@ -98,6 +102,8 @@ async function readWithin(tx: Database, ctx: ServiceContext, visitId: string): P
   const chemicals = await tx.select({
     id: schema.priceBookItem.id, name: schema.priceBookItemVersion.name,
     unit: schema.priceBookItem.chemicalUnit, epaRegistrationNumber: schema.priceBookItem.epaRegistrationNumber,
+    buyUnit: schema.priceBookItemVersion.buyUnit, useUnit: schema.priceBookItemVersion.useUnit,
+    usePerBuy: schema.priceBookItemVersion.usePerBuy,
   }).from(schema.priceBookItem)
     .innerJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.itemId, schema.priceBookItem.id))
     .where(and(
@@ -128,7 +134,13 @@ async function readWithin(tx: Database, ctx: ServiceContext, visitId: string): P
     reportId: report?.id ?? null,
     published: Boolean(report?.publishedAt),
     fields,
-    chemicals: chemicals.map((c) => ({ id: c.id, name: c.name, unit: c.unit ?? "", epaRegistrationNumber: c.epaRegistrationNumber })),
+    chemicals: chemicals.map((c) => {
+      const units = unitsOf(c);
+      return {
+        id: c.id, name: c.name, unit: c.unit ?? "", epaRegistrationNumber: c.epaRegistrationNumber,
+        units: units ? { buy: units.buy, use: units.use } : null,
+      };
+    }),
     applied: rows
       .filter((r) => r.product_name !== null || r.quantity_applied !== null || r.price_book_item_id !== null)
       .map((r) => ({
@@ -170,6 +182,8 @@ export async function record(
   input: {
     id: string; field: string; priceBookItemId: string; quantity: string;
     applicatorLicense?: string | undefined; targetPest?: string | undefined;
+    /** The buy or the use unit, for a chemical whose version has both; otherwise the chemical's own unit is used. */
+    unit?: string | undefined;
   },
 ): Promise<ProductsOnVisit> {
   return guardedWrite(ctx, "servicereport:write", async (tx) => {
@@ -199,6 +213,8 @@ export async function record(
     if (!chemical) {
       throw new ConflictError("That is not a chemical in your price book. Mark the item as a chemical on its page first.");
     }
+    /** In the buy or the use unit when the version has both and one was chosen, else the chemical's own unit. */
+    const unit = applicationUnitFor(chemical, input.unit);
     const quantity = Number(input.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) {
       throw new ConflictError("Enter how much was applied as a number more than nought, like 1.5.");
@@ -221,7 +237,7 @@ export async function record(
       productName: chemical.name,
       epaRegistrationNumber: chemical.epaRegistrationNumber,
       quantityApplied: String(quantity),
-      applicationUnit: chemical.unit,
+      applicationUnit: unit,
       applicatorLicense: input.applicatorLicense?.trim() || null,
       targetPest: input.targetPest?.trim() || null,
       priceBookItemId: chemical.itemId,
@@ -230,7 +246,7 @@ export async function record(
 
     await audit(tx, ctx, "service_report.product_recorded", "service_report", reportId, null, {
       fieldId: row!.id, visitId: visit.id, field: field.key, priceBookItemId: chemical.itemId,
-      productName: chemical.name, quantity: input.quantity, unit: chemical.unit,
+      productName: chemical.name, quantity: input.quantity, unit,
     });
     return readWithin(tx, ctx, visit.id);
   });

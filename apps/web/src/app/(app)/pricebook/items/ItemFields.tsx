@@ -27,6 +27,7 @@ export interface PriceFieldDefaults {
   name?: string; description?: string | null; price?: string; cost?: string | null;
   taxable?: boolean; taxClass?: string | null; laborMinutes?: number | null; warrantyMonths?: number | null;
   warrantyRegistrationDays?: number | null;
+  units?: { buy: string; use: string; usePerBuy: string } | null;
 }
 
 const two = (value: string | null | undefined) => (value ? String(Number(value).toFixed(2)) : "");
@@ -58,6 +59,19 @@ export function PriceFields({ item = {}, seesCost }: { item?: PriceFieldDefaults
           <input type="checkbox" name="taxable" defaultChecked={item.taxable ?? true} /> Taxable
         </label>
       </div>
+      <fieldset>
+        <legend className="text-sm font-medium text-ink-700">Bought in one unit, used in another</legend>
+        <div className="mt-1 grid gap-3 sm:grid-cols-3">
+          <TextField label="Bought by the, like gal" name="buyUnit" maxLength={20} defaultValue={item.units?.buy ?? ""} />
+          <TextField label="Used by the, like oz" name="useUnit" maxLength={20} defaultValue={item.units?.use ?? ""} />
+          <TextField label="How many in one, like 128" name="usePerBuy" inputMode="decimal" defaultValue={item.units?.usePerBuy ?? ""} />
+        </div>
+        <p className="mt-1 text-xs text-ink-500">
+          For something bought by the gallon and used by the ounce. Then the cost is what you pay for one gallon, and
+          the price, every line and every application count ounces, costed at the cost over how many are in a gallon.
+          Leave all three empty for an item bought and used the same way.
+        </p>
+      </fieldset>
       <p className="text-xs text-ink-500">
         Leave the registration days empty if the maker does not ask for it. When it is filled in, a unit of this
         item that goes on a job with a serial number gets a deadline to register it, and the office is reminded.

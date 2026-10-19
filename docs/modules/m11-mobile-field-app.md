@@ -746,14 +746,18 @@ typed form for a product the book does not hold. `/my-day` asks the same under
 "Products applied" on each visit, with "Not in the price book" for a typed one.
 Both send `service_report.set_field` naming the item (`priceBookItemId`), and
 the server carries the item's name, EPA number and unit onto the record
-whatever the phone typed beside them; an item that is not a chemical in the
+whatever the phone typed beside them (the unit the phone sent is kept only when
+the item's version says it is bought in one unit and used in another and the
+unit is one of those two, M06); an item that is not a chemical in the
 company's book is recorded as typed, never refused. The visit's page in the
 office (`/visits/{id}`, "Products applied") lists each product question's
 latest answer, from the price book or typed by name, and "Record the product"
 adds one the technician missed, chosen from the book onto the visit's report
 (created as the phone would create it): `GET /v1/visits/{id}/products-applied`
 (`servicereport:read`) and `POST /v1/visits/{id}/products-applied`
-(`servicereport:write`, audited, refused for a published report). The licence
+(`servicereport:write`, audited, refused for a published report). For a product
+bought in one unit and used in another, "In what" records it in either unit
+(`unit`); anything else is recorded in the chemical's own unit. The licence
 and the target pest are kept as before. Pest control's chemical cost per stop
 (M21) values only what was chosen from the book.
 

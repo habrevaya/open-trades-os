@@ -99952,7 +99952,7 @@
       "post": {
         "operationId": "revisePriceBookItem",
         "summary": "Revise a price book item",
-        "description": "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate and a kit's parts, each carried forward when left off. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
+        "description": "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate, a kit's parts and the units it is bought and used in, each carried forward when left off. With `units`, the cost is per the buy unit and a line is costed per the use unit. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M06"
         ],
@@ -144618,7 +144618,7 @@
       "post": {
         "operationId": "recordVisitProduct",
         "summary": "Record a product applied on a visit, chosen from the price book",
-        "description": "For an application the technician did not record. Written to the visit's report (created as the phone would create it) as the latest answer to one of its product questions, with the item's name, EPA number and unit carried from the book. Refused for a published report, a report that asks about no product, an item that is not a chemical, and an amount that is not a positive number. On the audit log.\n\nRequires a session holding: servicereport:write.",
+        "description": "For an application the technician did not record. Written to the visit's report (created as the phone would create it) as the latest answer to one of its product questions, with the item's name, EPA number and unit carried from the book: `unit` when it is the buy or the use unit of an item bought in one and used in another, otherwise the chemical's own. Refused for a published report, a report that asks about no product, an item that is not a chemical, and an amount that is not a positive number. On the audit log.\n\nRequires a session holding: servicereport:write.",
         "tags": [
           "M11"
         ],
@@ -170024,6 +170024,30 @@
             "minimum": 1,
             "maximum": 365
           },
+          "units": {
+            "type": "object",
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "feeRole": {
             "type": "string",
             "enum": [
@@ -170192,6 +170216,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -170200,6 +170251,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -170265,6 +170320,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",
@@ -206443,6 +206499,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -206451,6 +206534,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -206576,6 +206663,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",
@@ -214280,13 +214368,32 @@
                     "string",
                     "null"
                   ]
+                },
+                "units": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "buy": {
+                      "type": "string"
+                    },
+                    "use": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "buy",
+                    "use"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "name",
                 "unit",
-                "epaRegistrationNumber"
+                "epaRegistrationNumber",
+                "units"
               ]
             }
           },
@@ -235445,6 +235552,33 @@
                     ]
                   }
                 },
+                "units": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "buy": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 20
+                    },
+                    "use": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 20
+                    },
+                    "usePerBuy": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,6})?$"
+                    }
+                  },
+                  "required": [
+                    "buy",
+                    "use",
+                    "usePerBuy"
+                  ]
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -235453,6 +235587,10 @@
                     "string",
                     "null"
                   ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "costPerUse": {
+                  "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
                 "margin": {
@@ -235518,6 +235656,7 @@
                 "warrantyMonths",
                 "warrantyRegistrationDays",
                 "components",
+                "units",
                 "active",
                 "externalRef",
                 "createdAt",
@@ -259201,6 +259340,10 @@
           "targetPest": {
             "type": "string",
             "maxLength": 120
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20
           }
         },
         "required": [
@@ -259264,13 +259407,32 @@
                     "string",
                     "null"
                   ]
+                },
+                "units": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "buy": {
+                      "type": "string"
+                    },
+                    "use": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "buy",
+                    "use"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "name",
                 "unit",
-                "epaRegistrationNumber"
+                "epaRegistrationNumber",
+                "units"
               ]
             }
           },
@@ -268139,6 +268301,33 @@
             "minimum": 1,
             "maximum": 365
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "components": {
             "type": "array",
             "items": {
@@ -268318,6 +268507,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -268326,6 +268542,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -268391,6 +268611,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",
@@ -293793,6 +294014,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -293801,6 +294049,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -293866,6 +294118,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",

@@ -34,7 +34,11 @@ export const ProductsOnVisit = z.object({
   /** The product questions the visit's report asks, from its template. */
   fields: z.array(z.object({ key: z.string(), label: z.string() })),
   /** The price book's chemicals, by name: never a cost. */
-  chemicals: z.array(z.object({ id: Uuid, name: z.string(), unit: z.string(), epaRegistrationNumber: z.string().nullable() })),
+  chemicals: z.array(z.object({
+    id: Uuid, name: z.string(), unit: z.string(), epaRegistrationNumber: z.string().nullable(),
+    /** The units its version in force is bought and used in, when it has both: an application can be recorded in either. */
+    units: z.object({ buy: z.string(), use: z.string() }).nullable(),
+  })),
   /** The latest answer to each product question on the visit's reports. */
   applied: z.array(AppliedProduct),
 });
@@ -56,7 +60,7 @@ export const recordVisitProduct = defineRoute({
   path: "/v1/visits/{id}/products-applied",
   summary: "Record a product applied on a visit, chosen from the price book",
   description:
-    "For an application the technician did not record. Written to the visit's report (created as the phone would create it) as the latest answer to one of its product questions, with the item's name, EPA number and unit carried from the book. Refused for a published report, a report that asks about no product, an item that is not a chemical, and an amount that is not a positive number. On the audit log.",
+    "For an application the technician did not record. Written to the visit's report (created as the phone would create it) as the latest answer to one of its product questions, with the item's name, EPA number and unit carried from the book: `unit` when it is the buy or the use unit of an item bought in one and used in another, otherwise the chemical's own. Refused for a published report, a report that asks about no product, an item that is not a chemical, and an amount that is not a positive number. On the audit log.",
   module: "M11",
   permissions: ["servicereport:write"],
   idempotent: true,
@@ -68,6 +72,8 @@ export const recordVisitProduct = defineRoute({
     quantity: z.string().min(1).max(20),
     applicatorLicense: z.string().max(120).optional(),
     targetPest: z.string().max(120).optional(),
+    /** The buy or the use unit, for a chemical bought in one and used in another. Anything else is recorded in the chemical's own unit. */
+    unit: z.string().max(20).optional(),
   }),
   output: ProductsOnVisit,
 });
