@@ -4678,6 +4678,10 @@ export interface CreateSafetyTalkScheduleInput {
   topicId: string;
   crewId?: string | null;
   technicianId?: string | null;
+  role?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
+  roleId?: string | null;
+  branchId?: string | null;
+  everybody?: boolean;
   frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday?: number | null;
   monthDay?: number | null;
@@ -4685,6 +4689,7 @@ export interface CreateSafetyTalkScheduleInput {
   startsOn?: string;
   location?: string | null;
   ledBy?: string | null;
+  skipHolidays?: boolean;
 }
 
 export interface CreateSafetyTalkScheduleOutput {
@@ -4692,8 +4697,12 @@ export interface CreateSafetyTalkScheduleOutput {
   topicId: string;
   topicTitle: string;
   topicRetired: boolean;
+  audience: "crew" | "person" | "role" | "branch" | "company";
   crewId: string | null;
   technicianId: string | null;
+  role: string | null;
+  roleId: string | null;
+  branchId: string | null;
   who: string;
   frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday: number | null;
@@ -4703,6 +4712,7 @@ export interface CreateSafetyTalkScheduleOutput {
   location: string | null;
   ledBy: string | null;
   active: boolean;
+  skipHolidays: boolean;
   lastRaisedOn: string | null;
   schedule: string;
   nextOn: string | null;
@@ -10214,6 +10224,7 @@ export interface GetMyNoticeSettingsOutput {
     kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
     label: string;
     description: string;
+    email: boolean | null;
   }>;
   texts: {
     on: boolean;
@@ -11549,6 +11560,13 @@ export interface GetRatingOutput {
     recentMean: string;
     confidence: string;
   };
+  recommendations: {
+    count: number;
+    recommend: number;
+    doNot: number;
+    share: number | null;
+    caveat: string;
+  };
 }
 
 export interface GetRebalanceOutput {
@@ -11767,6 +11785,14 @@ export interface GetRenewalsKeeperOutput {
   active: boolean;
 }
 
+export interface GetRenewalsKeepersOutput {
+  keepers: Array<{
+    userId: string;
+    name: string;
+    active: boolean;
+  }>;
+}
+
 export interface GetRentalDispatchOutput {
   automaticCollections: boolean;
   collectionLeadDays: number;
@@ -11877,7 +11903,9 @@ export interface GetReviewWorkListOutput {
   items: Array<{
     id: string;
     platform: string;
-    rating: number;
+    kind: "stars" | "recommendation";
+    rating: number | null;
+    recommends: boolean | null;
     authorName: string | null;
     body: string | null;
     postedAt: string;
@@ -12194,6 +12222,8 @@ export interface GetSkillStandingOutput {
       lapseReason: "expired" | "suspended" | "revoked" | null;
       verifiedAt: string | null;
       verifiedByUserId: string | null;
+      renewalLeadDays: number;
+      ownRenewalLeadDays: number | null;
     }>;
   }>;
 }
@@ -13865,6 +13895,8 @@ export interface ListCertificationsOutput {
     lapseReason: "expired" | "suspended" | "revoked" | null;
     verifiedAt: string | null;
     verifiedByUserId: string | null;
+    renewalLeadDays: number;
+    ownRenewalLeadDays: number | null;
   }>;
 }
 
@@ -15066,8 +15098,9 @@ export interface ListExpiringCertificationsOutput {
     lapseReason: "expired" | "suspended" | "revoked" | null;
     verifiedAt: string | null;
     verifiedByUserId: string | null;
-    daysRemaining: number;
     renewalLeadDays: number;
+    ownRenewalLeadDays: number | null;
+    daysRemaining: number;
   }>;
 }
 
@@ -17209,14 +17242,30 @@ export interface ListSafetyMeetingsOutput {
   }>;
 }
 
+export interface ListSafetyTalkAudiencesOutput {
+  roles: Array<{
+    value: string;
+    label: string;
+    own: boolean;
+  }>;
+  branches: Array<{
+    id: string;
+    name: string;
+  }>;
+}
+
 export interface ListSafetyTalkSchedulesOutput {
   schedules: Array<{
     id: string;
     topicId: string;
     topicTitle: string;
     topicRetired: boolean;
+    audience: "crew" | "person" | "role" | "branch" | "company";
     crewId: string | null;
     technicianId: string | null;
+    role: string | null;
+    roleId: string | null;
+    branchId: string | null;
     who: string;
     frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
     weekday: number | null;
@@ -17226,6 +17275,7 @@ export interface ListSafetyTalkSchedulesOutput {
     location: string | null;
     ledBy: string | null;
     active: boolean;
+    skipHolidays: boolean;
     lastRaisedOn: string | null;
     schedule: string;
     nextOn: string | null;
@@ -20377,6 +20427,7 @@ export interface RecordCertificationInput {
   reference?: string | null;
   issuedOn?: string | null;
   expiresOn?: string | null;
+  renewalLeadDays?: number | null;
 }
 
 export interface RecordCertificationOutput {
@@ -20386,6 +20437,7 @@ export interface RecordCertificationOutput {
   issuedOn: string | null;
   expiresOn: string | null;
   status: "active" | "suspended" | "revoked";
+  renewalLeadDays: number | null;
 }
 
 export interface RecordClaimPaymentInput {
@@ -20894,7 +20946,8 @@ export interface RecordRentalTipOutput {
 
 export interface RecordReviewInput {
   platform: string;
-  rating: number;
+  rating?: number;
+  recommends?: boolean;
   postedAt: string;
   externalId?: string | null;
   authorName?: string | null;
@@ -20906,7 +20959,9 @@ export interface RecordReviewInput {
 
 export interface RecordReviewOutput {
   id: string;
-  rating: number;
+  kind: "stars" | "recommendation";
+  rating: number | null;
+  recommends: boolean | null;
   recoveryOwed: boolean;
   recoveryUrgency: "same_day" | "next_business_day" | null;
   because: string;
@@ -24035,6 +24090,16 @@ export interface SetCancellationNoticeOutput {
   hours: number;
 }
 
+export interface SetCertificationRenewalDaysInput {
+  renewalLeadDays: number | null;
+}
+
+export interface SetCertificationRenewalDaysOutput {
+  id: string;
+  renewalLeadDays: number | null;
+  typeRenewalLeadDays: number;
+}
+
 export interface SetCertificationStatusInput {
   status: "active" | "suspended" | "revoked";
   reason?: string | null;
@@ -24638,6 +24703,7 @@ export interface SetMyNoticeSettingsInput {
     push: boolean;
     text: boolean;
     kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    email?: boolean;
   }>;
 }
 
@@ -24649,6 +24715,7 @@ export interface SetMyNoticeSettingsOutput {
     kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
     label: string;
     description: string;
+    email: boolean | null;
   }>;
   texts: {
     on: boolean;
@@ -24674,6 +24741,7 @@ export interface SetMyNoticeTextsOutput {
     kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
     label: string;
     description: string;
+    email: boolean | null;
   }>;
   texts: {
     on: boolean;
@@ -25162,6 +25230,18 @@ export interface SetRenewalsKeeperOutput {
   active: boolean;
 }
 
+export interface SetRenewalsKeepersInput {
+  userIds: string[];
+}
+
+export interface SetRenewalsKeepersOutput {
+  keepers: Array<{
+    userId: string;
+    name: string;
+    active: boolean;
+  }>;
+}
+
 export interface SetRentalBillingTermsInput {
   invoiceAs?: "per_haul" | "chain";
   disposalPassThrough?: boolean;
@@ -25351,8 +25431,12 @@ export interface SetSafetyTalkScheduleActiveOutput {
   topicId: string;
   topicTitle: string;
   topicRetired: boolean;
+  audience: "crew" | "person" | "role" | "branch" | "company";
   crewId: string | null;
   technicianId: string | null;
+  role: string | null;
+  roleId: string | null;
+  branchId: string | null;
   who: string;
   frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
   weekday: number | null;
@@ -25362,6 +25446,7 @@ export interface SetSafetyTalkScheduleActiveOutput {
   location: string | null;
   ledBy: string | null;
   active: boolean;
+  skipHolidays: boolean;
   lastRaisedOn: string | null;
   schedule: string;
   nextOn: string | null;
@@ -30752,6 +30837,8 @@ export interface GetRegulatoryConstantInput {
 
 export type GetRenewalsKeeperInput = Record<string, never>;
 
+export type GetRenewalsKeepersInput = Record<string, never>;
+
 export interface GetRentalInput {
   id: string;
 }
@@ -31748,6 +31835,8 @@ export interface ListSafetyMeetingsInput {
   limit?: number;
 }
 
+export type ListSafetyTalkAudiencesInput = Record<string, never>;
+
 export type ListSafetyTalkSchedulesInput = Record<string, never>;
 
 export interface ListSafetyTopicsInput {
@@ -32704,6 +32793,10 @@ export interface SetBudgetForecastMethodParams {
 
 export interface SetBudgetLineParams {
   year: number;
+}
+
+export interface SetCertificationRenewalDaysParams {
+  id: string;
 }
 
 export interface SetCertificationStatusParams {
@@ -33727,6 +33820,7 @@ export interface OperationTypes {
   getReferrals: { input: GetReferralsInput; output: GetReferralsOutput };
   getRegulatoryConstant: { input: GetRegulatoryConstantInput; output: GetRegulatoryConstantOutput };
   getRenewalsKeeper: { input: GetRenewalsKeeperInput; output: GetRenewalsKeeperOutput };
+  getRenewalsKeepers: { input: GetRenewalsKeepersInput; output: GetRenewalsKeepersOutput };
   getRental: { input: GetRentalInput; output: GetRentalOutput };
   getRentalDispatch: { input: GetRentalDispatchInput; output: GetRentalDispatchOutput };
   getRentalOverage: { input: GetRentalOverageInput; output: GetRentalOverageOutput };
@@ -33973,6 +34067,7 @@ export interface OperationTypes {
   listRingGroups: { input: ListRingGroupsInput; output: ListRingGroupsOutput };
   listRoles: { input: ListRolesInput; output: ListRolesOutput };
   listSafetyMeetings: { input: ListSafetyMeetingsInput; output: ListSafetyMeetingsOutput };
+  listSafetyTalkAudiences: { input: ListSafetyTalkAudiencesInput; output: ListSafetyTalkAudiencesOutput };
   listSafetyTalkSchedules: { input: ListSafetyTalkSchedulesInput; output: ListSafetyTalkSchedulesOutput };
   listSafetyTopics: { input: ListSafetyTopicsInput; output: ListSafetyTopicsOutput };
   listScheduledRevisions: { input: ListScheduledRevisionsInput; output: ListScheduledRevisionsOutput };
@@ -34296,6 +34391,7 @@ export interface OperationTypes {
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCancellationNotice: { input: SetCancellationNoticeInput; output: SetCancellationNoticeOutput };
+  setCertificationRenewalDays: { input: SetCertificationRenewalDaysParams & SetCertificationRenewalDaysInput; output: SetCertificationRenewalDaysOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
   setCommissionItemRule: { input: SetCommissionItemRuleInput; output: SetCommissionItemRuleOutput };
   setCommissionStandingShare: { input: SetCommissionStandingShareInput; output: SetCommissionStandingShareOutput };
@@ -34356,6 +34452,7 @@ export interface OperationTypes {
   setRecurringScheduleActive: { input: SetRecurringScheduleActiveParams & SetRecurringScheduleActiveInput; output: SetRecurringScheduleActiveOutput };
   setReferralSettings: { input: SetReferralSettingsInput; output: SetReferralSettingsOutput };
   setRenewalsKeeper: { input: SetRenewalsKeeperInput; output: SetRenewalsKeeperOutput };
+  setRenewalsKeepers: { input: SetRenewalsKeepersInput; output: SetRenewalsKeepersOutput };
   setRentalBillingTerms: { input: SetRentalBillingTermsParams & SetRentalBillingTermsInput; output: SetRentalBillingTermsOutput };
   setRentalCollectionTime: { input: SetRentalCollectionTimeParams & SetRentalCollectionTimeInput; output: SetRentalCollectionTimeOutput };
   setRentalDispatch: { input: SetRentalDispatchInput; output: SetRentalDispatchOutput };
@@ -34915,6 +35012,7 @@ export const OPERATIONS = {
   getReferrals: { method: "GET", path: "/v1/marketing/referrals", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getRegulatoryConstant: { method: "GET", path: "/v1/compliance/constants", pathParams: [], queryParams: ["key","on","jurisdiction"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getRenewalsKeeper: { method: "GET", path: "/v1/certification-renewals/keeper", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  getRenewalsKeepers: { method: "GET", path: "/v1/certification-renewals/keepers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getRental: { method: "GET", path: "/v1/rentals/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalDispatch: { method: "GET", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalOverage: { method: "GET", path: "/v1/rentals/{id}/overage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
@@ -35161,6 +35259,7 @@ export const OPERATIONS = {
   listRingGroups: { method: "GET", path: "/v1/ring-groups", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listRoles: { method: "GET", path: "/v1/roles", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   listSafetyMeetings: { method: "GET", path: "/v1/safety/meetings", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
+  listSafetyTalkAudiences: { method: "GET", path: "/v1/safety/schedule-audiences", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listSafetyTalkSchedules: { method: "GET", path: "/v1/safety/schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listSafetyTopics: { method: "GET", path: "/v1/safety/topics", pathParams: [], queryParams: ["includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listScheduledRevisions: { method: "GET", path: "/v1/pricebook/scheduled", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
@@ -35484,6 +35583,7 @@ export const OPERATIONS = {
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCancellationNotice: { method: "PATCH", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setCertificationRenewalDays: { method: "POST", path: "/v1/certifications/{id}/renewal-days", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCommissionItemRule: { method: "POST", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setCommissionStandingShare: { method: "POST", path: "/v1/commissions/standing-shares", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
@@ -35544,6 +35644,7 @@ export const OPERATIONS = {
   setRecurringScheduleActive: { method: "POST", path: "/v1/recurring-schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setReferralSettings: { method: "PUT", path: "/v1/marketing/referral-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setRenewalsKeeper: { method: "PUT", path: "/v1/certification-renewals/keeper", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  setRenewalsKeepers: { method: "PUT", path: "/v1/certification-renewals/keepers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setRentalBillingTerms: { method: "PUT", path: "/v1/rentals/{id}/billing-terms", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalCollectionTime: { method: "PUT", path: "/v1/rentals/{id}/collection-time", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalDispatch: { method: "PUT", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -39291,12 +39392,21 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Who keeps the renewals list, and is told what is running out.
+   * One person who keeps the renewals list (older clients: use keepers).
    *
    * GET /v1/certification-renewals/keeper. Needs compliance:read.
    */
   getRenewalsKeeper(input: GetRenewalsKeeperInput = {} as GetRenewalsKeeperInput, options?: CallOptions): Promise<GetRenewalsKeeperOutput> {
     return this.call("getRenewalsKeeper", input, options);
+  }
+
+  /**
+   * Who keeps the renewals list, and is told what is running out.
+   *
+   * GET /v1/certification-renewals/keepers. Needs compliance:read.
+   */
+  getRenewalsKeepers(input: GetRenewalsKeepersInput = {} as GetRenewalsKeepersInput, options?: CallOptions): Promise<GetRenewalsKeepersOutput> {
+    return this.call("getRenewalsKeepers", input, options);
   }
 
   /**
@@ -41514,7 +41624,16 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Toolbox talks that come round, per crew or per person.
+   * The roles and branches a talk can be held for.
+   *
+   * GET /v1/safety/schedule-audiences. Needs safety:read.
+   */
+  listSafetyTalkAudiences(input: ListSafetyTalkAudiencesInput = {} as ListSafetyTalkAudiencesInput, options?: CallOptions): Promise<ListSafetyTalkAudiencesOutput> {
+    return this.call("listSafetyTalkAudiences", input, options);
+  }
+
+  /**
+   * Toolbox talks that come round, for a crew, a person, a role, a branch or everybody.
    *
    * GET /v1/safety/schedules. Needs safety:read.
    */
@@ -44421,6 +44540,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Change how many days ahead one holding is warned.
+   *
+   * POST /v1/certifications/{id}/renewal-days. Needs compliance:write.
+   */
+  setCertificationRenewalDays(input: SetCertificationRenewalDaysParams & SetCertificationRenewalDaysInput, options?: CallOptions): Promise<SetCertificationRenewalDaysOutput> {
+    return this.call("setCertificationRenewalDays", input, options);
+  }
+
+  /**
    * Suspend, revoke or reinstate.
    *
    * POST /v1/certifications/{id}/status. Needs compliance:write.
@@ -44952,12 +45080,21 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Name who keeps the renewals list, or nobody.
+   * Name one person to keep the renewals list, or nobody (older clients: use keepers).
    *
    * PUT /v1/certification-renewals/keeper. Needs compliance:write.
    */
   setRenewalsKeeper(input: SetRenewalsKeeperInput, options?: CallOptions): Promise<SetRenewalsKeeperOutput> {
     return this.call("setRenewalsKeeper", input, options);
+  }
+
+  /**
+   * Name who keeps the renewals list: nobody, one person or several.
+   *
+   * PUT /v1/certification-renewals/keepers. Needs compliance:write.
+   */
+  setRenewalsKeepers(input: SetRenewalsKeepersInput, options?: CallOptions): Promise<SetRenewalsKeepersOutput> {
+    return this.call("setRenewalsKeepers", input, options);
   }
 
   /**

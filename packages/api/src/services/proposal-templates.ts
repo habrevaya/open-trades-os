@@ -360,13 +360,14 @@ export async function layoutWithin(tx: Database, estimateId: string, stored: unk
     const rows = await tx.select({
       author: schema.review.authorName, rating: schema.review.rating, body: schema.review.body, postedAt: schema.review.postedAt,
     }).from(schema.review)
+      /** Stars only: this section prints "N out of 5", and a recommendation (Facebook's yes or no) has no number to print. */
       .where(and(gte(schema.review.rating, section.minRating ?? 5), isNotNull(schema.review.body)))
       .orderBy(desc(schema.review.rating), desc(schema.review.postedAt))
       .limit(section.count ?? 3);
     sections.push({
       ...section,
       reviews: rows.filter((r) => (r.body ?? "").trim() !== "")
-        .map((r) => ({ author: r.author, rating: r.rating, body: r.body, postedAt: r.postedAt.toISOString() })),
+        .map((r) => ({ author: r.author, rating: r.rating ?? 0, body: r.body, postedAt: r.postedAt.toISOString() })),
     });
   }
 

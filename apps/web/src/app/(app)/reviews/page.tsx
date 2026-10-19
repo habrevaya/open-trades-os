@@ -83,7 +83,7 @@ export default async function ReviewsPage() {
       <PageHeader title="Reviews" count={items.length} />
 
       {rating && rating.count > 0 ? (
-        <dl className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <dl aria-label="Star ratings" className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Figure
             label={`Average of ${rating.count}`}
             value={rating.mean!.toFixed(2)}
@@ -100,6 +100,8 @@ export default async function ReviewsPage() {
             caveat={rating.caveats.confidence}
           />
         </dl>
+      ) : rating && rating.recommendations.count > 0 ? (
+        <p className="mt-6 text-sm text-ink-700">No star reviews yet, so there is no star average.</p>
       ) : (
         <p className="mt-6 text-sm text-ink-700">
           {/*
@@ -109,6 +111,20 @@ export default async function ReviewsPage() {
           No reviews recorded yet, which is not the same as a rating of zero.
         </p>
       )}
+
+      {/*
+        Facebook asks "do you recommend", not for stars. A yes is not a five, so
+        these are counted apart and never added to the average above.
+      */}
+      {rating && rating.recommendations.count > 0 ? (
+        <dl aria-label="Recommendations" className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Figure
+            label={`Recommend you, of ${rating.recommendations.count}`}
+            value={`${Math.round(rating.recommendations.share! * 100)}%`}
+            caveat={`${rating.recommendations.recommend} said yes and ${rating.recommendations.doNot} said no. ${rating.recommendations.caveat}`}
+          />
+        </dl>
+      ) : null}
 
       {listings.map((listing) => (
         <section key={listing.provider} aria-label={listing.label}
@@ -137,7 +153,7 @@ export default async function ReviewsPage() {
             {suggestions.map((s) => (
               <li key={s.id} className="bg-canvas p-4">
                 <p className="text-sm text-ink-900">
-                  <span className="font-medium">{"★".repeat(s.rating)}</span> by {s.authorName ?? "Anonymous"}: probably{" "}
+                  <span className="font-medium"><Verdict rating={s.rating} recommends={s.recommends} /></span> by {s.authorName ?? "Anonymous"}: probably{" "}
                   <a href={`/customers/${s.customerId}`} className="underline underline-offset-4">{s.customerName}</a>
                 </p>
                 <p className="mt-1 text-sm text-ink-500">{s.reason}</p>
@@ -184,8 +200,7 @@ export default async function ReviewsPage() {
             <li key={item.id} className="bg-canvas p-4">
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="font-medium tabular-nums">
-                  {"★".repeat(item.rating)}
-                  <span className="text-ink-500">{"☆".repeat(5 - item.rating)}</span>
+                  <Verdict rating={item.rating} recommends={item.recommends} full />
                 </span>
                 <span className="text-sm text-ink-700">{item.authorName ?? "Anonymous"}</span>
                 <span className="text-xs text-ink-500">{item.platform}</span>
@@ -264,6 +279,20 @@ export default async function ReviewsPage() {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * Stars for a star review, and a yes or a no for a recommendation: a
+ * recommendation has no number, and a row of stars for one would say it did.
+ */
+function Verdict({ rating, recommends, full = false }: { rating: number | null; recommends: boolean | null; full?: boolean }) {
+  if (rating === null) return <>{recommends ? "Recommends you" : "Does not recommend you"}</>;
+  return (
+    <>
+      {"★".repeat(rating)}
+      {full ? <span className="text-ink-500">{"☆".repeat(5 - rating)}</span> : null}
+    </>
   );
 }
 

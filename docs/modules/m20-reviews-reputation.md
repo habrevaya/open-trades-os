@@ -67,6 +67,21 @@ on the review policy's business days and hours, and not on a date the company's
 holiday list (`/settings/holidays`, M02) says it is closed; on a short day it runs
 for that day's hours.
 
+**A recommendation is not a rating.** Facebook asks "do you recommend", not for
+stars, and counted as five and one a yes made the average say every recommendation
+was a perfect score. A review has a `kind`: `stars` (a `rating` from one to five) or
+`recommendation` (`recommends`, a yes or a no, and no rating), never both and never
+neither, which the database enforces. The three views of the rating
+(`GET /v1/reviews/rating`) and the ranking of technicians
+(`GET /v1/reviews/by-technician`) are over the star reviews only, and the
+recommendations are counted beside them as `recommendations`: how many, how many
+said yes and the share who recommend, with what that share is wrong about. On
+`/reviews` that is a figure of its own ("Recommend you, of 12: 83%"), never merged into the star
+average, and a recommendation in the queue reads "Recommends you" or "Does not
+recommend you" where a star review reads its stars. What is owed does not change: a
+yes and a no still owe a reply, and a no still owes the call, exactly as a one star
+does.
+
 **Reviews are entered by hand or read from Google or Facebook, and the hand path is
 not a placeholder.** A Google Business Profile listing and a Facebook Page are read
 by their connectors; every other platform is typed in, and a company with forty reviews and a work list
@@ -143,10 +158,15 @@ live Page.
 Every hour, and from "Fetch from Facebook now" on `/reviews`, the Page's ratings and
 recommendations are read through the same record as every other review, under the
 platform `facebook`. Facebook replaced stars with "Do you recommend this business?"
-in 2018: a yes is counted as five stars and a no as one, so a no starts the
-recovery clock as a one star review does, and an older rating with stars keeps its
-stars. A recommendation with no words is recorded as "Recommends you on Facebook."
-or "Does not recommend you on Facebook." A comment the Page already left on it
+in 2018, and a recommendation is kept as what it is: a review of its own kind
+(`kind` is `recommendation`, with `recommends` true or false and no `rating`), never
+five stars or one. It is left out of every star average and counted as the share who
+recommend. It still owes what a review owes, so a recommendation is on the reply
+queue, and a no starts the recovery clock as a one star review does (its place in the
+queue and the call it owes are those of a one; a yes is treated as a five), and an
+older rating with stars keeps its stars. A recommendation with no words is recorded
+as "Recommends you on Facebook." or "Does not recommend you on Facebook." A comment
+the Page already left on it
 comes in as the reply. A reply written here is posted back as a comment from the
 Page on the post Facebook made for the rating; a rating Facebook made no post for
 cannot be replied to from here, and the reply is marked refused with that reason.
@@ -253,7 +273,9 @@ job is judged paid when every invoice on it that is not voided has nothing owing
 
 ### Record and reply
 
-`POST /v1/reviews` records a review that exists in the world.
+`POST /v1/reviews` records a review that exists in the world: a `rating` from one
+to five, or `recommends` true or false for a recommendation, one of the two and not
+both.
 `POST /v1/reviews/{id}/response` is the reply and
 `POST /v1/reviews/{id}/recovered` records that somebody rang the customer and
 sorted it out. `/reviews` is the screen.
@@ -261,7 +283,9 @@ sorted it out. `/reviews` is the screen.
 ### Read the standing
 
 `GET /v1/reviews/rating` is the rating with what it is wrong about travelling
-beside it, and `GET /v1/reviews/by-technician` is the same by person.
+beside it (over the star reviews, with the recommendations counted apart as
+`recommendations`), and `GET /v1/reviews/by-technician` is the same by person, over
+the star reviews.
 `GET /v1/reviews/work-list` is the queue.
 
 ## Permissions
@@ -331,9 +355,16 @@ Two connectors, Google Business Profile and Facebook Page reviews, each tested
 against a fake of its API and not against a live listing; the Facebook one does
 nothing for a deployment whose Meta app has not passed Meta's app review. Yelp,
 Angi and every other platform are typed in and replied to on the platform by
-hand. A Facebook recommendation is a yes or a no and is counted as five or one,
-so an average over Facebook reviews treats every yes as a perfect score; a
-reviewer's name is read only where Meta gives it. Editing a reply already posted
+hand. A Facebook recommendation is kept as a recommendation, and so is left out of the star
+average and counted as a share; it is not shown among the testimonials on an estimate,
+which print "N out of 5" and have no number to print for a yes. A recommendation
+stored before this as five or one stars is converted by the migration only where the
+source says so (read from a Facebook Page, with no words of the person's own, so the
+review says only "Recommends you on Facebook." or "Does not recommend you on
+Facebook."); one that has words in it cannot be told from an old star rating there,
+and is converted by the next hourly read of the Page, which says which it is, and
+stays as stars if the Page is no longer connected. A reviewer's name is read only
+where Meta gives it. Editing a reply already posted
 to Facebook is done on Facebook. A reply posted to Google is
 still moderated by Google, so one marked posted here can be absent there; the
 next hourly read shows what Google shows. Editing a reply already posted is

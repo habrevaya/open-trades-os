@@ -696,23 +696,42 @@ export function starRating(value: unknown): number | null {
 }
 
 /**
- * A Facebook Page rating as stars, which is what the reviews module counts in.
+ * A Facebook Page rating as stars, for the older ratings only.
  *
  * Facebook moved Pages from star ratings to recommendations in 2018: a person
  * now says yes or no to "Do you recommend this business?" and writes why.
- * Older ratings still carry stars and are read as they are. A recommendation
- * has none, so a yes counts as five and a no as one. That is a choice, and
- * it is made here once rather than in every reader: a no has to start the
- * recovery clock the way a one star review on Google does, because it is the
- * same unhappy customer, and a yes is the best thing a person can say there.
- * It does mean a company's average counts a yes as a perfect score.
- * Neither is a rating, null, and the review is left out rather than guessed.
+ * Older ratings still carry stars. THIS FUNCTION STILL ANSWERS FIVE FOR A YES
+ * AND ONE FOR A NO, and nothing that counts reviews uses it for a
+ * recommendation any more: `facebookReview` keeps a recommendation as a
+ * recommendation, and the five and the one survive only as what the company
+ * OWES a yes and a no (`reviews.owedRating`), a reply and for a no a call.
  */
 export function facebookRating(raw: { rating?: unknown; has_rating?: unknown; recommendation_type?: unknown }): number | null {
   const stars = starRating(raw.rating);
   if (stars !== null && raw.has_rating !== false) return stars;
   if (raw.recommendation_type === "positive") return 5;
   if (raw.recommendation_type === "negative") return 1;
+  return null;
+}
+
+/**
+ * One review from a Facebook Page, as what it is.
+ *
+ * Stars when Facebook gave stars (an older rating), a recommendation when it
+ * gave a yes or a no, and null when it gave neither (a review nobody can
+ * count, left out rather than guessed). A recommendation is never turned into
+ * stars: an average over Facebook reviews would otherwise call every yes a
+ * perfect score.
+ */
+export type FacebookReview =
+  | { kind: "stars"; rating: number }
+  | { kind: "recommendation"; recommends: boolean };
+
+export function facebookReview(raw: { rating?: unknown; has_rating?: unknown; recommendation_type?: unknown }): FacebookReview | null {
+  const stars = starRating(raw.rating);
+  if (stars !== null && raw.has_rating !== false) return { kind: "stars", rating: stars };
+  if (raw.recommendation_type === "positive") return { kind: "recommendation", recommends: true };
+  if (raw.recommendation_type === "negative") return { kind: "recommendation", recommends: false };
   return null;
 }
 

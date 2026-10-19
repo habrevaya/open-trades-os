@@ -62,7 +62,8 @@ export async function pullReviews(db: Database, row: Connection, deps: AdsDeps =
       const recorded = await reviews.record(ctx, {
         platform,
         externalId: review.externalId,
-        rating: review.rating,
+        ...(review.rating !== null ? { rating: review.rating } : {}),
+        ...(review.recommends !== undefined ? { recommends: review.recommends } : {}),
         postedAt: review.createdAt,
         authorName: review.authorName,
         body: review.comment,
@@ -223,7 +224,7 @@ export async function suggestions(ctx: ServiceContext) {
   return guardedRead(ctx, "review:respond", async (tx) => {
     const rows = await tx.select({
       id: schema.review.id, authorName: schema.review.authorName, rating: schema.review.rating,
-      postedAt: schema.review.postedAt, reason: schema.review.suggestionReason,
+      recommends: schema.review.recommends, postedAt: schema.review.postedAt, reason: schema.review.suggestionReason,
       customerId: schema.review.suggestedCustomerId, customerName: schema.customer.name, jobId: schema.review.suggestedJobId,
     }).from(schema.review)
       .innerJoin(schema.customer, eq(schema.customer.id, schema.review.suggestedCustomerId))

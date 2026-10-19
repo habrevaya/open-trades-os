@@ -356,7 +356,7 @@ Analytics read back, Angi, Thumbtack and Yelp leads with replies, lead emails
 from every marketplace, and direct mail through Lob with a personal address per
 piece, all tested against fakes of each platform; waiting lines, the phone
 assistant and calls placed and taken in the browser, untried on a live line). Reviews, with Google Business
-Profile and a Facebook Page's ratings and recommendations read and replied to, the Facebook one needing
+Profile and a Facebook Page's ratings and recommendations read and replied to (a recommendation kept as a recommendation, counted as the share who recommend and never as stars), the Facebook one needing
 Meta's app review and tested against a fake.
 
 **Done means:** recurring revenue and marketing attribution work end to end.

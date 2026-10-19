@@ -292,13 +292,16 @@ export const recordReview = defineRoute({
   path: "/v1/reviews",
   summary: "Record a review that exists",
   description:
-    "Entered by hand today: no review platform connector is built and the catalogue says so. That is not a placeholder, because a company with forty reviews and a work list naming the three owed a reply is better off than one waiting for an API. The response says whether a phone call is owed and by when, so the person who just typed in a one star is told rather than left to notice it later.",
+    "Entered by hand for a platform with no connector, and read by the connectors for Google and Facebook. That is not a placeholder, because a company with forty reviews and a work list naming the three owed a reply is better off than one waiting for an API. The response says whether a phone call is owed and by when, so the person who just typed in a one star is told rather than left to notice it later. A review is either a rating from one to five (`rating`) or a recommendation, a yes or a no (`recommends`), never both and never neither: Facebook asks \"do you recommend\" and not for stars, and a recommendation counted as five or one would make the average call every yes a perfect score. A recommendation is left out of every star average and counted as the share who recommend, but it still owes a reply, and a no still owes a call, as a one star does.",
   module: "M20",
   permissions: ["review:respond"],
   idempotent: true,
   input: z.object({
     platform: z.string().min(1).max(50),
-    rating: z.number().int().min(1).max(5),
+    /** One to five, for a star review. Leave it out for a recommendation. */
+    rating: z.number().int().min(1).max(5).optional(),
+    /** For a recommendation: true is a yes, false is a no. Leave it out for a star review. */
+    recommends: z.boolean().optional(),
     postedAt: z.string().datetime(),
     externalId: z.string().max(200).nullable().optional(),
     authorName: z.string().max(200).nullable().optional(),
@@ -309,7 +312,10 @@ export const recordReview = defineRoute({
   }),
   output: z.object({
     id: Uuid,
-    rating: z.number().int(),
+    kind: z.enum(["stars", "recommendation"]),
+    /** Null for a recommendation, which has no rating. */
+    rating: z.number().int().nullable(),
+    recommends: z.boolean().nullable(),
     /** Whether a human owes this customer a conversation. */
     recoveryOwed: z.boolean(),
     recoveryUrgency: z.enum(["same_day", "next_business_day"]).nullable(),
@@ -331,7 +337,10 @@ export const getReviewWorkList = defineRoute({
     items: z.array(z.object({
       id: Uuid,
       platform: z.string(),
-      rating: z.number().int(),
+      kind: z.enum(["stars", "recommendation"]),
+      /** Null for a recommendation. Its place in the queue is as a five for a yes and a one for a no. */
+      rating: z.number().int().nullable(),
+      recommends: z.boolean().nullable(),
       authorName: z.string().nullable(),
       /** The text, because a list showing only a star count sends somebody to another tab. */
       body: z.string().nullable(),
@@ -377,12 +386,22 @@ export const RatingCaveats = z.object({
   mean: z.string(), recentMean: z.string(), confidence: z.string(),
 });
 
+export const RecommendationSummary = z.object({
+  /** Every recommendation, yes or no. */
+  count: z.number().int(),
+  recommend: z.number().int(),
+  doNot: z.number().int(),
+  /** The share who recommend, 0 to 1. Null, never zero, when there are none. */
+  share: z.number().nullable(),
+  caveat: z.string(),
+});
+
 export const getRating = defineRoute({
   method: "get",
   path: "/v1/reviews/rating",
   summary: "Three views of the same reviews, because no single number is honest",
   description:
-    "The mean is wrong about time: a shop run badly two years ago reads as mediocre forever. The recency weighted view is wrong about volume: on a dozen reviews one swings it. The lower bound is wrong about how good you are, deliberately and always downward, which makes it safe to sort by and unsafe to print on a van. Every caveat travels with its number.",
+    "The mean is wrong about time: a shop run badly two years ago reads as mediocre forever. The recency weighted view is wrong about volume: on a dozen reviews one swings it. The lower bound is wrong about how good you are, deliberately and always downward, which makes it safe to sort by and unsafe to print on a van. Every caveat travels with its number. The three are over the star reviews only; a recommendation (Facebook's yes or no) is not a rating and is counted apart, as `recommendations`: how many, how many said yes, and the share. `platform` narrows both.",
   module: "M20",
   permissions: ["review:respond"],
   input: z.object({ platform: z.string().max(50).optional() }),
@@ -394,6 +413,8 @@ export const getRating = defineRoute({
     confidence: z.number().nullable(),
     method: z.string(),
     caveats: RatingCaveats,
+    /** Facebook's yes or no, counted apart from the stars above and never added to them. */
+    recommendations: RecommendationSummary,
   }),
 });
 

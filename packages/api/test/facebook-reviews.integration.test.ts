@@ -12,7 +12,8 @@ import { ENV, fakePlatform, formOf, readSecret, stateOf } from "./ads-fakes";
  * A FACEBOOK PAGE'S RATINGS AND RECOMMENDATIONS, AGAINST A FAKE GRAPH API
  *
  * The connector reads through the reviews module's own record, like Google's:
- * a recommendation becomes a rating the recovery clock understands, a reply
+ * a recommendation stays a recommendation (a yes or a no, never stars), and the
+ * recovery clock still starts for a no, a reply
  * the Page already made comes in as the reply, a reply written here goes back
  * as a comment from the Page, and a rating Facebook gives nothing to reply to
  * is refused in words rather than posted nowhere. Meta's refusal while the
@@ -101,9 +102,9 @@ afterAll(async () => {
 });
 
 const reviewOf = async (externalId: string) => (await raw<{
-  id: string; platform: string; rating: number; body: string | null; author_name: string | null;
+  id: string; platform: string; kind: string; rating: number | null; recommends: boolean | null; body: string | null; author_name: string | null;
   reply_state: string | null; response_body: string | null; recovery_due_at: Date | null; reply_error: string | null;
-}[]>`select id, platform, rating, body, author_name, reply_state, response_body, recovery_due_at, reply_error
+}[]>`select id, platform, kind, rating, recommends, body, author_name, reply_state, response_body, recovery_due_at, reply_error
   from public.review where organization_id = ${ORG} and external_id = ${externalId}`)[0];
 
 run("a Facebook Page's reviews", () => {
@@ -143,11 +144,17 @@ run("a Facebook Page's reviews", () => {
     expect(outcome.listings).toEqual([{ provider: "facebook_page", read: 4, written: 4, error: null }]);
 
     const no = (await reviewOf("111_901"))!;
-    expect(no).toMatchObject({ platform: "facebook", rating: 1, body: "Never showed up.", author_name: "Dana Fox", reply_state: null });
+    expect(no).toMatchObject({
+      platform: "facebook", kind: "recommendation", rating: null, recommends: false,
+      body: "Never showed up.", author_name: "Dana Fox", reply_state: null,
+    });
     expect(no.recovery_due_at).not.toBeNull();
     const yes = (await reviewOf("111_902"))!;
-    expect(yes).toMatchObject({ rating: 5, body: "Recommends you on Facebook.", reply_state: "posted", response_body: "Thanks Eli!" });
-    expect((await reviewOf("111_903"))!.rating).toBe(4);
+    expect(yes).toMatchObject({
+      kind: "recommendation", rating: null, recommends: true,
+      body: "Recommends you on Facebook.", reply_state: "posted", response_body: "Thanks Eli!",
+    });
+    expect(await reviewOf("111_903")).toMatchObject({ kind: "stars", rating: 4, recommends: null });
     const loose = await raw<{ external_id: string }[]>`
       select external_id from public.review where organization_id = ${ORG} and author_name = 'No Story'`;
     expect(loose[0]!.external_id).toMatch(/^facebook-rating:r4:/);
@@ -157,7 +164,7 @@ run("a Facebook Page's reviews", () => {
 
     // Everything unanswered is on the work list; the recommendation the Page already thanked is not.
     const work = await reviews.workList(ctx());
-    expect(work.map((w) => w.rating).sort()).toEqual([1, 4, 5]);
+    expect(work.map((w) => (w.rating === null ? (w.recommends ? "yes" : "no") : String(w.rating))).sort()).toEqual(["4", "no", "yes"]);
   });
 
   it("is the same review when read again, not a second one", async () => {

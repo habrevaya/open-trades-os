@@ -753,7 +753,11 @@ export interface Review {
   id: string;
   /** The operator's own identifier for the platform it was posted on. */
   platform: string;
-  /** One to five. */
+  /**
+   * One to five. A recommendation is not a rating and never appears here as
+   * one in an average; for the reply and the call it owes it is given
+   * `owedRating` (the work list does that, not the averages).
+   */
   rating: number;
   postedAt: Date;
   /** When we replied, if we have. */
@@ -897,6 +901,54 @@ export function summarise(
   const confidence = 1 + 4 * wilsonLowerBound(successes, count);
 
   return { count, mean, recentMean, confidence, method: "wilson_lower_bound_95_on_share_of_maximum", caveats };
+}
+
+/* ---------------------------------------------------------------------
+ * A RECOMMENDATION IS NOT A RATING
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a yes or a no to "do you recommend this business?" is treated as when
+ * deciding what the company OWES: a reply, and for a no a call. Never what it
+ * is counted as.
+ *
+ * Facebook asks that question and no other. Counting a yes as five stars makes
+ * every average say a recommendation is a perfect score, which nobody who
+ * pressed the button meant. So a recommendation is its own kind of review, left
+ * out of every star average (`summarise` only ever sees the star reviews) and
+ * counted by `recommendationShare`. But a no is the same unhappy customer as a
+ * one star on Google, and the clocks that decide who owes whom a reply and a
+ * phone call must start for it: this is the one place that says a no is owed as
+ * a one and a yes as a five, so the reply queue and the recovery call are not
+ * quietly lost when the number is not a rating any more.
+ */
+export function owedRating(recommends: boolean): number {
+  return recommends ? 5 : 1;
+}
+
+export interface RecommendationView {
+  /** Every recommendation, yes or no. */
+  count: number;
+  recommend: number;
+  doNot: number;
+  /** The share who recommend, from 0 to 1. Null, never zero, when there are none. */
+  share: number | null;
+  /** What the share is wrong about, shown beside it. */
+  caveat: string;
+}
+
+/** The share of recommendations that are yes. */
+export function recommendationShare(items: readonly { recommends: boolean }[]): RecommendationView {
+  const recommend = items.filter((i) => i.recommends).length;
+  const count = items.length;
+  return {
+    count,
+    recommend,
+    doNot: count - recommend,
+    share: count === 0 ? null : recommend / count,
+    caveat: "A yes or a no, not a score, so it is never added to the star average. It is read from Facebook as it stands, "
+      + "every one counting the same however old it is, and a few of them make a share that swings on a single answer.",
+  };
 }
 
 export interface RatedGroup {

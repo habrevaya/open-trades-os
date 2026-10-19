@@ -159,7 +159,10 @@ export interface PulledReview {
   /** The platform's full name for it, which a reply is posted to. */
   externalId: string;
   authorName: string | null;
-  rating: number;
+  /** One to five for a star review. Null for a recommendation, which has no rating. */
+  rating: number | null;
+  /** For a recommendation (Facebook's yes or no); left out for a star review. */
+  recommends?: boolean | undefined;
   comment: string | null;
   createdAt: Date;
   updatedAt: Date;
