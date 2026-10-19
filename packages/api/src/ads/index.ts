@@ -1,6 +1,9 @@
 export * from "./provider";
 export { exchangeCode, tokenSource, parseOAuthClient, type OAuthClient, type Grant } from "./oauth";
-export { seal, unseal, sealingKey, SEALING_KEY_ENV, SealingKeyMissingError, SealedUnderAnotherKeyError } from "./sealing";
+export {
+  seal, unseal, sealingKey, sealingKeys, fingerprintOf, fingerprintIn, SEALING_KEY_ENV, PREVIOUS_SEALING_KEYS_ENV,
+  SealingKeyMissingError, SealedUnderAnotherKeyError, type SealingKeys,
+} from "./sealing";
 export { customerDigits } from "./google-ads";
 export { verifyMetaSignature, leadFromMeta, META_SIGNATURE_HEADER } from "./meta-lead-ads";
 export { firstCsvIn } from "./zip";

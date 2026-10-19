@@ -366,5 +366,7 @@ asked again at the next cadence and not on every tick. A platform that stops
 accepting the sign in marks the connection as needing a person and the worker
 leaves it alone until somebody signs in again. Nothing to configure beyond the
 connections themselves and `CREDENTIAL_SEALING_KEY`, which the worker needs
-with the same value as the web app to open the grants it keeps. Turn the visits
+with the same value as the web app to open the grants it keeps (and, while the
+key is being rotated, the same `CREDENTIAL_SEALING_KEY_PREVIOUS`; see
+`docs/self-hosting/secrets.md`). Turn the visits
 off for a deployment with `ads: false` on the pass.

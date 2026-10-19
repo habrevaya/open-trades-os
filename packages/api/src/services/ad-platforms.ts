@@ -11,7 +11,7 @@ import * as acquisition from "./acquisition";
 import * as leadIntake from "./lead-intake";
 import {
   AuthorizationLostError, PlatformRefusedError, createAdsAdapter, exchangeCode, parseOAuthClient, seal,
-  sealingKey, tokenSource, unseal, SealingKeyMissingError, SealedUnderAnotherKeyError,
+  sealingKey, sealingKeys, tokenSource, unseal, SealingKeyMissingError, SealedUnderAnotherKeyError,
   type AdsAdapter, type HttpTransport, type OAuthClient, type PulledLead,
 } from "../ads/index";
 import { readerFor } from "../secrets/store";
@@ -389,10 +389,11 @@ export async function adapterFor(db: Database, row: Connection, deps: AdsDeps = 
       const [grant] = await inTenant(systemCtx(db, row.organizationId), (tx) =>
         tx.select().from(schema.sealedCredential).where(eq(schema.sealedCredential.connectionId, row.id)).limit(1));
       if (!grant) throw new AuthorizationLostError(`Nobody has signed in with ${ads.OAUTH_LABEL[spec.oauth]} for ${spec.label} yet.`);
-      const key = sealingKey(env);
-      if (!key) throw new AuthorizationLostError(new SealingKeyMissingError().message);
+      /** The current key and any previous one, so a grant opens at every moment of a rotation. */
+      const keys = sealingKeys(env);
+      if (!keys) throw new AuthorizationLostError(new SealingKeyMissingError().message);
       try {
-        credential = unseal(grant.sealedToken, row.id, key);
+        credential = unseal(grant.sealedToken, row.id, keys);
       } catch (error) {
         if (error instanceof SealedUnderAnotherKeyError) throw new AuthorizationLostError(error.message);
         throw error;

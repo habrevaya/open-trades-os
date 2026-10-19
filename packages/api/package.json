@@ -37,7 +37,8 @@
     "demo:seed": "tsx src/seed/index.ts --demo",
     "demo:setup": "tsx src/bin/demo-setup.ts",
     "mcp": "tsx src/bin/mcp-stdio.ts",
-    "secrets:rotate": "tsx src/bin/rotate-secrets.ts"
+    "secrets:rotate": "tsx src/bin/rotate-secrets.ts",
+    "credentials:reseal": "tsx src/bin/reseal-credentials.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.0",
