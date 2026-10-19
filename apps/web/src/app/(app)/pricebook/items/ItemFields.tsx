@@ -16,6 +16,20 @@ export const FEE_ROLES = [
   { value: "after_hours", label: "The after hours rate (a plan can waive it)" },
 ];
 
+/**
+ * Whether a line of the item counts its quantity in crew hours. Said once on
+ * the item so an estimate line copies it, and the job made from the estimate
+ * is budgeted in hours without anybody typing the sum.
+ */
+export function CrewHoursBox({ defaultChecked = false }: { defaultChecked?: boolean }) {
+  return (
+    <label className="flex items-center gap-2 text-sm sm:col-span-2">
+      <input type="checkbox" name="quantityIsCrewHours" defaultChecked={defaultChecked} />
+      Its quantity is crew hours (people times hours). The job made from an estimate is budgeted from these lines.
+    </label>
+  );
+}
+
 /** The shelf choices, nested by indentation the way the category manager shows them. */
 export function shelfOptions(shelves: { id: string; name: string; depth: number }[]) {
   return [{ value: "", label: "No category" }, ...shelves.map((c) => ({

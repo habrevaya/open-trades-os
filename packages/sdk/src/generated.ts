@@ -1321,6 +1321,7 @@ export interface ApproveEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -2703,6 +2704,7 @@ export interface ConvertEstimateOutput {
         name: string;
         description: string | null;
         quantity: string;
+        quantityIsCrewHours: boolean;
         unitPrice: string;
         discountAmount: string;
         memberDiscountAmount?: string;
@@ -2743,6 +2745,7 @@ export interface ConvertEstimateOutput {
   jobId: string | null;
   invoiceId: string | null;
   depositId: string | null;
+  budgetedHours: string | null;
 }
 
 export interface CopyBackFromSandboxInput {
@@ -3536,6 +3539,7 @@ export interface CreateEstimateInput {
       name: string;
       description?: string;
       quantity?: string;
+      quantityIsCrewHours?: boolean;
       unitPrice: string;
       unitCost?: string;
       discountAmount?: string;
@@ -3582,6 +3586,7 @@ export interface CreateEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -3878,6 +3883,7 @@ export interface CreateJobOutput {
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
   budgetedHours?: string | null;
+  budgetEstimateId?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -4286,6 +4292,7 @@ export interface CreatePriceBookItemInput {
   warrantyMonths?: number;
   warrantyRegistrationDays?: number;
   feeRole?: "diagnostic" | "after_hours";
+  quantityIsCrewHours?: boolean;
   externalRef?: {
     source: string;
     id: string;
@@ -4303,6 +4310,7 @@ export interface CreatePriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -5510,6 +5518,7 @@ export interface DeclineEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -8528,6 +8537,7 @@ export interface GetEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -9579,6 +9589,7 @@ export interface GetJobOutput {
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
   budgetedHours?: string | null;
+  budgetEstimateId?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -11243,6 +11254,7 @@ export interface GetPriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -15804,6 +15816,7 @@ export interface ListJobsOutput {
     businessUnitId?: string | null;
     multiVisitPlannedAt?: string | null;
     budgetedHours?: string | null;
+    budgetEstimateId?: string | null;
     cost?: string | null;
     grossMargin?: string | null;
     externalRef: {
@@ -16733,6 +16746,7 @@ export interface ListPriceBookOutput {
     imageUrl: string | null;
     categoryId: string | null;
     feeRole: "diagnostic" | "after_hours" | null;
+    quantityIsCrewHours: boolean;
     chemical: {
       unit: string;
       epaRegistrationNumber: string | null;
@@ -23279,6 +23293,7 @@ export interface RevisePriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -23970,6 +23985,7 @@ export interface SendEstimateOutput {
         name: string;
         description: string | null;
         quantity: string;
+        quantityIsCrewHours: boolean;
         unitPrice: string;
         discountAmount: string;
         memberDiscountAmount?: string;
@@ -28016,6 +28032,7 @@ export interface UpdateJobOutput {
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
   budgetedHours?: string | null;
+  budgetEstimateId?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -28363,6 +28380,7 @@ export interface UpdatePriceBookItemInput {
     unit: string;
     epaRegistrationNumber: string | null;
   } | null;
+  quantityIsCrewHours?: boolean;
 }
 
 export type UpdatePriceBookItemOutput = {
@@ -28376,6 +28394,7 @@ export type UpdatePriceBookItemOutput = {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -46530,7 +46549,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Change an item's kind, code, category, fee or chemical mark.
+   * Change an item's kind, code, category, fee, chemical mark or crew hours mark.
    *
    * PATCH /v1/pricebook/items/{id}. Needs pricebook:write.
    */

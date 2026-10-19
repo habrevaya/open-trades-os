@@ -52535,7 +52535,7 @@
       "post": {
         "operationId": "convertEstimate",
         "summary": "Convert an approved estimate into a job, an invoice, or both",
-        "description": "Requires a session holding: estimate:write, job:write.",
+        "description": "Copies the option the customer took, as priced. A job made from it is budgeted in crew hours when the lines the customer took say their quantity is crew hours: those quantities are added up into `budgetedHours`, which stays editable until the first punch like a typed one. A job the estimate was already written for takes the figure only if it has no budget and nobody has punched.\n\nRequires a session holding: estimate:write, job:write.",
         "tags": [
           "M07"
         ],
@@ -99399,8 +99399,8 @@
       },
       "patch": {
         "operationId": "updatePriceBookItem",
-        "summary": "Change an item's kind, code, category, fee or chemical mark",
-        "description": "What the item IS rather than what it costs or is called, so it changes the item in place and writes no version: no document points at any of these. The name, description, price and cost are a revision. A code another item already has is refused. `chemical` marks a material as a product technicians apply, with the unit its cost is per and its EPA registration number, and null takes the mark off; anything but a material is refused, and so is changing a marked item to another kind.\n\nRequires a session holding: pricebook:write.",
+        "summary": "Change an item's kind, code, category, fee, chemical mark or crew hours mark",
+        "description": "What the item IS rather than what it costs or is called, so it changes the item in place and writes no version: no document points at any of these. The name, description, price and cost are a revision. A code another item already has is refused. `chemical` marks a material as a product technicians apply, with the unit its cost is per and its EPA registration number, and null takes the mark off; anything but a material is refused, and so is changing a marked item to another kind. `quantityIsCrewHours` says a line of the item counts its quantity in crew hours, which an estimate line copies when it is written and a conversion adds up as the job's budgeted hours; it changes no price and no estimate already written.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M06"
         ],
@@ -99436,7 +99436,7 @@
         },
         "responses": {
           "200": {
-            "description": "Change an item's kind, code, category, fee or chemical mark",
+            "description": "Change an item's kind, code, category, fee, chemical mark or crew hours mark",
             "content": {
               "application/json": {
                 "schema": {
@@ -154344,6 +154344,9 @@
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                       },
+                      "quantityIsCrewHours": {
+                        "type": "boolean"
+                      },
                       "unitPrice": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -154466,6 +154469,7 @@
                       "name",
                       "description",
                       "quantity",
+                      "quantityIsCrewHours",
                       "unitPrice",
                       "discountAmount",
                       "taxable",
@@ -161092,6 +161096,9 @@
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                           },
+                          "quantityIsCrewHours": {
+                            "type": "boolean"
+                          },
                           "unitPrice": {
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -161214,6 +161221,7 @@
                           "name",
                           "description",
                           "quantity",
+                          "quantityIsCrewHours",
                           "unitPrice",
                           "discountAmount",
                           "taxable",
@@ -161336,13 +161344,21 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "budgetedHours": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         },
         "required": [
           "estimate",
           "jobId",
           "invoiceId",
-          "depositId"
+          "depositId",
+          "budgetedHours"
         ]
       },
       "CopyBackFromSandboxInput": {
@@ -165438,6 +165454,9 @@
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$",
                         "default": "1"
                       },
+                      "quantityIsCrewHours": {
+                        "type": "boolean"
+                      },
                       "unitPrice": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -165669,6 +165688,9 @@
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                       },
+                      "quantityIsCrewHours": {
+                        "type": "boolean"
+                      },
                       "unitPrice": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -165791,6 +165813,7 @@
                       "name",
                       "description",
                       "quantity",
+                      "quantityIsCrewHours",
                       "unitPrice",
                       "discountAmount",
                       "taxable",
@@ -167425,6 +167448,13 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "budgetEstimateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "visits": {
             "type": "array",
@@ -169747,6 +169777,9 @@
               "after_hours"
             ]
           },
+          "quantityIsCrewHours": {
+            "type": "boolean"
+          },
           "externalRef": {
             "type": "object",
             "properties": {
@@ -169831,6 +169864,9 @@
               "diagnostic",
               "after_hours"
             ]
+          },
+          "quantityIsCrewHours": {
+            "type": "boolean"
           },
           "chemical": {
             "type": [
@@ -169973,6 +170009,7 @@
           "imageUrl",
           "categoryId",
           "feeRole",
+          "quantityIsCrewHours",
           "chemical",
           "price",
           "taxable",
@@ -176158,6 +176195,9 @@
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                       },
+                      "quantityIsCrewHours": {
+                        "type": "boolean"
+                      },
                       "unitPrice": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -176280,6 +176320,7 @@
                       "name",
                       "description",
                       "quantity",
+                      "quantityIsCrewHours",
                       "unitPrice",
                       "discountAmount",
                       "taxable",
@@ -191143,6 +191184,9 @@
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                       },
+                      "quantityIsCrewHours": {
+                        "type": "boolean"
+                      },
                       "unitPrice": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -191265,6 +191309,7 @@
                       "name",
                       "description",
                       "quantity",
+                      "quantityIsCrewHours",
                       "unitPrice",
                       "discountAmount",
                       "taxable",
@@ -196587,6 +196632,13 @@
               "null"
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "budgetEstimateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           },
           "visits": {
             "type": "array",
@@ -205858,6 +205910,9 @@
               "after_hours"
             ]
           },
+          "quantityIsCrewHours": {
+            "type": "boolean"
+          },
           "chemical": {
             "type": [
               "object",
@@ -206059,6 +206114,7 @@
           "imageUrl",
           "categoryId",
           "feeRole",
+          "quantityIsCrewHours",
           "chemical",
           "price",
           "taxable",
@@ -230028,6 +230084,13 @@
                   ],
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "budgetEstimateId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "cost": {
                   "type": [
                     "string",
@@ -234848,6 +234911,9 @@
                     "after_hours"
                   ]
                 },
+                "quantityIsCrewHours": {
+                  "type": "boolean"
+                },
                 "chemical": {
                   "type": [
                     "object",
@@ -234989,6 +235055,7 @@
                 "imageUrl",
                 "categoryId",
                 "feeRole",
+                "quantityIsCrewHours",
                 "chemical",
                 "price",
                 "taxable",
@@ -267515,6 +267582,9 @@
               "after_hours"
             ]
           },
+          "quantityIsCrewHours": {
+            "type": "boolean"
+          },
           "chemical": {
             "type": [
               "object",
@@ -267656,6 +267726,7 @@
           "imageUrl",
           "categoryId",
           "feeRole",
+          "quantityIsCrewHours",
           "chemical",
           "price",
           "taxable",
@@ -270840,6 +270911,9 @@
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                           },
+                          "quantityIsCrewHours": {
+                            "type": "boolean"
+                          },
                           "unitPrice": {
                             "type": "string",
                             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -270962,6 +271036,7 @@
                           "name",
                           "description",
                           "quantity",
+                          "quantityIsCrewHours",
                           "unitPrice",
                           "discountAmount",
                           "taxable",
@@ -290810,6 +290885,13 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "budgetEstimateId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "visits": {
             "type": "array",
             "items": {
@@ -292816,6 +292898,9 @@
               "unit",
               "epaRegistrationNumber"
             ]
+          },
+          "quantityIsCrewHours": {
+            "type": "boolean"
           }
         }
       },
@@ -292881,6 +292966,9 @@
               "diagnostic",
               "after_hours"
             ]
+          },
+          "quantityIsCrewHours": {
+            "type": "boolean"
           },
           "chemical": {
             "type": [
@@ -293023,6 +293111,7 @@
           "imageUrl",
           "categoryId",
           "feeRole",
+          "quantityIsCrewHours",
           "chemical",
           "price",
           "taxable",

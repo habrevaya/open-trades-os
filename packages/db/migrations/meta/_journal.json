@@ -1100,6 +1100,13 @@
       "when": 1792384733655,
       "tag": "0156_condemned_groot",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1792387950965,
+      "tag": "0157_abandoned_wiccan",
+      "breakpoints": true
     }
   ]
 }

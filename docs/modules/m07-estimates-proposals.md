@@ -268,6 +268,20 @@ produces the job and the invoice as a copy, discounts included: the invoice
 carries the option's discount total as well as its total, so a converted
 estimate with a discount on it posts like any other invoice when it is issued.
 
+**The job's crew hour budget comes with it.** A line says its quantity is crew hours
+(people times hours) when its price book item is marked that way, which the line copies
+as it is written, or when whoever typed it said so (`quantityIsCrewHours` on a line of
+`POST /v1/estimates`; the tick "The quantity is crew hours" on a hand typed line of the
+composer at `/estimates/new`). Converting adds up those quantities over the lines the
+customer took (a required line, or an optional one they ticked, never one left alone) and
+budgets the job it makes with the sum: `budgetedHours` in the response, the job's "Crew
+hours" on `/jobs/{id}` saying which estimate it was added up from, and the figure staying
+editable until the first punch exactly as a typed budget does (M10). A job the estimate
+was already written for takes the figure only if it has no budget and nobody has punched,
+so a number the office typed is never overwritten. An estimate with no crew hour lines
+leaves the job without a budget. Hours more than a job can be budgeted (100,000) leave
+the job unbudgeted rather than refusing the conversion.
+
 ### Chase the ones nobody answered
 
 `/estimates` opens on the unsold ones: sent, not approved or declined, not

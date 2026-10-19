@@ -257,6 +257,17 @@ export const job = pgTable("job", {
    * hours, never by moving the budget after the work showed it was short.
    */
   budgetedHours: money("budgeted_hours"),
+  /**
+   * The estimate the budget was taken from, when it was: the crew hour lines
+   * of the option the customer approved, added up when the estimate was
+   * converted. Null for a budget somebody typed, and cleared when the office
+   * changes the figure, because a number edited by hand is the office's again.
+   * Not a constraint on the hours: the budget stays editable until the first
+   * punch exactly as a typed one does. Not a foreign key, like
+   * `multi_visit_planned_by_user_id`: the billing schema imports this file, and
+   * the link is a record of where the figure came from, not a dependency.
+   */
+  budgetEstimateId: uuid("budget_estimate_id"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   cancellationReason: text("cancellation_reason"),

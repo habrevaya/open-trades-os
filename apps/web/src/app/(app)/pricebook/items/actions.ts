@@ -33,6 +33,7 @@ export async function createItem(_previous: FormState, form: FormData): Promise<
       laborMinutes: whole(field(form, "laborMinutes")), warrantyMonths: whole(field(form, "warrantyMonths")),
       warrantyRegistrationDays: whole(field(form, "warrantyRegistrationDays")),
       feeRole: field(form, "feeRole"),
+      quantityIsCrewHours: form.get("quantityIsCrewHours") === "on",
     });
     id = (await priceBook.create(ctx, input)).id;
   });
@@ -122,6 +123,7 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
         await priceBook.updateItem(ctx, parsed(updatePriceBookItem.input, {
           id, kind: field(form, "kind"), code: field(form, "code"),
           categoryId: field(form, "categoryId") ?? null, feeRole: field(form, "feeRole") ?? null,
+          quantityIsCrewHours: form.get("quantityIsCrewHours") === "on",
         }));
         return { message: "Saved. No version was written: nothing anybody was charged changes." };
       case "chemical":

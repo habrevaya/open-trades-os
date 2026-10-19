@@ -139,6 +139,8 @@ export const Job = z.object({
   multiVisitPlannedAt: z.string().datetime().nullable().optional(),
   /** Crew hours budgeted for the job, or null. See `budgetedHours` on create. */
   budgetedHours: MoneyString.nullable().optional(),
+  /** The estimate the budget was added up from when the estimate was converted, or null for a budget somebody typed. */
+  budgetEstimateId: Uuid.nullable().optional(),
   visits: z.array(Visit),
   /** Redacted unless the caller holds job.cost:read. */
   cost: MoneyString.nullable().optional(),

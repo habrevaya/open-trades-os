@@ -9,7 +9,7 @@ import { Crumb } from "@/components/Detail";
 import { Table, Td, Th } from "@/components/Table";
 import { formatIn, todayIn } from "@/lib/dates";
 import { PRICE_BOOK_KIND, label } from "@/lib/labels";
-import { FEE_ROLES, KINDS, PriceFields, shelfOptions } from "../ItemFields";
+import { CrewHoursBox, FEE_ROLES, KINDS, PriceFields, shelfOptions } from "../ItemFields";
 import { actOnItem } from "../actions";
 import { percentOf } from "@/lib/commission-rate";
 
@@ -69,6 +69,7 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
         </h1>
         <div className="flex items-center gap-2">
           {item.feeRole ? <Chip tone="info">{item.feeRole === "diagnostic" ? "Diagnostic fee" : "After hours rate"}</Chip> : null}
+          {item.quantityIsCrewHours ? <Chip tone="info">Counted in crew hours</Chip> : null}
           {item.chemical ? <Chip tone="info">Chemical, per {item.chemical.unit}</Chip> : null}
           <Chip tone={item.active ? "success" : "neutral"}>{item.active ? "sold" : "retired"}</Chip>
         </div>
@@ -190,7 +191,8 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
           <h2 className="text-sm font-semibold">What it is</h2>
           <p className="mt-1 text-sm text-ink-700">
             Changes the item itself and writes no version, because no document points at these. Marking it as the
-            diagnostic fee or the after hours rate is what lets a membership plan waive it for members.
+            diagnostic fee or the after hours rate is what lets a membership plan waive it for members. Saying its quantity is
+            crew hours lets an approved estimate budget the job in hours.
           </p>
           <ActionForm action={actOnItem} submit="Save" hidden={{ ...hidden, op: "identity" }} className="mt-3 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -198,6 +200,7 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
               <TextField label="Code" name="code" required maxLength={60} defaultValue={item.code} />
               <Select label="Category" name="categoryId" options={shelfOptions(shelves)} defaultValue={item.categoryId ?? ""} />
               <Select label="Fee a plan can waive" name="feeRole" options={FEE_ROLES} defaultValue={item.feeRole ?? ""} />
+              <CrewHoursBox defaultChecked={item.quantityIsCrewHours} />
             </div>
           </ActionForm>
         </section>

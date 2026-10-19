@@ -251,6 +251,16 @@ service refuses a change after that, because a budget moved once the hours are
 known is a budget fitted to them: hours the customer agrees to add go on a
 change order (M12). The budgeted hour variance (M21) reads both.
 
+A budget does not have to be typed. When an approved estimate is converted to a job (M07), the
+quantities of the lines that count crew hours (a price book item marked "Counted in crew hours",
+M06, or a line typed with the tick) among the lines the customer took are added up as the job's
+budget. The page then says "Budgeted 24 crew hours, added up from the crew hour lines of estimate
+12", with the estimate as a link for whoever may read estimates, and `budgetEstimateId` on
+`GET /v1/jobs/{id}` names it. It is the same budget in every other way: editable until the first
+punch, refused after, read unchanged by the budgeted hour variance. The office changing the figure
+to a different number makes it theirs again and the page stops saying where it came from; typing the
+same number changes nothing.
+
 ### Record how much work it is
 
 A job whose type is measured in a unit of work (square feet, cubic yards, linear
@@ -447,9 +457,10 @@ left on hold is one number for the whole company: a job waiting on the weather
 is nudged after as many days as one waiting on a part, and a branch cannot set
 its own. It nudges once for a hold, in the office queue and to nobody in
 particular, and a hold that goes on for weeks raises nothing more; the task has
-no due date, so the queue's late rules (M34) never act on it. A job's crew hour budget is typed by the office; it is not
-taken from the estimate, whose lines carry quantities and prices and never say
-which of them are hours. A supply is marked billed back by the office, one line
+no due date, so the queue's late rules (M34) never act on it. A job's crew hour budget is added up from its estimate only
+for the lines that say their quantity is crew hours, so an estimate whose labour is priced as a flat
+amount, or typed without the tick, budgets nothing and the office types the budget. Hours are never
+guessed from a price or from the price book's labour minutes. A supply is marked billed back by the office, one line
 at a time, not from the phone and not by the customer or the price book item: a
 pass through is the account's arrangement, and the same paper can be billed back
 to one office and absorbed for another. The container a line bills is named by

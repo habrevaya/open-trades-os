@@ -200,6 +200,8 @@ export function EstimateActions({
           <h2 className="text-sm font-semibold">Approved. Turn it into work</h2>
           <p className="mt-1 text-sm text-ink-700">
             The job is booked from the option they chose, at the prices they approved, and any deposit follows it.
+            If lines they took are counted in crew hours, the job is budgeted with those hours. You can change the
+            budget on the job until somebody punches in.
           </p>
           <ActionForm action={action} submit="Convert to job" hidden={{ ...hidden, op: "convert" }}
                       className="mt-3 space-y-3">

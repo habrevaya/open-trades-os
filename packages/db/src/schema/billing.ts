@@ -264,6 +264,13 @@ export const estimateLine = pgTable("estimate_line", {
   name: text("name").notNull(),
   description: text("description"),
   quantity: money("quantity").notNull().default("1"),
+  /**
+   * The quantity is crew hours (people times hours). Copied from the price
+   * book item the day the line is written, or said by whoever typed the line,
+   * and frozen with it. Converting the estimate to a job adds up these lines of
+   * the chosen option as the job's budgeted crew hours.
+   */
+  quantityIsCrewHours: boolean("quantity_is_crew_hours").notNull().default(false),
   unitPrice: money("unit_price").notNull().default("0"),
   unitCost: money("unit_cost"),
   discountAmount: money("discount_amount").notNull().default("0"),
