@@ -83,7 +83,7 @@ test("a commission settles by itself when its invoice is paid in full, and what 
     expect(pass.settled.map((s) => s.invoiceId)).toContain(invoices[0]!.id);
     expect(pass.left.map((l) => l.invoiceId)).toContain(invoices[1]!.id);
 
-    await owner.reload();
+    await owner.goto("/payroll/commissions");
     const settled = section.getByRole("table", { name: "Settled by itself lately" });
     await expect(settled.getByRole("row").filter({ hasText: names[0]! })).toContainText("$100.00");
     const left = section.getByRole("table", { name: "Left for you" });
