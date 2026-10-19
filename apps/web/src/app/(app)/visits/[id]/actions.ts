@@ -5,6 +5,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { dispatchDays, productsApplied, visitCancellations } from "@opentradesos/api/services";
 import { recordVisitProduct, setVisitMovable } from "@opentradesos/api/contracts";
+import { work } from "@opentradesos/core";
 import { attempt, field, parsed, refused, type FormState } from "@/lib/actions";
 import { instantFromLocal } from "@/lib/local-time";
 
@@ -43,15 +44,26 @@ export async function cancelVisitAction(_previous: FormState, form: FormData): P
   const id = String(form.get("id") ?? "");
   const by = field(form, "by");
   if (by !== "customer" && by !== "company") return refused(form, "Say who asked to call it off: the customer, or us.");
+  /**
+   * When the company called it off, why is asked, from the fixed list, and
+   * "something else" says what. A customer is never asked why: nothing of the
+   * kind is read from the form for them.
+   */
+  const code = by === "company" ? field(form, "cancelReason") : undefined;
+  if (by === "company" && !work.CANCEL_REASONS.some((r) => r.value === code)) {
+    return refused(form, "Say why we called it off: rain or weather, crew short, equipment, or something else.");
+  }
+  const note = by === "company" ? field(form, "cancelReasonNote") : undefined;
   const user = await requireSetupUser();
   const askedAt = instantFromLocal(field(form, "askedAt"), user.organizationTimezone);
   const state = await attempt(form, async () => {
     const done = await visitCancellations.cancel({ actor: user.actor, db: getDb() }, {
       id, by, ...(askedAt ? { askedAt } : {}),
+      ...(code ? { reason: { code: code as work.CancelReason, ...(note ? { note } : {}) } } : {}),
     });
     return {
       message: by === "company"
-        ? "Called off. It is left out of the customer cancellation rate, and whoever was on it has been told not to go."
+        ? `Called off: ${done.reason?.words.toLowerCase() ?? "no reason given"}. It is left out of the customer cancellation rate, and whoever was on it has been told not to go.`
         : done.late
           ? `Called off. It came inside the ${done.cancelNoticeHours} hour notice window, so it counts as a late cancellation.`
           : "Called off, with enough notice. Whoever was on it has been told not to go.",

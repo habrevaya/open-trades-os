@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  can, canDefineRole, presetDefinition, people, ROLE_PRESETS, ROLE_IDS, DEFAULT_SCOPES, type Actor, type RoleId,
+  can, canDefineRole, presetDefinition, ROLE_PRESETS, ROLE_IDS, DEFAULT_SCOPES, type Actor, type RoleId,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
@@ -30,7 +30,8 @@ import { publicBaseUrl } from "./setup-tokens";
  * link is the same one-time "choose your password" link the operator hands a
  * new owner, shown once to the person inviting, and the person is emailed a
  * link of their own through the outbox (`services/invites.ts` says why the
- * outbox never holds it). Both work for `people.INVITE_DAYS` days; a new
+ * outbox never holds it). Both work for the company's chosen number of days
+ * (`invites.inviteDaysWithin`, seven until it says otherwise); a new
  * invite replaces the old one.
  *
  * AN ADDRESS WITH AN ACCOUNT ELSEWHERE IS REFUSED. `app.invite_member` says
@@ -173,6 +174,8 @@ export interface InviteResult {
   emailNote: string | null;
   /** When both links stop working. */
   expiresAt: string;
+  /** How many days they last, as the company has set it. */
+  days: number;
 }
 
 /** A preset that sees only a branch's work, which nobody can hold without a branch. */
@@ -268,7 +271,7 @@ export async function invite(ctx: ServiceContext, input: InviteInput): Promise<I
 
 /**
  * A new invite for somebody invited who has not chosen a password: a fresh
- * link shown once and emailed again, good for another `people.INVITE_DAYS`
+ * link shown once and emailed again, good for the company's chosen number of
  * days. The old invite's links stop working. This is what to do when one
  * has run out.
  */
@@ -326,9 +329,11 @@ function shortRefusal(reason: string): string {
  */
 async function send(tx: Database, ctx: ServiceContext, input: {
   membershipId: string; userId: string; email: string; name: string;
-}): Promise<{ link: string | null; emailed: boolean; emailNote: string | null; expiresAt: string }> {
+}): Promise<{ link: string | null; emailed: boolean; emailNote: string | null; expiresAt: string; days: number }> {
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + people.INVITE_DAYS * 864e5);
+  /** The company's own lifetime for the link, read now and kept on the invite as the day it runs out. */
+  const days = await invites.inviteDaysWithin(tx, ctx.actor.organizationId);
+  const expiresAt = new Date(now.getTime() + days * 864e5);
 
   await tx.update(schema.membershipInvite)
     .set({ replacedAt: now, updatedAt: now })
@@ -361,6 +366,7 @@ async function send(tx: Database, ctx: ServiceContext, input: {
       company: org?.name ?? "the company",
       inviter: inviter?.name ?? null,
       expiresOn: invites.expiresOn(expiresAt, await timezoneOf(tx, ctx.actor.organizationId)),
+      days,
     });
     const transport = transportContext(ctx, tx);
     if (!can(transport.actor, "message:send")) {
@@ -377,7 +383,7 @@ async function send(tx: Database, ctx: ServiceContext, input: {
     await tx.update(schema.membershipInvite).set({ emailRefusal: emailNote, updatedAt: now })
       .where(eq(schema.membershipInvite.id, invite!.id));
   }
-  return { link, emailed: emailNote === null, emailNote, expiresAt: expiresAt.toISOString() };
+  return { link, emailed: emailNote === null, emailNote, expiresAt: expiresAt.toISOString(), days };
 }
 
 /**

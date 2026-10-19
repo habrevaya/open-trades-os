@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { people, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
-import { inTenant, type ServiceContext } from "./context";
+import { audit, guardedRead, guardedWrite, inTenant, ConflictError, type ServiceContext } from "./context";
 import { publicBaseUrl } from "./setup-tokens";
 
 /**
@@ -26,10 +26,13 @@ import { publicBaseUrl } from "./setup-tokens";
  * same reason (`field-devices.ts`); an invite goes through it so that it is
  * retried, suppressed when the address bounces, and shown as sent or not.
  *
- * EXPIRY. An invite's link works for `people.INVITE_DAYS` days from when it
- * was sent, the inviter's copy and the emailed one alike. Sending a new one
- * replaces the old invite and stops its links, which is what the team list's
- * "Send a new invite" does once one has run out.
+ * EXPIRY. An invite's link works for the company's chosen number of days (one
+ * to thirty, `organization.settings.inviteLink.days`, seven until it says
+ * otherwise) from when it was sent, the inviter's copy and the emailed one
+ * alike. The days are read when an invite is sent and kept on it as the day
+ * it runs out, so changing the setting never changes an invite already sent.
+ * Sending a new one replaces the old invite and stops its links, which is what
+ * the team list's "Send a new invite" does once one has run out.
  */
 
 /**
@@ -72,6 +75,8 @@ export async function sealedLink(db: Database, organizationId: string, inviteId:
 /** The words of an invite email. The link is the placeholder; the outbox fills it in. */
 export function composeInviteEmail(input: {
   name: string; company: string; inviter: string | null; expiresOn: string;
+  /** How long the link lasts, which the email says beside the day it runs out. */
+  days: number;
 }): { subject: string; text: string; html: string } {
   const by = input.inviter ? `${input.inviter} has added you` : "You have been added";
   const subject = `You are invited to join ${input.company}`;
@@ -82,14 +87,14 @@ export function composeInviteEmail(input: {
     "",
     INVITE_LINK_PLACEHOLDER,
     "",
-    `The link works once, until ${input.expiresOn}. If you were not expecting this, you can ignore it.`,
+    `The link works once, for ${people.inviteDaysWords(input.days)}, until ${input.expiresOn}. If you were not expecting this, you can ignore it.`,
   ].join("\n");
   const escape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const html = [
     `<p>Hi ${escape(input.name)},</p>`,
     `<p>${escape(by)} to ${escape(input.company)}'s team. Choose your password here to sign in:</p>`,
     `<p><a href="${INVITE_LINK_PLACEHOLDER}">${INVITE_LINK_PLACEHOLDER}</a></p>`,
-    `<p>The link works once, until ${escape(input.expiresOn)}. If you were not expecting this, you can ignore it.</p>`,
+    `<p>The link works once, for ${people.inviteDaysWords(input.days)}, until ${escape(input.expiresOn)}. If you were not expecting this, you can ignore it.</p>`,
   ].join("\n");
   return { subject, text, html };
 }
@@ -156,3 +161,48 @@ export async function standings(
   }
   return out;
 }
+
+/* ------------------------------------------------------- how long a link lasts */
+
+/** The company's chosen lifetime for an invite's link, in days, seven until it says otherwise. */
+export async function inviteDaysWithin(tx: Database, organizationId: string): Promise<number> {
+  const [row] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const saved = ((row?.settings ?? {}) as Record<string, unknown>)["inviteLink"] as { days?: unknown } | undefined;
+  return people.inviteDaysOf(saved?.days);
+}
+
+/**
+ * What the invite screen says about the link. `user:invite`, because it is for
+ * the people who send invites; changing it is `settings:write`, below.
+ */
+export function lifetime(ctx: ServiceContext): Promise<{ days: number }> {
+  return guardedRead(ctx, "user:invite", async (tx) => ({ days: await inviteDaysWithin(tx, ctx.actor.organizationId) }));
+}
+
+/**
+ * Set how many days an invite's link works (one to thirty). `settings:write`,
+ * the owner's and the administrator's, and not `user:invite`: a longer lived
+ * link is a longer lived way into the company, so it is not a thing the person
+ * who happens to send invites decides. It applies to invites sent from now on;
+ * one already sent keeps the day it was given.
+ */
+export function setLifetime(ctx: ServiceContext, input: { days: number }): Promise<{ days: number }> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const problem = people.inviteDaysProblem(input.days);
+    if (problem) throw new ConflictError(problem);
+    const before = await inviteDaysWithin(tx, ctx.actor.organizationId);
+    await tx.update(schema.organization).set({
+      settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ inviteLink: { days: input.days } })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    await audit(tx, ctx, "organization.invite_days_set", "organization", ctx.actor.organizationId,
+      { days: before }, { days: input.days });
+    return { days: input.days };
+  });
+}
+
+export const handlers = {
+  getInviteLifetime: (ctx: ServiceContext) => lifetime(ctx),
+  setInviteLifetime: (ctx: ServiceContext, input: { days: number }) => setLifetime(ctx, input),
+} as const;

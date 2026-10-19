@@ -70,3 +70,19 @@ describe("the board's day", () => {
     expect(render({}, false)).not.toContain("Rebalance the day");
   });
 });
+
+describe("a card for a job on hold", () => {
+  it("says why the job is waiting, on the technician's card and in the unassigned pile", () => {
+    const held = { reason: "part", days: 3, words: "On hold 3 days. Waiting on a part: Condenser fan motor" };
+    const html = render({
+      technicians: [{ id: T1, displayName: "Ray Ortiz", color: null, timeOff: false, visits: [card({ onHold: held })] }] as never,
+      unassigned: [{ ...card({ id: V2, onHold: { reason: "weather", days: 0, words: "On hold since today. Waiting on the weather" } }), postalCode: "78704", priorityPlan: null }] as never,
+    });
+    expect(html).toContain("On hold 3 days. Waiting on a part: Condenser fan motor");
+    expect(html).toContain("On hold since today. Waiting on the weather");
+  });
+
+  it("says nothing on a card whose job is not on hold", () => {
+    expect(render({})).not.toContain("On hold");
+  });
+});

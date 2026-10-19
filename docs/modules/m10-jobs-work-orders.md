@@ -171,7 +171,12 @@ cancel them without an answer; on the API it is `cancelledBy`, with
 when, with the company's notice window as it was (M09), because cleaning's
 cancellation rate counts a customer's late cancellation and leaves the
 company's own out (M21). An API caller that does not say is recorded as not
-known, which that rate counts beside the number rather than in it. One visit
+known, which that rate counts beside the number rather than in it. When the
+company is the one who called them off, the form asks why as well, from the
+fixed list (rain or weather, crew short, equipment, something else with its
+words), and puts the one reason on every visit it cancels; the API takes it as
+`cancelReason` with `cancelVisits` and `cancelledBy: "company"`, refuses it with
+the customer, and records none when none is sent (M09). One visit
 on its own is called off from its page, `/visits/{id}` (M09).
 
 ### Put it on hold, and say why
@@ -191,6 +196,40 @@ off it, and `GET /v1/jobs/{id}/holds` lists every hold the job has had. A job
 moved off hold by a plain status change has its hold closed too, and a job
 put on hold that way before reasons existed can be given one. Every hold is on
 the audit log.
+
+**A job left on hold too long nudges the office.** On `/settings`, under "Jobs on
+hold", the company says how many days a job may wait (1 to 90, counted in the
+company's calendar days, so a hold placed last evening is a day old this
+morning); the box is empty, and the nudge off, until it does, because what is a
+long wait differs by trade. `GET /v1/job-hold-nudge` reads it (`settings:read`)
+and `PATCH /v1/job-hold-nudge` sets it, or turns it off with `null`
+(`settings:write`). When a hold has lasted that long the worker raises one task
+in the office queue (`/tasks`, M34), about the job and linked to it: "Job 1042
+has been on hold 5 days: waiting on a part", with the customer, the job's
+summary, the reason and what was written about it, who put it on hold and when,
+and how long the company asked to wait. It is one task for each hold: the hold
+carries `nudged_at` and `nudge_task_id`, claimed with an update that only lands
+on a hold not yet claimed, in the transaction that writes the task, so a pass
+cut short and run again, or two workers at once, raise it once. A task somebody
+closed by hand is not raised again for the same hold; a later hold on the same
+job is a new hold and earns its own. Taking the job off hold (the button,
+`POST /v1/job-holds/{id}/released`, or any ordinary status change, cancelling
+included) closes the task as done with "The job came off hold."; a task already
+finished or dismissed is left as it was. The task names no purchase order,
+because it is read by everybody who reads the queue; the order is on the job's
+page for those who may read purchasing. Turning the setting on, or lowering it,
+nudges the holds already past the number on the next pass; tasks already raised
+stay where they are when it is turned off. The audit log has `job.hold_nudged`
+and `organization.hold_nudge_set`.
+
+**The dispatch board says why a job is on hold.** A card whose job is on hold
+(a visit booked before the job was held stays on the board) carries, under the
+customer and the summary, "On hold 3 days. Waiting on a part: condenser fan
+motor", or "On hold since today. Waiting on the weather", or "On hold. No reason
+was given." for a job moved to on hold before reasons existed. It is `onHold` on
+each visit and each unassigned card of `GET /v1/dispatch/board` (`reason`,
+`days`, `words`), read with `visit:read` as the rest of the card is, and it goes
+the moment the job comes off hold.
 
 A job can also say it is **planned for more than one visit** (a two day
 install, a rough in and a trim out): ticked when it is booked on `/jobs/new`,
@@ -346,6 +385,8 @@ because a technician may finish work and may not re-describe it.
 | `GET /v1/jobs/{id}/holds` | `job:read` |
 | `POST /v1/jobs/{id}/holds` | `job:write`, and `po:read` to name a purchase order |
 | `POST /v1/job-holds/{id}/released` | `job:write` |
+| `GET /v1/job-hold-nudge` | `settings:read` |
+| `PATCH /v1/job-hold-nudge` | `settings:write` |
 | `POST /v1/jobs/{id}/visits` | `visit:write` |
 | `POST /v1/visits/{id}/assign` | `visit:dispatch` |
 | `POST /v1/jobs/{id}/dropped-skills` | `job:write`, `visit:assign_unqualified` |
@@ -401,9 +442,12 @@ part says so to whoever orders it, and that person names the order. A part
 held for without an order in this product (bought over the counter, say) can
 be held for "something else" with words, but it is not "held for a part
 order", so the first time fix rate counts it. A hold names one order; a job
-waiting on two orders names the one the work is waiting for. Nothing reminds
-anybody about a job that has been on hold a long time, and the board does not
-show the reason. A job's crew hour budget is typed by the office; it is not
+waiting on two orders names the one the work is waiting for. The nudge for a job
+left on hold is one number for the whole company: a job waiting on the weather
+is nudged after as many days as one waiting on a part, and a branch cannot set
+its own. It nudges once for a hold, in the office queue and to nobody in
+particular, and a hold that goes on for weeks raises nothing more; the task has
+no due date, so the queue's late rules (M34) never act on it. A job's crew hour budget is typed by the office; it is not
 taken from the estimate, whose lines carry quantities and prices and never say
 which of them are hours. A supply is marked billed back by the office, one line
 at a time, not from the phone and not by the customer or the price book item: a

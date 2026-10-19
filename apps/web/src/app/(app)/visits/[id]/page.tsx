@@ -2,13 +2,14 @@ import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { customFields, visits, files, productsApplied, NotFoundError } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, work } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { Chip, Money } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { formatIn, formatDay } from "@/lib/dates";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
+import { CalledOffFields } from "@/components/CalledOffFields";
 import { cancelVisitAction, movableAction, recordProductAction } from "./actions";
 import { VISIT_STATUS, VISIT_TONE, label, tone, enumText } from "@/lib/labels";
 
@@ -85,7 +86,7 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
           {visit.cancellation
             ? visit.cancellation.by === null
               ? "Nobody recorded who asked"
-              : `${visit.cancellation.by === "customer" ? "The customer asked" : "We called it off"}${visit.cancellation.at ? `, ${formatIn(visit.cancellation.at, tz)}` : ""}${visit.cancellation.late === true ? `, inside the ${visit.cancellation.noticeHours} hour notice window` : ""}`
+              : `${visit.cancellation.by === "customer" ? "The customer asked" : "We called it off"}${visit.cancellation.at ? `, ${formatIn(visit.cancellation.at, tz)}` : ""}${visit.cancellation.late === true ? `, inside the ${visit.cancellation.noticeHours} hour notice window` : ""}${visit.cancellation.by === "company" ? `. ${visit.cancellation.reason ? visit.cancellation.reason.words : "No reason was given"}` : ""}`
             : null}
         </Fact>
         <Fact label="May move">
@@ -125,11 +126,7 @@ export default async function VisitPage({ params }: { params: Promise<{ id: stri
             <p className="text-sm text-ink-700">
               It stays on record as cancelled, and whoever is on it is told not to go.
             </p>
-            <Select label="Who asked" name="by" required defaultValue="" className="block w-72" options={[
-              { value: "", label: "Choose" },
-              { value: "customer", label: "The customer asked" },
-              { value: "company", label: "We called it off (weather, staffing)" },
-            ]} />
+            <CalledOffFields name="by" label="Who asked" strict reasons={work.CANCEL_REASONS} />
             <TextField label="When they asked, if not just now" name="askedAt" type="datetime-local" className="block w-72" />
           </ActionForm>
         </details>

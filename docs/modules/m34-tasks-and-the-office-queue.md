@@ -116,7 +116,7 @@ first.
 
 ### Tasks other modules raise
 
-Three things put work in the queue without anybody creating it:
+Among the things that put work in the queue without anybody creating it:
 
 - A customer asking from their link to move or cancel a visit (M05). The task
   is raised high and due before the visit, and it is answered rather than
@@ -126,6 +126,9 @@ Three things put work in the queue without anybody creating it:
 - A renewal notice that could not be sent (M08), so somebody tells the member
   another way before their plan renews.
 - The estimate follow up's call (M07 and M29), linked to the estimate.
+- A job left on hold longer than the company said it may be (M10), linked to the
+  job: one task for each hold, naming the job, the reason and the days, closed as
+  done when the job comes off hold. Off until the company sets the days.
 
 ### A checklist inside a task
 

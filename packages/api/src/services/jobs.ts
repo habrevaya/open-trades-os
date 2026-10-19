@@ -27,7 +27,7 @@ import { heldAgainst } from "./booking";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import { closeOpenHold } from "./job-holds";
-import { askedAtOf, callOff, calledOffFields, supersedeRequests, type CancelledBy } from "./visit-cancellations";
+import { askedAtOf, assertWhy, callOff, calledOffFields, noteWhy, supersedeRequests, type CalledOffWhy, type CancelledBy } from "./visit-cancellations";
 import type { JobCreate, listJobs, getJob, updateJob, scheduleVisit, completeVisit, listJobTypes, listJobLines } from "../contracts/jobs";
 
 type CreateInput = z.infer<typeof JobCreate>;
@@ -823,12 +823,18 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
       }
       assertCan(ctx.actor, "visit:reschedule");
     }
-    if ((input.cancelledBy !== undefined || input.cancelAskedAt !== undefined) && !input.cancelVisits) {
+    if ((input.cancelledBy !== undefined || input.cancelAskedAt !== undefined || input.cancelReason !== undefined) && !input.cancelVisits) {
       throw new UnprocessableError("Who asked goes with cancelling the visits", [{
-        path: input.cancelledBy !== undefined ? "cancelledBy" : "cancelAskedAt",
+        path: input.cancelledBy !== undefined ? "cancelledBy" : input.cancelAskedAt !== undefined ? "cancelAskedAt" : "cancelReason",
         message: "Send it with cancelVisits.",
       }]);
     }
+    if (input.cancelReason !== undefined && input.cancelledBy === undefined) {
+      throw new UnprocessableError("Why goes with who asked", [{
+        path: "cancelReason", message: "Send cancelledBy as well.",
+      }]);
+    }
+    assertWhy(input.cancelledBy, input.cancelReason);
     if (input.cancelAskedAt !== undefined && input.cancelledBy === undefined) {
       throw new UnprocessableError("When they asked goes with who asked", [{
         path: "cancelAskedAt", message: "Send cancelledBy as well.",
@@ -1064,7 +1070,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
 
     if (input.cancelVisits && input.status === "cancelled") {
       await cancelVisitsStillToCome(tx, ctx, input.id,
-        input.cancelledBy ? { by: input.cancelledBy, askedAt: input.cancelAskedAt } : null);
+        input.cancelledBy ? { by: input.cancelledBy, askedAt: input.cancelAskedAt } : null, input.cancelReason);
     }
 
     return clean(ctx, "job", after!);
@@ -1102,6 +1108,7 @@ const NOT_STARTED = ["unassigned", "scheduled", "dispatched"] as const;
 async function cancelVisitsStillToCome(
   tx: Database, ctx: ServiceContext, jobId: string,
   who: { by: CancelledBy; askedAt?: string | undefined } | null,
+  why?: CalledOffWhy | undefined,
 ): Promise<string[]> {
   const now = new Date();
   const visits = await tx.select({ id: schema.visit.id, createdAt: schema.visit.createdAt }).from(schema.visit)
@@ -1116,6 +1123,7 @@ async function cancelVisitsStillToCome(
     const before = await sideOf(tx, visit.id);
     await callOff(tx, ctx, visit.id,
       who ? { by: who.by, askedAt: askedAtOf(who.askedAt, visit.createdAt, now) } : null);
+    await noteWhy(tx, visit.id, why);
     if (before) await announce(tx, ctx, visit.id, before);
     await supersedeRequests(tx, ctx, visit.id, "Overtaken: the office cancelled the job");
     cancelled.push(visit.id);
@@ -1123,6 +1131,7 @@ async function cancelVisitsStillToCome(
   if (cancelled.length > 0) {
     await audit(tx, ctx, "job.visits_cancelled", "job", jobId, null, {
       visitIds: cancelled, cancelledBy: who?.by ?? null, askedAt: who?.askedAt ?? null,
+      ...(why ? { reason: why.code, reasonNote: why.note ?? null } : {}),
     });
   }
   return cancelled;

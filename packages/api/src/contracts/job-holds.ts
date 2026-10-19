@@ -76,4 +76,32 @@ export const releaseJobHold = defineRoute({
   output: Holds,
 });
 
-export const jobHoldRoutes = { listJobHolds, placeJobHold, releaseJobHold } as const;
+const HoldNudge = z.object({
+  /** How many days on hold before the office is nudged. Null: off. */
+  days: z.number().int().min(1).max(90).nullable(),
+});
+
+export const getJobHoldNudge = defineRoute({
+  method: "get",
+  path: "/v1/job-hold-nudge",
+  summary: "How long a job may stay on hold before the office is nudged",
+  module: "M10",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: HoldNudge,
+});
+
+export const setJobHoldNudge = defineRoute({
+  method: "patch",
+  path: "/v1/job-hold-nudge",
+  summary: "Set how long a job may stay on hold before the office is nudged",
+  description:
+    "Whole days from 1 to 90, counted in the company's own calendar, or null to turn it off (it is off until a company turns it on). When a hold has lasted that long the worker raises one task in the office queue about the job, naming the job, the reason it is held and how long; ending the hold closes it. One task per hold: a task somebody closed by hand is not raised again for the same hold. Holds already past the new number are nudged on the next pass, and tasks already raised stay where they are.",
+  module: "M10",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: HoldNudge,
+  output: HoldNudge,
+});
+
+export const jobHoldRoutes = { listJobHolds, placeJobHold, releaseJobHold, getJobHoldNudge, setJobHoldNudge } as const;

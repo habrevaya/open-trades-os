@@ -427,7 +427,11 @@ frozen on each visit when it is called off.
   after the window began (turned away at the door). Exactly the notice asked
   for is in time. A visit called off late and done anyway, on a phone that
   missed the cancellation, is still a late cancellation.
-- A stop the **company** called off is out of both halves and counted beside.
+- A stop the **company** called off is out of both halves and counted beside,
+  and each record behind that count says why in the words the company chose
+  (rain or weather, crew short, equipment, or something else with what it said),
+  or "no reason given" for a day called off before reasons were kept or by a
+  caller that gave none (M09).
 - A stop called off with **nobody saying who** (before this was recorded, or by
   an API caller that did not say) is out of both halves and counted beside as
   not known, never read as either.

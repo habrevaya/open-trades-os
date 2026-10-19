@@ -128,7 +128,8 @@ may grant access to payroll.
 
 An invite is emailed through the same outbox as every other email, and the
 inviter is shown a link of their own, once, for when it lands in spam. Both
-work for seven days. The email's link is never in the outbox: everybody who
+work for seven days unless the company has set another number, from 1 to 30
+(M02, `PATCH /v1/invite-lifetime`). The email's link is never in the outbox: everybody who
 reads the inbox can read the outbox, and a link that chooses a new
 colleague's password sitting in a dispatcher's inbox is a way into an
 account they were never given. So the stored email says where the link goes,

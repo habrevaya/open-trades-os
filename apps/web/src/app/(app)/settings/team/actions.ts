@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { attempt, field, type FormState } from "@/lib/actions";
+import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { team, roles, branches, ConflictError } from "@opentradesos/api/services";
+import { team, roles, branches, invites, ConflictError } from "@opentradesos/api/services";
 
 /**
  * Getting people in, and deciding what each of them may do.
@@ -33,7 +33,7 @@ function refresh() {
  */
 function handOver(
   name: string,
-  result: { link: string | null; reissued: boolean; emailed: boolean; emailNote: string | null },
+  result: { link: string | null; reissued: boolean; emailed: boolean; emailNote: string | null; days: number },
 ): Partial<NonNullable<FormState>> {
   if (!result.link) {
     return {
@@ -47,7 +47,7 @@ function handOver(
   return {
     secret: {
       value: result.link,
-      caption: `${result.reissued ? "A new invite for" : "Invited"} ${name}. ${emailed} The link lets them choose a password, once, in the next seven days${result.reissued ? ", and the old invite no longer works" : ""}. It is not shown again.`,
+      caption: `${result.reissued ? "A new invite for" : "Invited"} ${name}. ${emailed} The link lets them choose a password, once, in the next ${result.days === 1 ? "day" : `${result.days} days`}${result.reissued ? ", and the old invite no longer works" : ""}. It is not shown again.`,
     },
   };
 }
@@ -142,6 +142,24 @@ export async function changeLocation(_previous: FormState, form: FormData): Prom
       locationId: chosen === "" ? null : chosen,
     });
     return { message: "Saved." };
+  });
+  refresh();
+  return result;
+}
+
+/**
+ * How many days an invite's link works. Applies to invites sent from now on;
+ * one already sent keeps the day it was given.
+ */
+export async function setInviteDays(_previous: FormState, form: FormData): Promise<FormState> {
+  const days = Number(field(form, "days") ?? "");
+  if (!Number.isInteger(days)) return refused(form, "Give the days as a whole number from 1 to 30.");
+  const result = await attempt(form, async () => {
+    const saved = await invites.setLifetime(await ctx(), { days });
+    return {
+      message: `Saved. Invites you send from now on work for ${saved.days} ${saved.days === 1 ? "day" : "days"}. `
+        + "Invites already sent keep the day they were given.",
+    };
   });
   refresh();
   return result;

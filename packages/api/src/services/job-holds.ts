@@ -1,8 +1,8 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, work } from "@opentradesos/core";
+import { SYSTEM_USER_ID, assertCan, can, time, work, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { jobScopeFilter } from "./scope";
 import { canTransition } from "./jobs";
@@ -186,6 +186,23 @@ export function place(
 }
 
 /**
+ * The nudge a hold raised goes with the hold. Done, not dismissed: the wait it
+ * was about is over, and nobody decided the work was not worth raising. A task
+ * somebody already finished or dismissed is left as they left it.
+ */
+async function closeNudge(tx: Database, ctx: ServiceContext, taskId: string | null): Promise<void> {
+  if (!taskId) return;
+  const now = new Date();
+  await tx.update(schema.task).set({
+    status: "done",
+    outcome: "The job came off hold.",
+    completedAt: now,
+    completedByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+    updatedAt: now,
+  }).where(and(eq(schema.task.id, taskId), inArray(schema.task.status, ["open", "in_progress"])));
+}
+
+/**
  * Take a job off hold: the hold is closed and the job goes back to the status
  * it was held from. A job somebody already moved on (cancelled, or back on the
  * board by a status change) only has its hold closed.
@@ -220,6 +237,7 @@ export function release(ctx: ServiceContext, input: { id: string }) {
     const [closed] = await tx.update(schema.jobHold).set({
       releasedAt: new Date(), releasedByUserId: ctx.actor.userId, updatedAt: new Date(),
     }).where(eq(schema.jobHold.id, hold.id)).returning();
+    await closeNudge(tx, ctx, hold.nudgeTaskId);
     await audit(tx, ctx, "job.hold_released", "job_hold", hold.id, hold, closed!);
 
     const answer = { data: await viewsOf(tx, job.id) };
@@ -240,7 +258,172 @@ export async function closeOpenHold(tx: Database, ctx: ServiceContext, jobId: st
   const [closed] = await tx.update(schema.jobHold).set({
     releasedAt: new Date(), releasedByUserId: ctx.actor.userId, updatedAt: new Date(),
   }).where(eq(schema.jobHold.id, open.id)).returning();
+  await closeNudge(tx, ctx, open.nudgeTaskId);
   await audit(tx, ctx, "job.hold_released", "job_hold", open.id, open, closed!);
+}
+
+/* ------------------------------------------------- a job left on hold too long */
+
+/**
+ * HOW LONG A JOB MAY WAIT BEFORE THE OFFICE IS NUDGED
+ *
+ * Kept in `organization.settings.holdNudge.days`, beside the company's other
+ * rules, and OFF until a company turns it on: a number of days that suits a
+ * roofer waiting on weather is wrong for a plumber waiting on a part, and
+ * guessing one would fill the queue of every company that never asked.
+ *
+ * When a hold has lasted that many of the company's calendar days the worker
+ * raises ONE task in the office queue (`/tasks`, queue "office", about the
+ * job) saying which job, why it is held and how long. One per hold, decided
+ * by the hold's own `nudged_at`, claimed in the transaction that writes the
+ * task: a pass cut short and run again, or two workers at once, raise it once.
+ * Ending the hold closes the task, by taking the job off hold, or by any
+ * ordinary status change that moves it on. A task somebody closed by hand is
+ * not raised again for the same hold; the next hold on the job is a new one.
+ */
+export async function nudgeDaysWithin(tx: Database, organizationId: string): Promise<number | null> {
+  const [row] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const saved = ((row?.settings ?? {}) as Record<string, unknown>)["holdNudge"] as { days?: unknown } | undefined;
+  return work.holdNudgeDays(saved?.days);
+}
+
+export function nudgeSetting(ctx: ServiceContext): Promise<{ days: number | null }> {
+  return guardedRead(ctx, "settings:read", async (tx) => ({ days: await nudgeDaysWithin(tx, ctx.actor.organizationId) }));
+}
+
+/**
+ * Turn the nudge on for so many days, or off with null. Changing it changes
+ * what the worker raises from the next pass: holds already past the new number
+ * are nudged then, tasks already raised stay where they are.
+ */
+export function setNudge(ctx: ServiceContext, input: { days: number | null }): Promise<{ days: number | null }> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const problem = work.holdNudgeProblem(input.days);
+    if (problem) throw new ConflictError(problem);
+    const before = await nudgeDaysWithin(tx, ctx.actor.organizationId);
+    await tx.update(schema.organization).set({
+      settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ holdNudge: { days: input.days } })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    await audit(tx, ctx, "organization.hold_nudge_set", "organization", ctx.actor.organizationId,
+      { days: before }, { days: input.days });
+    return { days: input.days };
+  });
+}
+
+/** The most one pass raises for one company; the rest wait for the next pass. */
+const NUDGES_PER_PASS = 200;
+
+/**
+ * Raise the nudges that are due for the company this transaction belongs to.
+ * Returns the jobs it raised one for.
+ */
+export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date()): Promise<string[]> {
+  const organizationId = ctx.actor.organizationId;
+  const days = await nudgeDaysWithin(tx, organizationId);
+  if (days === null) return [];
+  const zone = await timezoneOf(tx, organizationId);
+  const today = time.dateIn(now, zone);
+  /** Held on or before this day has lasted the days: the first instant after it is the bound. */
+  const placedBefore = time.startOfDayIn(time.addDays(today, 1 - days), zone);
+
+  const due = await tx.select({
+    hold: schema.jobHold,
+    job: schema.job,
+    customerName: schema.customer.name,
+  }).from(schema.jobHold)
+    .innerJoin(schema.job, eq(schema.job.id, schema.jobHold.jobId))
+    .innerJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
+    .where(and(
+      eq(schema.jobHold.organizationId, organizationId),
+      isNull(schema.jobHold.releasedAt),
+      isNull(schema.jobHold.nudgedAt),
+      lt(schema.jobHold.placedAt, placedBefore),
+      eq(schema.job.status, "on_hold"),
+      isNull(schema.job.deletedAt),
+    ))
+    .orderBy(asc(schema.jobHold.placedAt))
+    .limit(NUDGES_PER_PASS);
+  if (due.length === 0) return [];
+
+  const people = await tx.execute<{ user_id: string; name: string | null; email: string }>(
+    sql`select user_id, name, email from app.organization_people()`,
+  );
+  const nameOf = (id: string | null) => {
+    const person = id ? people.find((p) => p.user_id === id) : undefined;
+    return person ? (person.name ?? person.email) : null;
+  };
+
+  const raised: string[] = [];
+  for (const { hold, job, customerName } of due) {
+    const placedOn = time.dateIn(hold.placedAt, zone);
+    const held = work.daysHeld(placedOn, today);
+    if (!work.holdNudgeDue(held, days)) continue;
+    /** The claim. Only the pass whose update lands writes the task. */
+    const [claimed] = await tx.update(schema.jobHold).set({ nudgedAt: now, updatedAt: now })
+      .where(and(eq(schema.jobHold.id, hold.id), isNull(schema.jobHold.nudgedAt), isNull(schema.jobHold.releasedAt)))
+      .returning({ id: schema.jobHold.id });
+    if (!claimed) continue;
+
+    const label = work.documentNumber(job.numberPrefix, job.number);
+    const [task] = await tx.insert(schema.task).values({
+      organizationId,
+      title: work.holdNudgeTitle({ jobLabel: label, reason: hold.reason, held }),
+      body: work.holdNudgeBody({
+        customerName, summary: job.summary, reason: hold.reason, note: hold.note, held,
+        since: new Date(`${placedOn}T12:00:00Z`).toLocaleDateString("en-US", {
+          month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+        }),
+        placedBy: nameOf(hold.placedByUserId), days,
+      }),
+      priority: "normal",
+      entityType: "job",
+      entityId: job.id,
+      queue: "office",
+    }).returning({ id: schema.task.id });
+    await tx.update(schema.jobHold).set({ nudgeTaskId: task!.id }).where(eq(schema.jobHold.id, hold.id));
+    await audit(tx, ctx, "job.hold_nudged", "job_hold", hold.id, null, { jobId: job.id, taskId: task!.id, days: held });
+    raised.push(job.id);
+  }
+  return raised;
+}
+
+/** What the worker acts as. Writes tasks and nothing else. */
+function workerActor(organizationId: string): Actor {
+  return { userId: SYSTEM_USER_ID, organizationId, roles: [], grants: ["task:read", "task:write"], agentId: "job-hold-nudges" };
+}
+
+export interface NudgePassResult { organizationId: string; raised: number; failed: string | null }
+
+let lastNudgePass: number | null = null;
+
+/**
+ * Every company with a hold that could be due, once a minute at most per
+ * process: a hold is counted in days, and nothing gains from asking more
+ * often. One company's failure is kept to that company.
+ */
+export async function nudgePass(
+  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean; force?: boolean } = {},
+): Promise<NudgePassResult[]> {
+  const at = (options.now ?? new Date()).getTime();
+  if (!options.force && lastNudgePass !== null && at - lastNudgePass < 60_000 && at >= lastNudgePass) return [];
+  lastNudgePass = at;
+  const rows = await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.job_hold_nudge_organizations(${options.limit ?? 200})`,
+  );
+  const results: NudgePassResult[] = [];
+  for (const row of rows) {
+    if (options.shouldStop?.()) break;
+    const ctx: ServiceContext = { actor: workerActor(row.organization_id), db };
+    try {
+      const raised = await inTenant(ctx, (tx) => nudgesIn(tx, ctx, options.now ?? new Date()));
+      results.push({ organizationId: row.organization_id, raised: raised.length, failed: null });
+    } catch (error) {
+      results.push({ organizationId: row.organization_id, raised: 0, failed: (error as Error).message });
+    }
+  }
+  return results;
 }
 
 /** Jobs waiting on a part on this order, for the order's own page. */
@@ -273,4 +456,6 @@ export const handlers = {
   listJobHolds: (ctx: ServiceContext, input: { id: string }) => holdsOf(ctx, input),
   placeJobHold: (ctx: ServiceContext, input: Parameters<typeof place>[1]) => place(ctx, input),
   releaseJobHold: (ctx: ServiceContext, input: { id: string }) => release(ctx, input),
+  getJobHoldNudge: (ctx: ServiceContext) => nudgeSetting(ctx),
+  setJobHoldNudge: (ctx: ServiceContext, input: { days: number | null }) => setNudge(ctx, input),
 } as const;

@@ -6,6 +6,7 @@ import { handleEvent, type RunSummary } from "./workflow-runner";
 import { tick, resumeDue } from "./workflow-schedule";
 import { sweep } from "./workflow-dwell";
 import { clockPass } from "./contract-clocks";
+import { nudgePass as holdNudgePass } from "./job-holds";
 import { billingPass as contractBillingPass } from "./contract-billing";
 import { noticePass as escalationNoticePass } from "./contract-escalation";
 import { geocodePending, type GeocodeDeps } from "./geocoding";
@@ -507,6 +508,19 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] contract clocks:", (error as Error).message);
+    }
+    /**
+     * Jobs left on hold longer than the company said they may be: one office
+     * task for each such hold, once. Its own try, for the reason the task pass
+     * has one, and a company that never turned it on costs one cheap read.
+     * Ending the hold closes the task, so nothing here ever closes one.
+     */
+    try {
+      for (const result of await holdNudgePass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] job hold nudges ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] job hold nudges:", (error as Error).message);
     }
     /**
      * Contract fees on a schedule, each period raised as an invoice on its

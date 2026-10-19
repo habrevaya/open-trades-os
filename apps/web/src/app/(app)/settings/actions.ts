@@ -4,7 +4,7 @@ import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, jobHolds, ConflictError, NotFoundError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 /**
@@ -333,6 +333,27 @@ export async function setCancelNotice(_previous: FormState, form: FormData): Pro
   const result = await attempt(form, async () => {
     const saved = await visitCancellations.setNotice(await ctx(), { hours });
     return { message: `Saved. A customer who cancels less than ${saved.hours} hours before the visit counts as a late cancellation from now on.` };
+  });
+  revalidatePath("/settings");
+  return result;
+}
+
+/**
+ * How many days a job may stay on hold before the office is nudged. A box left
+ * empty turns it off, which is how it starts. Tasks already raised stay where
+ * they are.
+ */
+export async function setHoldNudge(_previous: FormState, form: FormData): Promise<FormState> {
+  const said = field(form, "days");
+  const days = said === undefined ? null : Number(said);
+  if (days !== null && !Number.isInteger(days)) return refused(form, "Give the days as a whole number, or leave it empty.");
+  const result = await attempt(form, async () => {
+    const saved = await jobHolds.setNudge(await ctx(), { days });
+    return {
+      message: saved.days === null
+        ? "Saved. Nobody is nudged about a job on hold."
+        : `Saved. The office gets a task when a job has been on hold ${saved.days} ${saved.days === 1 ? "day" : "days"}.`,
+    };
   });
   revalidatePath("/settings");
   return result;

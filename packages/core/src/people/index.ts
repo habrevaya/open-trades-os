@@ -198,8 +198,33 @@ export function checkSignature(input: {
 
 /* ----------------------------------------------------------------- invites */
 
-/** How long an invite's link works, from the moment it was sent. */
+/**
+ * How long an invite's link works, from the moment it was sent, when the
+ * company has not said otherwise. A week is long enough for somebody who is
+ * away to get to it and short enough that a link left in an inbox does not
+ * stay a way into the company for long.
+ */
 export const INVITE_DAYS = 7;
+
+/** The fewest and the most days a company may make an invite's link last. A month is the longest: a credential left lying about for longer than that is the risk this limit is for. */
+export const INVITE_DAYS_FEWEST = 1;
+export const INVITE_DAYS_MOST = 30;
+
+/** Why a lifetime for the link is refused, or null when it is a whole number of days from one to thirty. */
+export function inviteDaysProblem(days: unknown): string | null {
+  if (typeof days !== "number" || !Number.isInteger(days) || days < INVITE_DAYS_FEWEST || days > INVITE_DAYS_MOST) {
+    return `Give the number of days as a whole number from ${INVITE_DAYS_FEWEST} to ${INVITE_DAYS_MOST}.`;
+  }
+  return null;
+}
+
+/** The lifetime a company saved, or the usual seven days for anything that is not a good number. */
+export function inviteDaysOf(saved: unknown): number {
+  return inviteDaysProblem(saved) === null ? saved as number : INVITE_DAYS;
+}
+
+/** "1 day", "7 days". */
+export const inviteDaysWords = (days: number): string => `${days} ${days === 1 ? "day" : "days"}`;
 
 export type InviteEmail = "sent" | "queued" | "failed" | "not_sent";
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, PageRequest, pageOf, Timestamps, ExternalRef, ExternalLookup } from "./common";
 import { CustomFieldListFilter } from "./custom-fields";
+import { CancelReasonInput, CancelReasonCode } from "./visits";
 
 /**
  * WHOSE PRICE GOVERNS.
@@ -83,6 +84,9 @@ export const Visit = z.object({
    */
   cancelledBy: z.enum(["customer", "company"]).nullable().optional(),
   cancelledAt: z.string().datetime().nullable().optional(),
+  /** On a visit the company called off: why, as a code with its words. Null for the customer's, and when it was not said. */
+  cancelReason: CancelReasonCode.nullable().optional(),
+  cancelReasonNote: z.string().nullable().optional(),
   externalRef: ExternalRef.nullable(),
 }).merge(Timestamps);
 
@@ -377,6 +381,13 @@ export const updateJob = defineRoute({
     cancelledBy: z.enum(["customer", "company"]).optional(),
     /** With `cancelledBy`: when they asked, if earlier than now. Never later than now, never before a visit was booked. */
     cancelAskedAt: z.string().datetime().optional(),
+    /**
+     * With `cancelledBy: "company"`: why it called the visits off (rain or
+     * weather, crew short, equipment, or something else with its words in
+     * `note`). Refused with the customer, who is never asked why. Left out, the
+     * visits are recorded with no reason given.
+     */
+    cancelReason: CancelReasonInput.optional(),
   }),
   output: Job,
 });

@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService, acquisition,
-  people as peopleService, setup as setupService, documents, visitCancellations,
+  people as peopleService, setup as setupService, documents, visitCancellations, jobHolds,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
@@ -18,7 +18,7 @@ import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
 import { ActionForm, TextField } from "@/components/ActionForm";
-import { setCancelNotice } from "./actions";
+import { setCancelNotice, setHoldNudge } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +78,7 @@ export default async function SettingsPage() {
   const customRoles = can(user.actor, "role:write") ? await roleService.list(ctx) : [];
   const recordingPolicies = writes ? await telephonyService.listPolicies(ctx) : [];
   const cancelNotice = writes ? await visitCancellations.notice(ctx) : null;
+  const holdNudge = writes ? await jobHolds.nudgeSetting(ctx) : null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -123,6 +124,26 @@ export default async function SettingsPage() {
           <ActionForm action={setCancelNotice} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
             <TextField label="Hours of notice" name="hours" type="number" min={0} max={720} step={1}
                        defaultValue={String(cancelNotice.hours)} className="block w-40" />
+          </ActionForm>
+        </section>
+      )}
+
+      {/*
+        How long a job may wait on hold before the office is told. Off until
+        the company picks a number, because what is a long wait differs by
+        trade.
+      */}
+      {holdNudge && (
+        <section aria-label="Jobs on hold" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="font-medium text-ink-900">Jobs on hold</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            Say how many days a job can wait on hold before the office gets a task about it. The task names the job,
+            why it is on hold and for how long, and closes itself when the job comes off hold. Leave the box empty
+            and nobody is nudged.
+          </p>
+          <ActionForm action={setHoldNudge} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Days on hold before a nudge" name="days" type="number" min={1} max={90} step={1}
+                       defaultValue={holdNudge.days === null ? "" : String(holdNudge.days)} className="block w-40" />
           </ActionForm>
         </section>
       )}

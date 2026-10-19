@@ -13,7 +13,7 @@ import {
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
   apps, comms, consent, contacts, customerNotes, secrets, equipment, warrantyRegistration, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
   dispatchMap, dispatchDays, geocoding, visits, visitCancellations,
-  liveLocation,
+  liveLocation, invites,
   reports, deliverySchedules, statementDelivery,
   agreements, agreementNotices, visitChanges, vendorCatalogue, proposals,
   acquisition, marketingReport, phoneNumbers,
@@ -125,6 +125,8 @@ export const handlers = {
   listJobHolds: jobHolds.handlers.listJobHolds,
   placeJobHold: jobHolds.handlers.placeJobHold,
   releaseJobHold: jobHolds.handlers.releaseJobHold,
+  getJobHoldNudge: jobHolds.handlers.getJobHoldNudge,
+  setJobHoldNudge: jobHolds.handlers.setJobHoldNudge,
 
   // Money
   createInvoice: (ctx, input) => billing.create(ctx, input, { requireFields: true }),
@@ -1165,6 +1167,8 @@ export const handlers = {
   listTeam: team.handlers.listTeam,
   inviteMember: team.handlers.inviteMember,
   resendInvite: team.handlers.resendInvite,
+  getInviteLifetime: invites.handlers.getInviteLifetime,
+  setInviteLifetime: invites.handlers.setInviteLifetime,
   setMemberRole: team.handlers.setMemberRole,
   listBranchOptions: branches.handlers.listBranchOptions,
   getBranchOverview: branches.handlers.getBranchOverview,

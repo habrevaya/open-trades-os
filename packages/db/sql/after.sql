@@ -2069,6 +2069,32 @@ returns table (organization_id uuid)
 revoke all on function app.contract_clock_organizations(int) from public;
 grant execute on function app.contract_clock_organizations(int) to background;
 
+-- ---- Companies that want to be told about a job left on hold -------------
+-- A company can say how many days a job may stay on hold before the office is
+-- nudged (settings.holdNudge.days, off until it does). The worker has no tenant
+-- until it picks one, so it asks here which companies have the setting on and
+-- a hold that is still open and has not been nudged, as ids and nothing else.
+-- Whether a hold has lasted long enough, in the company's own calendar, is the
+-- service's to decide under the hold's own claim. A suspended company is left
+-- alone, like every other pass.
+create or replace function app.job_hold_nudge_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id from public.organization o
+     where o.suspended_at is null
+       and o.demo_user_id is null
+       and jsonb_typeof(o.settings -> 'holdNudge' -> 'days') = 'number'
+       and exists (
+         select 1 from public.job_hold h
+          where h.organization_id = o.id and h.released_at is null and h.nudged_at is null
+       )
+     limit p_limit
+  $$;
+
+revoke all on function app.job_hold_nudge_organizations(int) from public;
+grant execute on function app.job_hold_nudge_organizations(int) to background;
+
 -- ---- Companies with a contract billed on a schedule -----------------------
 -- A commercial contract can bill a fixed fee every month, quarter or year,
 -- raised by the worker on each period's billing day in the company's own

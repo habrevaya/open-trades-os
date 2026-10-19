@@ -1,9 +1,9 @@
-import { team, roles as roleService, branches, company, type ServiceContext } from "@opentradesos/api/services";
+import { team, roles as roleService, branches, company, invites as inviteService, type ServiceContext } from "@opentradesos/api/services";
 import { can, canDefineRole, presetDefinition, ROLE_IDS, ROLE_PRESETS } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import { Table, Th, Td, Empty } from "@/components/Table";
-import { invite, resend, changeRole, changeBranch, changeLocation, setActive } from "./actions";
+import { invite, resend, changeRole, changeBranch, changeLocation, setActive, setInviteDays } from "./actions";
 
 /**
  * WHO WORKS HERE, AND GETTING THE NEXT PERSON IN
@@ -26,6 +26,9 @@ export async function TeamSection({ ctx }: { ctx: ServiceContext }) {
   const assigns = can(actor, "membership:write");
 
   const people = reads ? await team.roster(ctx) : [];
+  /** How long an invite's link works: said beside the form, and changed by whoever may change settings. */
+  const linkDays = invites ? (await inviteService.lifetime(ctx)).days : null;
+  const changesLink = invites && can(actor, "settings:write");
   const options = await branches.options(ctx).catch(() => null);
   const branchList = options?.branches ?? [];
   const customRoles = can(actor, "role:write") ? await roleService.list(ctx) : [];
@@ -46,11 +49,23 @@ export async function TeamSection({ ctx }: { ctx: ServiceContext }) {
           <h2 id="invite" className="text-base font-semibold">Invite somebody</h2>
           <p className="mt-1 max-w-2xl text-sm text-ink-700">
             They are emailed a link to choose their own password, and you are shown one too, once, to send
-            however you talk to your team if the email does not arrive. Both work for seven days. An address
+            however you talk to your team if the email does not arrive. Both work for {linkDays === 1 ? "1 day" : `${linkDays} days`}. An address
             that already has an account with another company cannot be added here; ask them for a different one.
             A branch manager sees their branch&apos;s work only, so choose their branch.
             {!givable.includes("technician") ? " Technicians are invited by an owner or an administrator, because the role carries field permissions yours does not." : ""}
           </p>
+          {/*
+            How long the link lasts is the company's to say, and an owner's or
+            administrator's to change: a longer lived link is a longer lived
+            way in. It applies to invites sent from now on.
+          */}
+          {changesLink ? (
+            <ActionForm action={setInviteDays} submit="Save" tone="quiet" className="mt-3 flex flex-wrap items-end gap-3">
+              <TextField label="Days an invite link works" name="days" type="number" min={1} max={30} step={1}
+                         defaultValue={String(linkDays)} className="block w-48" />
+              <p className="max-w-sm text-xs text-ink-500">From 1 to 30. Invites already sent keep the day they were given.</p>
+            </ActionForm>
+          ) : null}
           <ActionForm action={invite} submit="Invite" className="mt-3 grid max-w-3xl gap-3 sm:grid-cols-2">
             <TextField label="Their name" name="name" required maxLength={120} autoComplete="off" />
             <TextField label="Their email" name="email" type="email" required maxLength={254} autoComplete="off" />

@@ -14,6 +14,18 @@ const At = z.string().nullable();
 /** Who called a visit off: the customer, or the company itself. */
 export const CancelledBy = z.enum(["customer", "company"]);
 
+/**
+ * Why the company called a day off: rain or weather, crew short, equipment, or
+ * something else (which says what in `note`). The company's own cancellations
+ * only: a reason with `by: "customer"` is refused. Left out, a company
+ * cancellation is recorded with no reason given.
+ */
+export const CancelReasonCode = z.enum(["weather", "crew_short", "equipment", "other"]);
+export const CancelReasonInput = z.object({
+  code: CancelReasonCode,
+  note: z.string().trim().max(500).optional(),
+});
+
 export const getVisit = defineRoute({
   method: "get",
   path: "/v1/visits/{id}",
@@ -84,6 +96,8 @@ export const getVisit = defineRoute({
       at: At,
       noticeHours: z.number().int().nullable(),
       late: z.boolean().nullable(),
+      /** Why the company called it off, when it did and said. Never present on a customer's cancellation. */
+      reason: z.object({ code: CancelReasonCode, label: z.string(), note: z.string().nullable(), words: z.string() }).nullable().optional(),
     }).nullable(),
   }),
 });
@@ -99,6 +113,8 @@ const Cancelled = z.object({
   cancelNoticeHours: z.number().int(),
   /** The customer called it off with less notice than the window asks for. Null with no window. */
   late: z.boolean().nullable(),
+  /** Why the company called it off, when it did and said; null otherwise. */
+  reason: z.object({ code: CancelReasonCode, label: z.string(), note: z.string().nullable(), words: z.string() }).nullable(),
 });
 
 export const cancelVisit = defineRoute({
@@ -106,11 +122,11 @@ export const cancelVisit = defineRoute({
   path: "/v1/visits/{id}/cancelled",
   summary: "Call off one visit, saying who asked",
   description:
-    "Cancels a visit nobody has started (or one on the way), takes it off the route, tells whoever was on it not to go, and closes any request of the customer's still waiting on it. `by` is required: the customer, or the company itself (weather, staffing), because cleaning's cancellation rate counts the customer's and leaves the company's out. `askedAt` is when they asked, if earlier than now: never later than now and never before the visit was booked. The company's notice window is frozen on the visit with it. A visit being worked, or done, is refused.",
+    "Cancels a visit nobody has started (or one on the way), takes it off the route, tells whoever was on it not to go, and closes any request of the customer's still waiting on it. `by` is required: the customer, or the company itself (weather, staffing), because cleaning's cancellation rate counts the customer's and leaves the company's out. `askedAt` is when they asked, if earlier than now: never later than now and never before the visit was booked. The company's notice window is frozen on the visit with it. `reason` says why, for the company's own cancellations only (rain or weather, crew short, equipment, or something else with its words in `note`): the visit's page shows it, and the cancellation records the scorecard opens read it. It is refused with `by: \"customer\"`, and a company cancellation sent without one is recorded as no reason given. A visit being worked, or done, is refused.",
   module: "M09",
   permissions: ["visit:reschedule"],
   idempotent: true,
-  input: z.object({ id: Uuid, by: CancelledBy, askedAt: z.string().datetime().optional() }),
+  input: z.object({ id: Uuid, by: CancelledBy, askedAt: z.string().datetime().optional(), reason: CancelReasonInput.optional() }),
   output: Cancelled,
 });
 

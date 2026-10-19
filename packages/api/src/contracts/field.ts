@@ -616,6 +616,17 @@ export const getFieldSnapshot = defineRoute({
 });
 
 /**
+ * Why a card's job is on hold, in words, or null when it is not. `reason` is
+ * the fixed code (null for a job moved to on hold before reasons existed) and
+ * `days` is how long in the company's calendar days.
+ */
+const BoardHold = z.object({
+  reason: z.enum(["part", "inspection", "customer", "weather", "other"]).nullable(),
+  days: z.number().int().nullable(),
+  words: z.string(),
+}).nullable().optional();
+
+/**
  * The dispatch board.
  *
  * One query for a whole day across every technician, because that is the
@@ -677,6 +688,7 @@ export const getDispatchBoard = defineRoute({
         locked: z.boolean(),
         /** The stage its job is at, when a connected application registered a workflow for the job's type. */
         stage: z.string().nullable().optional(),
+        onHold: BoardHold,
       })),
     })),
     /**
@@ -704,6 +716,7 @@ export const getDispatchBoard = defineRoute({
         routeName: z.string().nullable(),
         locked: z.boolean(),
         stage: z.string().nullable().optional(),
+        onHold: BoardHold,
       })),
     })),
     /** Service routes with stops on the day, how many are done, and who runs each. */
@@ -740,6 +753,7 @@ export const getDispatchBoard = defineRoute({
        */
       priorityPlan: z.string().nullable(),
       stage: z.string().nullable().optional(),
+      onHold: BoardHold,
     })),
   }),
 });

@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { reporting } from "@opentradesos/core";
+import { reporting, work } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, UnprocessableError,
   type ServiceContext,
@@ -42,6 +42,34 @@ import { remember, replayed } from "./once";
  */
 
 export type CancelledBy = "customer" | "company";
+
+/**
+ * WHY THE COMPANY CALLED IT OFF, when it did: rain or weather, a crew short,
+ * equipment, or something else said in words. Asked of the company's own
+ * cancellations only (a customer is never asked why, and a reason on theirs is
+ * refused), by the visit's page and the job's cancel form, and accepted on the
+ * two API calls that call a day off. An API caller that says the company did
+ * it and gives no reason is recorded as no reason given, as one that does not
+ * say who is recorded as not known: nothing guesses it from notes.
+ */
+export interface CalledOffWhy { code: work.CancelReason; note?: string | undefined }
+
+/** The refusal in words for a reason that cannot stand, or nothing. */
+export function assertWhy(by: CancelledBy | null | undefined, why: CalledOffWhy | null | undefined): void {
+  const problem = work.cancelReasonProblem(by ?? "customer", why ?? null);
+  if (problem) throw new ConflictError(problem);
+}
+
+/**
+ * Write the reason on a visit just called off. After `callOff`, which is what
+ * says the company did it: the database refuses a reason on any other.
+ */
+export async function noteWhy(tx: Database, visitId: string, why: CalledOffWhy | null | undefined): Promise<void> {
+  if (!why) return;
+  await tx.update(schema.visit).set({
+    cancelReason: why.code, cancelReasonNote: why.note?.trim() || null, updatedAt: new Date(),
+  }).where(eq(schema.visit.id, visitId));
+}
 
 /** The words an owner reads for each. */
 export const CANCELLED_BY_WORDS: Record<CancelledBy, string> = {
@@ -144,6 +172,8 @@ export interface CancelledVisit {
   cancelNoticeHours: number;
   /** Whether it counts as a late cancellation: the customer, with less notice than the window. Null with no window. */
   late: boolean | null;
+  /** Why the company called it off, when it did and said. Null for a customer's, always. */
+  reason: { code: work.CancelReason; label: string; note: string | null; words: string } | null;
 }
 
 const shape = (visit: typeof schema.visit.$inferSelect): CancelledVisit => {
@@ -158,6 +188,12 @@ const shape = (visit: typeof schema.visit.$inferSelect): CancelledVisit => {
     cancelledAt: visit.cancelledAt!.toISOString(),
     cancelNoticeHours: visit.cancelNoticeHours!,
     late: verdict === null ? null : verdict === "late",
+    reason: visit.cancelReason
+      ? {
+        code: visit.cancelReason, label: work.cancelReasonLabel(visit.cancelReason), note: visit.cancelReasonNote,
+        words: work.cancelReasonWords(visit.cancelReason, visit.cancelReasonNote),
+      }
+      : null,
   };
 };
 
@@ -175,11 +211,12 @@ const shape = (visit: typeof schema.visit.$inferSelect): CancelledVisit => {
  * it to talk to.
  */
 export async function cancel(
-  ctx: ServiceContext, input: { id: string; by: CancelledBy; askedAt?: string | undefined },
+  ctx: ServiceContext, input: { id: string; by: CancelledBy; askedAt?: string | undefined; reason?: CalledOffWhy | undefined },
 ): Promise<CancelledVisit> {
   return guardedWrite(ctx, "visit:reschedule", async (tx) => {
     const again = await replayed<CancelledVisit>(tx, ctx, "visit_cancel");
     if (again) return again;
+    assertWhy(input.by, input.reason);
 
     const [found] = await tx.select({ visit: schema.visit }).from(schema.visit)
       .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
@@ -200,6 +237,7 @@ export async function cancel(
     const askedAt = askedAtOf(input.askedAt, visit.createdAt);
     const before = await sideOf(tx, visit.id);
     await callOff(tx, ctx, visit.id, { by: input.by, askedAt });
+    await noteWhy(tx, visit.id, input.reason);
     if (before) await announce(tx, ctx, visit.id, before);
     await supersedeRequests(tx, ctx, visit.id, "Overtaken: the office cancelled the visit");
 
@@ -207,7 +245,8 @@ export async function cancel(
     const answer = shape(after!);
     await audit(tx, ctx, "visit.called_off", "visit", visit.id,
       { status: visit.status },
-      { status: "cancelled", cancelledBy: answer.cancelledBy, cancelledAt: answer.cancelledAt, cancelNoticeHours: answer.cancelNoticeHours });
+      { status: "cancelled", cancelledBy: answer.cancelledBy, cancelledAt: answer.cancelledAt, cancelNoticeHours: answer.cancelNoticeHours,
+        ...(answer.reason ? { reason: answer.reason.code, reasonNote: answer.reason.note } : {}) });
     await remember(tx, ctx, "visit_cancel", visit.id, answer);
     return answer;
   });
@@ -242,7 +281,7 @@ export function setNotice(ctx: ServiceContext, input: { hours: number }): Promis
 }
 
 export const handlers = {
-  cancelVisit: (ctx: ServiceContext, input: { id: string; by: CancelledBy; askedAt?: string | undefined }) =>
+  cancelVisit: (ctx: ServiceContext, input: { id: string; by: CancelledBy; askedAt?: string | undefined; reason?: CalledOffWhy | undefined }) =>
     cancel(ctx, input),
   getCancellationNotice: (ctx: ServiceContext) => notice(ctx),
   setCancellationNotice: (ctx: ServiceContext, input: { hours: number }) => setNotice(ctx, input),
