@@ -310,12 +310,13 @@ What raises one, each in the same transaction as the thing it is about:
 - **Your expense answered**, approved or refused with the reason (M17). It
   opens `/me/expenses`.
 - **A licence or a skill running out**, when its renewal period starts (the
-  certification type's number of days, or the skill record's own) and on the
-  day, raised by the worker once each, to the person who holds it (on `/me`),
-  to the person they report to (on the holder's own page at
-  `/people/{membershipId}`) when that manager may read the holder's record,
-  and to whoever the company names as keeping the renewals list, which is
-  nobody until it names somebody (M24). A renewal recorded since stops it.
+  card's own number of days where it was given one, else the certification
+  type's, or the skill record's own) and on the day, raised by the worker once
+  each, to the person who holds it (on `/me`), to the person they report to (on
+  the holder's own page at `/people/{membershipId}`) when that manager may read
+  the holder's record, and to each of the people the company names as keeping
+  the renewals list, which is nobody until it names somebody (M24). A renewal
+  recorded since stops it. It is the one kind that also comes by email.
 
 NEVER ABOUT A RECORD THEY CANNOT OPEN. Before anything is written, the person
 is resolved the way their own session would be, and the record is opened with
@@ -330,9 +331,19 @@ narrowed since stops seeing what they can no longer open.
 
 WHERE EACH KIND GOES is the person's own choice, on `/me` under "What you are
 told, and where": one row per kind with a box for the app, the phone app and a
-text. Until they change it, every kind comes in the app and on the phone, and
-none by text. A kind switched off in the app is kept off the bell; the notice
+text, and for a licence or skill running out a box for email. Until they change
+it, every kind comes in the app and on the phone, and none by text; a licence or
+skill running out also comes by email to the address they sign in with. A kind switched off in the app is kept off the bell; the notice
 is still written, so the worker does not raise it again.
+
+BY EMAIL, only for a licence or skill running out, to the person's address on
+the company's own email, through the company's email outbox, as one more delivery
+beside the push and the text (`staff_notice_delivery`, channel `email`) so
+"was I told, and if not why" has an answer in words: no email connected, an
+address on the do-not-email list, or not sent within three days. It is queued in the
+same transaction that marks it sent, so nobody is emailed twice about one notice. It
+is not held for quiet hours. The person switches it off on `/me` (`email` on `POST
+/v1/me/notice-settings`, refused for a kind that is never emailed).
 
 ON THE PHONE APP, through the same push service as a technician's notices
 about their day (M11), to every phone they are signed in on, without a sound
@@ -481,12 +492,13 @@ request, a failed payment and the rest of what the queue holds reach people as
 tasks, as before. A text goes from whichever registered number the company
 sends customer texts from, in the company's quiet hours (not the person's own), and a reply to it
 lands in the inbox like any text from a number nobody recognises; a STOP is
-honoured. There is no daily digest, no notice by email beyond the emails the
-escalation, the approval and the app request already send, and no per company
+honoured. There is no daily digest, no notice by email beyond a licence or skill running
+out and the emails the escalation, the approval and the app request already
+send, and no per company
 setting for which kinds exist or what a new person starts with: the defaults
 (in the app and on the phone, never a text) are fixed. A licence notice goes to
-the holder and to whoever they report to, not to everybody who keeps the
-renewals list, deliberately; a talk is nudged once, an hour after it was held,
+the holder, to whoever they report to and to the people named to keep the
+renewals list, not to everybody who can read it, deliberately; a talk is nudged once, an hour after it was held,
 and not again. Notices are kept with no end date and nothing removes them.
 
 Recurring tasks have no fifth given weekday of the month (most months have

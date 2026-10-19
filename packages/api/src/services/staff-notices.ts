@@ -12,6 +12,7 @@ import { quietHoursFor } from "./comms-send";
 import { senderFor } from "./phone-numbers";
 import { providerFor as smsProviderFor } from "./comms-outbox";
 import { publicBaseUrl } from "./setup-tokens";
+import * as email from "./email";
 import { forgetToken } from "./push";
 import { within } from "./workflow-schedule";
 import { readerFor } from "../secrets/store";
@@ -43,12 +44,20 @@ import type { MessagingProvider } from "../comms/provider";
  * WHERE IT GOES IS THE PERSON'S CHOICE, per kind, on `/me`: in the app and on
  * the phone unless they switch either off, and by text only when they turned
  * texts on with their own number, which is a consent of their own and not a
- * customer's (`staff_text_consent`).
+ * customer's (`staff_text_consent`). A kind core lists as emailed (a licence
+ * or skill running out) also comes by email to their address on the company's
+ * own email unless they switch that off: it is the company writing to its own
+ * person at the address the company holds for them, so it needs no consent of
+ * theirs, and it is the notice nobody is looking at the app for.
  *
  * SENT BY THE WORKER, NEVER IN THE REQUEST. Raising writes rows; `noticePass`
  * hands the phone ones to the push service and the text ones to the carrier,
  * claimed first so two workers never send one twice, with the network never
- * called inside a transaction, as the technician's push pass does.
+ * called inside a transaction, as the technician's push pass does. An email is
+ * the exception that proves the rule: it is put in the company's email outbox
+ * (`email.queue`, the one gate every email takes) in the same transaction that
+ * marks it sent, so there is no network call to be cut short, and the outbox
+ * is what a provider is handed it from.
  */
 
 /* ---------------------------------------------------------- what about */
@@ -154,7 +163,7 @@ export interface RaiseInput {
 }
 
 export type RaiseOutcome =
-  | { told: true; noticeId: string; channels: ("in_app" | "push" | "text")[] }
+  | { told: true; noticeId: string; channels: ("in_app" | "push" | "text" | "email")[] }
   | { told: false; reason: string };
 
 /**
@@ -202,7 +211,7 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
   }).onConflictDoNothing().returning({ id: schema.staffNotice.id });
   if (!notice) return { told: false, reason: "They were told already." };
 
-  const channels: ("in_app" | "push" | "text")[] = switches.inApp ? ["in_app"] : [];
+  const channels: ("in_app" | "push" | "text" | "email")[] = switches.inApp ? ["in_app"] : [];
 
   if (switches.push && actor.technicianId) {
     const phones = await tx.select({ id: schema.device.id }).from(schema.device)
@@ -228,6 +237,20 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
         address: consent.address, target: consent.address,
       }).onConflictDoNothing();
       channels.push("text");
+    }
+  }
+
+  if (rules.emailFor(saved, input.kind)) {
+    const [person] = await tx.execute<{ email: string }>(
+      sql`select email from app.organization_people() where user_id = ${input.userId} limit 1`,
+    );
+    const address = person?.email ? email.normalizeAddress(person.email) : "";
+    if (address.includes("@")) {
+      await tx.insert(schema.staffNoticeDelivery).values({
+        organizationId: input.organizationId, noticeId: notice.id, channel: "email",
+        address, target: address,
+      }).onConflictDoNothing();
+      channels.push("email");
     }
   }
 
@@ -373,7 +396,7 @@ export const TEXT_AGREEMENT =
   + "I can turn texts off here at any time, or reply STOP. Message and data rates may apply.";
 
 export interface NoticeSettingsView {
-  kinds: ({ kind: rules.NoticeKind; label: string; description: string } & rules.NoticeSwitches)[];
+  kinds: ({ kind: rules.NoticeKind; label: string; description: string; email: boolean | null } & rules.NoticeSwitches)[];
   texts: { on: boolean; mobile: string | null; since: string | null; agreement: string };
   /** Phones with the app signed in that a push can reach. Zero for somebody not on the board. */
   phones: number;
@@ -403,7 +426,11 @@ async function settingsWithin(tx: Database, ctx: ServiceContext): Promise<Notice
     : [{ n: 0 }];
   const sender = await senderFor(tx, ctx.actor.organizationId, { smsRequired: true });
   return {
-    kinds: rules.NOTICE_KINDS.map((kind) => ({ kind, ...rules.NOTICE_KIND_WORDS[kind], ...rules.switchesFor(saved, kind) })),
+    kinds: rules.NOTICE_KINDS.map((kind) => ({
+      kind, ...rules.NOTICE_KIND_WORDS[kind], ...rules.switchesFor(saved, kind),
+      /** Null for a kind nothing emails, so a screen does not offer a box that does nothing. */
+      email: rules.isEmailKind(kind) ? rules.emailFor(saved, kind) : null,
+    })),
     texts: {
       on,
       mobile: on ? consent!.address : null,
@@ -429,12 +456,16 @@ export function settings(ctx: ServiceContext): Promise<NoticeSettingsView> {
  */
 export function setSwitches(
   ctx: ServiceContext,
-  input: { kinds: ({ kind: string } & rules.NoticeSwitches)[] },
+  input: { kinds: ({ kind: string; email?: boolean | undefined } & rules.NoticeSwitches)[] },
 ): Promise<NoticeSettingsView> {
   return guardedWrite(ctx, "profile:own", async (tx) => {
     mustBePerson(ctx);
     const unknown = input.kinds.filter((k) => !rules.isNoticeKind(k.kind)).map((k) => k.kind);
     if (unknown.length > 0) throw new ConflictError(`There is no kind of notice called ${unknown.join(", ")}.`);
+    const notEmailed = input.kinds.filter((k) => k.email && rules.isNoticeKind(k.kind) && !rules.isEmailKind(k.kind));
+    if (notEmailed.length > 0) {
+      throw new ConflictError(`${notEmailed.map((k) => rules.NOTICE_KIND_WORDS[k.kind as rules.NoticeKind].label).join(", ")} does not come by email.`);
+    }
     if (input.kinds.some((k) => k.text)) {
       const consent = await consentWithin(tx, ctx.actor.userId);
       if (consent?.state !== "granted") {
@@ -442,12 +473,14 @@ export function setSwitches(
       }
     }
     for (const k of input.kinds) {
+      /** Only a kind that is emailed keeps a choice; the others never read it. */
+      const emailSwitch = rules.isEmailKind(k.kind as rules.NoticeKind) && k.email !== undefined ? { email: k.email } : {};
       await tx.insert(schema.staffNoticeSetting).values({
         organizationId: ctx.actor.organizationId, userId: ctx.actor.userId,
-        kind: k.kind, inApp: k.inApp, push: k.push, text: k.text,
+        kind: k.kind, inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch,
       }).onConflictDoUpdate({
         target: [schema.staffNoticeSetting.organizationId, schema.staffNoticeSetting.userId, schema.staffNoticeSetting.kind],
-        set: { inApp: k.inApp, push: k.push, text: k.text, updatedAt: new Date() },
+        set: { inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch, updatedAt: new Date() },
       });
     }
     return settingsWithin(tx, ctx);
@@ -556,6 +589,8 @@ export interface NoticePassResult {
   raised: number;
   pushed: number;
   texted: number;
+  /** Emails handed to the company's outbox, which sends them. */
+  emailed: number;
   held: number;
   failed: number;
   skipped: number;
@@ -585,7 +620,7 @@ export async function noticePass(
       if (raise) raisedAt.set(row.organization_id, at);
     } catch (error) {
       results.push({
-        organizationId: row.organization_id, raised: 0, pushed: 0, texted: 0, held: 0, failed: 0, skipped: 0,
+        organizationId: row.organization_id, raised: 0, pushed: 0, texted: 0, emailed: 0, held: 0, failed: 0, skipped: 0,
         error: (error as Error).message,
       });
     }
@@ -599,7 +634,7 @@ export async function noticesFor(
 ): Promise<NoticePassResult> {
   const now = deps.now ?? (() => new Date());
   const ctx: ServiceContext = { actor: workerActor(organizationId), db };
-  const result: NoticePassResult = { organizationId, raised: 0, pushed: 0, texted: 0, held: 0, failed: 0, skipped: 0 };
+  const result: NoticePassResult = { organizationId, raised: 0, pushed: 0, texted: 0, emailed: 0, held: 0, failed: 0, skipped: 0 };
   if (deps.raise !== false) result.raised = await raiseDueFor(db, organizationId, now());
   if (deps.push !== false) {
     const provider = deps.push ?? new ExpoPushProvider();
@@ -607,6 +642,7 @@ export async function noticesFor(
     await askReceipts(ctx, provider, now(), result);
   }
   await sendTexts(ctx, deps.sms, now(), result);
+  await sendEmails(ctx, now(), result);
   return result;
 }
 
@@ -633,10 +669,11 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
     /** The furthest any renewal period reaches; each record is held to its own below. */
     const to = time.addDays(today, rules.MAX_EXPIRY_NOTICE_DAYS);
     let raised = 0;
-    /** Whoever keeps the renewals list, when the company named somebody (off unless it did). */
-    const [company] = await tx.select({ keeper: schema.organization.renewalsKeeperUserId })
-      .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
-    const keeper = company?.keeper ?? null;
+    /** Whoever keeps the renewals list, when the company named anybody (off unless it did). */
+    const keepers = (await tx.select({ userId: schema.certificationRenewalsKeeper.userId })
+      .from(schema.certificationRenewalsKeeper)
+      .where(eq(schema.certificationRenewalsKeeper.organizationId, organizationId))
+      .orderBy(asc(schema.certificationRenewalsKeeper.createdAt))).map((k) => k.userId);
 
     const people = new Map((await tx.select({
       technicianId: schema.technician.id,
@@ -656,8 +693,11 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
       technicianId: schema.personCertification.technicianId,
       expiresOn: schema.personCertification.expiresOn,
       name: schema.certificationType.name,
-      /** The type's renewal period: what puts it on the renewals list, and now what starts the notice. */
-      leadDays: schema.certificationType.renewalLeadDays,
+      /**
+       * The holding's own renewal period when it has one, else its type's:
+       * what puts it on the renewals list, and what starts the notice.
+       */
+      leadDays: sql<number>`coalesce(${schema.personCertification.renewalLeadDays}, ${schema.certificationType.renewalLeadDays})`,
     }).from(schema.personCertification)
       .innerJoin(schema.certificationType, eq(schema.certificationType.id, schema.personCertification.certificationTypeId))
       .where(and(
@@ -719,12 +759,14 @@ export async function raiseDueFor(db: Database, organizationId: string, now: Dat
       }
 
       /**
-       * The renewals list's keeper, when the company named one, on the same
-       * key: somebody who is also the holder or the manager has had it, and
-       * is not told twice. `raiseWithin` tells them only when they may open
-       * the record it is about.
+       * Whoever keeps the renewals list, on the same key: somebody who is
+       * also the holder or the manager has had it, and is not told twice.
+       * `raiseWithin` tells them only when they may open the record it is
+       * about, and it is asked again for each, so a keeper whose role was
+       * narrowed since is told nothing.
        */
-      if (keeper && keeper !== holder.userId && keeper !== holder.reportsTo) {
+      for (const keeper of keepers) {
+        if (keeper === holder.userId || keeper === holder.reportsTo) continue;
         const kept = await raiseWithin(tx, {
           organizationId, userId: keeper, kind: "qualification_expiry", key, about,
           title: `${holder.name}'s ${record.name} ${when}`,
@@ -1049,11 +1091,111 @@ async function sendTexts(ctx: ServiceContext, injected: MessagingProvider | unde
   }
 }
 
+/* ---------------------------------------------------------------- emails */
+
+/**
+ * An email about a licence is still news after a long weekend of a mail
+ * provider being down, which a push is not, so it waits longer than the others.
+ */
+export const EMAIL_STALE_HOURS = 72;
+
+/**
+ * Notices that go by email, put in the company's email outbox.
+ *
+ * THROUGH `email.queue`, the one gate every email takes: a suppressed address,
+ * a company with no email connected and a malformed address all come back as
+ * reasons, which are kept on the delivery row in words ("The company has no
+ * email connected"), so "was I told, and if not why" has an answer here as it
+ * does for a text. The outbox's own worker then hands it to the provider and
+ * records whether it was accepted.
+ *
+ * ATOMIC. The claim, the queueing and the mark are one transaction, so a
+ * worker that dies in the middle leaves the row queued and the outbox without
+ * a message, never the message queued and the row still waiting to queue it
+ * again. Nobody is emailed twice about one notice.
+ *
+ * One thing to know about where it lands: a message in the company's outbox
+ * is a message in the inbox's list of conversations, by address, as every
+ * other email to a person at the company (an order waiting, a late task) is.
+ * Whoever may read the inbox can read it. It carries the notice's own words
+ * and a link, nothing more.
+ */
+async function sendEmails(ctx: ServiceContext, now: Date, result: NoticePassResult) {
+  const organizationId = ctx.actor.organizationId;
+  const staleBefore = new Date(now.getTime() - EMAIL_STALE_HOURS * 3_600_000);
+  const sender: ServiceContext = {
+    actor: { ...ctx.actor, grants: ["message:send"] },
+    db: ctx.db,
+  };
+
+  await inTenant(ctx, async (tx) => {
+    /** A claim cut short rolled back with its transaction, so only a crash between passes could leave one: put it back. */
+    await tx.update(schema.staffNoticeDelivery).set({ status: "queued", updatedAt: now })
+      .where(and(
+        eq(schema.staffNoticeDelivery.channel, "email"),
+        eq(schema.staffNoticeDelivery.status, "sending"),
+        lt(schema.staffNoticeDelivery.updatedAt, new Date(now.getTime() - CLAIM_MINUTES * 60_000)),
+      ));
+    const claimed = await claim(tx, "email", now);
+    if (claimed.length === 0) return;
+
+    const rows = await tx.select({
+      id: schema.staffNoticeDelivery.id,
+      address: schema.staffNoticeDelivery.address,
+      attempts: schema.staffNoticeDelivery.attempts,
+      createdAt: schema.staffNoticeDelivery.createdAt,
+      title: schema.staffNotice.title,
+      body: schema.staffNotice.body,
+      href: schema.staffNotice.href,
+    }).from(schema.staffNoticeDelivery)
+      .innerJoin(schema.staffNotice, eq(schema.staffNotice.id, schema.staffNoticeDelivery.noticeId))
+      .where(inArray(schema.staffNoticeDelivery.id, claimed))
+      .orderBy(asc(schema.staffNoticeDelivery.createdAt));
+    const [org] = await tx.select({ name: schema.organization.name }).from(schema.organization)
+      .where(eq(schema.organization.id, organizationId)).limit(1);
+    const base = publicBaseUrl();
+
+    for (const row of rows) {
+      if (row.createdAt < staleBefore) {
+        await skip(tx, [row.id], `Not sent within ${EMAIL_STALE_HOURS} hours, so it was no longer news.`);
+        result.skipped += 1;
+        continue;
+      }
+      const message = rules.noticeEmail({
+        companyName: org?.name ?? "Your company", title: row.title, body: row.body,
+        link: base ? `${base}${row.href}` : null,
+      });
+      let outcome: Awaited<ReturnType<typeof email.queue>>;
+      try {
+        outcome = await email.queue({ ...sender, db: tx }, {
+          to: row.address ?? "", subject: message.subject, text: message.text, purpose: "transactional",
+        });
+      } catch (error) {
+        await tx.update(schema.staffNoticeDelivery).set({
+          status: "failed", attempts: row.attempts + 1, error: (error as Error).message.slice(0, 500), updatedAt: now,
+        }).where(eq(schema.staffNoticeDelivery.id, row.id));
+        result.failed += 1;
+        continue;
+      }
+      if (!outcome.queued) {
+        await skip(tx, [row.id], outcome.explanation.slice(0, 500));
+        result.skipped += 1;
+        continue;
+      }
+      await tx.update(schema.staffNoticeDelivery).set({
+        status: "sent", providerMessageId: outcome.messageId, sentAt: now, attempts: row.attempts + 1,
+        error: null, updatedAt: now,
+      }).where(eq(schema.staffNoticeDelivery.id, row.id));
+      result.emailed += 1;
+    }
+  });
+}
+
 /**
  * Claimed in one statement, so two workers running at once take different
  * rows: `skip locked` passes over a row another worker's claim is holding.
  */
-async function claim(tx: Database, channel: "push" | "sms", now: Date): Promise<string[]> {
+async function claim(tx: Database, channel: "push" | "sms" | "email", now: Date): Promise<string[]> {
   const rows = await tx.execute<{ id: string }>(sql`
     update public.staff_notice_delivery set status = 'sending', updated_at = ${now.toISOString()}::timestamptz
      where id in (
@@ -1076,80 +1218,151 @@ async function skip(tx: Database, ids: string[], reason: string): Promise<void> 
 
 /* --------------------------------------------------------------- the API */
 
-/* ------------------------------------------------- the renewals list's keeper */
+/* ------------------------------------------------- the renewals list's keepers */
 
 /**
  * Who is told about licences and skills running out besides the holder and
- * their manager: one person the company names, or nobody, which is how it
+ * their manager: the people the company names, or nobody, which is how it
  * starts. Read with `compliance:read`, the renewals list's own permission;
  * named with `compliance:write`, the permission that records certifications,
  * and only somebody active here who can read the list. Audited.
  */
-export function renewalsKeeper(ctx: ServiceContext) {
-  return guardedRead(ctx, "compliance:read", async (tx) => keeperOf(tx, ctx.actor.organizationId));
+export interface KeeperView { userId: string; name: string; active: boolean }
+
+/** The company's directory, by user: names and addresses through the function that answers for this company only. */
+async function peopleNames(tx: Database): Promise<Map<string, string>> {
+  const rows = await tx.execute<{ user_id: string; name: string | null; email: string }>(
+    sql`select user_id, name, email from app.organization_people()`,
+  );
+  return new Map(rows.map((r) => [r.user_id, r.name || r.email]));
 }
 
-async function keeperOf(tx: Database, organizationId: string) {
-  const [row] = await tx.select({ userId: schema.organization.renewalsKeeperUserId })
-    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
-  if (!row?.userId) return { userId: null, name: null, active: false };
-  const actor = await memberActor(tx, organizationId, row.userId);
-  const [person] = await tx.select({ name: schema.user.name, email: schema.user.email })
-    .from(schema.user).where(eq(schema.user.id, row.userId)).limit(1);
-  return {
-    userId: row.userId,
-    name: person?.name || person?.email || null,
-    /** Still here and still able to read the list. When not, nobody extra is told until somebody chooses again. */
-    active: actor !== null && !actor.readOnly && can(actor, "compliance:read"),
-  };
+async function keepersOf(tx: Database, organizationId: string): Promise<KeeperView[]> {
+  const rows = await tx.select({ userId: schema.certificationRenewalsKeeper.userId })
+    .from(schema.certificationRenewalsKeeper)
+    .where(eq(schema.certificationRenewalsKeeper.organizationId, organizationId))
+    .orderBy(asc(schema.certificationRenewalsKeeper.createdAt), asc(schema.certificationRenewalsKeeper.id));
+  if (rows.length === 0) return [];
+  const names = await peopleNames(tx);
+  const out: KeeperView[] = [];
+  for (const row of rows) {
+    const actor = await memberActor(tx, organizationId, row.userId);
+    out.push({
+      userId: row.userId,
+      name: names.get(row.userId) ?? "Someone who left",
+      /** Still here and still able to read the list. When not, they are told nothing until somebody chooses again. */
+      active: actor !== null && !actor.readOnly && can(actor, "compliance:read"),
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function renewalsKeepers(ctx: ServiceContext) {
+  return guardedRead(ctx, "compliance:read", async (tx) => ({ keepers: await keepersOf(tx, ctx.actor.organizationId) }));
+}
+
+/**
+ * The first person named, for clients written when a company could name one:
+ * `userId` null when nobody is named.
+ */
+export function renewalsKeeper(ctx: ServiceContext) {
+  return guardedRead(ctx, "compliance:read", async (tx) => firstKeeper(await keepersOf(tx, ctx.actor.organizationId)));
+}
+
+function firstKeeper(keepers: KeeperView[]) {
+  const first = keepers[0];
+  return first
+    ? { userId: first.userId as string | null, name: first.name as string | null, active: first.active }
+    : { userId: null, name: null, active: false };
 }
 
 /** Who may be named: everybody active here who can read the renewals list, by name. */
 export function renewalsKeeperChoices(ctx: ServiceContext) {
   return guardedRead(ctx, "compliance:write", async (tx) => {
-    const members = await tx.select({ userId: schema.membership.userId, name: schema.user.name, email: schema.user.email })
+    const members = await tx.select({ userId: schema.membership.userId })
       .from(schema.membership)
-      .innerJoin(schema.user, eq(schema.user.id, schema.membership.userId))
       .where(and(eq(schema.membership.organizationId, ctx.actor.organizationId), eq(schema.membership.active, true)));
+    const names = await peopleNames(tx);
     const choices: { userId: string; name: string }[] = [];
     for (const member of members) {
       const actor = await memberActor(tx, ctx.actor.organizationId, member.userId);
       if (actor && !actor.readOnly && can(actor, "compliance:read")) {
-        choices.push({ userId: member.userId, name: member.name || member.email });
+        choices.push({ userId: member.userId, name: names.get(member.userId) ?? member.userId });
       }
     }
     return choices.sort((a, b) => a.name.localeCompare(b.name));
   });
 }
 
-export function setRenewalsKeeper(ctx: ServiceContext, input: { userId: string | null }) {
+/**
+ * Name exactly these people, replacing whoever was named. Each must work here
+ * now and be able to read the renewals list, or nothing changes and the
+ * sentence says who and why. The same people again change nothing and write
+ * nothing to the audit log.
+ */
+export function setRenewalsKeepers(ctx: ServiceContext, input: { userIds: string[] }) {
   return guardedWrite(ctx, "compliance:write", async (tx) => {
     const organizationId = ctx.actor.organizationId;
-    if (input.userId !== null) {
-      const actor = await memberActor(tx, organizationId, input.userId);
-      if (!actor || actor.readOnly) throw new ConflictError("That person does not work here now. Choose somebody who does.");
+    const wanted = [...new Set(input.userIds)];
+    if (wanted.length > rules.MAX_RENEWALS_KEEPERS) {
+      throw new ConflictError(`Name up to ${rules.MAX_RENEWALS_KEEPERS} people. More than that and being told stops meaning anything.`);
+    }
+    const names = await peopleNames(tx);
+    for (const userId of wanted) {
+      const actor = await memberActor(tx, organizationId, userId);
+      /** One person asked for is "that person"; among several, the one who is the problem is named. */
+      const who = wanted.length === 1 ? "That person" : (names.get(userId) ?? "One of them");
+      if (!actor || actor.readOnly) throw new ConflictError(`${who} does not work here now. Choose somebody who does.`);
       if (!can(actor, "compliance:read")) {
-        throw new ConflictError("That person cannot see the renewals list, so a notice would point them at nothing. Choose somebody who can.");
+        throw new ConflictError(`${who} cannot see the renewals list, so a notice would point them at nothing. Choose somebody who can.`);
       }
     }
-    const before = await keeperOf(tx, organizationId);
-    await tx.update(schema.organization).set({ renewalsKeeperUserId: input.userId, updatedAt: new Date() })
-      .where(eq(schema.organization.id, organizationId));
-    await audit(tx, ctx, "organization.renewals_keeper_set", "organization", organizationId,
-      { renewalsKeeperUserId: before.userId }, { renewalsKeeperUserId: input.userId });
-    return keeperOf(tx, organizationId);
+    const before = await tx.select({ userId: schema.certificationRenewalsKeeper.userId })
+      .from(schema.certificationRenewalsKeeper)
+      .where(eq(schema.certificationRenewalsKeeper.organizationId, organizationId));
+    const had = new Set(before.map((b) => b.userId));
+    const gone = [...had].filter((id) => !wanted.includes(id));
+    const added = wanted.filter((id) => !had.has(id));
+    if (gone.length > 0) {
+      await tx.delete(schema.certificationRenewalsKeeper).where(and(
+        eq(schema.certificationRenewalsKeeper.organizationId, organizationId),
+        inArray(schema.certificationRenewalsKeeper.userId, gone),
+      ));
+    }
+    if (added.length > 0) {
+      await tx.insert(schema.certificationRenewalsKeeper)
+        .values(added.map((userId) => ({ organizationId, userId }))).onConflictDoNothing();
+    }
+    if (gone.length > 0 || added.length > 0) {
+      await audit(tx, ctx, "organization.renewals_keeper_set", "organization", organizationId,
+        { renewalsKeeperUserIds: [...had].sort() }, { renewalsKeeperUserIds: [...wanted].sort() });
+    }
+    return { keepers: await keepersOf(tx, organizationId) };
+  });
+}
+
+/**
+ * The older way of naming one person, for clients written before a company
+ * could name several: replaces everybody with this one person, or with nobody.
+ */
+export function setRenewalsKeeper(ctx: ServiceContext, input: { userId: string | null }) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const saved = await setRenewalsKeepers({ ...ctx, db: tx }, { userIds: input.userId === null ? [] : [input.userId] });
+    return firstKeeper(saved.keepers);
   });
 }
 
 export const handlers = {
   getRenewalsKeeper: (ctx: ServiceContext) => renewalsKeeper(ctx),
   setRenewalsKeeper: (ctx: ServiceContext, input: { userId: string | null }) => setRenewalsKeeper(ctx, input),
+  getRenewalsKeepers: (ctx: ServiceContext) => renewalsKeepers(ctx),
+  setRenewalsKeepers: (ctx: ServiceContext, input: { userIds: string[] }) => setRenewalsKeepers(ctx, input),
   listMyNotices: (ctx: ServiceContext, input: { limit?: number | undefined; unread?: boolean | undefined }) =>
     list(ctx, input),
   readMyNotices: (ctx: ServiceContext, input: { ids?: string[] | undefined; all?: boolean | undefined }) =>
     markRead(ctx, input),
   getMyNoticeSettings: (ctx: ServiceContext) => settings(ctx),
-  setMyNoticeSettings: (ctx: ServiceContext, input: { kinds: ({ kind: string } & rules.NoticeSwitches)[] }) =>
+  setMyNoticeSettings: (ctx: ServiceContext, input: { kinds: ({ kind: string; email?: boolean | undefined } & rules.NoticeSwitches)[] }) =>
     setSwitches(ctx, input),
   setMyNoticeTexts: (ctx: ServiceContext, input: { on: boolean; mobilePhone?: string | null | undefined; agreed?: boolean | undefined }) =>
     setTexts(ctx, input),

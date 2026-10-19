@@ -6,12 +6,30 @@ import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm } from "./ActionForm";
 import { ActionForm as SaveForm, Select } from "@/components/ActionForm";
-import { setKeeper } from "./keeper-actions";
+import { removeKeeper, setKeeper } from "./keeper-actions";
 import { ExpiringList, HoldingsByPerson } from "./Holdings";
 
 export const dynamic = "force-dynamic";
 
 const input = "h-9 rounded border border-steel-300 px-2 text-sm";
+
+/** "Ann", "Ann and Bo", "Ann, Bo and Cy". */
+function listOf(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** Who is told as well, and anybody chosen who can no longer be: they are named, not silently dropped. */
+function toldSentence(keepers: { name: string; active: boolean }[]): string {
+  const told = keepers.filter((k) => k.active).map((k) => k.name);
+  const stuck = keepers.filter((k) => !k.active).map((k) => k.name);
+  const parts: string[] = [];
+  if (told.length > 0) parts.push(`${listOf(told)} ${told.length === 1 ? "is" : "are"} told as well, because they keep this list.`);
+  if (stuck.length > 0) {
+    parts.push(`${listOf(stuck)} ${stuck.length === 1 ? "was" : "were"} chosen but ${stuck.length === 1 ? "no longer works here or cannot" : "no longer work here or cannot"} see this list, so ${stuck.length === 1 ? "is" : "are"} told nothing until you choose again.`);
+  }
+  return parts.join(" ");
+}
 
 /**
  * CERTIFICATIONS
@@ -49,7 +67,7 @@ export default async function CertificationsPage() {
     can(user.actor, "user:read") ? peopleRecords.expiringSkills(ctx, {}) : Promise.resolve([]),
   ]);
   /** Who is told what is running out besides the holder and their manager, and who could be. */
-  const keeper = await staffNotices.renewalsKeeper(ctx);
+  const { keepers } = await staffNotices.renewalsKeepers(ctx);
   const keeperChoices = writes ? await staffNotices.renewalsKeeperChoices(ctx) : [];
   const technicians = writes && can(user.actor, "user:read")
     ? (await people.handlers.listPeople(ctx, {})).people.filter((p) => p.technicianId && p.active)
@@ -66,18 +84,29 @@ export default async function CertificationsPage() {
         <h2 className="text-sm font-semibold">Who keeps this list</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
           The person who holds a licence or skill, and the person they answer to, are told when it reaches its renewal
-          period (each type&apos;s own number of days, or the skill&apos;s) and again on its last day.
-          {" "}{keeper.userId === null
-            ? "Nobody else is told."
-            : keeper.active
-              ? `${keeper.name ?? "The person you chose"} is told as well, because they keep this list.`
-              : `${keeper.name ?? "The person you chose"} was chosen but no longer works here or cannot see this list, so nobody else is told until you choose again.`}
+          period (each type&apos;s own number of days, or the skill&apos;s, unless one card was given a number of its own)
+          and again on its last day. They are emailed as well, unless they switched that off on their own page.
+          {" "}{keepers.length === 0 ? "Nobody else is told." : toldSentence(keepers)}
         </p>
+        {writes && keepers.length > 0 ? (
+          <ul className="mt-3 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+            {keepers.map((k) => (
+              <li key={k.userId} className="flex flex-wrap items-center gap-3 bg-canvas p-2 text-sm">
+                <span className="flex-1 font-medium">{k.name}</span>
+                {!k.active && <Chip tone="warning">Cannot see the list now</Chip>}
+                <SaveForm action={removeKeeper} submit={`Stop telling ${k.name}`} tone="quiet" hidden={{ userId: k.userId }} className="inline-flex" />
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {writes ? (
           <SaveForm action={setKeeper} submit="Save" tone="quiet" className="mt-3 flex flex-wrap items-end gap-3">
-            <Select label="Also tell" name="userId" className="block w-72"
-                    options={[{ value: "", label: "Nobody else" }, ...keeperChoices.map((c) => ({ value: c.userId, label: c.name }))]}
-                    defaultValue={keeper.active && keeper.userId ? keeper.userId : ""} />
+            <Select label="Also tell" name="userId" className="block w-72" defaultValue=""
+                    options={[
+                      { value: "", label: "Choose someone" },
+                      ...keeperChoices.filter((c) => !keepers.some((k) => k.userId === c.userId)).map((c) => ({ value: c.userId, label: c.name })),
+                      { value: "none", label: "Nobody else" },
+                    ]} />
           </SaveForm>
         ) : null}
       </section>
@@ -157,6 +186,14 @@ export default async function CertificationsPage() {
                 <input type="hidden" name="status" value="active" />
               </ActionForm>
             )}
+            {h.expiresOn && h.status !== "revoked" && (
+              <ActionForm op="renewal-days" label="Change days ahead" quiet className="flex items-center gap-2">
+                <input type="hidden" name="id" value={h.id} />
+                <input name="renewalLeadDays" inputMode="numeric" defaultValue={h.ownRenewalLeadDays ?? ""}
+                       aria-label={`Days ahead to warn about ${h.name} for ${h.technicianName}`}
+                       placeholder={`${h.renewalLeadDays}, as for the kind`} className={`${input} h-8 w-40`} />
+              </ActionForm>
+            )}
             {h.status !== "revoked" && (
               <ActionForm op="status" label="Revoke" quiet>
                 <input type="hidden" name="id" value={h.id} />
@@ -182,6 +219,10 @@ export default async function CertificationsPage() {
             <input name="reference" placeholder="Licence number" className={input} />
             <label className="grid gap-1 text-xs text-ink-500">Issued<input name="issuedOn" type="date" className={input} /></label>
             <label className="grid gap-1 text-xs text-ink-500">Expires<input name="expiresOn" type="date" className={input} /></label>
+            <label className="grid gap-1 text-xs text-ink-500">
+              Warn days ahead
+              <input name="renewalLeadDays" inputMode="numeric" placeholder="The kind's number" className={`${input} w-36`} />
+            </label>
           </ActionForm>
         </section>
       )}

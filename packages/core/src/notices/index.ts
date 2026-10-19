@@ -72,7 +72,7 @@ export const NOTICE_KIND_WORDS: Record<NoticeKind, { label: string; description:
   },
   qualification_expiry: {
     label: "A licence or skill running out",
-    description: "Thirty days before a certification or a skill runs out, and on the day.",
+    description: "When a certification or a skill reaches its renewal period, and again on its last day.",
   },
 };
 
@@ -99,6 +99,49 @@ export function switchesFor(
 ): NoticeSwitches {
   const row = saved.find((s) => s.kind === kind);
   return row ? { inApp: row.inApp, push: row.push, text: row.text } : { ...DEFAULT_SWITCHES };
+}
+
+/* ----------------------------------------------------------------- email */
+
+/**
+ * The kinds that also come by email, to the person's address on the company's
+ * own email. Only these: a kind nothing emails has no email box on `/me`, and
+ * a box that did nothing would be a promise the product does not keep.
+ *
+ * A licence or skill running out is the first. It is the notice nobody can be
+ * expected to be looking at the app for, and it is about a card that sits in a
+ * wallet until a job needs it.
+ */
+export const EMAIL_KINDS: readonly NoticeKind[] = ["qualification_expiry"];
+
+export const isEmailKind = (kind: NoticeKind): boolean => EMAIL_KINDS.includes(kind);
+
+/**
+ * Whether a person gets this kind by email: false for a kind that is never
+ * emailed, what they chose where they chose, and on where they did not,
+ * because the company's own address is the one place a notice to a person
+ * costs nothing and needs no consent of theirs. They switch it off on `/me`.
+ */
+export function emailFor(
+  saved: readonly { kind: string; email: boolean | null }[],
+  kind: NoticeKind,
+): boolean {
+  if (!isEmailKind(kind)) return false;
+  return saved.find((s) => s.kind === kind)?.email ?? true;
+}
+
+/**
+ * The email for a notice: the notice's own title as the subject, its sentence,
+ * and the page it opens. Plain text, so a phone, a watch and a mail scanner
+ * all read the same thing, and no more than the notice itself says: the lock
+ * screen and the email are the same words.
+ */
+export function noticeEmail(input: {
+  companyName: string; title: string; body: string | null; link: string | null;
+}): { subject: string; text: string } {
+  const lines = [input.body?.trim() ?? "", input.link ? `Open it: ${input.link}` : "", `Sent by ${input.companyName}.`]
+    .filter((line) => line !== "");
+  return { subject: input.title.trim().slice(0, 200), text: lines.join("\n\n") };
 }
 
 /* ------------------------------------------------------------------ texts */
@@ -227,6 +270,9 @@ export const MAX_EXPIRY_NOTICE_DAYS = 365;
  * a notice about it now, the day this was switched on, is noise.
  */
 export const EXPIRY_LATE_DAYS = 6;
+
+/** The most people a company can name to keep the renewals list: past this, "told" has stopped meaning anything. */
+export const MAX_RENEWALS_KEEPERS = 20;
 
 export type ExpiryNotice = "soon" | "today";
 

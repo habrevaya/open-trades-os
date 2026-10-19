@@ -16,6 +16,10 @@ export interface Holding {
   current: boolean;
   lapseReason: "expired" | "suspended" | "revoked" | null;
   verifiedAt: Date | string | null;
+  /** Days ahead it is warned: its own number, else its kind's. */
+  renewalLeadDays: number;
+  /** Its own number, or null when it follows its kind's. */
+  ownRenewalLeadDays: number | null;
 }
 
 export interface Expiring extends Holding {
@@ -77,6 +81,14 @@ export function HoldingsByPerson({ rows, controls }: {
                   {h.verifiedAt ? <Chip tone="neutral">Card seen</Chip> : <Chip tone="warning">Not verified</Chip>}
                 </div>
                 {h.statusReason && <p className="mt-1 text-xs text-ink-500">{h.statusReason}</p>}
+                {h.expiresOn && (
+                  <p className="mt-1 text-xs text-ink-500">
+                    {h.renewalLeadDays === 0
+                      ? "Told on the day it runs out only"
+                      : `Told ${h.renewalLeadDays} ${h.renewalLeadDays === 1 ? "day" : "days"} ahead`}
+                    {h.ownRenewalLeadDays === null ? ", as for every one of this kind." : ", set for this card."}
+                  </p>
+                )}
                 {controls && <div className="mt-2">{controls(h)}</div>}
               </li>
             ))}

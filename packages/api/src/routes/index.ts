@@ -617,6 +617,7 @@ export const handlers = {
   recordCertification: people.handlers.recordCertification,
   verifyCertification: people.handlers.verifyCertification,
   setCertificationStatus: people.handlers.setCertificationStatus,
+  setCertificationRenewalDays: people.handlers.setCertificationRenewalDays,
   listExpiringCertifications: people.handlers.listExpiringCertifications,
   getSkillStanding: people.handlers.getSkillStanding,
   listProjects: projects.handlers.listProjects,

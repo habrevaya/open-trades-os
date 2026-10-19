@@ -3427,16 +3427,22 @@ returns table (organization_id uuid)
           or (d.status = 'sent' and d.ticket_id is not null and d.receipt_checked_at is null)
        group by d.organization_id
       union all
+      -- Each record is looked at from its own renewal period (a holding's own, else
+      -- its type's, a skill's own), up to the year a notice follows, and never less
+      -- than the month either of them used to be looked at from.
       select c.organization_id, 1
         from public.person_certification c
+        join public.certification_type t on t.id = c.certification_type_id
        where c.status = 'active'
-         and c.expires_on between current_date - 8 and current_date + 32
+         and c.expires_on between current_date - 8
+                              and current_date + greatest(32, least(coalesce(c.renewal_lead_days, t.renewal_lead_days), 365) + 2)
        group by c.organization_id
       union all
       select s.organization_id, 1
         from public.technician_skill s
        where s.ended_on is null
-         and s.expires_on between current_date - 8 and current_date + 32
+         and s.expires_on between current_date - 8
+                              and current_date + greatest(32, least(s.renewal_lead_days, 365) + 2)
        group by s.organization_id
       union all
       select m.organization_id, 1

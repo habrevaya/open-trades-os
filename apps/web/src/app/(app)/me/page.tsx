@@ -287,8 +287,8 @@ export default async function MyRecordPage() {
 /**
  * WHAT YOU ARE TOLD, AND WHERE
  *
- * One row per kind of notice, with a box for the app's bell, the phone app and
- * a text. Texts are turned on here first, by the person, with their own number
+ * One row per kind of notice, with a box for the app's bell, the phone app, a
+ * text and, for the kinds that are emailed, an email. Texts are turned on here first, by the person, with their own number
  * and a box ticked beside the exact words they agree to; nobody in the office
  * can turn somebody else's on.
  */
@@ -298,10 +298,10 @@ function NoticeSettings({ told, zone }: { told: Awaited<ReturnType<typeof staffN
     <section id="notices" className="mt-8" aria-labelledby="notices-heading">
       <h2 id="notices-heading" className="text-base font-semibold">What you are told, and where</h2>
       <p className="mt-1 text-sm text-ink-700">
-        The bell at the top of the menu, the phone app{told.phones > 0 ? "" : " (you are not signed in to it on a phone)"}, and a text to your own mobile.
+        The bell at the top of the menu, the phone app{told.phones > 0 ? "" : " (you are not signed in to it on a phone)"}, a text to your own mobile, and for a licence or skill running out, an email to the address you sign in with.
       </p>
       <ActionForm action={saveNoticeSwitches} submit="Save what I am told" className="mt-3 space-y-3">
-        <Table head={<><Th>Notice</Th><Th>In the app</Th><Th>Phone app</Th><Th>Text</Th></>}>
+        <Table head={<><Th>Notice</Th><Th>In the app</Th><Th>Phone app</Th><Th>Text</Th><Th>Email</Th></>}>
           {told.kinds.map((k) => (
             <tr key={k.kind}>
               <Td><span className="font-medium">{k.label}</span><span className="block text-xs text-ink-500">{k.description}</span></Td>
@@ -310,6 +310,11 @@ function NoticeSettings({ told, zone }: { told: Awaited<ReturnType<typeof staffN
               <Td>
                 <input type="checkbox" name={`${k.kind}.text`} defaultChecked={k.text} disabled={!told.texts.on}
                        aria-label={`${k.label}: by text`} className={box} />
+              </Td>
+              <Td>
+                {k.email === null
+                  ? <span className="text-xs text-ink-500">Not emailed</span>
+                  : <input type="checkbox" name={`${k.kind}.email`} defaultChecked={k.email} aria-label={`${k.label}: by email`} className={box} />}
               </Td>
             </tr>
           ))}

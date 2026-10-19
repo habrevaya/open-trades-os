@@ -247,6 +247,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One send per notice per phone or number. Raising inserts with on conflict do nothing, so a notice raised twice is not sent twice.",
   staff_notice_setting_kind_idx:
     "One row of switches per person per kind, written with on conflict do update: saving a person's switches again replaces them.",
+  certification_renewals_keeper_person_idx:
+    "A person named once to keep the renewals list. Naming replaces the whole set from a de-duplicated list and inserts with on conflict do nothing, so naming somebody twice is the same list.",
   staff_text_consent_current_idx:
     "At most one current text consent per person. The person's own page supersedes the current row and inserts the next with on conflict do nothing, so two tabs saving at once leave one current row.",
   call_provider_call_idx: "The carrier's call id, so a redelivered webhook is not a second call.",

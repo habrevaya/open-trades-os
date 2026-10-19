@@ -13,6 +13,13 @@ const text = (form: FormData, key: string): string | null => {
   return value === "" ? null : value;
 };
 
+/** Days ahead from a box left blank for "the kind's own": a number, or null. A word is refused where the service can say so. */
+const leadOf = (form: FormData): number | null => {
+  const value = text(form, "renewalLeadDays");
+  if (value === null) return null;
+  return /^\d+$/.test(value) ? Number(value) : Number.NaN;
+};
+
 /**
  * Every certification write, through the handler its API route uses. The
  * refusals are the module's own: an expiring type recorded with no expiry
@@ -45,6 +52,12 @@ export async function act(_previous: CertState, form: FormData): Promise<CertSta
           reference: text(form, "reference"),
           issuedOn: text(form, "issuedOn"),
           expiresOn: text(form, "expiresOn"),
+          renewalLeadDays: leadOf(form),
+        });
+        break;
+      case "renewal-days":
+        await people.handlers.setCertificationRenewalDays(ctx, {
+          id: String(form.get("id") ?? ""), renewalLeadDays: leadOf(form),
         });
         break;
       case "verify":
