@@ -9,12 +9,14 @@ import {
 import { refusingDuplicate } from "./duplicates";
 import { catalogueFor } from "./report-company";
 import {
-  deliverReport, sourceOf, mayReceive, companyPeople, cleanAddresses,
-  type ReportSource, type DeliveryRecipient,
+  deliverReport, sourceOf, mayReceive, companyPeople, cleanAddresses, isDashboard,
+  type DeliverySource, type DeliveryRecipient,
 } from "./report-delivery";
+import { couldOpen, dashboardSourceOf } from "./dashboards";
 import { deliverStatements, type StatementRunResult } from "./statement-delivery";
 import { within } from "./workflow-schedule";
 import { replayed, remember } from "./once";
+import { memberActor } from "./session";
 
 /**
  * SCHEDULED DELIVERY: THE SETTINGS, AND THE CLOCK THAT FIRES THEM
@@ -39,9 +41,14 @@ import { replayed, remember } from "./once";
 /* ------------------------------------------------------------- the shapes */
 
 export interface ReportScheduleInput {
-  /** Exactly one of these. */
+  /**
+   * Exactly one of these: a report that ships, a saved report, a dashboard
+   * that ships (by slug), or a saved dashboard.
+   */
   builtIn?: string | undefined;
   reportId?: string | undefined;
+  dashboard?: string | undefined;
+  dashboardId?: string | undefined;
   name?: string | undefined;
   frequency: string;
   weekdays?: number[] | undefined;
@@ -68,7 +75,10 @@ export interface ReportScheduleView {
   name: string;
   builtIn: string | null;
   reportId: string | null;
-  /** Where the report lives in the app. Null when it has been deleted. */
+  /** Set instead of the two above on a schedule that sends a whole dashboard. */
+  dashboard: string | null;
+  dashboardId: string | null;
+  /** Where the report or dashboard lives in the app. Null when it has been deleted. */
   reportPath: string | null;
   cadence: reporting.Cadence;
   /** The cadence in words. */
@@ -98,12 +108,38 @@ const periodOf = (value: string): reporting.Period => (reporting.isPeriod(value)
 
 /* ----------------------------------------------------------- report schedules */
 
-/** The source a form or a request named, exactly one of the two. */
-function sourceFrom(input: { builtIn?: string | undefined; reportId?: string | undefined }): ReportSource {
-  if ((input.builtIn === undefined) === (input.reportId === undefined)) {
-    throw new ConflictError("A schedule sends one report: either one that ships, or one somebody saved.");
+/** The source a form or a request named, exactly one of the four. */
+function sourceFrom(input: {
+  builtIn?: string | undefined; reportId?: string | undefined;
+  dashboard?: string | undefined; dashboardId?: string | undefined;
+}): DeliverySource {
+  const named = [input.builtIn, input.reportId, input.dashboard, input.dashboardId].filter((v) => v !== undefined);
+  if (named.length !== 1) {
+    throw new ConflictError(
+      "A schedule sends one thing: a report that ships, a report somebody saved, or a dashboard.",
+    );
   }
-  return input.builtIn !== undefined ? { builtIn: input.builtIn } : { reportId: input.reportId! };
+  if (input.builtIn !== undefined) return { builtIn: input.builtIn };
+  if (input.reportId !== undefined) return { reportId: input.reportId };
+  if (input.dashboard !== undefined) return { builtInDashboard: input.dashboard };
+  return { dashboardId: input.dashboardId! };
+}
+
+/** What a stored schedule sends. */
+function rowSource(row: typeof schema.deliverySchedule.$inferSelect): DeliverySource {
+  if (row.builtInDashboard) return { builtInDashboard: row.builtInDashboard };
+  if (row.dashboardId) return { dashboardId: row.dashboardId };
+  return row.builtInReport ? { builtIn: row.builtInReport } : { reportId: row.reportId ?? "" };
+}
+
+/** The four pointer columns a source is stored in, all of them, so changing what a schedule sends clears the old one. */
+function sourceColumns(source: DeliverySource) {
+  return {
+    builtInReport: "builtIn" in source ? source.builtIn : null,
+    reportId: "reportId" in source ? source.reportId : null,
+    builtInDashboard: "builtInDashboard" in source ? source.builtInDashboard : null,
+    dashboardId: "dashboardId" in source ? source.dashboardId : null,
+  };
 }
 
 /**
@@ -116,14 +152,20 @@ function sourceFrom(input: { builtIn?: string | undefined; reportId?: string | u
  */
 async function checkReportSchedule(tx: Database, ctx: ServiceContext, input: ReportScheduleInput) {
   const source = sourceFrom(input);
-  const named = await sourceOf(tx, source);
-  if (!named) throw new NotFoundError("Report");
+  const named = isDashboard(source) ? await dashboardSourceOf(tx, source) : await sourceOf(tx, source);
+  if (!named) throw new NotFoundError(isDashboard(source) ? "Dashboard" : "Report");
 
-  const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
-  if (!decision.ok) {
-    throw new ConflictError(
-      `You cannot schedule a report you cannot run yourself. ${reporting.explainRefusal(decision)}`,
-    );
+  if (isDashboard(source)) {
+    const refusal = await couldOpen(tx, ctx.actor, source);
+    if (refusal) throw new ConflictError(`You cannot schedule a dashboard you cannot open yourself: you ${refusal}.`);
+  } else {
+    const definition = (named as NonNullable<Awaited<ReturnType<typeof sourceOf>>>).definition;
+    const decision = reporting.resolveReport(definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
+    if (!decision.ok) {
+      throw new ConflictError(
+        `You cannot schedule a report you cannot run yourself. ${reporting.explainRefusal(decision)}`,
+      );
+    }
   }
 
   const cadence = reporting.checkCadence({
@@ -134,8 +176,21 @@ async function checkReportSchedule(tx: Database, ctx: ServiceContext, input: Rep
   });
   if (!cadence.ok) throw new ConflictError(cadence.reason);
 
-  const period = input.period ?? reporting.defaultPeriod(cadence.cadence.frequency);
+  /**
+   * A dashboard is sent as it stands: each tile reads its own report's dates,
+   * and most have none. Laying a schedule's "seven days before" over every
+   * tile would turn "Outstanding, every unpaid balance" into last week's
+   * invoices without a word on the page, so a dashboard takes no period, and
+   * one asked for is refused rather than quietly ignored.
+   */
+  const period = input.period ?? (isDashboard(source) ? "all" : reporting.defaultPeriod(cadence.cadence.frequency));
   if (!reporting.isPeriod(period)) throw new ConflictError(`There is no such period as "${period}".`);
+  if (isDashboard(source) && period !== "all") {
+    throw new ConflictError(
+      "A dashboard is sent as it stands, each tile with its own report's dates, so it does not take dates of its own. "
+      + "Choose \"Everything, with no dates\" for which days it covers.",
+    );
+  }
 
   const userIds = [...new Set(input.userIds ?? [])];
   const addresses = cleanAddresses(input.addresses ?? []);
@@ -147,7 +202,14 @@ async function checkReportSchedule(tx: Database, ctx: ServiceContext, input: Rep
   for (const userId of userIds) {
     const person = people.get(userId);
     if (!person) throw new ConflictError("One of the people picked is not in this company.");
-    const refusal = await mayReceive(tx, ctx.actor.organizationId, userId, named.definition);
+    let refusal: string | null;
+    if (isDashboard(source)) {
+      const actor = await memberActor(tx, ctx.actor.organizationId, userId);
+      refusal = actor ? await couldOpen(tx, actor, source) : "is no longer an active member of the company";
+    } else {
+      const definition = (named as NonNullable<Awaited<ReturnType<typeof sourceOf>>>).definition;
+      refusal = await mayReceive(tx, ctx.actor.organizationId, userId, definition);
+    }
     if (refusal) {
       /**
        * Refused at the save rather than skipped at the send. Emailing a report
@@ -184,8 +246,7 @@ export function createReportSchedule(ctx: ServiceContext, input: ReportScheduleI
       organizationId: ctx.actor.organizationId,
       kind: "report",
       name: input.name?.trim() || checked.named.name,
-      builtInReport: "builtIn" in checked.source ? checked.source.builtIn : null,
-      reportId: "reportId" in checked.source ? checked.source.reportId : null,
+      ...sourceColumns(checked.source),
       frequency: checked.cadence.frequency,
       weekdays: checked.cadence.weekdays ?? [],
       dayOfMonth: checked.cadence.dayOfMonth ?? null,
@@ -224,8 +285,7 @@ export function updateReportSchedule(ctx: ServiceContext, input: { id: string } 
 
     const [after] = await tx.update(schema.deliverySchedule).set({
       name: input.name?.trim() || before.name,
-      builtInReport: "builtIn" in checked.source ? checked.source.builtIn : null,
-      reportId: "reportId" in checked.source ? checked.source.reportId : null,
+      ...sourceColumns(checked.source),
       frequency: checked.cadence.frequency,
       weekdays: checked.cadence.weekdays ?? [],
       dayOfMonth: checked.cadence.dayOfMonth ?? null,
@@ -309,12 +369,20 @@ export function sendReportScheduleNow(
     if (seen) return seen;
 
     const row = await loadReportSchedule(tx, input.id);
-    const source: ReportSource = row.builtInReport ? { builtIn: row.builtInReport } : { reportId: row.reportId ?? "" };
-    const named = await sourceOf(tx, source);
-    if (!named) throw new ConflictError("The report this schedule sends has been deleted, so there is nothing to send.");
-    const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
-    if (!decision.ok) {
-      throw new ConflictError(`You cannot send a report you cannot run yourself. ${reporting.explainRefusal(decision)}`);
+    const source = rowSource(row);
+    if (isDashboard(source)) {
+      if (!(await dashboardSourceOf(tx, source))) {
+        throw new ConflictError("The dashboard this schedule sends has been deleted, so there is nothing to send.");
+      }
+      const refusal = await couldOpen(tx, ctx.actor, source);
+      if (refusal) throw new ConflictError(`You cannot send a dashboard you cannot open yourself: you ${refusal}.`);
+    } else {
+      const named = await sourceOf(tx, source);
+      if (!named) throw new ConflictError("The report this schedule sends has been deleted, so there is nothing to send.");
+      const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
+      if (!decision.ok) {
+        throw new ConflictError(`You cannot send a report you cannot run yourself. ${reporting.explainRefusal(decision)}`);
+      }
     }
 
     const timezone = await timezoneOf(tx, ctx.actor.organizationId);
@@ -414,8 +482,8 @@ export function listReportSchedules(ctx: ServiceContext): Promise<ReportSchedule
         .orderBy(desc(schema.reportDelivery.createdAt)).limit(1);
       const statuses = await messageStatuses(tx,
         (last?.recipients ?? []).flatMap((r) => (r.messageId ? [r.messageId] : [])));
-      const source: ReportSource = row.builtInReport ? { builtIn: row.builtInReport } : { reportId: row.reportId ?? "" };
-      const named = await sourceOf(tx, source);
+      const source = rowSource(row);
+      const named = isDashboard(source) ? await dashboardSourceOf(tx, source) : await sourceOf(tx, source);
       const cadence = cadenceOf(row);
       const period = periodOf(row.period);
       out.push({
@@ -423,6 +491,8 @@ export function listReportSchedules(ctx: ServiceContext): Promise<ReportSchedule
         name: row.name,
         builtIn: row.builtInReport,
         reportId: row.reportId,
+        dashboard: row.builtInDashboard,
+        dashboardId: row.dashboardId,
         reportPath: named?.path ?? null,
         cadence,
         cadenceText: reporting.describeCadence(cadence),
@@ -649,9 +719,7 @@ export async function deliverOne(
       return { ...base, kind: "statements" as const, action: "delivered" as const, queued: result.queued > 0, statements: result };
     }
 
-    const source: ReportSource = row.builtInReport
-      ? { builtIn: row.builtInReport }
-      : { reportId: row.reportId ?? "" };
+    const source = rowSource(row);
     /**
      * Keyed on the calendar day of the OCCURRENCE, not of the pass. A pass
      * that runs late for Monday's report still writes Monday's key, so the
@@ -725,6 +793,8 @@ export async function deliverDue(
 type ScheduleWire = {
   builtIn?: string | undefined;
   reportId?: string | undefined;
+  dashboard?: string | undefined;
+  dashboardId?: string | undefined;
   name?: string | undefined;
   frequency: string;
   weekdays?: number[] | undefined;

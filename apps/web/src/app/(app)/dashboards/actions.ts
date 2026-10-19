@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { dashboards, ConflictError } from "@opentradesos/api/services";
-import { tileFromForm, withoutTile, moved } from "@/lib/dashboard-tiles";
+import { tileFromForm, withoutTile, moved, withCut } from "@/lib/dashboard-tiles";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -88,6 +88,23 @@ export async function moveTile(_previous: unknown, form: FormData) {
     await dashboards.setTiles(await ctx(), {
       id,
       tiles: moved(existing, String(form.get("key") ?? ""), direction === "up" ? -1 : 1),
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath(`/dashboards/saved/${id}`);
+  return { done: true };
+}
+
+/** Cut a tile broken down by the other of its report's two groupings. */
+export async function recutTile(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const existing = JSON.parse(String(form.get("tiles") ?? "[]")) as dashboards.StoredTile[];
+
+  try {
+    await dashboards.setTiles(await ctx(), {
+      id, tiles: withCut(existing, String(form.get("key") ?? ""), String(form.get("splitBy") ?? "")),
     });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);

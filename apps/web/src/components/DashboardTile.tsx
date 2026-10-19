@@ -122,9 +122,10 @@ function Body({ tile, drill }: { tile: TileResult; drill: Drill }) {
    * The tile's grouping, drawn by the report chart. Columns for a date,
    * because a month is a bucket and a line between two of them implies values
    * between that do not exist. A tile broken down is cut by its report's
-   * second grouping, stacked or side by side, exactly as the report screen
-   * cuts it, with the legend naming every colour and each part opening the
-   * records of that bar and that value together.
+   * second grouping (or its first, when the tile picked that one), stacked or
+   * side by side, exactly as the report screen cuts it, with the legend
+   * naming every colour and each part opening the records of that bar and
+   * that value together.
    */
   const breakdown = tile.breakdown;
   return (
@@ -148,6 +149,7 @@ function Body({ tile, drill }: { tile: TileResult; drill: Drill }) {
         ],
       }}
       measure={measure.key}
+      dimension={tile.dimension?.key}
       prefer="columns"
       split={breakdown?.key}
       arrange={breakdown?.arrange}

@@ -97,3 +97,14 @@ export function moved(tiles: StoredTile[], key: string, by: number): StoredTile[
   next.splice(to, 0, moving!);
   return next;
 }
+
+/**
+ * One tile cut by a different one of its report's groupings.
+ *
+ * Only the cut changes: the tile keeps its key, its place, its shape and its
+ * name. Whether the grouping is one the report has is the server's to say, in
+ * words, against the report as it is now.
+ */
+export function withCut(tiles: StoredTile[], key: string, splitBy: string): StoredTile[] {
+  return tiles.map((tile) => (tile.key === key ? { ...tile, splitBy } : tile));
+}

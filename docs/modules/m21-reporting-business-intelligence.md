@@ -436,8 +436,8 @@ frozen on each visit when it is called off.
   an API caller that did not say) is out of both halves and counted beside as
   not known, never read as either.
 - Each record names the stop's route (or its crew, with no route) and its
-  weekday. The figure is the company's; the split per route and per weekday is
-  read off the records, not drawn as a breakdown.
+  weekday. The figure is the company's, and "Break it down by" under it on the
+  scorecard splits it per route or per weekday (below).
 
 The rule is core's `reporting.cancellationOf`, with unit tests, written again
 in SQL, and `kpi-cancel-rate.integration.test.ts` checks a month worked out by
@@ -849,6 +849,39 @@ four the fleet report already answers are named with the endpoint rather than
 computed again, because two screens computing one number from two queries is how
 they come to disagree.
 
+### A figure broken down
+
+A figure whose records already name a grouping can be broken down by it on
+the scorecard: "Break it down by" under the figure, a choice in the address
+(`kpi` and `by`) like every other on these screens. Three do, because every
+record behind every half of them names the group, and none is worked out from
+anything near it:
+
+- **Cancellation rate by route**, by route (a stop's route, or its crew when
+  it has none) and by weekday, which is what its definition asks for.
+- **Route density**, by person and by weekday: every route day is one
+  person's day.
+- **Fresh water per stop**, by truck: every record is a truck or one of its
+  days, which is the "per truck" its definition asks for.
+
+Each group shows its figure and its two halves, and the counts beside the
+figure (the company's own cancellations, the stops nobody said who called
+off) for that group. A half is the figure's records added up by the group
+each names, so it opens onto that group's records
+(`/reports/scorecard/records` with `by` and `group`), and the groups add up
+to the figure, on the last row. A group whose bottom half is empty reads "Not
+this window", never nought. Only one figure is broken down at a time. The
+others (close rate "by technician", revenue per technician) are not offered:
+their records do not name a technician on both halves, and a split guessed
+from a job's lead would be the near thing this scorecard refuses to compute
+from. `kpi-breakdown.integration.test.ts` works a month out by hand, opens a
+group's records, and runs every declared breakdown under a trade that declares
+it, so a records query that forgot the group's columns fails there.
+
+A breakdown is refused exactly where the records behind the figure are, in
+the same words: a reader whose scope is narrower than the company, a record
+kind they may not read, and a money half without `report.financial:read`.
+
 ### The records behind a KPI
 
 Every half of every computed KPI is written as the list of records it counts,
@@ -1061,6 +1094,17 @@ say to break it down, a tile broken down needs exactly two groupings, and an
 average is refused stacked and offered side by side, all when the tile is
 saved rather than when somebody opens the dashboard. The Operations dashboard
 ships one: open jobs by type, stacked by status.
+
+Which grouping cuts it is the tile's too, picked from the two its report is
+grouped by: "Cut by" under a tile broken down, on a saved dashboard, offers
+both, and picking the first draws the tile along the second and cuts each bar
+by the first. So "visits by technician and status" is a bar per technician cut
+by status on one tile and a bar per status cut by technician on another,
+without saving the report twice. It is stored on the tile (`splitBy`) and
+checked when the tile is saved: a grouping the report does not have, a cut on
+a tile that is not broken down, and a trend cut by its own date (which would
+leave it running along something that is not a date) are each refused in
+words. A tile that picked no cut is cut by the second, as before.
 The emailed PDF of a report draws the chart as the screen draws it before anybody
 breaks it down: a breakdown is a choice made on the screen, and is on the printed
 page and not in the schedule.
@@ -1071,6 +1115,27 @@ page and not in the schedule.
 name, the report, its dates, filters and branch in words, who printed it and
 when, the chart and every row, with nothing else on the page. The browser's
 own print dialog makes the PDF.
+
+### Print a whole dashboard, or save it as a PDF
+
+"Download as PDF" on any dashboard (`/dashboards/{slug}/pdf` for one that
+ships, `/dashboards/saved/{id}/pdf` for one somebody assembled) is one file
+of every tile, in the dashboard's order: a number tile as its number, a chart
+tile as the chart the screen draws (cut by its second grouping, with the
+legend in words, when the tile is broken down) with its rows printed under
+it, and a broken tile as the sentence the screen shows in its place. It is
+drawn through the same function the screen is, so it has the same readers,
+scope and permissions: each tile is the reader's own run of its report. A
+tile the reader may not see is left out of the file and NAMED at the end of
+it, by title only ("Not on this copy ... Dee Dispatch may not see it:
+Receivables by age"). The screen still drops such a tile without a word, as
+the navigation drops a link; a page handed to somebody else that left part of
+the dashboard out without saying so would read as the whole dashboard. A
+dashboard with nothing on it the reader may see is missing for them, as its
+page is. The file is written by the product (`pdf.dashboardPdf` in core), not
+the browser's print of the page, because a grid of cards laid out for a wide
+screen splits its charts across pages when a browser prints it. It needs
+`report:read`, and each tile what its own report needs.
 
 ### Narrow a report to one branch
 
@@ -1127,6 +1192,10 @@ record on every page, so each page totals to the number that was clicked and
 never to its own thousand. A link to a page past the last (the list shrank since)
 opens the last page. The records behind a KPI (`/reports/scorecard/records`)
 page the same way, latest day first, with the half's own total on every page.
+Through the API (`POST /v1/reports/drill`, `GET /v1/kpi-records`) both also
+take `perPage`, from one to a thousand and a thousand when it is left out, so
+a client can walk them in smaller pieces; the count and the totals are still
+over every record, and anything outside those bounds is refused at the door.
 
 ### Have a report emailed
 
@@ -1157,6 +1226,30 @@ asked not to be emailed, no email connected). Pause keeps the history and comes
 back on the clock without catching up on what it missed; Change makes the
 person saving it whose authority it runs under; Stop deletes it and keeps what
 it sent.
+
+### Have a dashboard emailed
+
+"Email on a schedule" on a dashboard opens the same form, starting on that
+dashboard; the form's list offers every dashboard beside the reports. The
+same cadence, the same people and outside addresses, the same once per
+occurrence, the same authority (the person who set it up, as they are on the
+day), and the same outbox and do-not-email list: an address that bounced or
+asked to stop is not sent it, and the delivery says so. What arrives is one
+PDF of every tile, the file "Download as PDF" makes, with the number tiles
+listed in the email's body. Each person in the company is sent the dashboard
+drawn AS THEM, their scope on every tile and the tiles they may not see named
+and left out (the email says which too); somebody who may see nothing on it
+is refused at the save and again on the day. An outside address is sent the
+copy of the person who set it up. There is no CSV, because a dashboard is not
+one table.
+
+A dashboard is sent as it stands, each tile with its own report's dates (most
+have none and read "as of now"), and the page says when it was drawn. So a
+dashboard schedule takes no dates of its own: "Everything, with no dates" is
+its only period, and any other is refused in words rather than laid over
+every tile, which would turn "Outstanding, every unpaid balance" into last
+week's invoices without a word on the page. That is the conservative reading,
+and the product owner has not been asked for another.
 
 ### Email a report from an automation
 
@@ -1196,13 +1289,17 @@ caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
 | `POST /v1/reports/drill` | `report:read` |
 | `GET /v1/kpis` | `report:read` |
 | `GET /v1/kpi-records` | `report:read`, and see above |
+| `GET /v1/kpi-breakdown` | `report:read`, and refused where the records are |
 | `GET /v1/report-schedules` | `report:read` |
-| `POST /v1/report-schedules` | `report:build` |
+| `POST /v1/report-schedules` | `report:build` (a report, or a dashboard by `dashboard` or `dashboardId`) |
 | `PATCH /v1/report-schedules/{id}` | `report:build` |
 | `POST /v1/report-schedules/{id}/paused` | `report:build` |
 | `POST /v1/report-schedules/{id}/send` | `report:build` |
 | `DELETE /v1/report-schedules/{id}` | `report:build` |
 | `GET /v1/report-deliveries` | `report:read` |
+
+A dashboard has no API of its own: a schedule names one that ships by its
+slug (`operations`, `money`) or a saved one by the id in its address.
 
 The worker sends what is due on every pass (`docs/self-hosting/worker.md`), and
 then hands that company's outbox to its mail provider.
@@ -1290,9 +1387,9 @@ heater stays in the bottom half. A replacement counts as ours only when the
 register's record of it names one of our jobs. A heater whose install date was
 never recorded is counted beside the figure, not in it.
 
-The cancellation rate by route is one company figure: the route and weekday of
-each stop are on its records, and the scorecard draws no breakdown by either.
-It judges lateness by the company's one notice window, not one per job type or
+The cancellation rate by route is broken down per route and per weekday on
+the scorecard, one figure at a time; a route's own figure is not tracked over
+months anywhere. It judges lateness by the company's one notice window, not one per job type or
 plan. A visit is not called off from the phone, so a team turned away at the
 door is recorded by the office; a cancellation recorded before who asked was
 kept, or by an API caller that did not say, is counted beside the figure as not
@@ -1375,12 +1472,14 @@ recorded is not counted, and a fail recorded as somebody else's work is left
 out on that word. Route density has no figure for a company that does not share
 locations, counts only the days whose drives between stops were seen whole, and
 measures them as straight lines between positions rather than along the road; a
-route day is not shown anywhere but behind the figure. The re-clean rate is only
+route day is shown only behind the figure and in its breakdown by person and
+by weekday. The re-clean rate is only
 as good as the coverage the office records on a return: one left without a reason
 is counted beside the figure, not in it. The records
-behind a KPI are listed only for a reader whose scope is the whole company. A
-page of records, of a report or of a KPI, is always a thousand: the API takes
-which page, not how many to a page. A custom field on an address, a unit or a
+behind a KPI, and a figure's breakdown, are listed only for a reader whose
+scope is the whole company. A page of records is a thousand on the screens,
+which take no smaller page; the API takes fewer (`perPage`) but never more. A
+custom field on an address, a unit or a
 technician is on the datasets whose rows hang off one, never as a dataset of its
 own, because no dataset is a row of one; a unit's fields reach only the kinds of
 record that link a unit, and a technician's only Visits, through its lead.
@@ -1406,9 +1505,13 @@ not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
 Nothing is emailed until an email provider is connected. A chart draws one
-measure at a time. A tile is broken down only by the second grouping of the
-report it points at, in the order that report groups (first drawn, second cut
-by); to cut it the other way round, save the report grouped the other way.
-A dashboard is not emailed or printed: a schedule points at a report, so what
-arrives is the report as its own chart draws it, never a tile broken down. No cross company report
+measure at a time. A tile is cut by one of its report's two groupings and drawn
+along the other: a report grouped by three things is still refused on a tile,
+because the third would be added up out of sight, and the cut is chosen on the
+tile once it is added ("Add a tile" always starts on the second).
+A dashboard is printed and emailed whole (above), and only on a schedule: the
+"Run and email a report" step of an automation sends a report and not a
+dashboard. A dashboard emailed or printed takes no dates of its own, and its
+PDF prints the screen's chart with the usual scale, never "Around the data".
+No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

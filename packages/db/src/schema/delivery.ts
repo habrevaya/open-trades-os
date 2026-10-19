@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user } from "./tenancy";
 import { contact, customer } from "./crm";
-import { report } from "./platform";
+import { report, dashboard } from "./platform";
 import { message } from "./comms";
 
 /**
@@ -50,6 +50,14 @@ export const deliverySchedule = pgTable("delivery_schedule", {
    */
   builtInReport: text("built_in_report"),
   reportId: uuid("report_id").references(() => report.id, { onDelete: "cascade" }),
+  /**
+   * Or a whole dashboard, sent as one PDF of its tiles: one that ships, by
+   * slug, or one somebody assembled. Exactly one of the four is set on a
+   * report schedule. A pointer for the same reason: a dashboard somebody
+   * rearranges is emailed as it is now, not as it was the day this was set up.
+   */
+  builtInDashboard: text("built_in_dashboard"),
+  dashboardId: uuid("dashboard_id").references(() => dashboard.id, { onDelete: "cascade" }),
   frequency: deliveryFrequency("frequency").notNull(),
   /** ISO weekdays, Monday 1 to Sunday 7. Weekly only. */
   weekdays: jsonb("weekdays").$type<number[]>().notNull().default([]),
@@ -124,6 +132,9 @@ export const reportDelivery = pgTable("report_delivery", {
   reportName: text("report_name").notNull(),
   builtInReport: text("built_in_report"),
   reportId: uuid("report_id"),
+  /** Set instead of the two above when what went was a dashboard. */
+  builtInDashboard: text("built_in_dashboard"),
+  dashboardId: uuid("dashboard_id"),
   /** The dates it covered. `to` exclusive, like every report range. */
   periodFrom: date("period_from"),
   periodTo: date("period_to"),

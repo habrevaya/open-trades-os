@@ -47,7 +47,11 @@ export function ScheduleForm({
   const frequency = defaults.frequency ?? "weekly";
   return (
     <ActionForm action={action} submit={submit} {...(hidden ? { hidden } : {})} className="mt-6 space-y-5">
-      <Select label="Report" name="report" options={reports} defaultValue={defaults.report ?? reports[0]?.value} />
+      <Select label="Report or dashboard" name="report" options={reports} defaultValue={defaults.report ?? reports[0]?.value} />
+      <p className="-mt-3 text-xs text-ink-500">
+        A dashboard goes as one PDF of every tile, as it stands when it is sent, so for one pick
+        &quot;Everything, with no dates&quot; below.
+      </p>
       <TextField label="Name it (optional)" name="name" defaultValue={defaults.name ?? ""}
                  placeholder="The report's own name" />
 
@@ -107,13 +111,28 @@ export function ScheduleForm({
   );
 }
 
-/** Built-in reports and saved ones, as one list, grouped by words in the label. */
+/**
+ * Built-in reports and saved ones, then the dashboards somebody may open, as
+ * one list, told apart by words in the label.
+ */
 export function reportOptions(
   builtIn: { slug: string; name: string }[],
   saved: { id: string; name: string }[],
+  dashboards: { builtIn: { slug: string; title: string }[]; saved: { id: string; name: string }[] } = { builtIn: [], saved: [] },
 ): { value: string; label: string }[] {
   return [
     ...builtIn.map((r) => ({ value: `builtIn:${r.slug}`, label: r.name })),
     ...saved.map((r) => ({ value: `saved:${r.id}`, label: `${r.name} (saved)` })),
+    ...dashboards.builtIn.map((d) => ({ value: `dashboard:${d.slug}`, label: `${d.title} (dashboard)` })),
+    ...dashboards.saved.map((d) => ({ value: `savedDashboard:${d.id}`, label: `${d.name} (saved dashboard)` })),
   ];
+}
+
+/** What a stored schedule sends, as the form's choice. */
+export function chosenSource(schedule: {
+  builtInReport: string | null; reportId: string | null; builtInDashboard: string | null; dashboardId: string | null;
+}): string {
+  if (schedule.builtInDashboard) return `dashboard:${schedule.builtInDashboard}`;
+  if (schedule.dashboardId) return `savedDashboard:${schedule.dashboardId}`;
+  return schedule.builtInReport ? `builtIn:${schedule.builtInReport}` : `saved:${schedule.reportId}`;
 }

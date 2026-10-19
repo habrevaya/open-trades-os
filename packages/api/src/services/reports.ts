@@ -543,6 +543,8 @@ export async function drill(
      * on every page. The order ends on the record's id, so a record is on
      * exactly one page however many share a date.
      */
+    /** A thousand to a page unless the caller asked for fewer. */
+    const perPage = reporting.askedPerPage(request.perPage);
     const read = (offset: number) => tx.execute<Record<string, string | number | null>>(sql`
       with drilled as (
         select ${sql.join(inner, sql.raw(", "))}
@@ -556,14 +558,14 @@ export async function drill(
         select ${sql.raw(outer.join(", "))}
         from drilled
         order by "__sort" desc nulls last, "__id"
-        limit ${reporting.DRILL_PAGE_SIZE} offset ${offset}
+        limit ${perPage} offset ${offset}
       ) as page on true
     `);
 
     const asked = reporting.askedPage(request.page);
-    let rows = await read((asked - 1) * reporting.DRILL_PAGE_SIZE);
+    let rows = await read((asked - 1) * perPage);
     const count = Number(rows[0]?.["__count"] ?? 0);
-    const paged = reporting.drillPage(count, asked);
+    const paged = reporting.drillPage(count, asked, perPage);
     // A page past the end (the list shrank since the link was made) is the last page.
     if (paged.page !== asked) rows = await read(paged.offset);
     const first = rows[0];
@@ -800,8 +802,10 @@ export const handlers = {
     definition: Parameters<typeof definitionFromWire>[0];
     match: Record<string, string | null>;
     page?: number | undefined;
+    perPage?: number | undefined;
   }): Promise<DrillResult> => drill(ctx, {
     definition: definitionFromWire(input.definition), match: input.match,
     ...(input.page ? { page: input.page } : {}),
+    ...(input.perPage ? { perPage: input.perPage } : {}),
   }),
 } as const;

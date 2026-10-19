@@ -69,6 +69,27 @@ export interface Tile {
    * the same report can be one tile broken down and another not.
    */
   breakdown?: ChartArrangement;
+  /**
+   * WHICH OF THE REPORT'S TWO GROUPINGS CUTS THE BARS, on a tile broken down.
+   * Left out, the second, as the report groups; set to the first, the tile
+   * draws along the second and cuts each bar by the first. Picked from the
+   * report's own groupings, so "jobs by type and status" is one report drawn
+   * as types cut by status on one tile and statuses cut by type on another,
+   * rather than two copies of the report saved in two orders.
+   */
+  splitBy?: string;
+}
+
+/**
+ * The grouping a tile is drawn along and the one it is cut by, as keys, for a
+ * tile broken down: the report's second unless the tile picked the other.
+ * Null for a tile that is not broken down or whose report does not have the
+ * two groupings it needs; `checkShape` refuses those in words.
+ */
+export function tileAxes(tile: Pick<Tile, "breakdown" | "splitBy" | "definition">): { along: string; cutBy: string } | null {
+  const [first, second] = tile.definition.dimensions;
+  if (!tile.breakdown || first === undefined || second === undefined) return null;
+  return tile.splitBy === first ? { along: second, cutBy: first } : { along: first, cutBy: second };
 }
 
 export interface DashboardDefinition {
@@ -117,9 +138,20 @@ export function checkShape(tile: Tile, dataset: Dataset): ShapeRefusal | { ok: t
     if (dimensions.length !== 2) {
       return {
         ok: false, reason: "wrong_shape",
-        detail: `A tile broken down draws its report's first grouping, cut by its second, so the report needs to be grouped by two things. "${tile.title}" is grouped by ${dimensions.length}.`,
+        detail: `A tile broken down draws one of its report's groupings, cut by the other, so the report needs to be grouped by two things. "${tile.title}" is grouped by ${dimensions.length}.`,
       };
     }
+    if (tile.splitBy !== undefined && !dimensions.includes(tile.splitBy)) {
+      return {
+        ok: false, reason: "wrong_shape",
+        detail: `"${tile.title}" can be cut by ${label(dimensions[0])} or by ${label(dimensions[1])}, the two things its report is grouped by, and not by "${tile.splitBy}".`,
+      };
+    }
+  } else if (tile.splitBy !== undefined) {
+    return {
+      ok: false, reason: "wrong_shape",
+      detail: `"${tile.title}" is not broken down, so there is nothing to cut it by. Break it down, stacked or side by side, first.`,
+    };
   } else if (dimensions.length !== 1) {
     return {
       ok: false, reason: "wrong_shape",
@@ -130,7 +162,9 @@ export function checkShape(tile: Tile, dataset: Dataset): ShapeRefusal | { ok: t
   }
 
   if (tile.kind === "trend") {
-    const dimension = dataset.dimensions.find((d) => d.key === dimensions[0]);
+    /** A trend runs along whichever grouping is not the cut. */
+    const along = tileAxes(tile)?.along ?? dimensions[0];
+    const dimension = dataset.dimensions.find((d) => d.key === along);
     if (dimension && dimension.type !== "date") {
       /**
        * A trend over a non-date dimension is the mistake worth catching. It
@@ -140,7 +174,9 @@ export function checkShape(tile: Tile, dataset: Dataset): ShapeRefusal | { ok: t
        */
       return {
         ok: false, reason: "wrong_shape",
-        detail: `A trend needs a date to run along. "${dimension.label}" is not one.`,
+        detail: tile.splitBy !== undefined
+          ? `A trend needs a date to run along. Cut by ${label(tile.splitBy)}, "${tile.title}" runs along ${dimension.label.toLowerCase()}, which is not one: cut it by ${dimension.label.toLowerCase()} instead.`
+          : `A trend needs a date to run along. "${dimension.label}" is not one.`,
       };
     }
   }
@@ -163,7 +199,7 @@ export function checkShape(tile: Tile, dataset: Dataset): ShapeRefusal | { ok: t
     if (measure && !addsUp(measure.kind)) {
       return {
         ok: false, reason: "wrong_shape",
-        detail: `${measure.label} cannot be stacked: the parts of an average or a minimum do not add up to the whole. Set ${label(dimensions[1])} side by side instead.`,
+        detail: `${measure.label} cannot be stacked: the parts of an average or a minimum do not add up to the whole. Set ${label(tileAxes(tile)?.cutBy ?? dimensions[1])} side by side instead.`,
       };
     }
   }
@@ -187,6 +223,13 @@ export interface DashboardDecision {
   definition: DashboardDefinition;
   /** In layout order, with the hidden ones already gone. */
   tiles: TileDecision[];
+  /**
+   * The tiles dropped because the reader may not run them, in layout order.
+   * The screen shows none of them. A printed or emailed copy names them, by
+   * title only, because a page that leaves part of a dashboard out without
+   * saying so reads as the whole dashboard to whoever it is handed to.
+   */
+  hidden: Tile[];
 }
 
 /**
@@ -212,12 +255,16 @@ export function resolveDashboard(
   held: Set<Permission>,
 ): DashboardDecision {
   const tiles: TileDecision[] = [];
+  const hidden: Tile[] = [];
 
   for (const tile of definition.tiles) {
     const report = resolveReport(tile.definition, catalogue, held);
 
     if (!report.ok) {
-      if (report.reason === "missing_permission") continue;
+      if (report.reason === "missing_permission") {
+        hidden.push(tile);
+        continue;
+      }
       tiles.push({ ok: false, tile, detail: explainRefusal(report as ReportRefusal) });
       continue;
     }
@@ -236,7 +283,7 @@ export function resolveDashboard(
     });
   }
 
-  return { definition, tiles };
+  return { definition, tiles, hidden };
 }
 
 /**

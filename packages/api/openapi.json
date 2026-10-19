@@ -68077,6 +68077,153 @@
         ]
       }
     },
+    "/v1/kpi-breakdown": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getKpiBreakdown",
+        "summary": "One KPI broken down by a grouping its records carry",
+        "description": "The figure's records, the same ones the scorecard sums and `GET /v1/kpi-records` lists, added up by a grouping every one of them already names: the cancellation rate by route and by weekday, route density by person and by weekday, fresh water per stop by truck. `by` is one of the KPI's own `groupings` on the scorecard; anything else is refused naming the ones it has. Each group comes back with its two halves, its counts beside, and its figure combined the way the figure is (an empty denominator is null, never nought), and the groups add up to the scorecard's halves, which come back too. Each group's `value` opens its records through `GET /v1/kpi-records` with `by` and `group`. Refused, in words, exactly where those records are: a reader whose scope is narrower than the whole company, a record kind the reader may not read, a money half without report.financial:read.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One KPI broken down by a grouping its records carry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetKpiBreakdownOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
+        ]
+      }
+    },
     "/v1/kpi-catalogue": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -68194,7 +68341,7 @@
       "get": {
         "operationId": "getKpiRecords",
         "summary": "The records behind one half of one KPI",
-        "description": "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The records are listed a thousand to a page, the latest day first, and `page` picks which (a page past the last is the last); the count and the total are the half the scorecard shows, over every record on every page. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.\n\nRequires a session holding: report:read.",
+        "description": "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The records are listed a thousand to a page, the latest day first, or as many as `perPage` asks (one to a thousand), and `page` picks which (a page past the last is the last); the count and the total are the half the scorecard shows, over every record on every page. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.\n\nRequires a session holding: report:read.",
         "tags": [
           "M21"
         ],
@@ -68248,6 +68395,36 @@
             "schema": {
               "type": "integer",
               "minimum": 1
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           }
         ],
@@ -116506,8 +116683,8 @@
       ],
       "post": {
         "operationId": "createReportSchedule",
-        "summary": "Email a report on a schedule",
-        "description": "Daily, weekly on chosen days, or monthly on a day from 1 to 28, at a time in the company's timezone. It runs as the person who sets it up, re-checked on the day it runs, and goes to people in the company who could open it themselves and to any outside address named. Each delivery is a readable summary with every row in a CSV attached. The first one goes at the next occurrence, not now.\n\nRequires a session holding: report:build.",
+        "summary": "Email a report or a dashboard on a schedule",
+        "description": "Daily, weekly on chosen days, or monthly on a day from 1 to 28, at a time in the company's timezone. It runs as the person who sets it up, re-checked on the day it runs, and goes to people in the company who could open it themselves and to any outside address named. Each delivery of a report is a readable summary with every row in a CSV and the same run as a PDF attached. A dashboard (`dashboard` or `dashboardId`) is sent as one PDF of every tile, drawn as each person in the company would see it, with the tiles they may not see left out and named; it is sent as it stands and takes no period but `all`, and a person who may see nothing on it is refused. The first one goes at the next occurrence, not now.\n\nRequires a session holding: report:build.",
         "tags": [
           "M21"
         ],
@@ -116534,7 +116711,7 @@
         },
         "responses": {
           "201": {
-            "description": "Email a report on a schedule",
+            "description": "Email a report or a dashboard on a schedule",
             "content": {
               "application/json": {
                 "schema": {
@@ -117578,7 +117755,7 @@
       "post": {
         "operationId": "drillReport",
         "summary": "The records behind one row of a report",
-        "description": "Takes a report definition and the values on the row that was clicked, one per grouped dimension (null for a group the report showed as Not set), and returns the records that row is made of: the definition's own scope, filters and date range, with each pinned dimension matched and the grouping taken off. Each record carries what it added to every measure, and the totals are over every record behind the row, which is the number that was clicked. Refused exactly where the report would be, in the report's words. The records are listed a thousand to a page, newest first, and `page` picks which (a page past the last is the last); the count and the totals are over every record on every page.\n\nRequires a session holding: report:read.",
+        "description": "Takes a report definition and the values on the row that was clicked, one per grouped dimension (null for a group the report showed as Not set), and returns the records that row is made of: the definition's own scope, filters and date range, with each pinned dimension matched and the grouping taken off. Each record carries what it added to every measure, and the totals are over every record behind the row, which is the number that was clicked. Refused exactly where the report would be, in the report's words. The records are listed a thousand to a page, newest first, or as many as `perPage` asks (one to a thousand), and `page` picks which (a page past the last is the last); the count and the totals are over every record on every page.\n\nRequires a session holding: report:read.",
         "tags": [
           "M21"
         ],
@@ -170539,6 +170716,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "dashboard": {
+            "type": "string"
+          },
+          "dashboardId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": "string",
             "maxLength": 200
@@ -170620,6 +170804,19 @@
             ],
             "format": "uuid"
           },
+          "builtInDashboard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "frequency": {
             "type": "string"
           },
@@ -170687,6 +170884,8 @@
           "name",
           "builtInReport",
           "reportId",
+          "builtInDashboard",
+          "dashboardId",
           "frequency",
           "weekdays",
           "dayOfMonth",
@@ -178929,6 +179128,11 @@
           "page": {
             "type": "integer",
             "minimum": 1
+          },
+          "perPage": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
           }
         },
         "required": [
@@ -197511,6 +197715,159 @@
           "deletedInBooks"
         ]
       },
+      "GetKpiBreakdownOutput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "money",
+              "number",
+              "duration"
+            ]
+          },
+          "by": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "label"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "numeratorLabel": {
+            "type": "string"
+          },
+          "denominatorLabel": {
+            "type": "string"
+          },
+          "numeratorMoney": {
+            "type": "boolean"
+          },
+          "denominatorMoney": {
+            "type": "boolean"
+          },
+          "besides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "excluded",
+                    "unknown"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "figure": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numerator": {
+                  "type": "string"
+                },
+                "denominator": {
+                  "type": "string"
+                },
+                "besides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "enum": [
+                          "excluded",
+                          "unknown"
+                        ]
+                      },
+                      "count": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "count"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "value",
+                "label",
+                "figure",
+                "numerator",
+                "denominator",
+                "besides"
+              ]
+            }
+          },
+          "numerator": {
+            "type": "string"
+          },
+          "denominator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "format",
+          "by",
+          "from",
+          "to",
+          "numeratorLabel",
+          "denominatorLabel",
+          "numeratorMoney",
+          "denominatorMoney",
+          "besides",
+          "groups",
+          "numerator",
+          "denominator"
+        ]
+      },
       "GetKpiRecordsOutput": {
         "type": "object",
         "properties": {
@@ -197607,6 +197964,35 @@
           },
           "money": {
             "type": "boolean"
+          },
+          "group": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "by": {
+                "type": "string"
+              },
+              "byLabel": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "by",
+              "byLabel",
+              "value",
+              "label"
+            ]
           }
         },
         "required": [
@@ -197625,7 +198011,8 @@
           "page",
           "pages",
           "perPage",
-          "money"
+          "money",
+          "group"
         ]
       },
       "GetKpiScorecardOutput": {
@@ -197753,6 +198140,24 @@
                       "count"
                     ]
                   }
+                },
+                "groupings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -197771,7 +198176,8 @@
                 "denominatorMoney",
                 "needs",
                 "endpoint",
-                "besides"
+                "besides",
+                "groupings"
               ]
             }
           },
@@ -197885,6 +198291,24 @@
                       "count"
                     ]
                   }
+                },
+                "groupings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -197903,7 +198327,8 @@
                 "denominatorMoney",
                 "needs",
                 "endpoint",
-                "besides"
+                "besides",
+                "groupings"
               ]
             }
           },
@@ -198017,6 +198442,24 @@
                       "count"
                     ]
                   }
+                },
+                "groupings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ]
+                  }
                 }
               },
               "required": [
@@ -198035,7 +198478,8 @@
                 "denominatorMoney",
                 "needs",
                 "endpoint",
-                "besides"
+                "besides",
+                "groupings"
               ]
             }
           }
@@ -236263,6 +236707,19 @@
                   ],
                   "format": "uuid"
                 },
+                "dashboard": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dashboardId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
                 "reportPath": {
                   "type": [
                     "string",
@@ -236472,6 +236929,8 @@
                 "name",
                 "builtIn",
                 "reportId",
+                "dashboard",
+                "dashboardId",
                 "reportPath",
                 "cadence",
                 "cadenceText",
@@ -277276,6 +277735,19 @@
             ],
             "format": "uuid"
           },
+          "builtInDashboard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "frequency": {
             "type": "string"
           },
@@ -277343,6 +277815,8 @@
           "name",
           "builtInReport",
           "reportId",
+          "builtInDashboard",
+          "dashboardId",
           "frequency",
           "weekdays",
           "dayOfMonth",
@@ -292492,6 +292966,13 @@
             "type": "string",
             "format": "uuid"
           },
+          "dashboard": {
+            "type": "string"
+          },
+          "dashboardId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "name": {
             "type": "string",
             "maxLength": 200
@@ -292573,6 +293054,19 @@
             ],
             "format": "uuid"
           },
+          "builtInDashboard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dashboardId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
           "frequency": {
             "type": "string"
           },
@@ -292640,6 +293134,8 @@
           "name",
           "builtInReport",
           "reportId",
+          "builtInDashboard",
+          "dashboardId",
           "frequency",
           "weekdays",
           "dayOfMonth",

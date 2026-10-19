@@ -4,6 +4,8 @@ import { getDb } from "@/lib/db";
 import { dashboards, NotFoundError } from "@opentradesos/api/services";
 import { DashboardTile, tileSpan } from "@/components/DashboardTile";
 import { PageHeader } from "@/components/Table";
+import { can } from "@opentradesos/core";
+import { DashboardActions } from "../DashboardActions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +29,17 @@ export default async function DashboardPage({ params }: { params: Promise<{ slug
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 lg:px-6">
-      <PageHeader title={definition.title} />
+      <PageHeader
+        title={definition.title}
+        action={
+          <DashboardActions
+            pdf={`/dashboards/${slug}/pdf`}
+            schedule={can(user.actor, "report:build")
+              ? `/reports/schedules/new?report=${encodeURIComponent(`dashboard:${slug}`)}`
+              : null}
+          />
+        }
+      />
       <p className="mt-1 text-sm text-ink-500">{definition.description}</p>
 
       {/*

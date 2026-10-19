@@ -3,7 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import {
   SYSTEM_USER_ID, permissionsFor, reporting, type Actor, type Permission,
 } from "@opentradesos/core";
-import { ConflictError, type ServiceContext } from "./context";
+import { ConflictError, NotFoundError, type ServiceContext } from "./context";
 import * as email from "./email";
 import { memberActor } from "./session";
 import { run, CATALOGUE, CUSTOMER_FILTERS, type ReportResult } from "./reports";
@@ -11,6 +11,10 @@ import { catalogueFor } from "./report-company";
 import { BUILT_IN } from "./report-built-in";
 import { publicBaseUrl } from "./setup-tokens";
 import { companyOf, reportFile } from "./documents";
+import {
+  couldOpen, dashboardFile, dashboardSourceOf, drawDashboard, printedTile,
+  type DashboardSource, type DrawnDashboard,
+} from "./dashboards";
 
 /**
  * A REPORT, RUN AND EMAILED
@@ -47,6 +51,12 @@ import { companyOf, reportFile } from "./documents";
 
 export type ReportSource = { builtIn: string } | { reportId: string };
 
+/** What a schedule sends: a report, or a whole dashboard as one PDF. */
+export type DeliverySource = ReportSource | DashboardSource;
+
+export const isDashboard = (source: DeliverySource): source is DashboardSource =>
+  "builtInDashboard" in source || "dashboardId" in source;
+
 export interface ReportRecipients {
   userIds: string[];
   addresses: string[];
@@ -63,7 +73,6 @@ export interface DeliverReportInput {
   organizationId: string;
   /** Whose authority it runs under. */
   ownerUserId: string | null;
-  source: ReportSource;
   recipients: ReportRecipients;
   period: reporting.Period;
   /** The occurrence: the period is measured back from here. */
@@ -73,6 +82,8 @@ export interface DeliverReportInput {
   key: string;
   scheduleId?: string | undefined;
   workflowRunId?: string | undefined;
+  /** A report, or a dashboard; see `deliverDashboard` for what changes. */
+  source: DeliverySource;
   /**
    * Send it to this customer, about this customer only, and to nobody else.
    * The recipients above are ignored: a report to a customer is never also a
@@ -173,6 +184,7 @@ export function cleanAddresses(addresses: string[]): string[] {
 }
 
 export async function deliverReport(tx: Database, input: DeliverReportInput): Promise<DeliverReportResult> {
+  if (isDashboard(input.source)) return deliverDashboard(tx, input, input.source);
   const named = await sourceOf(tx, input.source);
 
   /**
@@ -367,6 +379,230 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
   }).where(eq(schema.reportDelivery.id, claimed.id));
 
   return { delivered: true, deliveryId: claimed.id, status, error, recipients };
+}
+
+/* ------------------------------------------------------- a whole dashboard */
+
+/**
+ * A DASHBOARD, DRAWN AND EMAILED AS ONE PDF
+ *
+ * The same delivery as a report's, through the same claim, the same
+ * authority and the same outbox, so the four promises above hold for it as
+ * they are: once per occurrence, as the person who set it up on the day it
+ * goes, only to people who could open it themselves, and written down whether
+ * it went or not. What differs is what is drawn and what is attached.
+ *
+ * DRAWN AS EACH PERSON SEES IT. A dashboard is a page of reports, so each
+ * person in the company is sent the dashboard drawn as THEM, through the same
+ * `drawDashboard` the screen uses: their scope on every tile, and the tiles
+ * they may not see left out of their copy and named at the end of it, by
+ * title, never drawn. Somebody who may see nothing on it is not sent it, and
+ * the delivery row says why. An outside address is sent the copy of the
+ * person who set it up, as with a report.
+ *
+ * NO DATES OF ITS OWN. A dashboard's tiles carry their own reports' dates
+ * (most have none, and read "as of now"), so it is sent as it stands when it
+ * is drawn and says so on the page; the schedule takes no period for one.
+ *
+ * ONE ATTACHMENT. The PDF of every tile. There is no CSV, because a dashboard
+ * is not one table; each tile's rows are printed under its chart.
+ */
+async function deliverDashboard(
+  tx: Database, input: DeliverReportInput, source: DashboardSource,
+): Promise<DeliverReportResult> {
+  const named = await dashboardSourceOf(tx, source);
+
+  const [claimed] = await tx.insert(schema.reportDelivery).values({
+    organizationId: input.organizationId,
+    scheduleId: input.scheduleId ?? null,
+    workflowRunId: input.workflowRunId ?? null,
+    idempotencyKey: input.key,
+    reportName: named?.name ?? "A deleted dashboard",
+    builtInDashboard: "builtInDashboard" in source ? source.builtInDashboard : null,
+    dashboardId: "dashboardId" in source ? source.dashboardId : null,
+    status: "failed",
+    ranAsUserId: input.ownerUserId,
+  }).onConflictDoNothing().returning({ id: schema.reportDelivery.id });
+
+  if (!claimed) {
+    return { delivered: false, deliveryId: null, status: "already_delivered", error: null, recipients: [] };
+  }
+
+  const fail = async (error: string): Promise<DeliverReportResult> => {
+    await tx.update(schema.reportDelivery).set({ status: "failed", error })
+      .where(eq(schema.reportDelivery.id, claimed.id));
+    return { delivered: true, deliveryId: claimed.id, status: "failed", error, recipients: [] };
+  };
+
+  if (!named) return fail("The dashboard this sends has been deleted, so there was nothing to send.");
+  /**
+   * Never to a customer. A dashboard is the company's own picture of itself,
+   * and there is no narrowing of one to a single customer's records.
+   */
+  if (input.customerId !== undefined) return fail("A dashboard is the company's own, so it is never sent to a customer.");
+
+  const owner = input.ownerUserId ? await memberActor(tx, input.organizationId, input.ownerUserId) : null;
+  if (!owner) {
+    return fail(
+      "The person who set this up is no longer an active member of the company, so it has nobody's "
+      + "authority to run under. Somebody who can see the dashboard can set it up again.",
+    );
+  }
+  const ownerRefusal = await couldOpen(tx, owner, source);
+  if (ownerRefusal) {
+    return fail(`It did not run as the person who set it up, who ${ownerRefusal}.`);
+  }
+
+  /** The dashboard as one person sees it, or null when they may see none of it. */
+  const drawAs = async (actor: Actor): Promise<DrawnDashboard | null> => {
+    try {
+      return await drawDashboard({ actor, db: tx }, source, { inOrder: true });
+    } catch (error) {
+      if (error instanceof NotFoundError) return null;
+      throw error;
+    }
+  };
+  const ownerCopy = await drawAs(owner);
+  if (!ownerCopy) return fail("It did not run as the person who set it up, who may not see anything on this dashboard.");
+
+  const people = await companyPeople(tx);
+  const recipients: DeliveryRecipient[] = [];
+  const copies = new Map<string, DrawnDashboard>();
+  const seen = new Set<string>();
+  for (const userId of [...new Set(input.recipients.userIds)]) {
+    const person = people.get(userId);
+    if (!person) {
+      recipients.push({ address: "", userId, refused: "is no longer in the company" });
+      continue;
+    }
+    const address = email.normalizeAddress(person.email);
+    const actor = userId === input.ownerUserId ? owner : await memberActor(tx, input.organizationId, userId);
+    const refusal = actor ? await couldOpen(tx, actor, source) : "is no longer an active member of the company";
+    if (refusal) {
+      recipients.push({ address, userId, refused: `${person.name ?? address} ${refusal}` });
+      continue;
+    }
+    if (seen.has(address)) continue;
+    seen.add(address);
+    const copy = userId === input.ownerUserId ? ownerCopy : await drawAs(actor!);
+    if (!copy) {
+      recipients.push({ address, userId, refused: `${person.name ?? address} may not see anything on this dashboard` });
+      continue;
+    }
+    copies.set(userId, copy);
+    recipients.push({ address, userId });
+  }
+  for (const address of input.recipients.addresses.map(email.normalizeAddress)) {
+    if (address === "" || seen.has(address)) continue;
+    seen.add(address);
+    recipients.push({ address });
+  }
+
+  const company = await companyOf(tx, input.organizationId);
+  const nameOf = (userId: string | null | undefined) => {
+    const person = userId ? people.get(userId) : undefined;
+    return person ? person.name ?? person.email : null;
+  };
+  const base = publicBaseUrl();
+  const link = base ? `${base}${named.path}` : null;
+  /**
+   * Drawn now, whenever the pass runs, and said as such on the page: the
+   * tiles read the records as they are at this moment, so the moment printed
+   * is this one and not the occurrence a late pass is catching up on.
+   */
+  const drawnAt = new Date();
+
+  const sender = senderContext(tx, input.organizationId);
+  for (const recipient of recipients) {
+    if (recipient.refused) continue;
+    const theirs = (recipient.userId ? copies.get(recipient.userId) : undefined) ?? ownerCopy;
+    const file = dashboardFile({
+      company, drawn: theirs, ranAs: nameOf(recipient.userId ?? input.ownerUserId), at: drawnAt, timezone: input.timezone,
+    });
+    const composed = composeDashboardEmail({
+      drawn: theirs,
+      asOf: reporting.deliveryDay(drawnAt, input.timezone),
+      link: recipient.userId ? link : null,
+      pdfName: file.filename,
+    });
+    const outcome = await email.queue(sender, {
+      to: recipient.address,
+      subject: composed.subject,
+      text: composed.text,
+      html: composed.html,
+      purpose: "transactional",
+      attachments: [{ filename: file.filename, contentType: "application/pdf", content: Buffer.from(file.bytes) }],
+    });
+    if (outcome.queued) recipient.messageId = outcome.messageId;
+    else recipient.refused = outcome.explanation;
+  }
+
+  const sent = recipients.filter((r) => r.messageId).length;
+  const status = recipients.length === 0
+    ? "refused"
+    : sent === recipients.length ? "queued" : sent === 0 ? "refused" : "partly_queued";
+  const error = recipients.length === 0 ? "There is nobody to send it to." : null;
+
+  await tx.update(schema.reportDelivery).set({ status, recipients, error })
+    .where(eq(schema.reportDelivery.id, claimed.id));
+  return { delivered: true, deliveryId: claimed.id, status, error, recipients };
+}
+
+/**
+ * WHAT A DASHBOARD'S EMAIL SAYS
+ *
+ * The number tiles as a short list, because they are what somebody glances
+ * at on a phone, and every tile in the attached PDF. The tiles this copy
+ * leaves out are named here too, by title, so nobody forwards it as the
+ * whole dashboard.
+ */
+export function composeDashboardEmail(input: {
+  drawn: DrawnDashboard;
+  /** The day it was drawn, `YYYY-MM-DD` in the company's calendar. */
+  asOf: string;
+  link: string | null;
+  pdfName: string;
+}): { subject: string; text: string; html: string } {
+  const { drawn } = input;
+  const day = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" })
+    .format(new Date(`${input.asOf}T12:00:00Z`));
+  const subject = `${drawn.name}: ${day}`;
+  const numbers = drawn.tiles.flatMap((tile) => {
+    const printed = printedTile(tile);
+    return printed.figure !== undefined && printed.figure !== null ? [`${tile.title}: ${printed.figure}`] : [];
+  });
+  const left = drawn.leftOut.length > 0
+    ? `Left out of your copy because you may not see ${drawn.leftOut.length === 1 ? "it" : "them"}: ${drawn.leftOut.join(", ")}.`
+    : null;
+  const tail = `Every tile is in the attached file, ${input.pdfName}.`;
+
+  const text = [
+    drawn.name,
+    drawn.description ?? "",
+    `As it stood on ${day}.`,
+    "",
+    ...numbers,
+    "",
+    tail,
+    ...(left ? [left] : []),
+    ...(input.link ? ["", `Open it: ${input.link}`] : []),
+  ].filter((line, i, all) => !(line === "" && all[i - 1] === "")).join("\n").trim();
+
+  const html = [
+    `<div style="font-family:system-ui,sans-serif;color:#111827;max-width:680px">`,
+    `<h1 style="font-size:18px;margin:0 0 4px">${escapeHtml(drawn.name)}</h1>`,
+    drawn.description ? `<p style="margin:0 0 4px;color:#374151">${escapeHtml(drawn.description)}</p>` : "",
+    `<p style="margin:0 0 16px;color:#4b5563">As it stood on ${escapeHtml(day)}.</p>`,
+    numbers.length > 0
+      ? `<ul style="margin:0;padding-left:18px;font-size:14px">${numbers.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+      : "",
+    `<p style="margin:16px 0 0;font-size:14px;color:#4b5563">${escapeHtml(tail)}</p>`,
+    left ? `<p style="margin:8px 0 0;font-size:14px;color:#4b5563">${escapeHtml(left)}</p>` : "",
+    input.link ? `<p style="margin:12px 0 0;font-size:14px"><a href="${escapeHtml(input.link)}">Open it</a></p>` : "",
+    `</div>`,
+  ].join("");
+
+  return { subject, text, html };
 }
 
 /* ------------------------------------------------------- to the customer */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useKeptAction } from "@/lib/use-kept-action";
-import { addTile, removeTile, moveTile } from "../../actions";
+import { addTile, removeTile, moveTile, recutTile } from "../../actions";
 
 export interface ReportOption {
   /** `saved:<uuid>` or `builtIn:<slug>`, because both are strings. */
@@ -79,8 +79,8 @@ export function AddTile({ id, tiles, reports }: {
             which grouping is which is not guessable from the word.
           */}
           <option value="">No</option>
-          <option value="stacked">Stacked, by the report&apos;s second grouping</option>
-          <option value="grouped">Side by side, by the report&apos;s second grouping</option>
+          <option value="stacked">Stacked, by the report&apos;s second grouping (change it on the tile)</option>
+          <option value="grouped">Side by side, by the report&apos;s second grouping (change it on the tile)</option>
         </select>
       </label>
 
@@ -155,5 +155,43 @@ export function TileControls({ id, tiles, tileKey, first, last }: {
         </button>
       </form>
     </span>
+  );
+}
+
+/**
+ * WHICH GROUPING CUTS A TILE BROKEN DOWN, picked from the two its report is
+ * grouped by. The other one is then what the tile is drawn along, so "jobs by
+ * type and status" can be types cut by status or statuses cut by type without
+ * saving the report twice.
+ */
+export function CutBy({ id, tiles, tileKey, title, cuts, current }: {
+  id: string;
+  tiles: string;
+  tileKey: string;
+  title: string;
+  cuts: { key: string; label: string }[];
+  current: string;
+}) {
+  const [state, submitForm, pending] = useKeptAction(recutTile, null);
+  return (
+    <form {...submitForm} className="flex flex-wrap items-center gap-1 text-xs text-ink-500">
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="tiles" value={tiles} />
+      <input type="hidden" name="key" value={tileKey} />
+      <label className="flex items-center gap-1">
+        <span>Cut by</span>
+        <select name="splitBy" defaultValue={current} aria-label={`Cut ${title} by`}
+                className="h-7 rounded border border-steel-300 px-1 text-xs">
+          {cuts.map((cut) => <option key={cut.key} value={cut.key}>{cut.label}</option>)}
+        </select>
+      </label>
+      <button type="submit" disabled={pending}
+              className="rounded px-1 hover:bg-steel-100 disabled:opacity-30">
+        {pending ? "Changing" : "Change"}
+      </button>
+      {state && "error" in state && state.error ? (
+        <span role="alert" className="text-red-600">{state.error}</span>
+      ) : null}
+    </form>
   );
 }

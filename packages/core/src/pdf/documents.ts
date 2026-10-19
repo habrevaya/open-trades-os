@@ -1,9 +1,10 @@
-import { Flow, INK, MUTED, RULE, LOSS, longDate, usd, quantity, type Column } from "./layout.js";
+import { Flow, INK, MUTED, RULE, LOSS, longDate, usd, quantity, widthOf, type Column } from "./layout.js";
 import { hex, fit, type RenderOptions, type Rgb } from "./writer.js";
 import type { PdfImage } from "./image.js";
 import { documentNumber } from "../work/index.js";
 import {
-  barLayout, seriesLayout, labelEvery, type ChartPlan, type ChartColumn, type ChartRow,
+  barLayout, seriesLayout, splitBarLayout, splitSeriesLayout, labelEvery,
+  type ChartPlan, type ChartColumn, type ChartRow, type ChartSplit,
 } from "../reporting/chart.js";
 
 /**
@@ -979,5 +980,237 @@ export function reportPdf(input: ReportPdfInput, options: RenderOptions = {}): U
     title: `${input.name}, ${input.period}`,
     createdAt: input.generatedAt,
     footer: `${input.company.name}, ${input.name}, ${input.period}`,
+  }, options);
+}
+
+/* ------------------------------------------------------------ dashboard */
+
+/**
+ * The colour of each value of a second grouping, by its place in the legend:
+ * the screen's own six (`ReportChart`), so a printed tile and the tile on the
+ * wall agree about which colour is which. The last is kept for "everything
+ * else", wherever it falls.
+ */
+const SERIES: Rgb[] = [
+  { r: 0x39 / 255, g: 0x42 / 255, b: 0x4a / 255 },
+  { r: 0x0b / 255, g: 0x57 / 255, b: 0xd0 / 255 },
+  { r: 0x15 / 255, g: 0x80 / 255, b: 0x3d / 255 },
+  { r: 0xb4 / 255, g: 0x53 / 255, b: 0x09 / 255 },
+  { r: 0x6b / 255, g: 0x3f / 255, b: 0xa0 / 255 },
+  { r: 0xb9 / 255, g: 0xc2 / 255, b: 0xcb / 255 },
+];
+const seriesColour = (split: ChartSplit, index: number): Rgb =>
+  SERIES[split.series[index]?.other ? SERIES.length - 1 : Math.min(index, SERIES.length - 2)]!;
+
+/** What each colour is, in words beside its swatch, because a colour alone says nothing. */
+function drawLegend(flow: Flow, split: ChartSplit): void {
+  const label = (key: string | number | null, other: boolean) => (other ? "Everything else" : reportCell(split.dimension, key));
+  let x = flow.left;
+  flow.ensure(14);
+  flow.y += 10;
+  split.series.forEach((series, index) => {
+    const text = fit(label(series.key, series.other), "regular", 8, 140);
+    const width = 12 + widthOf(text, "regular", 8) + 14;
+    if (x + width > flow.right) {
+      x = flow.left;
+      flow.ensure(14);
+      flow.y += 12;
+    }
+    flow.page.rect(x, flow.y - 7, 8, 8, { fill: seriesColour(split, index) });
+    flow.page.text(x + 12, flow.y, text, { size: 8, color: INK });
+    x += width;
+  });
+  flow.y += 4;
+}
+
+/**
+ * A chart cut by a second grouping, drawn from `splitBarLayout` and
+ * `splitSeriesLayout`, the same arithmetic the screen's chart places its
+ * shapes by, with the legend under it.
+ */
+function drawSplitChart(flow: Flow, plan: ChartPlan, split: ChartSplit): void {
+  const label = (value: string | number | null) => reportCell(plan.dimension, value);
+  if (plan.kind === "bars") {
+    const layout = splitBarLayout(plan, flow.width, 150);
+    flow.ensure(layout.height + 10);
+    const top = flow.y;
+    const page = flow.page;
+    page.line(flow.left + layout.zeroX, top, flow.left + layout.zeroX, top + layout.height - 18, { color: RULE });
+    for (const group of layout.groups) {
+      page.text(flow.left, top + group.y + Math.min(group.height, 28) / 2 + 3, fit(label(group.point.key), "regular", 8, 140), { size: 8, color: INK });
+      for (const box of group.parts) {
+        page.rect(flow.left + box.x, top + box.y, Math.max(0.5, box.width), box.height, { fill: seriesColour(split, box.part.series) });
+      }
+      page.text(flow.left + group.endX + 4, top + group.y + Math.min(group.height, 28) / 2 + 3,
+        reportCell(plan.measure, group.point.exact), { size: 8, color: MUTED });
+    }
+    flow.y = top + layout.height;
+  } else {
+    const height = 190;
+    flow.ensure(height + 10);
+    const top = flow.y;
+    const page = flow.page;
+    const layout = splitSeriesLayout(plan, flow.width, height);
+    for (const grid of layout.gridlines) {
+      page.line(flow.left + layout.plot.x, top + grid.y, flow.left + layout.plot.x + layout.plot.width, top + grid.y, {
+        color: RULE, width: grid.value === 0 ? 0.8 : 0.3,
+      });
+      page.text(flow.left + layout.plot.x - 6, top + grid.y + 3, reportCell(plan.measure, String(grid.value)), {
+        size: 7, color: MUTED, align: "right",
+      });
+    }
+    for (const group of layout.groups) {
+      for (const box of group.parts) {
+        page.rect(flow.left + box.x, top + box.y, Math.max(0.5, box.width), Math.max(0.5, box.height), {
+          fill: seriesColour(split, box.part.series),
+        });
+      }
+    }
+    for (const line of layout.lines) {
+      page.polyline(line.points.map((p) => ({ x: flow.left + p.x, y: top + p.y })), { color: seriesColour(split, line.series), width: 1.5 });
+    }
+    const every = labelEvery(layout.groups.length, 8);
+    layout.groups.forEach((group, i) => {
+      if (i % every !== 0 && i !== layout.groups.length - 1) return;
+      page.text(flow.left + group.x, top + layout.plot.y + layout.plot.height + 14, label(group.point.key), {
+        size: 7, color: MUTED, align: "center",
+      });
+    });
+    flow.y = top + height;
+  }
+  drawLegend(flow, split);
+}
+
+export interface DashboardPdfTile {
+  title: string;
+  caption?: string | null | undefined;
+  /** A number tile's one value, in words ("$12,400.00", "38"). */
+  figure?: string | null | undefined;
+  /** A chart tile's chart, planned by `chartFor` exactly as the screen plans it. */
+  chart?: ChartPlan | null | undefined;
+  /**
+   * The rows the tile was drawn from, printed under its chart. On the screen
+   * "View as a table" does this; on paper the chart's exact values would
+   * otherwise be lost, and a tile has no report table under it.
+   */
+  table?: { columns: Array<ChartColumn & { type: string }>; rows: ChartRow[] } | null | undefined;
+  /** Why there is no chart: a broken tile, or nothing matched. */
+  note?: string | null | undefined;
+}
+
+export interface DashboardPdfInput {
+  company: Company;
+  name: string;
+  description?: string | null | undefined;
+  /** When it was drawn, in words and the company's time: "October 18, 2026 at 7:00 AM". */
+  asOf: string;
+  /** Whose view it is: every tile is the reader's own run, with their scope. */
+  ranAs?: string | null | undefined;
+  tiles: DashboardPdfTile[];
+  /**
+   * The titles of the tiles left out because this reader may not see them.
+   * Named, never drawn: a copy that leaves part of a dashboard out without
+   * saying so reads as the whole dashboard to whoever it is handed to.
+   */
+  leftOut: string[];
+  generatedAt: Date;
+}
+
+/**
+ * A WHOLE DASHBOARD ON PAPER
+ *
+ * Every tile the reader may see, in the dashboard's own order: a number tile
+ * as its number, a chart tile as the chart the screen draws (cut by its second
+ * grouping when the tile is broken down) with its rows under it, and a broken
+ * tile as the sentence the screen shows in its place. The tiles a reader may
+ * not see are named at the end and never drawn.
+ */
+export function dashboardPdf(input: DashboardPdfInput, options: RenderOptions = {}): Uint8Array {
+  const accent = accentOf(input.company) ?? { r: 0.15, g: 0.39, b: 0.92 };
+  const flow = new Flow({
+    company: input.company.name,
+    accent: accentOf(input.company),
+    logo: input.company.logo ?? null,
+    title: fit(input.name, "bold", 14, 300),
+    subtitle: `As it stood ${input.asOf}`,
+  });
+
+  if (input.description) flow.paragraph(input.description, { color: MUTED });
+  flow.facts([["As seen by", input.ranAs]]);
+  flow.gap(6);
+
+  if (input.tiles.length === 0) {
+    flow.paragraph("There is nothing on this dashboard you may see.");
+  }
+
+  /**
+   * Number tiles side by side, up to three to a row, the way they sit across
+   * the top of the screen: one large figure under four small headings reads
+   * as a row of answers, and one a page reads as a document that lost its
+   * charts.
+   */
+  let row: DashboardPdfTile[] = [];
+  const flushNumbers = () => {
+    if (row.length === 0) return;
+    const width = flow.width / 3;
+    flow.ensure(58);
+    const top = flow.y;
+    row.forEach((tile, i) => {
+      const x = flow.left + i * width;
+      flow.page.text(x, top + 10, fit(tile.title, "bold", 9, width - 10), { font: "bold", size: 9, color: INK });
+      flow.page.text(x, top + 34, fit(tile.figure ?? tile.note ?? "", "bold", tile.figure ? 18 : 8, width - 10), {
+        font: "bold", size: tile.figure ? 18 : 8, color: tile.figure ? INK : MUTED,
+      });
+      if (tile.caption) flow.page.text(x, top + 48, fit(tile.caption, "regular", 7, width - 10), { size: 7, color: MUTED });
+    });
+    flow.y = top + 58;
+    row = [];
+  };
+
+  for (const tile of input.tiles) {
+    if (tile.figure !== undefined && tile.chart === undefined) {
+      row.push(tile);
+      if (row.length === 3) flushNumbers();
+      continue;
+    }
+    flushNumbers();
+    flow.gap(8);
+    flow.heading(tile.title, 11);
+    if (tile.caption) flow.paragraph(tile.caption, { size: 8, color: MUTED });
+    if (tile.chart) {
+      flow.gap(4);
+      if (tile.chart.split) drawSplitChart(flow, tile.chart, tile.chart.split);
+      else drawChart(flow, tile.chart, accent);
+      if (tile.chart.omitted > 0) {
+        flow.paragraph(`${tile.chart.omitted} more not drawn; every row is in the table.`, { size: 8, color: MUTED });
+      }
+    } else if (tile.note) {
+      flow.paragraph(tile.note, { size: 9, color: tile.figure === undefined ? MUTED : INK });
+    }
+    if (tile.table && tile.table.rows.length > 0) {
+      flow.gap(6);
+      const columns: Column[] = tile.table.columns.map((c) => ({
+        label: c.label, align: c.role === "measure" ? "right" : "left",
+      }));
+      flow.table(columns, tile.table.rows.map((r) => tile.table!.columns.map((c) => reportCell(c, r[c.key]))), { size: 8 });
+    }
+  }
+  flushNumbers();
+
+  if (input.leftOut.length > 0) {
+    flow.gap(14);
+    flow.heading("Not on this copy", 10);
+    flow.paragraph(
+      `${input.leftOut.length === 1 ? "One tile is" : `${input.leftOut.length} tiles are`} on this dashboard and left out of this copy, `
+      + `because ${input.ranAs ? `${input.ranAs} may` : "the person it was made for may"} not see `
+      + `${input.leftOut.length === 1 ? "it" : "them"}: ${input.leftOut.join(", ")}.`,
+      { size: 9, color: MUTED },
+    );
+  }
+
+  return flow.finish({
+    title: `${input.name}, ${input.asOf}`,
+    createdAt: input.generatedAt,
+    footer: `${input.company.name}, ${input.name}, ${input.asOf}`,
   }, options);
 }
