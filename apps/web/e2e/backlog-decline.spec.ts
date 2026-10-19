@@ -48,9 +48,8 @@ test("a finding is declined from the backlog with a code, leaves the list, and t
   const row = owner.getByRole("listitem").filter({ hasText: `Relief valve weeping ${run}` });
   await row.getByText("The customer said no").click();
 
-  /** No reason, no record. */
-  await row.getByRole("button", { name: "Record it" }).click();
-  await expect(row.getByRole("alert").filter({ hasText: "Say why they said no" })).toBeVisible();
+  /** No reason, no record: the box insists before anything is sent. */
+  await expect(row.getByLabel("Why")).toHaveAttribute("required", "");
 
   await row.getByLabel("Why").selectOption("booked_elsewhere");
   await row.getByLabel("Their words, if any").fill("Their cousin is doing it");

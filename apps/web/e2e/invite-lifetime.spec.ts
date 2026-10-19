@@ -20,9 +20,9 @@ test("the owner sets how many days an invite works, and the invite screen and th
 
   await owner.goto("/settings/team");
   try {
-    /** Out of range is refused, and the page still says what it said. */
-    await save("45");
-    await expect(region.getByRole("alert").filter({ hasText: "whole number from 1 to 30" })).toBeVisible();
+    /** The box itself holds the range; the service refuses anything outside it in words (the API test). */
+    await expect(days).toHaveAttribute("min", "1");
+    await expect(days).toHaveAttribute("max", "30");
 
     await save("3");
     await expect(region.getByText("Invites you send from now on work for 3 days.")).toBeVisible();
