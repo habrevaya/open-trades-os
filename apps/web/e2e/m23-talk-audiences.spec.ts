@@ -34,7 +34,7 @@ test("a topic's words are changed on the screen, and talks are scheduled for eve
     await owner.goto("/compliance/safety/schedules");
     const form = owner.getByRole("region", { name: "Put a talk on a schedule" });
     await form.getByLabel("Topic").selectOption({ label: title });
-    await form.getByLabel("For", { exact: true }).selectOption({ label: "Everybody in the field" });
+    await form.getByLabel("For").selectOption({ label: "Everybody in the field" });
     await form.getByLabel("How often").selectOption("weekly");
     await form.getByRole("checkbox", { name: /Skip the days the company is closed/ }).check();
     await form.getByRole("button", { name: "Put it on the schedule" }).click();
@@ -44,7 +44,7 @@ test("a topic's words are changed on the screen, and talks are scheduled for eve
     await expect(everybody).toContainText("Every Monday, not on a holiday, at 07:00");
 
     await form.getByLabel("Topic").selectOption({ label: title });
-    await form.getByLabel("For", { exact: true }).selectOption({ label: "Everybody with the Technician role" });
+    await form.getByLabel("For").selectOption({ label: "Everybody with the Technician role" });
     await form.getByLabel("How often").selectOption("weekly");
     await form.getByRole("button", { name: "Put it on the schedule" }).click();
     await expect(table.getByRole("row").filter({ hasText: title }).filter({ hasText: "Everybody with the Technician role" }))
