@@ -527,6 +527,83 @@ export function findPhaseClashes(
   return clashes;
 }
 
+/* ------------------------------------------- one person, two visits at once */
+
+/**
+ * A person held by a visit for its hours: put on it by name, or as a member
+ * of the crew it was sent to. `ours` is a visit on one of the project's jobs;
+ * any other visit of theirs counts as well, because a service call across
+ * town holds Ray's morning as surely as the next phase does.
+ */
+export interface VisitHold {
+  visitId: string;
+  personId: string;
+  name: string;
+  /** Milliseconds since the epoch, the visit's hours: its window, or its start and its length. */
+  start: number;
+  end: number;
+  /** The crew the person is on it through, when they are not on it by name. */
+  crew: string | null;
+  ours: boolean;
+}
+
+export interface VisitClash {
+  personId: string;
+  name: string;
+  /** The project's visit first; the other may be the project's too, or any other of theirs. */
+  visitIds: [string, string];
+  /** The crews they are on each through, when they are. */
+  crews: [string | null, string | null];
+  /** The hours both hold them, in milliseconds. */
+  from: number;
+  to: number;
+}
+
+/**
+ * WHO IS BOOKED ON TWO VISITS IN OVERLAPPING HOURS, where at least one of the
+ * two is the project's. Hours that only touch (one ends at ten, the next
+ * starts at ten) are not a clash. A person on one visit twice (by name and by
+ * a crew) is held once. One flag per person per pair of visits, in a fixed
+ * order: by when the overlap starts, then the person, then the visits.
+ * Flagged and nothing more: nobody is moved.
+ */
+export function findVisitClashes(holds: readonly VisitHold[]): VisitClash[] {
+  const byPerson = new Map<string, VisitHold[]>();
+  for (const hold of holds) {
+    if (!(hold.end > hold.start)) continue;
+    const list = byPerson.get(hold.personId) ?? [];
+    if (!list.some((h) => h.visitId === hold.visitId)) list.push(hold);
+    byPerson.set(hold.personId, list);
+  }
+  const clashes: VisitClash[] = [];
+  for (const list of byPerson.values()) {
+    const sorted = [...list].sort((a, b) => a.start - b.start || a.visitId.localeCompare(b.visitId));
+    for (let i = 0; i < sorted.length; i += 1) {
+      for (let j = i + 1; j < sorted.length; j += 1) {
+        const a = sorted[i]!;
+        const b = sorted[j]!;
+        if (b.start >= a.end) break;
+        if (!a.ours && !b.ours) continue;
+        const [first, second] = a.ours ? [a, b] : [b, a];
+        clashes.push({
+          personId: a.personId, name: a.name,
+          visitIds: [first.visitId, second.visitId], crews: [first.crew, second.crew],
+          from: Math.max(a.start, b.start), to: Math.min(a.end, b.end),
+        });
+      }
+    }
+  }
+  return clashes.sort((x, y) => x.from - y.from || x.name.localeCompare(y.name)
+    || x.visitIds[0].localeCompare(y.visitIds[0]) || x.visitIds[1].localeCompare(y.visitIds[1]));
+}
+
+/**
+ * Whether a span is free of every hold given: the test for "another person
+ * who is free then" and "the same hours on another day". Touching is free.
+ */
+export const freeOf = (holds: readonly { start: number; end: number }[], start: number, end: number): boolean =>
+  !holds.some((h) => h.start < end && start < h.end);
+
 /* ------------------------------------------------------------ change orders */
 
 export interface ChangeOrderLine {

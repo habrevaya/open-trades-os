@@ -391,12 +391,33 @@ const ScheduleDaysProposal = z.object({
   }).nullable(),
 });
 
+/** One person held by two visits in overlapping hours, one of them the project's, with what could be done in words. */
+const VisitClash = z.object({
+  technicianId: Uuid,
+  name: z.string(),
+  /** The project's visit, and its phase. */
+  visitId: Uuid,
+  phaseId: Uuid.nullable(),
+  /** The other visit: the project's too when `otherIsProject`, otherwise any other of theirs, named only by its hours. */
+  otherVisitId: Uuid,
+  otherIsProject: z.boolean(),
+  from: z.string().datetime(),
+  to: z.string().datetime(),
+  statement: z.string(),
+  /** People with the skills the visit needs who are free in those hours, at most three, among those the reader may see. */
+  freePeople: z.array(z.object({ id: Uuid, name: z.string() })),
+  /** Days after it, at most three, when this person is free in the same hours. */
+  freeDays: z.array(IsoDate),
+  /** What could be done, in words. Nothing is moved. */
+  suggestions: z.array(z.string()),
+});
+
 export const getProjectSchedule = defineRoute({
   method: "get",
   path: "/v1/projects/{projectId}/schedule",
   summary: "The phases on a timeline, with the critical path and who is booked",
   description:
-    "Each phase's dates, what it waits for, its float in days and whether it is on the critical path: a day lost there is a day on the finish. Computed against the planned dates. Who is booked is read from the visits on each phase's jobs, so it is the dispatch board's booking and not a second one.",
+    "Each phase's dates, what it waits for, its float in days and whether it is on the critical path: a day lost there is a day on the finish. Computed against the planned dates. Who is booked is read from the visits on each phase's jobs, so it is the dispatch board's booking and not a second one. `clashes` are people and crews booked on two phases that run on the same days, a crew's members counted as booked through it. `visitClashes` are people held by two visits in overlapping hours, one of them the project's, each with suggestions in words: another person with the skills who is free then, or the same hours on another day. Nothing is moved.",
   module: "M12",
   permissions: ["job:read"],
   input: z.object({ projectId: Uuid }),
@@ -410,6 +431,8 @@ export const getProjectSchedule = defineRoute({
     statement: z.string(),
     /** Somebody booked on two phases that run on the same days. Nobody is moved. */
     clashes: z.array(PhaseClash),
+    /** Somebody held by two visits in overlapping hours, one of them the project's. Nobody is moved. */
+    visitClashes: z.array(VisitClash),
     phases: z.array(z.object({
       id: Uuid,
       sequence: z.number().int(),

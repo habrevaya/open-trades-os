@@ -158,3 +158,43 @@ describe("one person on two phases at once", () => {
     expect(clash!.statement).toBe("Tess is booked on a and b, which both run on 2026-11-04.");
   });
 });
+
+describe("one person on two visits in overlapping hours", () => {
+  const h = (hour: number) => Date.UTC(2026, 10, 9, hour);
+  const hold = (visitId: string, start: number, end: number, extra: Partial<project.VisitHold> = {}): project.VisitHold =>
+    ({ visitId, personId: "ray", name: "Ray", start, end, crew: null, ours: true, ...extra });
+
+  it("flags two visits whose hours overlap, the project's first, and not two that only touch", () => {
+    const clashes = project.findVisitClashes([
+      hold("service", h(10), h(11), { ours: false }),
+      hold("rough", h(9), h(12)),
+      hold("fixtures", h(12), h(14)),
+    ]);
+    expect(clashes).toEqual([{
+      personId: "ray", name: "Ray", visitIds: ["rough", "service"], crews: [null, null], from: h(10), to: h(11),
+    }]);
+  });
+
+  it("reads a person on a crew's visit as held by it, and holds them once on a visit they are on twice", () => {
+    const clashes = project.findVisitClashes([
+      hold("rough", h(8), h(12), { crew: "Framing crew" }),
+      hold("rough", h(8), h(12)),
+      hold("tile", h(11), h(13)),
+    ]);
+    expect(clashes).toHaveLength(1);
+    expect(clashes[0]).toMatchObject({ visitIds: ["rough", "tile"], crews: ["Framing crew", null], from: h(11), to: h(12) });
+  });
+
+  it("leaves two visits that are neither the project's alone, and a visit with no length", () => {
+    expect(project.findVisitClashes([hold("a", h(9), h(11), { ours: false }), hold("b", h(10), h(12), { ours: false })])).toEqual([]);
+    expect(project.findVisitClashes([hold("a", h(9), h(9)), hold("b", h(8), h(12))])).toEqual([]);
+    // Two people on the same hours are no clash of anybody's.
+    expect(project.findVisitClashes([hold("a", h(9), h(11)), hold("b", h(9), h(11), { personId: "sam", name: "Sam" })])).toEqual([]);
+  });
+
+  it("says a span is free when nothing holds it, touching included", () => {
+    expect(project.freeOf([{ start: h(9), end: h(11) }], h(11), h(12))).toBe(true);
+    expect(project.freeOf([{ start: h(9), end: h(11) }], h(10), h(12))).toBe(false);
+    expect(project.freeOf([], h(10), h(12))).toBe(true);
+  });
+});

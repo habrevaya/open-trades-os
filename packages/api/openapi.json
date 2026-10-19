@@ -105490,7 +105490,7 @@
       "get": {
         "operationId": "getProjectSchedule",
         "summary": "The phases on a timeline, with the critical path and who is booked",
-        "description": "Each phase's dates, what it waits for, its float in days and whether it is on the critical path: a day lost there is a day on the finish. Computed against the planned dates. Who is booked is read from the visits on each phase's jobs, so it is the dispatch board's booking and not a second one.\n\nRequires a session holding: job:read.",
+        "description": "Each phase's dates, what it waits for, its float in days and whether it is on the critical path: a day lost there is a day on the finish. Computed against the planned dates. Who is booked is read from the visits on each phase's jobs, so it is the dispatch board's booking and not a second one. `clashes` are people and crews booked on two phases that run on the same days, a crew's members counted as booked through it. `visitClashes` are people held by two visits in overlapping hours, one of them the project's, each with suggestions in words: another person with the skills who is free then, or the same hours on another day. Nothing is moved.\n\nRequires a session holding: job:read.",
         "tags": [
           "M12"
         ],
@@ -207340,6 +207340,96 @@
               ]
             }
           },
+          "visitClashes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "technicianId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "visitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "phaseId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "otherVisitId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "otherIsProject": {
+                  "type": "boolean"
+                },
+                "from": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "to": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "statement": {
+                  "type": "string"
+                },
+                "freePeople": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ]
+                  }
+                },
+                "freeDays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                },
+                "suggestions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "technicianId",
+                "name",
+                "visitId",
+                "phaseId",
+                "otherVisitId",
+                "otherIsProject",
+                "from",
+                "to",
+                "statement",
+                "freePeople",
+                "freeDays",
+                "suggestions"
+              ]
+            }
+          },
           "phases": {
             "type": "array",
             "items": {
@@ -207557,6 +207647,7 @@
           "criticalPath",
           "statement",
           "clashes",
+          "visitClashes",
           "phases"
         ]
       },

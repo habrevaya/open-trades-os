@@ -11454,6 +11454,23 @@ export interface GetProjectScheduleOutput {
     visits: unknown[];
     statement: string;
   }>;
+  visitClashes: Array<{
+    technicianId: string;
+    name: string;
+    visitId: string;
+    phaseId: string | null;
+    otherVisitId: string;
+    otherIsProject: boolean;
+    from: string;
+    to: string;
+    statement: string;
+    freePeople: Array<{
+      id: string;
+      name: string;
+    }>;
+    freeDays: string[];
+    suggestions: string[];
+  }>;
   phases: Array<{
     id: string;
     sequence: number;

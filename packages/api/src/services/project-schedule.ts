@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, eq, gt, inArray, notInArray } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt, notInArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, isSystem, project as plan, time } from "@opentradesos/core";
 import {
@@ -8,6 +8,9 @@ import {
 import { loadProjectIn } from "./project-position";
 import { announce, sideOf } from "./visit-notices";
 import { officeMoved } from "./visit-changes";
+import { dispatchPeople } from "./people-scope";
+import { qualify, requiredSkillsOf } from "./qualification";
+import { loadWeek } from "./business-hours";
 
 /**
  * M12. THE SCHEDULE: PHASES ON A TIMELINE.
@@ -32,6 +35,15 @@ import { officeMoved } from "./visit-changes";
  * person or crew booked on two phases that run at once is flagged on the
  * schedule (`clashes`) and nobody is moved: whether Ray can do both mornings
  * is not something the schedule knows.
+ *
+ * THE CLASH CHECK READS VISITS AND CREWS, not only phases. A crew sent to a
+ * phase's visit holds each of its members, so a member booked by name on
+ * another phase that runs at once is flagged like anybody else. And a person
+ * held by two visits in overlapping hours (`visitClashes`), one of them the
+ * project's and the other the project's or any other of theirs, is flagged
+ * with the hours and, in words, what the dispatcher could do: another person
+ * with the skills who is free then, or the same hours on another day when
+ * this person is free. Suggestions only: nothing is moved or reassigned.
  */
 
 export interface ScheduledPhase {
@@ -68,6 +80,34 @@ export interface ProjectSchedule {
   phases: ScheduledPhase[];
   /** Everyone booked on two phases that run at once, with who and when. Nobody is moved. */
   clashes: plan.PhaseClash[];
+  /** Everyone held by two visits in overlapping hours, one of them the project's, with what could be done. Nobody is moved. */
+  visitClashes: VisitClashView[];
+}
+
+/**
+ * ONE PERSON ON TWO VISITS AT ONCE, as the schedule says it: who, which of
+ * the project's visits, the hours, and suggestions in words. The other visit
+ * is named only when it is the project's own; any other is "another visit",
+ * with its hours and nothing about whose it is.
+ */
+export interface VisitClashView {
+  technicianId: string;
+  name: string;
+  /** The project's visit, and the phase it is on. */
+  visitId: string;
+  phaseId: string | null;
+  otherVisitId: string;
+  /** Whether the other visit is the project's too. */
+  otherIsProject: boolean;
+  from: string;
+  to: string;
+  statement: string;
+  /** People with the skills the project's visit needs who are free in those hours, at most three. */
+  freePeople: { id: string; name: string }[];
+  /** Days after it, at most three, when this person is free in the same hours, inside the phase's dates when it has some. */
+  freeDays: string[];
+  /** What could be done, in words. Nothing is moved by saying it. */
+  suggestions: string[];
 }
 
 async function phasesOf(tx: Database, projectId: string) {
@@ -90,6 +130,7 @@ export async function schedule(ctx: ServiceContext, input: { projectId: string }
     const standing = new Map(analysis.phases.map((p) => [p.id, p]));
     const { booked, dated } = await bookings(tx, project.id, await timezoneOf(tx, ctx.actor.organizationId));
     const clashes = plan.findPhaseClashes(planned(rows), dated);
+    const visitClashes = await visitClashesOf(tx, ctx, project, rows);
 
     return {
       projectId: project.id,
@@ -100,6 +141,7 @@ export async function schedule(ctx: ServiceContext, input: { projectId: string }
       criticalPath: analysis.criticalPath,
       statement: analysis.statement,
       clashes,
+      visitClashes,
       phases: rows.map((row) => {
         const s = standing.get(row.id)!;
         return {
@@ -157,6 +199,16 @@ async function bookings(
   const crews = crewIds.length === 0 ? [] : await tx.select({ id: schema.crew.id, name: schema.crew.name })
     .from(schema.crew).where(inArray(schema.crew.id, crewIds));
   const crewName = new Map(crews.map((c) => [c.id, c.name]));
+  /**
+   * The people on each crew, as the crew is now: a crew's membership has no
+   * history, so a visit next month is read with today's members, which is
+   * what the board would send.
+   */
+  const members = crewIds.length === 0 ? [] : await tx.select({
+    crewId: schema.crewMember.crewId, technicianId: schema.technician.id, name: schema.technician.displayName,
+  }).from(schema.crewMember)
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+    .where(inArray(schema.crewMember.crewId, crewIds));
 
   const out = new Map<string, ScheduledPhase["booked"]>();
   const dated: plan.PhaseBooking[] = [];
@@ -183,6 +235,11 @@ async function bookings(
       }
       if (visit.crewId) {
         dated.push({ kind: "crew", id: visit.crewId, name: crewName.get(visit.crewId) ?? "Crew", phaseId: visit.phaseId!, date });
+        /** Each member is held by the crew's visit as surely as by one of their own. */
+        for (const member of members.filter((m) => m.crewId === visit.crewId)) {
+          if (people.some((p) => p.technicianId === member.technicianId)) continue;
+          dated.push({ kind: "technician", id: member.technicianId, name: member.name, phaseId: visit.phaseId!, date });
+        }
       }
     }
   }
@@ -191,6 +248,212 @@ async function bookings(
 
 /** A visit in one of these has happened, or will not: it does not hold anybody's day. */
 const AHEAD_OVER = new Set(["completed", "cancelled", "no_show", "completed_after_cancellation"]);
+
+/* ------------------------------------------------ one person, two visits */
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The hours a visit holds somebody: from the start of its window to the later
+ * of the end of its window and its start plus its length. An arrival window
+ * of eight to noon on a two hour job may hold a person until two, and a clash
+ * check that read only the window would miss the afternoon.
+ */
+const hoursOf = (v: { windowStart: Date; windowEnd: Date | null; minutes: number }) => {
+  const start = v.windowStart.getTime();
+  return { start, end: Math.max(v.windowEnd?.getTime() ?? start, start + v.minutes * 60_000) };
+};
+
+/**
+ * Every live visit holding any of these people between two instants: theirs
+ * by name, and their crew's. Plus their approved leave, which holds them for
+ * the test of who is free, though it is no clash of a visit's.
+ */
+async function holdsOf(
+  tx: Database, organizationId: string, people: readonly string[], from: Date, to: Date, projectJobs: ReadonlySet<string>,
+): Promise<{ visits: plan.VisitHold[]; leave: Map<string, { start: number; end: number }[]> }> {
+  const leave = new Map<string, { start: number; end: number }[]>();
+  if (people.length === 0) return { visits: [], leave };
+  const columns = {
+    visitId: schema.visit.id, jobId: schema.visit.jobId, status: schema.visit.status,
+    windowStart: schema.visit.windowStart, windowEnd: schema.visit.windowEnd, minutes: schema.visit.estimatedDurationMinutes,
+    technicianId: schema.technician.id, name: schema.technician.displayName,
+  };
+  const inRange = and(
+    eq(schema.visit.organizationId, organizationId),
+    gte(schema.visit.windowStart, new Date(from.getTime() - DAY_MS)), lt(schema.visit.windowStart, to),
+  );
+  const byName = await tx.select(columns)
+    .from(schema.visitAssignment)
+    .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
+    .where(and(inRange, inArray(schema.visitAssignment.technicianId, [...people])));
+  const byCrew = await tx.select({ ...columns, crew: schema.crew.name })
+    .from(schema.crewMember)
+    .innerJoin(schema.crew, eq(schema.crew.id, schema.crewMember.crewId))
+    .innerJoin(schema.visit, eq(schema.visit.crewId, schema.crewMember.crewId))
+    .innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
+    .where(and(inRange, inArray(schema.crewMember.technicianId, [...people])));
+  const visits: plan.VisitHold[] = [];
+  for (const row of [...byName.map((r) => ({ ...r, crew: null })), ...byCrew]) {
+    if (!row.windowStart || AHEAD_OVER.has(row.status)) continue;
+    const { start, end } = hoursOf({ windowStart: row.windowStart, windowEnd: row.windowEnd, minutes: row.minutes });
+    visits.push({
+      visitId: row.visitId, personId: row.technicianId, name: row.name, start, end,
+      crew: row.crew, ours: projectJobs.has(row.jobId),
+    });
+  }
+  const away = await tx.select({
+    technicianId: schema.timeOff.technicianId, startsAt: schema.timeOff.startsAt, endsAt: schema.timeOff.endsAt,
+  }).from(schema.timeOff)
+    .where(and(
+      eq(schema.timeOff.organizationId, organizationId), eq(schema.timeOff.approved, true), isNull(schema.timeOff.deletedAt),
+      inArray(schema.timeOff.technicianId, [...people]), lt(schema.timeOff.startsAt, to), gt(schema.timeOff.endsAt, from),
+    ));
+  for (const row of away) {
+    leave.set(row.technicianId, [...(leave.get(row.technicianId) ?? []), { start: row.startsAt.getTime(), end: row.endsAt.getTime() }]);
+  }
+  return { visits, leave };
+}
+
+/** "10:00 AM", in the company's clock. */
+const clockIn = (ms: number, zone: string) =>
+  new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone });
+/** "Mon Nov 9", in the company's calendar. */
+const dayIn = (date: string) =>
+  new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+const listOf = (items: readonly string[]) =>
+  items.length <= 1 ? items[0] ?? "" : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+
+/**
+ * THE VISIT CLASHES ON A PROJECT, with suggestions. Read inside the schedule's
+ * own transaction and under its `job:read`: who is held twice, when, and in
+ * words what could be done. The people suggested are only those the reader
+ * may see on the board; a person's other visits outside the project are said
+ * as "another visit" with their hours, never whose or where.
+ */
+async function visitClashesOf(
+  tx: Database, ctx: ServiceContext, project: { id: string; businessUnitId: string | null },
+  phases: Awaited<ReturnType<typeof phasesOf>>,
+): Promise<VisitClashView[]> {
+  const organizationId = ctx.actor.organizationId;
+  const zone = await timezoneOf(tx, organizationId);
+  const ours = await tx.select({
+    visitId: schema.visit.id, jobId: schema.visit.jobId, status: schema.visit.status, crewId: schema.visit.crewId,
+    windowStart: schema.visit.windowStart, windowEnd: schema.visit.windowEnd, minutes: schema.visit.estimatedDurationMinutes,
+    phaseId: schema.projectJob.projectPhaseId, jobNumber: schema.job.number, summary: schema.job.summary,
+  }).from(schema.projectJob)
+    .innerJoin(schema.visit, eq(schema.visit.jobId, schema.projectJob.jobId))
+    .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(eq(schema.projectJob.projectId, project.id));
+  /** Only what still lies ahead holds anybody: a visit done, missed or called off is history. */
+  const now = Date.now();
+  const live = ours.filter((v): v is typeof v & { windowStart: Date } =>
+    v.windowStart !== null && !AHEAD_OVER.has(v.status) && hoursOf({ ...v, windowStart: v.windowStart }).end > now);
+  if (live.length === 0) return [];
+  const projectJobs = new Set(ours.map((v) => v.jobId));
+  const byVisit = new Map(ours.map((v) => [v.visitId, v]));
+
+  const assigned = await tx.select({ visitId: schema.visitAssignment.visitId, technicianId: schema.visitAssignment.technicianId })
+    .from(schema.visitAssignment).where(inArray(schema.visitAssignment.visitId, live.map((v) => v.visitId)));
+  const crewIds = [...new Set(live.map((v) => v.crewId).filter((x): x is string => x !== null))];
+  const members = crewIds.length === 0 ? [] : await tx.select({ crewId: schema.crewMember.crewId, technicianId: schema.crewMember.technicianId })
+    .from(schema.crewMember).where(inArray(schema.crewMember.crewId, crewIds));
+  const people = [...new Set([...assigned.map((a) => a.technicianId), ...members.map((m) => m.technicianId)])];
+  if (people.length === 0) return [];
+
+  const spans = live.map((v) => hoursOf(v));
+  const from = new Date(Math.min(...spans.map((x) => x.start)));
+  const to = new Date(Math.max(...spans.map((x) => x.end)));
+  const { visits: holds } = await holdsOf(tx, organizationId, people, from, to, projectJobs);
+  const clashes = plan.findVisitClashes(holds).filter((c) => byVisit.has(c.visitIds[0]) && live.some((v) => v.visitId === c.visitIds[0]));
+  if (clashes.length === 0) return [];
+
+  /** The people the reader may see on the board, who could be offered instead. */
+  const visible = await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
+    .from(schema.technician)
+    .where(and(eq(schema.technician.organizationId, organizationId), eq(schema.technician.active, true), dispatchPeople(ctx)))
+    .orderBy(asc(schema.technician.displayName));
+  const week = (await loadWeek(tx, organizationId, project.businessUnitId)).week;
+  const phaseOf = new Map(phases.map((p) => [p.id, p]));
+  const label = (visitId: string) => {
+    const v = byVisit.get(visitId);
+    if (!v) return "another visit";
+    const phase = v.phaseId ? phaseOf.get(v.phaseId) : undefined;
+    return `#${v.jobNumber} ${phase ? `(${phase.name})` : v.summary ?? ""}`.trim();
+  };
+
+  const out: VisitClashView[] = [];
+  for (const clash of clashes) {
+    const visit = byVisit.get(clash.visitIds[0])!;
+    const span = hoursOf({ ...visit, windowStart: visit.windowStart! });
+    const date = time.dateIn(new Date(span.start), zone);
+    const phase = visit.phaseId ? phaseOf.get(visit.phaseId) ?? null : null;
+    const onIt = new Set([
+      ...assigned.filter((a) => a.visitId === visit.visitId).map((a) => a.technicianId),
+      ...members.filter((m) => m.crewId === visit.crewId).map((m) => m.technicianId),
+    ]);
+
+    /** Another person: with the skills the visit needs on its day, and nothing holding them in its hours. */
+    let freePeople: { id: string; name: string }[] = [];
+    const viaCrew = clash.crews[0] !== null;
+    if (!viaCrew) {
+      const candidates = visible.filter((t) => !onIt.has(t.id) && t.id !== clash.personId);
+      const skills = (await requiredSkillsOf(tx, visit.visitId)).skills;
+      const verdicts = await qualify(tx, organizationId, { technicianIds: candidates.map((c) => c.id), skills, on: date });
+      const able = candidates.filter((c) => verdicts.get(c.id)?.qualified !== false);
+      const theirs = await holdsOf(tx, organizationId, able.map((c) => c.id), new Date(span.start), new Date(span.end), projectJobs);
+      freePeople = able.filter((c) =>
+        plan.freeOf(theirs.visits.filter((h) => h.personId === c.id), span.start, span.end)
+        && plan.freeOf(theirs.leave.get(c.id) ?? [], span.start, span.end)).slice(0, 3);
+    }
+
+    /**
+     * Another day: the same hours on the days after, for this person, inside
+     * the phase's dates when it has some and the week after otherwise, on a
+     * day the company works, with nothing holding them then.
+     */
+    const lastDay = phase?.endsOn && phase.endsOn > date ? phase.endsOn : time.addDays(date, 7);
+    const ahead = new Date(time.instantOfLocal(time.addDays(lastDay, 1), 0, zone));
+    const mine = await holdsOf(tx, organizationId, [clash.personId], new Date(span.end), ahead, projectJobs);
+    const startMinute = time.minutesInDay(new Date(span.start), zone);
+    const length = span.end - span.start;
+    const freeDays: string[] = [];
+    for (let day = time.addDays(date, 1); day <= lastDay && freeDays.length < 3; day = time.addDays(day, 1)) {
+      if (week && week[new Date(`${day}T12:00:00Z`).getUTCDay()] === null) continue;
+      const start = time.instantOfLocal(day, startMinute, zone).getTime();
+      const others = mine.visits.filter((h) => h.visitId !== visit.visitId);
+      if (plan.freeOf(others, start, start + length) && plan.freeOf(mine.leave.get(clash.personId) ?? [], start, start + length)) {
+        freeDays.push(day);
+      }
+    }
+
+    const who = `${clash.name}${clash.crews[0] ? ` (with ${clash.crews[0]})` : ""}`;
+    const hours = `${clockIn(clash.from, zone)} to ${clockIn(clash.to, zone)} on ${dayIn(date)}`;
+    const statement = `${who} is booked on ${label(clash.visitIds[0])} and on ${label(clash.visitIds[1])}`
+      + `${clash.crews[1] ? ` (with ${clash.crews[1]})` : ""} at once, ${hours}.`;
+    const suggestions: string[] = [];
+    if (viaCrew) {
+      suggestions.push(`${clash.name} is on ${label(visit.visitId)} with ${clash.crews[0]}, so another person means changing the crew on the crews screen.`);
+    } else if (freePeople.length > 0) {
+      suggestions.push(`${listOf(freePeople.map((p) => p.name))} ${freePeople.length === 1 ? "has" : "have"} the skills and ${freePeople.length === 1 ? "is" : "are"} free then. Give ${label(visit.visitId)} to ${freePeople.length === 1 ? "them" : "one of them"} on the board.`);
+    } else {
+      suggestions.push("Nobody else with the skills is free then.");
+    }
+    const inside = phase?.endsOn && phase.endsOn > date ? `, inside ${phase.name}'s dates` : " in the week after";
+    suggestions.push(freeDays.length > 0
+      ? `${clash.name} is free at the same time on ${listOf(freeDays.map(dayIn))}${inside}. Move ${label(visit.visitId)} there on the board.`
+      : `${clash.name} has no other day free at that time${inside}.`);
+
+    out.push({
+      technicianId: clash.personId, name: clash.name, visitId: visit.visitId, phaseId: visit.phaseId,
+      otherVisitId: clash.visitIds[1], otherIsProject: byVisit.has(clash.visitIds[1]),
+      from: new Date(clash.from).toISOString(), to: new Date(clash.to).toISOString(),
+      statement, freePeople, freeDays, suggestions,
+    });
+  }
+  return out;
+}
 
 async function loadPhase(tx: Database, organizationId: string, id: string) {
   const [row] = await tx.select().from(schema.projectPhase)
