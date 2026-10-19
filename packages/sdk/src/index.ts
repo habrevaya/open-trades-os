@@ -6,7 +6,10 @@
  * the `opentradesos-mcp` command, a bridge that lets a desktop MCP client talk
  * to a hosted instance. README.md says how to use each.
  */
-export { OpenTradesOS, OpenTradesOSError, type ClientOptions, type DryRunReport } from "./client";
+export {
+  OpenTradesOS, OpenTradesOSError, type ClientOptions, type DryRunReport, type EventsOptions, type StreamEvent,
+} from "./client";
+export { EventStreamParser, type RawEvent } from "./events";
 export {
   verifyWebhook, WebhookVerificationError, SIGNATURE_HEADER, TIMESTAMP_HEADER, DELIVERY_HEADER, EVENT_HEADER,
   type WebhookEvent, type VerifyInput,

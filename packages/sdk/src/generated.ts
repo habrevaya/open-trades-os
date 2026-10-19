@@ -36170,6 +36170,11 @@ export type PaginatedOperationId = "listBookingRequests" | "listConflicts" | "li
 /** Bulk operations that can be asked what they would change, for `dryRun`. */
 export type DryRunOperationId = "applyPriceChange" | "applyVendorCatalogue" | "assignJobsToBranch" | "copyBackFromSandbox" | "createWorkflow" | "defineCustomField" | "defineCustomObject" | "deleteCustomField" | "deleteCustomObject" | "deleteWorkflow" | "importCustomRecords" | "mergeCustomerTags" | "publishWorkflow" | "renameCustomerTag" | "setItemTax" | "updateCustomField" | "updateCustomObject";
 
+/** Operations that can answer as Server-Sent Events, for `events`. */
+export type StreamingOperationId = "askFieldAssistant" | "sayInChat";
+
+export const STREAMING_OPERATIONS: readonly StreamingOperationId[] = ["askFieldAssistant", "sayInChat"];
+
 export interface CallOptions {
   /**
    * The idempotency key for an operation that takes one. Generated when omitted, and reused on

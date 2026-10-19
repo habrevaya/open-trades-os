@@ -72,6 +72,28 @@ for await (const customer of ots.paginate("listCustomers", { limit: 100 })) {
 }
 ```
 
+## Answers as they are written
+
+The operations that stream (`askFieldAssistant`, `sayInChat`) can be read one
+event at a time:
+
+```ts
+const controller = new AbortController();
+for await (const e of ots.events("askFieldAssistant", { question, visitId }, { signal: controller.signal })) {
+  if (e.event === "writing") show(e.data.text);   // the answer so far, whole each time
+  else finish(e.data);                             // exactly what askFieldAssistant answers
+}
+```
+
+If the connection drops, or the stream ends before its answer, or the server
+answers 429 or 5xx, it asks again after a pause (half a second, doubling, capped
+at ten, or what the server asked for), with the same idempotency key and
+`Last-Event-ID`, up to `maxReconnects` (5) times in a row. It never asks again
+for an operation that takes no idempotency key, since that would be a second
+question. A refusal after the first event is thrown as `OpenTradesOSError`.
+Aborting the signal, or leaving the loop, closes the connection. To resume after
+a restart, pass the same `idempotencyKey` and the `lastEventId` you last saw.
+
 ## Dry runs
 
 A bulk operation can be asked what it would change without changing anything.
