@@ -5,7 +5,7 @@ import { dashboards, reports, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { DashboardTile, tileSpan } from "@/components/DashboardTile";
 import { PageHeader, Empty } from "@/components/Table";
-import { AddTile, TileControls, type ReportOption } from "./TileEditor";
+import { AddTile, TileControls, CutBy, type ReportOption } from "./TileEditor";
 import { DeleteDashboard } from "./DeleteDashboard";
 import { DashboardActions } from "../../DashboardActions";
 
@@ -83,7 +83,13 @@ export default async function SavedDashboardPage({ params }: { params: Promise<{
             <div key={tile.key} className={`col-span-12 ${tileSpan(tile.width)}`}>
               <DashboardTile tile={tile} back={`/dashboards/saved/${id}`} />
               {edits && (
-                <div className="mt-1 flex justify-end">
+                <div className="mt-1 flex flex-wrap items-center justify-end gap-3">
+                  {tile.cuts && tile.breakdown ? (
+                    <CutBy
+                      id={id} tiles={stored} tileKey={tile.key} title={tile.title}
+                      cuts={tile.cuts} current={tile.breakdown.key}
+                    />
+                  ) : null}
                   <TileControls
                     id={id} tiles={stored} tileKey={tile.key}
                     first={index === 0} last={index === tiles.length - 1}

@@ -1090,6 +1090,17 @@ say to break it down, a tile broken down needs exactly two groupings, and an
 average is refused stacked and offered side by side, all when the tile is
 saved rather than when somebody opens the dashboard. The Operations dashboard
 ships one: open jobs by type, stacked by status.
+
+Which grouping cuts it is the tile's too, picked from the two its report is
+grouped by: "Cut by" under a tile broken down, on a saved dashboard, offers
+both, and picking the first draws the tile along the second and cuts each bar
+by the first. So "visits by technician and status" is a bar per technician cut
+by status on one tile and a bar per status cut by technician on another,
+without saving the report twice. It is stored on the tile (`splitBy`) and
+checked when the tile is saved: a grouping the report does not have, a cut on
+a tile that is not broken down, and a trend cut by its own date (which would
+leave it running along something that is not a date) are each refused in
+words. A tile that picked no cut is cut by the second, as before.
 The emailed PDF of a report draws the chart as the screen draws it before anybody
 breaks it down: a breakdown is a choice made on the screen, and is on the printed
 page and not in the schedule.
@@ -1177,6 +1188,10 @@ record on every page, so each page totals to the number that was clicked and
 never to its own thousand. A link to a page past the last (the list shrank since)
 opens the last page. The records behind a KPI (`/reports/scorecard/records`)
 page the same way, latest day first, with the half's own total on every page.
+Through the API (`POST /v1/reports/drill`, `GET /v1/kpi-records`) both also
+take `perPage`, from one to a thousand and a thousand when it is left out, so
+a client can walk them in smaller pieces; the count and the totals are still
+over every record, and anything outside those bounds is refused at the door.
 
 ### Have a report emailed
 
@@ -1453,12 +1468,14 @@ recorded is not counted, and a fail recorded as somebody else's work is left
 out on that word. Route density has no figure for a company that does not share
 locations, counts only the days whose drives between stops were seen whole, and
 measures them as straight lines between positions rather than along the road; a
-route day is not shown anywhere but behind the figure. The re-clean rate is only
+route day is shown only behind the figure and in its breakdown by person and
+by weekday. The re-clean rate is only
 as good as the coverage the office records on a return: one left without a reason
 is counted beside the figure, not in it. The records
-behind a KPI are listed only for a reader whose scope is the whole company. A
-page of records, of a report or of a KPI, is always a thousand: the API takes
-which page, not how many to a page. A custom field on an address, a unit or a
+behind a KPI, and a figure's breakdown, are listed only for a reader whose
+scope is the whole company. A page of records is a thousand on the screens,
+which take no smaller page; the API takes fewer (`perPage`) but never more. A
+custom field on an address, a unit or a
 technician is on the datasets whose rows hang off one, never as a dataset of its
 own, because no dataset is a row of one; a unit's fields reach only the kinds of
 record that link a unit, and a technician's only Visits, through its lead.
@@ -1484,9 +1501,10 @@ not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
 Nothing is emailed until an email provider is connected. A chart draws one
-measure at a time. A tile is broken down only by the second grouping of the
-report it points at, in the order that report groups (first drawn, second cut
-by); to cut it the other way round, save the report grouped the other way.
+measure at a time. A tile is cut by one of its report's two groupings and drawn
+along the other: a report grouped by three things is still refused on a tile,
+because the third would be added up out of sight, and the cut is chosen on the
+tile once it is added ("Add a tile" always starts on the second).
 A dashboard is printed and emailed whole (above), and only on a schedule: the
 "Run and email a report" step of an automation sends a report and not a
 dashboard. A dashboard emailed or printed takes no dates of its own, and its

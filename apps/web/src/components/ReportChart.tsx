@@ -98,12 +98,17 @@ function fit(text: string, characters: number): string {
 }
 
 export function ReportChart({
-  result, measure, prefer, split, arrange, additive, drill, title, toggle, pick, splitHref, arrangeHref, withTable, bare,
+  result, measure, dimension, prefer, split, arrange, additive, drill, title, toggle, pick, splitHref, arrangeHref, withTable, bare,
   baseline, baselineHref,
 }: {
   result: ReportResult;
   /** Which measure to draw. The first, when not said. */
   measure?: string | undefined;
+  /**
+   * Which grouping to draw along. The first date, else the first, when not
+   * said; a dashboard tile cut by its first grouping says its second.
+   */
+  dimension?: string | undefined;
   prefer?: "line" | "columns" | undefined;
   /**
    * Where the scale starts: `zero`, or `data` for a line of plain numbers that
@@ -135,7 +140,7 @@ export function ReportChart({
    */
   bare?: boolean | undefined;
 }) {
-  const decision = reporting.chartFor(result, { measure, prefer, split, arrange, additive, baseline });
+  const decision = reporting.chartFor(result, { measure, dimension, prefer, split, arrange, additive, baseline });
   if (!decision.ok) {
     return (
       <>

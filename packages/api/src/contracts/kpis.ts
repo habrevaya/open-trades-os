@@ -105,7 +105,7 @@ export const getKpiRecords = defineRoute({
   path: "/v1/kpi-records",
   summary: "The records behind one half of one KPI",
   description:
-    "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The records are listed a thousand to a page, the latest day first, and `page` picks which (a page past the last is the last); the count and the total are the half the scorecard shows, over every record on every page. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.",
+    "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The records are listed a thousand to a page, the latest day first, or as many as `perPage` asks (one to a thousand), and `page` picks which (a page past the last is the last); the count and the total are the half the scorecard shows, over every record on every page. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.",
   module: "M21",
   permissions: ["report:read"],
   input: z.object({
@@ -113,8 +113,10 @@ export const getKpiRecords = defineRoute({
     half: z.enum(["numerator", "denominator", "excluded", "unknown"]),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    /** Which thousand of the records, from one. Left out, the first. */
+    /** Which page of the records, from one. Left out, the first. */
     page: z.coerce.number().int().min(1).optional(),
+    /** How many records to a page, from one to a thousand. Left out, a thousand. */
+    perPage: z.coerce.number().int().min(1).max(1000).optional(),
     /**
      * One group of a breakdown: `by` is the grouping (`route`) and `group` the
      * value the breakdown returned for it. Both or neither; the count and the

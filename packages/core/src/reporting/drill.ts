@@ -87,8 +87,10 @@ export type DrillMatch = Record<string, string | null>;
 export interface DrillRequest {
   definition: ReportDefinition;
   match: DrillMatch;
-  /** Which thousand of the records to list, from one. The totals are over all of them whichever it is. */
+  /** Which page of the records to list, from one. The totals are over all of them whichever it is. */
   page?: number | undefined;
+  /** How many records to a page, from one to a thousand. Left out, a thousand. */
+  perPage?: number | undefined;
 }
 
 export type DrillDecision =
@@ -332,6 +334,20 @@ function divideDecimal(value: string, by: number): string {
  * which page it is on.
  */
 export const DRILL_PAGE_SIZE = 1000;
+
+/**
+ * How many records to a page, as asked: a whole number from one to a
+ * thousand, which is what the API's contract allows. A thousand is both the
+ * default and the most, because it is what a screen lists and a bigger page
+ * is a whole company's records in one response. Read leniently, as a page is:
+ * anything else is the default rather than an error, the contract having
+ * already refused it at the door.
+ */
+export function askedPerPage(value: unknown): number {
+  if (value === undefined || value === null || value === "") return DRILL_PAGE_SIZE;
+  const size = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(size) && size >= 1 && size <= DRILL_PAGE_SIZE ? size : DRILL_PAGE_SIZE;
+}
 
 export interface DrillPage {
   /** Which page this is, from one. */

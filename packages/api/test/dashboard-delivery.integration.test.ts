@@ -7,6 +7,7 @@ import * as properties from "../src/services/properties";
 import * as jobs from "../src/services/jobs";
 import * as dashboards from "../src/services/dashboards";
 import * as schedules from "../src/services/delivery-schedules";
+import * as reports from "../src/services/reports";
 import { ConflictError, NotFoundError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 
@@ -262,5 +263,39 @@ run("a dashboard on a schedule", () => {
       userIds: [OWNER],
     });
     expect(changed).toMatchObject({ builtInReport: "jobs-by-status", dashboardId: null, builtInDashboard: null });
+  });
+});
+
+run("a tile cut by the grouping somebody picks", () => {
+  it("draws along one of its report's groupings and cuts by the other, and refuses one it does not have", async () => {
+    const report = await reports.save(owner(), {
+      name: "Jobs by status and type",
+      definition: { dataset: "jobs", dimensions: ["status", "job_type"], measures: ["count"] },
+    });
+    const board = await dashboards.create(owner(), { name: "Cut board" });
+    const tiles: dashboards.StoredTile[] = [
+      { key: "by-type", kind: "bars", width: 6, reportId: report.id, breakdown: "stacked" },
+      { key: "by-status", kind: "bars", width: 6, reportId: report.id, breakdown: "stacked", splitBy: "status" },
+    ];
+    await dashboards.setTiles(owner(), { id: board.id, tiles });
+
+    const drawn = await dashboards.getSaved(owner(), { id: board.id });
+    const [asSaved, turned] = drawn.tiles;
+    expect([asSaved!.dimension?.key, asSaved!.breakdown?.key]).toEqual(["status", "job_type"]);
+    expect([turned!.dimension?.key, turned!.breakdown?.key]).toEqual(["job_type", "status"]);
+    expect(turned!.cuts).toEqual([{ key: "status", label: "Status" }, { key: "job_type", label: "Job type" }]);
+    expect(turned!.problem).toBeUndefined();
+
+    // Printed the same way: the legend is the statuses, the bars the job types.
+    const printed = dashboards.printedTile(turned!);
+    expect(printed.chart?.dimension.key).toBe("job_type");
+    expect(printed.chart?.split?.dimension.key).toBe("status");
+
+    await expect(dashboards.setTiles(owner(), {
+      id: board.id, tiles: [{ ...tiles[0]!, splitBy: "customer" }],
+    })).rejects.toThrow("can be cut by status or by job type, the two things its report is grouped by, and not by \"customer\".");
+    await expect(dashboards.setTiles(owner(), {
+      id: board.id, tiles: [{ key: "plain", kind: "bars", width: 6, builtIn: "jobs-by-status", splitBy: "status" }],
+    })).rejects.toThrow(/not broken down, so there is nothing to cut it by/);
   });
 });

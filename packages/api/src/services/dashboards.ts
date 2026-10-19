@@ -50,6 +50,12 @@ export interface TileResult {
    * the chart stack it. Said by the catalogue, not guessed by the screen.
    */
   additive?: boolean;
+  /**
+   * On a tile broken down, the report's two groupings, either of which can
+   * cut it: what the tile's "Cut by" offers. Only from the report's own
+   * groupings, so the choice cannot name one the report does not have.
+   */
+  cuts?: { key: string; label: string }[];
   result?: ReportResult;
   /**
    * The report the tile drew, so a bar or a number can open the records
@@ -149,9 +155,16 @@ async function drawTile(
   }
 
   const measure = entry.report.measures.find((m) => m.key === entry.measure)!;
-  const dimension = entry.report.dimensions[0];
-  /** `checkShape` has already held a tile broken down to exactly two groupings. */
-  const split = entry.tile.breakdown ? entry.report.dimensions[1] : undefined;
+  /**
+   * `checkShape` has already held a tile broken down to exactly two groupings,
+   * and the one it is cut by to one of them: the second unless it picked the
+   * first, when it is drawn along the second instead.
+   */
+  const axes = dashboard.tileAxes(entry.tile);
+  const dimension = axes
+    ? entry.report.dimensions.find((d) => d.key === axes.along)
+    : entry.report.dimensions[0];
+  const split = axes ? entry.report.dimensions.find((d) => d.key === axes.cutBy) : undefined;
 
   try {
     const result = await run(ctx, entry.tile.definition);
@@ -176,6 +189,9 @@ async function drawTile(
           }
         : {}),
       additive: dashboard.addsUp(measure.kind),
+      ...(axes
+        ? { cuts: entry.report.dimensions.map((d) => ({ key: d.key, label: d.label })) }
+        : {}),
       result,
       definition: entry.tile.definition,
     };
@@ -223,6 +239,11 @@ export interface StoredTile {
    * rather than on the report it points at.
    */
   breakdown?: reporting.ChartArrangement;
+  /**
+   * Which of the report's two groupings cuts it, when broken down: the
+   * second if left out. See `splitBy` on core's `Tile`.
+   */
+  splitBy?: string;
 }
 
 const WIDTHS = [3, 6, 12] as const;
@@ -333,6 +354,9 @@ export async function setTiles(
       if (tile.breakdown !== undefined && !BREAKDOWNS.includes(tile.breakdown)) {
         throw new ConflictError(`A tile is broken down stacked or side by side, not "${String(tile.breakdown)}".`);
       }
+      if (tile.splitBy !== undefined && (typeof tile.splitBy !== "string" || tile.splitBy === "")) {
+        throw new ConflictError("A tile is cut by one of its report's groupings, named by its key.");
+      }
       if (seen.has(tile.key)) {
         // Keys address a tile for removal and reordering. Two tiles with one
         // key means a remove takes both of them.
@@ -357,6 +381,7 @@ export async function setTiles(
         {
           key: tile.key, title: tile.title ?? source.title, kind: tile.kind, width: tile.width, definition: source.definition,
           ...(tile.breakdown ? { breakdown: tile.breakdown } : {}),
+          ...(tile.splitBy !== undefined ? { splitBy: tile.splitBy } : {}),
         },
         dataset,
       );
@@ -447,6 +472,7 @@ async function resolveSaved(tx: Database, actor: ServiceContext["actor"], id: st
       definition: source.definition,
       ...(tile.caption ? { caption: tile.caption } : {}),
       ...(tile.breakdown ? { breakdown: tile.breakdown } : {}),
+      ...(tile.splitBy !== undefined ? { splitBy: tile.splitBy } : {}),
     });
   }
 
@@ -576,6 +602,7 @@ export function printedTile(tile: TileResult): pdf.DashboardPdfTile {
   ];
   const decision = reporting.chartFor({ columns, rows }, {
     measure: measure.key,
+    dimension: tile.dimension?.key,
     prefer: "columns",
     split: tile.breakdown?.key,
     arrange: tile.breakdown?.arrange,

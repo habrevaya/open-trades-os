@@ -3,6 +3,7 @@ import postgres from "postgres";
 import type { Actor } from "@opentradesos/core";
 import { packs } from "@opentradesos/trade-packs";
 import * as kpis from "../src/services/kpis";
+import * as reports from "../src/services/reports";
 import { CATALOGUE } from "../src/services/kpi-catalogue";
 import { NotFoundError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
@@ -204,5 +205,28 @@ run("every figure that declares a grouping carries it on every record", () => {
     } finally {
       await raw`update public.organization set primary_trade = 'cleaning' where id = ${ORG}`;
     }
+  });
+});
+
+run("a page size on the records", () => {
+  it("lists as many to a page as asked, with the count and the total over every record", async () => {
+    const first = await kpis.drill(owner(), { key: "cancel_rate_route", half: "denominator", ...WINDOW, perPage: 3 });
+    expect([first.records.length, first.count, first.total, first.pages, first.perPage]).toEqual([3, 8, "8", 3, 3]);
+    const last = await kpis.drill(owner(), { key: "cancel_rate_route", half: "denominator", ...WINDOW, perPage: 3, page: 3 });
+    expect([last.records.length, last.page, last.total]).toEqual([2, 3, "8"]);
+    // Every record on exactly one page.
+    const second = await kpis.drill(owner(), { key: "cancel_rate_route", half: "denominator", ...WINDOW, perPage: 3, page: 2 });
+    expect(new Set([...first.records, ...second.records, ...last.records].map((r) => r.id)).size).toBe(8);
+    // Left out, a thousand.
+    expect((await kpis.drill(owner(), { key: "cancel_rate_route", half: "denominator", ...WINDOW })).perPage).toBe(1000);
+  });
+
+  it("pages the records behind a report row the same way", async () => {
+    const drilled = await reports.drill(owner(), {
+      definition: { dataset: "jobs", dimensions: ["status"], measures: ["count"] },
+      match: { status: "scheduled" }, perPage: 4, page: 3,
+    });
+    expect([drilled.count, drilled.rows.length, drilled.pages, drilled.page, drilled.perPage]).toEqual([9, 1, 3, 3, 4]);
+    expect(drilled.totals["count"]).toBe("9");
   });
 });

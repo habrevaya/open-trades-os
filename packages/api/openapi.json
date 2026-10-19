@@ -67290,7 +67290,7 @@
       "get": {
         "operationId": "getKpiRecords",
         "summary": "The records behind one half of one KPI",
-        "description": "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The records are listed a thousand to a page, the latest day first, and `page` picks which (a page past the last is the last); the count and the total are the half the scorecard shows, over every record on every page. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.\n\nRequires a session holding: report:read.",
+        "description": "The same records the scorecard summed, listed (or, with `half` set to `excluded` or `unknown`, the records counted beside the number), each with what it added: a completed job and its revenue, a technician day, the minutes of a drive between two stops. The records are listed a thousand to a page, the latest day first, or as many as `perPage` asks (one to a thousand), and `page` picks which (a page past the last is the last); the count and the total are the half the scorecard shows, over every record on every page. Only a KPI the company's own trade pack declares and this product computes. Refused, in words, for a reader whose scope is narrower than the whole company (the figure is the company's, and a list of only their own records would not add up to it), for a record kind the reader may not read, and for a money half without report.financial:read, and, for install gross margin, which is built from what jobs cost, without job.cost:read as well.\n\nRequires a session holding: report:read.",
         "tags": [
           "M21"
         ],
@@ -67344,6 +67344,16 @@
             "schema": {
               "type": "integer",
               "minimum": 1
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
             }
           },
           {
@@ -116694,7 +116704,7 @@
       "post": {
         "operationId": "drillReport",
         "summary": "The records behind one row of a report",
-        "description": "Takes a report definition and the values on the row that was clicked, one per grouped dimension (null for a group the report showed as Not set), and returns the records that row is made of: the definition's own scope, filters and date range, with each pinned dimension matched and the grouping taken off. Each record carries what it added to every measure, and the totals are over every record behind the row, which is the number that was clicked. Refused exactly where the report would be, in the report's words. The records are listed a thousand to a page, newest first, and `page` picks which (a page past the last is the last); the count and the totals are over every record on every page.\n\nRequires a session holding: report:read.",
+        "description": "Takes a report definition and the values on the row that was clicked, one per grouped dimension (null for a group the report showed as Not set), and returns the records that row is made of: the definition's own scope, filters and date range, with each pinned dimension matched and the grouping taken off. Each record carries what it added to every measure, and the totals are over every record behind the row, which is the number that was clicked. Refused exactly where the report would be, in the report's words. The records are listed a thousand to a page, newest first, or as many as `perPage` asks (one to a thousand), and `page` picks which (a page past the last is the last); the count and the totals are over every record on every page.\n\nRequires a session holding: report:read.",
         "tags": [
           "M21"
         ],
@@ -177724,6 +177734,11 @@
           "page": {
             "type": "integer",
             "minimum": 1
+          },
+          "perPage": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
           }
         },
         "required": [

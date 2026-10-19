@@ -35,3 +35,30 @@ test("Dashboards: download one as a PDF, and email it on a schedule", async ({ o
   await row.getByRole("button", { name: `Stop ${name} for good` }).click();
   await expect(owner.getByRole("listitem", { name })).toHaveCount(0);
 });
+
+test("Dashboards: a tile broken down is cut by whichever of its report's groupings somebody picks", async ({ owner }) => {
+  await owner.goto("/dashboards/new");
+  await owner.getByLabel("Name").fill(`Cut board ${run}`);
+  await owner.getByRole("button", { name: "Create it" }).click();
+  await expect(owner).toHaveURL(/\/dashboards\/saved\//);
+
+  await owner.locator('select[name="report"]').selectOption({ label: "Visits by technician" });
+  await owner.locator('select[name="kind"]').selectOption("bars");
+  await owner.locator('select[name="breakdown"]').selectOption("stacked");
+  await owner.getByRole("button", { name: "Add it" }).click();
+
+  const tile = owner.locator("section", { has: owner.getByRole("heading", { name: "Visits by technician" }) });
+  // As the report groups: a bar per technician, cut by status.
+  await expect(tile.getByRole("list", { name: "Status, by colour" })).toBeVisible();
+
+  // The other way round, without saving the report again.
+  await owner.getByLabel("Cut Visits by technician by").selectOption({ label: "Technician" });
+  await owner.getByRole("button", { name: "Change", exact: true }).click();
+  await expect(tile.getByRole("list", { name: "Technician, by colour" })).toBeVisible();
+  await expect(tile.getByRole("img", { name: /by status and technician/ })).toBeVisible();
+
+  // And the whole dashboard downloads as one file.
+  const download = owner.waitForEvent("download");
+  await owner.getByRole("link", { name: "Download as PDF" }).click();
+  expect((await download).suggestedFilename()).toMatch(/^cut-board-.*\.pdf$/);
+});

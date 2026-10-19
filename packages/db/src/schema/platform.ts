@@ -453,7 +453,7 @@ export const dashboard = pgTable("dashboard", {
   name: text("name").notNull(),
   description: text("description"),
   /**
-   * `{ key, kind, width, reportId?, builtIn?, title?, caption? }[]`, in the
+   * `{ key, kind, width, reportId?, builtIn?, title?, caption?, breakdown?, splitBy? }[]`, in the
    * order they are drawn. An array rather than rows in a child table because
    * the order IS the data: reordering a dashboard is one write of the whole
    * list, and a sort column on a child table is the thing that ends up with

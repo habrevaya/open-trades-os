@@ -333,7 +333,7 @@ export interface KpiDrill {
   total: string;
   /** True when the records fill more than one page. The total still covers all of them. */
   truncated: boolean;
-  /** Which page of the records this is, from one, of how many, and how many to a page: a thousand, as the report drill lists. */
+  /** Which page of the records this is, from one, of how many, and how many to a page: a thousand unless fewer were asked for, as the report drill lists. */
   page: number;
   pages: number;
   perPage: number;
@@ -522,6 +522,8 @@ export function drill(
   ctx: ServiceContext,
   input: {
     key: string; half: KpiHalf; from: string; to: string; page?: number | undefined;
+    /** How many records to a page, one to a thousand. Left out, a thousand. */
+    perPage?: number | undefined;
     /** One group of a breakdown: `by` names the grouping and `group` the value. Both or neither. */
     by?: string | undefined; group?: string | undefined;
   },
@@ -543,6 +545,8 @@ export function drill(
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const records = recordsOf(half.records(input.from, input.to, zone, declaredBy), grouping, input.group ?? null);
+    /** A thousand to a page unless the caller asked for fewer, as the report drill pages. */
+    const perPage = reporting.askedPerPage(input.perPage);
     /**
      * ONE PAGE, AND THE TOTAL OVER EVERY RECORD. The count, the total and the
      * kinds of record are one row over the whole half, with the page joined
@@ -568,14 +572,14 @@ export function drill(
         select r.kind, r.id, r.label, r.on_day, r.value::text as value, r.href
         from r
         order by r.on_day desc nulls last, r.label, r.kind, r.id
-        limit ${reporting.DRILL_PAGE_SIZE} offset ${offset}
+        limit ${perPage} offset ${offset}
       ) as p on true
     `);
 
     const asked = reporting.askedPage(input.page);
-    let rows = await read((asked - 1) * reporting.DRILL_PAGE_SIZE);
+    let rows = await read((asked - 1) * perPage);
     const count = Number(rows[0]?.count ?? 0);
-    const paged = reporting.drillPage(count, asked);
+    const paged = reporting.drillPage(count, asked, perPage);
     // A page past the end (the window's records changed since the link was made) is the last page.
     if (paged.page !== asked) rows = await read(paged.offset);
 
@@ -726,7 +730,7 @@ export const handlers = {
   listKpiCatalogue: (ctx: ServiceContext, input: Record<string, never>) => catalogue(ctx, input),
   getKpiRecords: (ctx: ServiceContext, input: {
     key: string; half: KpiHalf; from: string; to: string; page?: number | undefined;
-    by?: string | undefined; group?: string | undefined;
+    perPage?: number | undefined; by?: string | undefined; group?: string | undefined;
   }) => drill(ctx, input),
   getKpiBreakdown: (ctx: ServiceContext, input: { key: string; by: string; from: string; to: string }) =>
     breakdown(ctx, input),
