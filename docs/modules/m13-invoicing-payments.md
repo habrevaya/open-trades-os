@@ -309,8 +309,9 @@ otherwise. The processor is asked for exactly that figure, it goes on this
 invoice when the webhook says the money moved, and the rest stays owed and can
 be charged the same way later. The office charges the figure on its button:
 if less is owed by the moment the processor is asked, nothing is charged and
-the office is told. A tip is never part of an office charge, part or whole;
-only the customer adds one, on the page. The same panel lists every charge of a saved card on the
+the office is told. A tip is never part of a charge of a saved card, part or
+whole; a tip the customer adds in person is recorded on the office's own card
+and cash screens, and one added online is the customer's, on the page. The same panel lists every charge of a saved card on the
 invoice: by whom or by the automatic payment, and what became of it, read
 from the payment attempt, so it says paid as soon as the webhook has said
 so. A second charge is refused while one is still with the processor.
