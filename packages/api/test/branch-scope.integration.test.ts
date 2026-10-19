@@ -129,11 +129,17 @@ beforeAll(async () => {
     customerId: houstonCustomer, propertyId: houstonProperty, summary: "Houston condenser", tags: [], customFields: {}, businessUnitId: houston,
   })).id as string;
 
-  /** A visit an hour from now, on the company's today, with somebody on it. */
+  /**
+   * A visit at noon on the company's today, with somebody on it. Noon in
+   * Chicago, not an hour from now: at eleven at night an hour from now is
+   * tomorrow, and the board for today would not show it.
+   */
   const visit = async (jobId: string, technicianId: string, sequence: number) => {
     const [row] = await raw<{ id: string }[]>`
       insert into public.visit (organization_id, job_id, sequence, status, window_start, window_end)
-      values (${ORG}, ${jobId}, ${sequence}, 'dispatched', ${new Date(Date.now() + 3600_000)}, ${new Date(Date.now() + 7200_000)})
+      values (${ORG}, ${jobId}, ${sequence}, 'dispatched',
+        (${companyToday()}::date + interval '12 hours') at time zone 'America/Chicago',
+        (${companyToday()}::date + interval '13 hours') at time zone 'America/Chicago')
       returning id`;
     await raw`insert into public.visit_assignment (organization_id, visit_id, technician_id, is_lead)
       values (${ORG}, ${row!.id}, ${technicianId}, true)`;
