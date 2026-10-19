@@ -288,6 +288,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   ad_spend_uniq_idx: "A row per source, campaign and day, upserted from a CSV re-import.",
   commission_event_invoice_idx: "One commission per plan per invoice, derived from the payment.",
   commission_reversal_cause_idx: "One reversal per cause, derived from the refund.",
+  commission_on_payment_invoice_idx:
+    "One record per invoice of what the worker did when it was paid in full, upserted on conflict, so a second pass or a second worker updates the row rather than adding one.",
   review_request_job_idx: "One request per job, which is what stops a second ask.",
   task_automation_idx: "One task per automation run, which is what makes the rule idempotent.",
   task_template_occurrence_idx:

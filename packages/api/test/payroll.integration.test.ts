@@ -786,6 +786,8 @@ const wiring: { [K in keyof typeof payrollRoutes]: SessionHandler<(typeof payrol
   settleCommissionSplit: commissions.handlers.settleCommissionSplit,
   getCommissionItemRule: commissions.handlers.getCommissionItemRule,
   setCommissionItemRule: commissions.handlers.setCommissionItemRule,
+  getCommissionOnPayment: commissions.handlers.getCommissionOnPayment,
+  setCommissionOnPayment: commissions.handlers.setCommissionOnPayment,
   listCommissionStandingShares: commissions.handlers.listCommissionStandingShares,
   setCommissionStandingShare: commissions.handlers.setCommissionStandingShare,
   endCommissionStandingShare: commissions.handlers.endCommissionStandingShare,

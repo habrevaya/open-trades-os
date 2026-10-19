@@ -1755,6 +1755,69 @@ export function proposeSplit(
   return { shares, applied, sentence: `Standing shares: ${each}.${rest}`, conflict: null };
 }
 
+/* ------------------------------------------------ settling when paid */
+
+/**
+ * The bases whose plan says a commission is earned when the invoice is paid
+ * in full. Only a share of what was collected: its own rule refuses to settle
+ * before then. A revenue, margin or flat plan earns when the work is invoiced,
+ * and a margin plan's cost is often still landing on the day the money
+ * arrives, so nothing settles those by itself.
+ */
+export const EARNS_ON_PAYMENT: readonly CommissionBasisKey[] = ["percent_of_collected"];
+
+export type OnPaymentDecision =
+  /** Settle it as proposed, through the settling a person uses. */
+  | { act: "settle" }
+  /** Not one this rule is for: no plan in force earns on payment. Nothing is recorded. */
+  | { act: "skip" }
+  /** Leave it for a person, and say why on the commission screen. */
+  | { act: "leave"; reason: string };
+
+/**
+ * WHETHER AN INVOICE JUST PAID IN FULL SETTLES ITS COMMISSION BY ITSELF.
+ *
+ * Only when nothing is left to decide. The plan has to be known (exactly one
+ * in force, and it pays on what was collected), and the split has to be the
+ * one a person would settle without giving a reason: the split proposed
+ * between the people on the job's visits, with their standing shares. When
+ * standing shares cannot all be honoured, the even split proposed in their
+ * place is a fallback for a person to look at, not a decision, so it is left.
+ * Anything settling itself would refuse is refused there, in its own words.
+ */
+export function onPaymentDecision(input: {
+  /** The plans in force. */
+  plans: readonly { label: string; basis: CommissionBasisKey }[];
+  /** Whether the invoice is against a job. */
+  onJob: boolean;
+  /** How many people are on the job's visits, not counting work brought in from history. */
+  people: number;
+  /** `ProposedSplit.conflict` for the job. */
+  conflict: string | null;
+}): OnPaymentDecision {
+  if (!input.plans.some((plan) => EARNS_ON_PAYMENT.includes(plan.basis))) return { act: "skip" };
+  if (input.plans.length > 1) {
+    return {
+      act: "leave",
+      reason: `${input.plans.length} commission plans are in force (${input.plans.map((p) => p.label).join(", ")}). `
+        + "Which one this invoice is under is for a person to say.",
+    };
+  }
+  if (!input.onJob) {
+    return { act: "leave", reason: "This invoice is not against a job, so there is nobody to share it between. Name who it is for." };
+  }
+  if (input.people === 0) {
+    return { act: "leave", reason: "Nobody is on this job's visits, so there is no split to propose. Name who it is for." };
+  }
+  if (input.conflict) {
+    return {
+      act: "leave",
+      reason: "The standing shares on this job cannot all be honoured, so how it is shared is for a person to decide.",
+    };
+  }
+  return { act: "settle" };
+}
+
 /* ------------------------------------------------------------- clawback */
 
 export type CreditReason = "refund" | "credit_note" | "write_off" | "callback";

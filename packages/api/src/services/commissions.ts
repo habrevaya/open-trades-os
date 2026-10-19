@@ -1,8 +1,8 @@
-import { and, asc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, labor, ledger, money as m, time, work } from "@opentradesos/core";
+import { SYSTEM_USER_ID, assertCan, labor, ledger, money as m, time, work, type Actor } from "@opentradesos/core";
 import {
-  guardedRead, guardedWrite, audit, timezoneOf, ConflictError, NotFoundError, UnprocessableError,
+  guardedRead, guardedWrite, inTenant, audit, timezoneOf, ConflictError, NotFoundError, UnprocessableError,
   type ServiceContext,
 } from "./context";
 import { writePosting } from "./ledger";
@@ -249,14 +249,24 @@ export async function setItemRule(ctx: ServiceContext, input: { rule: labor.Item
     const before = await itemRuleWithin(tx, ctx.actor.organizationId);
     /** The same choice again, from a retry or a second click, changes nothing and is not audited twice. */
     if (before === input.rule) return ruleView(before);
-    await tx.update(schema.organization).set({
-      settings: sql`${schema.organization.settings} || ${JSON.stringify({ commission: { itemRule: input.rule } })}::jsonb`,
-      updatedAt: new Date(),
-    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    await mergeCommissionSettings(tx, ctx.actor.organizationId, { itemRule: input.rule });
     await audit(tx, ctx, "commission_item_rule.set", "organization", ctx.actor.organizationId,
       { itemRule: before }, { itemRule: input.rule });
     return ruleView(input.rule);
   });
+}
+
+/**
+ * Change some of `organization.settings.commission` and keep the rest. The
+ * item rule and settling on payment share the object, and replacing it whole
+ * would turn one of them off by saving the other.
+ */
+async function mergeCommissionSettings(tx: Database, organizationId: string, patch: Record<string, unknown>): Promise<void> {
+  await tx.update(schema.organization).set({
+    settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || jsonb_build_object('commission',
+      coalesce(${schema.organization.settings}->'commission', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`,
+    updatedAt: new Date(),
+  }).where(eq(schema.organization.id, organizationId));
 }
 
 /**
@@ -1427,6 +1437,292 @@ export async function settleSplit(
   });
 }
 
+/* ---------------------------------------- settling by itself when paid */
+
+/**
+ * SETTLE A COMMISSION BY ITSELF WHEN ITS INVOICE IS PAID IN FULL.
+ *
+ * A company setting, off until somebody with `commission:configure` turns it
+ * on, kept beside the item rule in `organization.settings.commission`. When
+ * it is on, the worker reads each `invoice.paid` in the company's log (paid
+ * in full is the event; a part payment is not) and settles the invoice's
+ * commission through `settleSplit` with the split proposed, which is exactly
+ * what "Settle the ticked ones as proposed" does for one invoice: the same
+ * parts, the same standing shares, the same ledger posting, and the same
+ * `commission.earned` audit with the proposal beside it, made by the system
+ * (no user, `actor_agent_id` "commission-on-payment").
+ *
+ * ONLY WHEN NOTHING IS LEFT TO DECIDE. `labor.onPaymentDecision` says when:
+ * the one plan in force pays on what was collected, and the split is the one
+ * a person would settle without a reason. Otherwise, and whenever settling
+ * refuses, the invoice is left for a person and listed on the commission
+ * screen with why, in the words settling used.
+ *
+ * NEVER TWICE. An invoice with an earning is passed over, whoever made it,
+ * and the earning's unique index is the guard underneath. A refund or a void
+ * afterwards is what it is for an earning a person made: nothing reverses by
+ * itself, and `POST /v1/commissions/reversals` takes it back. Paid in full
+ * again later, it already has its earning and is passed over.
+ *
+ * FROM THEN ON. Only invoices paid in full after it was turned on: turning
+ * it on is not a way to settle last year's invoices in one go.
+ */
+const ON_PAYMENT_CONSUMER = "commission-on-payment";
+
+/** What the worker acts as here: it settles commission and reads what that needs, nothing else. */
+function onPaymentActor(organizationId: string): Actor {
+  return {
+    userId: SYSTEM_USER_ID,
+    organizationId,
+    roles: [],
+    grants: ["commission:read", "commission:configure"],
+    agentId: ON_PAYMENT_CONSUMER,
+  };
+}
+
+interface OnPaymentSetting { on: boolean; since: Date | null }
+
+async function onPaymentWithin(tx: Database, organizationId: string): Promise<OnPaymentSetting> {
+  const [row] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const commission = ((row?.settings ?? {}) as Record<string, unknown>)["commission"];
+  const value = commission && typeof commission === "object" ? commission as Record<string, unknown> : {};
+  const since = typeof value["settleOnPaymentSince"] === "string" ? new Date(value["settleOnPaymentSince"]) : null;
+  /** A hand edited blob that says on without a start reads as off: there is no "from then on" to go by. */
+  const on = value["settleOnPayment"] === true && since !== null && !Number.isNaN(since.getTime());
+  return { on, since: on ? since : null };
+}
+
+export interface OnPaymentView {
+  on: boolean;
+  /** When it was turned on. Only invoices paid in full from then are settled by it. */
+  since: Date | null;
+  /** The plans in force that earn on payment. With none, turning it on settles nothing, and the screen says so. */
+  earnsOnPayment: { id: string; label: string }[];
+  /** Invoices it left for a person, still without a commission, with why. */
+  left: { invoiceId: string; invoiceNumber: string; customerName: string; reason: string; at: Date }[];
+  /** The last ones it settled. */
+  settled: { invoiceId: string; invoiceNumber: string; customerName: string; total: string; at: Date }[];
+}
+
+/** The setting, and what it has done lately. `commission:read`. */
+export async function onPayment(ctx: ServiceContext): Promise<OnPaymentView> {
+  return guardedRead(ctx, "commission:read", async (tx) => {
+    const org = ctx.actor.organizationId;
+    const setting = await onPaymentWithin(tx, org);
+    const plans = await tx.select({ id: schema.commissionPlan.id, label: schema.commissionPlan.label, basis: schema.commissionPlan.basis })
+      .from(schema.commissionPlan)
+      .where(and(eq(schema.commissionPlan.organizationId, org), eq(schema.commissionPlan.active, true)))
+      .orderBy(asc(schema.commissionPlan.label));
+    const rows = (outcome: "settled" | "left", limit: number) => tx.select({
+      row: schema.commissionOnPayment,
+      number: schema.invoice.number, prefix: schema.invoice.numberPrefix, customerName: schema.customer.name,
+      total: schema.commissionEvent.total,
+    }).from(schema.commissionOnPayment)
+      .innerJoin(schema.invoice, eq(schema.invoice.id, schema.commissionOnPayment.invoiceId))
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.invoice.customerId))
+      .leftJoin(schema.commissionEvent, and(
+        eq(schema.commissionEvent.organizationId, org),
+        eq(schema.commissionEvent.invoiceId, schema.commissionOnPayment.invoiceId),
+      ))
+      .where(and(
+        eq(schema.commissionOnPayment.organizationId, org),
+        eq(schema.commissionOnPayment.outcome, outcome),
+        /**
+         * Left: still without an earning (a person settling it takes it off the
+         * list) and still owed for, since a void or write off means there is
+         * nothing to earn on.
+         */
+        ...(outcome === "left" ? [
+          isNull(schema.commissionEvent.id),
+          isNull(schema.invoice.deletedAt),
+          sql`${schema.invoice.status} not in ('void', 'written_off')`,
+        ] : []),
+      ))
+      .orderBy(sql`${schema.commissionOnPayment.updatedAt} desc`)
+      .limit(limit);
+    const [left, settled] = [await rows("left", 50), await rows("settled", 20)];
+    return {
+      on: setting.on,
+      since: setting.since,
+      earnsOnPayment: plans.filter((p) => labor.EARNS_ON_PAYMENT.includes(p.basis)).map((p) => ({ id: p.id, label: p.label })),
+      left: left.map((r) => ({
+        invoiceId: r.row.invoiceId, invoiceNumber: work.documentNumber(r.prefix, r.number), customerName: r.customerName,
+        reason: r.row.reason ?? "", at: r.row.updatedAt,
+      })),
+      settled: settled.map((r) => ({
+        invoiceId: r.row.invoiceId, invoiceNumber: work.documentNumber(r.prefix, r.number), customerName: r.customerName,
+        total: r.total ?? "0", at: r.row.updatedAt,
+      })),
+    };
+  });
+}
+
+/**
+ * Turn it on or off. `commission:configure`, as the item rule is: it decides
+ * when people are paid. The same answer again changes nothing and is not
+ * audited twice; turning it on again starts a new "from then on".
+ */
+export async function setOnPayment(ctx: ServiceContext, input: { on: boolean }): Promise<OnPaymentView> {
+  await guardedWrite(ctx, "commission:configure", async (tx) => {
+    const before = await onPaymentWithin(tx, ctx.actor.organizationId);
+    if (before.on === input.on) return;
+    const since = input.on ? new Date().toISOString() : null;
+    await mergeCommissionSettings(tx, ctx.actor.organizationId, { settleOnPayment: input.on, settleOnPaymentSince: since });
+    await audit(tx, ctx, "commission_on_payment.set", "organization", ctx.actor.organizationId,
+      { settleOnPayment: before.on, since: before.since?.toISOString() ?? null },
+      { settleOnPayment: input.on, since });
+  });
+  return onPayment(ctx);
+}
+
+export type OnPaymentOutcome =
+  | { outcome: "settled"; eventId: string }
+  | { outcome: "left"; reason: string }
+  /** Nothing to do: not paid now, already earned, or no plan in force earns on payment. */
+  | { outcome: "none" };
+
+/**
+ * One invoice paid in full, settled or left. In one transaction with the
+ * record of what was done, so the screen never shows an earning nobody can
+ * account for or a refusal for something that settled.
+ */
+async function settlePaid(ctx: ServiceContext, invoiceId: string, sequence: number): Promise<OnPaymentOutcome> {
+  return guardedWrite(ctx, "commission:configure", async (tx) => {
+    const org = ctx.actor.organizationId;
+    /** One worker at a time per invoice, so two passes cannot both decide it. */
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`commission-on-payment:${org}:${invoiceId}`}))`);
+    const [invoice] = await tx.select({ id: schema.invoice.id, status: schema.invoice.status, jobId: schema.invoice.jobId })
+      .from(schema.invoice)
+      .where(and(eq(schema.invoice.organizationId, org), eq(schema.invoice.id, invoiceId), isNull(schema.invoice.deletedAt)))
+      .limit(1);
+    /**
+     * Paid and then refunded or voided before the worker came round: it is
+     * not paid in full now, and paying it again raises the event again.
+     */
+    if (!invoice || invoice.status !== "paid") return { outcome: "none" };
+    const [earned] = await tx.select({ id: schema.commissionEvent.id }).from(schema.commissionEvent)
+      .where(and(eq(schema.commissionEvent.organizationId, org), eq(schema.commissionEvent.invoiceId, invoiceId)))
+      .limit(1);
+    if (earned) return { outcome: "none" };
+
+    const plans = await tx.select({ label: schema.commissionPlan.label, basis: schema.commissionPlan.basis })
+      .from(schema.commissionPlan)
+      .where(and(eq(schema.commissionPlan.organizationId, org), eq(schema.commissionPlan.active, true)))
+      .orderBy(asc(schema.commissionPlan.label));
+    const { onJob, split } = await proposedWithin(tx, org, invoice.jobId);
+    const decided = labor.onPaymentDecision({ plans, onJob: invoice.jobId !== null, people: onJob.length, conflict: split.conflict });
+    if (decided.act === "skip") return { outcome: "none" };
+
+    const record = async (outcome: OnPaymentOutcome & { outcome: "settled" | "left" }) => {
+      const [row] = await tx.insert(schema.commissionOnPayment).values({
+        organizationId: org, invoiceId, outcome: outcome.outcome,
+        reason: outcome.outcome === "left" ? outcome.reason : null,
+        commissionEventId: outcome.outcome === "settled" ? outcome.eventId : null,
+        eventSequence: sequence,
+      }).onConflictDoUpdate({
+        target: [schema.commissionOnPayment.organizationId, schema.commissionOnPayment.invoiceId],
+        set: {
+          outcome: outcome.outcome,
+          reason: outcome.outcome === "left" ? outcome.reason : null,
+          commissionEventId: outcome.outcome === "settled" ? outcome.eventId : null,
+          eventSequence: sequence,
+          updatedAt: new Date(),
+        },
+      }).returning({ id: schema.commissionOnPayment.id });
+      await audit(tx, ctx, `commission_on_payment.${outcome.outcome}`, "commission_on_payment", row!.id, null, {
+        invoiceId, eventSequence: sequence,
+        ...(outcome.outcome === "left" ? { reason: outcome.reason } : { commissionEventId: outcome.eventId }),
+      });
+      return outcome;
+    };
+
+    if (decided.act === "leave") return record({ outcome: "left", reason: decided.reason });
+    try {
+      /** The settling a person's "Settle the ticked ones as proposed" uses, inside this transaction. */
+      const done = await settleSplit({ ...ctx, db: tx }, {
+        invoiceId, shares: split.shares.map((s) => ({ technicianId: s.personId, weight: s.weight })),
+      });
+      return record({ outcome: "settled", eventId: done.id });
+    } catch (error) {
+      if (error instanceof ConflictError || error instanceof NotFoundError || error instanceof UnprocessableError) {
+        const said = error instanceof UnprocessableError ? error.issues[0]?.message ?? error.message : error.message;
+        return record({ outcome: "left", reason: said });
+      }
+      throw error;
+    }
+  });
+}
+
+export interface OnPaymentPassResult {
+  organizationId: string;
+  settled: { invoiceId: string; eventId: string }[];
+  left: { invoiceId: string; reason: string }[];
+}
+
+/**
+ * THE WORKER'S PASS FOR ONE COMPANY, after each drain that found its events.
+ *
+ * Its own place in the company's log (`event_cursor`, consumer
+ * "commission-on-payment"), moved forward past each event it has dealt with,
+ * so a pass cut short picks up where it stopped and nothing is read twice in
+ * the ordinary course. Read twice anyway (two workers), the second finds the
+ * earning and does nothing. While the setting is off the place still moves,
+ * so turning it on never reaches back to invoices paid before.
+ */
+export async function settleOnPaymentFor(
+  db: Database, organizationId: string, options: { limit?: number } = {},
+): Promise<OnPaymentPassResult> {
+  const ctx: ServiceContext = { actor: onPaymentActor(organizationId), db };
+  const limit = options.limit ?? 50;
+  const result: OnPaymentPassResult = { organizationId, settled: [], left: [] };
+
+  const advance = (to: number) => inTenant(ctx, async (tx) => {
+    await tx.insert(schema.eventCursor)
+      .values({ organizationId, consumer: ON_PAYMENT_CONSUMER, lastSequence: to, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [schema.eventCursor.organizationId, schema.eventCursor.consumer],
+        set: { lastSequence: sql`greatest(${schema.eventCursor.lastSequence}, excluded.last_sequence)`, updatedAt: new Date() },
+      });
+  });
+
+  const read = await inTenant(ctx, async (tx) => {
+    const setting = await onPaymentWithin(tx, organizationId);
+    const [cursor] = await tx.select({ last: schema.eventCursor.lastSequence }).from(schema.eventCursor)
+      .where(and(eq(schema.eventCursor.organizationId, organizationId), eq(schema.eventCursor.consumer, ON_PAYMENT_CONSUMER)))
+      .limit(1);
+    const [top] = await tx.select({ last: sql<number | null>`max(${schema.domainEvent.sequence})` }).from(schema.domainEvent)
+      .where(eq(schema.domainEvent.organizationId, organizationId));
+    const after = cursor?.last ?? 0;
+    const upTo = Number(top?.last ?? 0);
+    if (!setting.on || !setting.since || upTo <= after) return { upTo, events: [] };
+    const events = await tx.select({ sequence: schema.domainEvent.sequence, invoiceId: schema.domainEvent.entityId })
+      .from(schema.domainEvent)
+      .where(and(
+        eq(schema.domainEvent.organizationId, organizationId),
+        eq(schema.domainEvent.name, "invoice.paid"),
+        gt(schema.domainEvent.sequence, after),
+        lte(schema.domainEvent.sequence, upTo),
+        gte(schema.domainEvent.occurredAt, setting.since),
+      ))
+      .orderBy(asc(schema.domainEvent.sequence))
+      .limit(limit);
+    return { upTo, events };
+  });
+
+  for (const event of read.events) {
+    if (event.invoiceId) {
+      const outcome = await settlePaid(ctx, event.invoiceId, event.sequence);
+      if (outcome.outcome === "settled") result.settled.push({ invoiceId: event.invoiceId, eventId: outcome.eventId });
+      if (outcome.outcome === "left") result.left.push({ invoiceId: event.invoiceId, reason: outcome.reason });
+    }
+    await advance(event.sequence);
+  }
+  /** A full page may have more behind it; anything short of one read to the end. */
+  if (read.events.length < limit) await advance(read.upTo);
+  return result;
+}
+
 /* ----------------------------------------------------- standing shares */
 
 export interface StandingShareView {
@@ -1878,6 +2174,10 @@ export const handlers = {
   /** `rule` is a plain string from outside, checked against core's list on the way in. See `declareCommissionPlan`. */
   setCommissionItemRule: (ctx: ServiceContext, input: { rule: string }) =>
     setItemRule(ctx, { rule: input.rule as labor.ItemRateRule }),
+
+  getCommissionOnPayment: (ctx: ServiceContext) => onPayment(ctx),
+
+  setCommissionOnPayment: (ctx: ServiceContext, input: { on: boolean }) => setOnPayment(ctx, input),
 
   settleCommissionSplit: (ctx: ServiceContext, input: {
     invoiceId: string; planId?: string | undefined;

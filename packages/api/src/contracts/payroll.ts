@@ -157,6 +157,49 @@ export const setCommissionItemRule = defineRoute({
   output: ItemRuleView,
 });
 
+/* ------------------------------------------ settling by itself when paid */
+
+const OnPaymentView = z.object({
+  on: z.boolean(),
+  /** When it was turned on. Only invoices paid in full from then are settled by it. */
+  since: z.string().datetime().nullable(),
+  /** The plans in force that earn on payment. With none, it settles nothing. */
+  earnsOnPayment: z.array(z.object({ id: Uuid, label: z.string() })),
+  /** Invoices it left for a person, still without a commission, with why. */
+  left: z.array(z.object({
+    invoiceId: Uuid, invoiceNumber: z.string(), customerName: z.string(), reason: z.string(), at: z.string().datetime(),
+  })),
+  /** The last twenty it settled. */
+  settled: z.array(z.object({
+    invoiceId: Uuid, invoiceNumber: z.string(), customerName: z.string(), total: MoneyString, at: z.string().datetime(),
+  })),
+});
+
+export const getCommissionOnPayment = defineRoute({
+  method: "get",
+  path: "/v1/commissions/settle-on-payment",
+  summary: "Whether a commission settles by itself when its invoice is paid in full, and what it has done",
+  description:
+    "Off unless the company turned it on. When on, each invoice paid in full from then whose one plan in force pays on what was collected is settled by the worker with the split proposed between the people on the job (standing shares included), exactly as settling it as proposed from the split screen would, and audited as done by the system. One whose plan is not known (two plans in force), whose split would need a person (nobody on the job, standing shares that cannot all be honoured) or which settling refuses is left, and listed here with why until somebody settles it.",
+  module: "M17",
+  permissions: ["commission:read"],
+  input: z.object({}),
+  output: OnPaymentView,
+});
+
+export const setCommissionOnPayment = defineRoute({
+  method: "post",
+  path: "/v1/commissions/settle-on-payment",
+  summary: "Turn settling a commission by itself on payment on or off",
+  description:
+    "`commission:configure`, audited with the setting before and after. It applies to invoices paid in full from the moment it is turned on, never to ones paid before. A refund or a void after it settled is handled as for any earning: nothing reverses by itself, and `POST /v1/commissions/reversals` takes it back. Sent again with the same setting, it changes nothing.",
+  module: "M17",
+  permissions: ["commission:configure"],
+  idempotent: true,
+  input: z.object({ on: z.boolean() }),
+  output: OnPaymentView,
+});
+
 export const CommissionPart = z.object({
   technicianId: Uuid,
   weight: RateString,
@@ -797,7 +840,7 @@ export const payrollRoutes = {
   listSharedCommissions, getCommissionSplit, settleCommissionSplit,
   listCommissionStandingShares, setCommissionStandingShare, endCommissionStandingShare,
   settleCommissionSplitsAsProposed,
-  getCommissionItemRule, setCommissionItemRule,
+  getCommissionItemRule, setCommissionItemRule, getCommissionOnPayment, setCommissionOnPayment,
   declarePayPeriod, listPayPeriods, closePayPeriod, reopenPayPeriod,
   getPayrollRegister, exportPayPeriod, listPayrollExports, payCommissions, payTips,
   getMyTimeclock,

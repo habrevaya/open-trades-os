@@ -548,6 +548,8 @@ export const handlers = {
   settleCommissionSplitsAsProposed: commissions.handlers.settleCommissionSplitsAsProposed,
   getCommissionItemRule: commissions.handlers.getCommissionItemRule,
   setCommissionItemRule: commissions.handlers.setCommissionItemRule,
+  getCommissionOnPayment: commissions.handlers.getCommissionOnPayment,
+  setCommissionOnPayment: commissions.handlers.setCommissionOnPayment,
 
   declarePayPeriod: payroll.handlers.declarePayPeriod,
   listPayPeriods: payroll.handlers.listPayPeriods,
