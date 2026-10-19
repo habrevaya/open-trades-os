@@ -184,8 +184,12 @@ async function api<T>(page: Page, method: "get" | "post" | "put" | "patch", path
 
 test("a morning visit is moved to a day everybody has the afternoon off, because leave is read by the hour", async ({ owner }) => {
   test.setTimeout(180_000);
-  /** A Tuesday and the Wednesday after it, far enough out to be clear of the other rebalance spec's days. */
-  let DAY = plus(companyToday(), 19);
+  /**
+   * A Tuesday and the Wednesday after it, far enough out to be clear of the
+   * other rebalance spec's days, the change order specs' visits and the crew
+   * lane spec's day off, which whole day leave on the Wednesday would overlap.
+   */
+  let DAY = plus(companyToday(), 60);
   while (new Date(`${DAY}T12:00:00Z`).getUTCDay() !== 2) DAY = plus(DAY, 1);
   const NEXT = plus(DAY, 1);
 

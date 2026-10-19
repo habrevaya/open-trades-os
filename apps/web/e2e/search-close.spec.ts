@@ -31,9 +31,13 @@ test("the search box finds the furnace job and a customer's note through a typo,
 
   await owner.goto(`/search?q=${encodeURIComponent(`${run} furnice`)}`);
   const jobs = owner.getByRole("region", { name: "Jobs" });
-  await expect(jobs.getByRole("listitem")).toHaveCount(1);
-  await expect(jobs).toContainText(`Furnace tune up ${run}`);
-  await expect(jobs).toContainText("Close to what you typed");
+  /**
+   * Other specs in the same run make furnace jobs with the run in them too, so
+   * the one this test made is found by its words rather than by being alone.
+   */
+  const ours = jobs.getByRole("listitem").filter({ hasText: `Furnace tune up ${run}` });
+  await expect(ours).toHaveCount(1);
+  await expect(ours).toContainText("Close to what you typed");
 
   await owner.goto(`/search?q=${encodeURIComponent(`${run} thermstat`)}`);
   const found = owner.getByRole("region", { name: "Customer notes" });

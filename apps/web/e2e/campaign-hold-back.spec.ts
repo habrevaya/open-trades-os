@@ -1,4 +1,29 @@
+import { eq, sql } from "drizzle-orm";
+import { createClient, schema } from "@opentradesos/db";
 import { test, expect, run, newCustomer } from "./fixtures";
+
+test.afterAll(async () => { await quietHoursAway(false); });
+
+/**
+ * The company's quiet hours, moved to an hour twelve hours away (or taken off
+ * again), so the clock cannot decide the test: a send to the people held back
+ * is refused whole inside quiet hours, which by default run from nine at night
+ * to eight in the morning. The same helper as the portal chat specs.
+ */
+async function quietHoursAway(on: boolean): Promise<void> {
+  const db = createClient();
+  try {
+    const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", hour12: false }).format(new Date())) % 24;
+    const window = JSON.stringify({ quietHours: { startHour: (hour + 12) % 24, endHour: (hour + 13) % 24 } });
+    await db.update(schema.organization).set({
+      settings: on
+        ? sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${window}::jsonb`
+        : sql`coalesce(${schema.organization.settings}, '{}'::jsonb) - 'quietHours'`,
+    }).where(eq(schema.organization.slug, "ridgeline"));
+  } finally {
+    await db.$close();
+  }
+}
 
 /**
  * A TEST THAT HOLDS PART OF THE LIST BACK, AND THE WINNER SENT TO IT, THROUGH THE SCREENS
@@ -13,6 +38,7 @@ import { test, expect, run, newCustomer } from "./fixtures";
  * packages/api/test/campaign-hold-back.integration.test.ts.
  */
 test("Campaigns: part of the list is held back from a test, and a person sends it version A when nothing won", async ({ owner }) => {
+  await quietHoursAway(true);
   /** Four customers in a postcode of this run's own, so most of them are held back by the hash. */
   const zip = `9${String(Date.now() % 10_000).padStart(4, "0")}`;
   for (let i = 1; i <= 4; i += 1) {
