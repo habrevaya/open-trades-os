@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, payments } from "@opentradesos/api/services";
-import { recordPayment, applyPayment, recordRefund, refundPayment } from "@opentradesos/api/contracts";
+import { billing, payments, tips, ConflictError } from "@opentradesos/api/services";
+import { recordPayment, applyPayment, recordRefund, refundPayment, recordInvoicePaymentWithTip } from "@opentradesos/api/contracts";
 import { time } from "@opentradesos/core";
 import { attempt, field, parsed, refusalOf, type FormState } from "@/lib/actions";
 import { allocationsFromForm } from "@/lib/payment-form";
@@ -45,7 +45,38 @@ export async function recordPaymentFromOffice(_previous: FormState, form: FormDa
   const back = field(form, "back");
   const receivedAt = receivedAtFrom(field(form, "receivedOn"), user.organizationTimezone);
   let done = false;
+  const tip = (field(form, "tip") ?? "").replace(/[$,\s]/g, "");
+  const tipInvoiceId = field(form, "tipInvoiceId");
   const result = await attempt(form, async () => {
+    /**
+     * A TIP ON TOP goes with paying the one invoice the page was opened for,
+     * through the office's own tip (the portal's limits, shared by the
+     * company's rule). Money put on any other invoice in the same breath is
+     * refused rather than split between a tipped payment and another.
+     */
+    if (tip !== "" && Number(tip) !== 0 && tipInvoiceId) {
+      const elsewhere = allocationsFromForm(form).filter((a) => a.invoiceId !== tipInvoiceId);
+      if (elsewhere.length > 0) {
+        throw new ConflictError("A tip goes with paying one invoice. Record what is paid on the others separately.");
+      }
+      const input = parsed(recordInvoicePaymentWithTip.input, {
+        id: tipInvoiceId,
+        method: field(form, "method"),
+        amount: (field(form, "amount") ?? "").replace(/[$,\s]/g, ""),
+        tip,
+        ...(receivedAt ? { receivedAt } : {}),
+        checkNumber: field(form, "checkNumber"),
+        notes: field(form, "notes"),
+      });
+      await tips.payWithTip(ctx, {
+        invoiceId: input.id, method: input.method, amount: input.amount, tip: input.tip,
+        ...(input.receivedAt ? { receivedAt: input.receivedAt } : {}),
+        ...(input.checkNumber ? { checkNumber: input.checkNumber } : {}),
+        ...(input.notes ? { notes: input.notes } : {}),
+      });
+      done = true;
+      return undefined;
+    }
     const input = parsed(recordPayment.input, {
       customerId,
       method: field(form, "method"),
@@ -113,13 +144,15 @@ export async function refund(_previous: FormState, form: FormData): Promise<Form
 /**
  * TAKING A CARD IN THE OFFICE, through the same Payment Element the
  * customer's link uses. The amount is the invoice's balance, read by the
- * service; nothing is marked paid here, only by the processor's signed
+ * service, with the tip the customer added on top when the company takes
+ * them; nothing is marked paid here, only by the processor's signed
  * webhook, exactly as on the customer's side.
  */
-export async function startCardPayment(customerId: string, invoiceId: string): Promise<StartPayment> {
+export async function startCardPayment(customerId: string, invoiceId: string, options: { tip?: string } = {}): Promise<StartPayment> {
   const { ctx } = await session();
   try {
-    const started = await payments.intent(ctx, { customerId, invoiceIds: [invoiceId] });
+    /** A tip the customer added goes through the portal's own checks and is shared when the money arrives. */
+    const started = await payments.intent(ctx, { customerId, invoiceIds: [invoiceId], ...(options.tip ? { tip: options.tip } : {}) });
     if (!started.publishableKey) {
       return { ok: false, message: "Stripe is connected without a publishable key, so the card form cannot load. Add it in Settings, Integrations." };
     }

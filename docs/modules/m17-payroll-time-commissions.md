@@ -572,9 +572,9 @@ the office is not counted, and the job's margin says so in words while there is 
 
 ### Tips
 
-A tip a customer adds when paying an invoice from the portal (M05, M13) is
-shared between the technicians on the job's visits by the company's rule and
-arrives owed to them. Each share is its own line on that technician's register and export,
+A tip a customer adds when paying an invoice from the portal (M05, M13), or
+gives the office with a card, cash or a check (M13), is shared between the
+technicians on the job's visits by the company's rule and arrives owed to them. Each share is its own line on that technician's register and export,
 `tip` in the pay category column, in the period the payment arrived in, and a
 technician who was tipped and not on the clock that period is still on the
 register. A commission reversal is never taken out of a tip: it is measured
@@ -618,8 +618,8 @@ recorded or no lead marked, shares the tip evenly and says so in a sentence kept
 the share and shown on the invoice's tips. **It applies to tips from then on:** a
 tip is shared the moment the money arrives with the rule in force then, the rule is
 kept on each share, and a change never re-splits one already shared. The arithmetic
-is core's (`payExtras.splitTipByRule`), with unit tests, and the portal and the
-phone's cash payment both go through it.
+is core's (`payExtras.splitTipByRule`), with unit tests, and the portal, the
+phone's cash payment and the office's card and cash screens all go through it.
 
 **The office and a cash tip.** A tip the technician kept normally comes from their
 phone. When they did not record it, or got the amount wrong, whoever holds `tip:record`

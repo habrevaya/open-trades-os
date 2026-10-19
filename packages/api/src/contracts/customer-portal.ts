@@ -474,6 +474,52 @@ export const setPortalSettings = defineRoute({
   output: PortalSettings.extend({ signInUrl: z.string() }),
 });
 
+const TipOfferShape = z.object({
+  /** False when the company does not take tips, the invoice is paid by somebody else, nothing is owed, or nobody is on the job. */
+  available: z.boolean(),
+  presets: z.array(z.object({ percent: z.number(), amount: MoneyString })),
+  /** First names of who it goes to. */
+  for: z.array(z.string()),
+});
+
+export const getInvoiceTipOffer = defineRoute({
+  method: "get",
+  path: "/v1/invoices/{id}/tip-offer",
+  summary: "Whether a payment on this invoice can carry a tip, and who it would go to",
+  description: "What the office's card and cash screens offer: the company's suggested percentages worked out on what is owed, and the first names of the technicians on the job. Not offered when the company does not take tips, when somebody other than the customer pays the invoice, when nothing is owed, or when nobody is recorded on the job.",
+  module: "M13",
+  permissions: ["payment:collect"],
+  input: z.object({ id: Uuid }),
+  output: TipOfferShape,
+});
+
+export const recordInvoicePaymentWithTip = defineRoute({
+  method: "post",
+  path: "/v1/invoices/{id}/tipped-payments",
+  summary: "Record cash, a check or a transfer on one invoice, with a tip on top",
+  description: "The office's own tip, held to the limits a tip on the portal or on site is: only when the company takes tips, dollars and cents, never more than what is being paid on the bill, and only when somebody is recorded on the job. `amount` is what was received for the bill (up to the balance goes on the invoice and anything over is held for the customer) and `tip` is on top of it. The payment is recorded and audited as any payment is, the tip is credited to Tips payable, and it is shared between the technicians on the job by the company's tip rule in the same step. Sent again with the same idempotency key, it answers with the payment already recorded.",
+  module: "M13",
+  permissions: ["payment:collect"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    method: z.enum(["cash", "check", "ach", "other"]),
+    amount: MoneyString,
+    tip: z.string().max(20),
+    receivedAt: z.string().datetime().optional(),
+    checkNumber: z.string().max(50).optional(),
+    notes: z.string().max(1000).optional(),
+  }),
+  output: z.object({
+    id: Uuid,
+    amount: MoneyString,
+    tipAmount: MoneyString,
+    allocations: z.array(z.object({ invoiceId: Uuid, amount: MoneyString })),
+    unappliedAmount: MoneyString,
+    ledgerTransactionId: Uuid,
+  }),
+});
+
 export const listInvoiceTips = defineRoute({
   method: "get",
   path: "/v1/invoices/{id}/tips",
@@ -505,4 +551,5 @@ export const customerPortalRoutes = {
   requestPortalCode, verifyPortalCode, signOutOfPortal, viewPortalAccount, payPortalAccountInvoice,
   openPortalRecord, listPortalCards, startPortalCardSetup, confirmPortalCardSetup, removePortalCard,
   payPortalInvoiceWithCard, getPortalSettings, setPortalSettings, listInvoiceTips,
+  getInvoiceTipOffer, recordInvoicePaymentWithTip,
 } as const;

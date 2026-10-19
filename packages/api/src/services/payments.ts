@@ -215,8 +215,9 @@ export interface IntentInput {
    * A tip for the technicians, on top of ONE invoice's balance, as the
    * customer typed it. Checked here against the company's tip settings and
    * the balance, split between the technicians on the invoice's job, and
-   * carried on the attempt until the money arrives. Only the portal passes
-   * it: the office takes tips the way it takes any other money.
+   * carried on the attempt until the money arrives. The portal passes it,
+   * and so does the office taking a card on the invoice screen, when the
+   * customer on the phone or at the counter adds one.
    */
   tip?: string | undefined;
   /**
@@ -1599,6 +1600,7 @@ export const handlers = {
       customerId: string; amount?: string | undefined;
       invoiceIds?: string[] | undefined;
       description?: string | undefined; receiptEmail?: string | undefined;
+      tip?: string | undefined;
     },
   ) => intent(ctx, input),
 

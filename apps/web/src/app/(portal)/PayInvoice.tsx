@@ -45,7 +45,7 @@ const names = (people: string[]) =>
  * same as a new card.
  */
 export function PayInvoice({
-  balance, currency, label, tipping, start, savedCards = [], payWithSaved,
+  balance, currency, label, tipping, start, savedCards = [], payWithSaved, office = false,
 }: {
   /** The balance, as the decimal string the server sent. */
   balance: string;
@@ -56,6 +56,11 @@ export function PayInvoice({
   start: (options: { tip?: string }) => Promise<StartPayment>;
   savedCards?: { id: string; label: string; kind?: "card" | "bank_account" }[];
   payWithSaved?: (cardId: string, options: { tip?: string }) => Promise<SavedCardPay>;
+  /**
+   * The office taking the card for a customer on the phone or at the counter:
+   * the same tip and the same limits, worded for the person at the desk.
+   */
+  office?: boolean;
 }) {
   const [choice, setChoice] = useState<string>("none");
   const [other, setOther] = useState("");
@@ -128,7 +133,9 @@ export function PayInvoice({
       {tipping.available && (
         <fieldset className="rounded-md border border-steel-200 bg-canvas p-4">
           <legend className="px-1 text-sm font-medium">
-            Add a tip{tipping.for.length > 0 ? ` for ${names(tipping.for)}` : ""}?
+            {office
+              ? `Did the customer add a tip${tipping.for.length > 0 ? ` for ${names(tipping.for)}` : ""}?`
+              : `Add a tip${tipping.for.length > 0 ? ` for ${names(tipping.for)}` : ""}?`}
           </legend>
           <div className="mt-1 flex flex-wrap gap-2">
             {[{ key: "none", text: "No tip" },
@@ -205,6 +212,7 @@ export function PayInvoice({
           start={() => start(tipCents ? { tip } : {})}
           balance={total}
           {...(label ? { label } : {})}
+          {...(office ? { cta: `Take card payment of ${total}` } : {})}
         />
       )}
     </div>

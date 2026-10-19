@@ -1096,6 +1096,16 @@ export const handlers = {
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
   shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
+  getInvoiceTipOffer: (ctx: ServiceContext, input: { id: string }) => tips.officeOffer(ctx, { invoiceId: input.id }),
+  recordInvoicePaymentWithTip: (ctx: ServiceContext, input: {
+    id: string; method: "cash" | "check" | "ach" | "other"; amount: string; tip: string;
+    receivedAt?: string | undefined; checkNumber?: string | undefined; notes?: string | undefined;
+  }) => tips.payWithTip(ctx, {
+    invoiceId: input.id, method: input.method, amount: input.amount, tip: input.tip,
+    ...(input.receivedAt ? { receivedAt: input.receivedAt } : {}),
+    ...(input.checkNumber ? { checkNumber: input.checkNumber } : {}),
+    ...(input.notes ? { notes: input.notes } : {}),
+  }),
   markAttachmentSeen: files.handlers.markAttachmentSeen,
   // Sign ins seen from the office, the public brand, visit notes, bank payments, booking from the account (M05, M13)
   listPortalSignIns: portalAccess.handlers.listPortalSignIns,

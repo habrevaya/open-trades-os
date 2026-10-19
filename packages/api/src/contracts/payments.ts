@@ -79,6 +79,14 @@ export const createPaymentIntent = defineRoute({
     /** Shown on the customer's statement. */
     description: z.string().max(200).optional(),
     receiptEmail: z.string().email().max(320).optional(),
+    /**
+     * A tip for the technicians on top of ONE invoice's balance, as the
+     * customer said it, held to the portal's limits: only when the company
+     * takes tips, dollars and cents, never more than the bill, and only when
+     * somebody is recorded on the job. Shared by the company's own rule when
+     * the processor says the money arrived.
+     */
+    tip: z.string().max(20).optional(),
   }),
   output: z.object({
     attemptId: Uuid,
