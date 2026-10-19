@@ -5,20 +5,26 @@ import { Empty, PageHeader } from "@/components/Table";
 
 export const dynamic = "force-dynamic";
 
-/** The two groups with no list screen of their own, whose "See all" is this page showing them alone. */
+/** The groups with no list screen of their own, whose "See all" is this page showing them alone. */
 const ALONE: Record<string, { label: string; key: search.GroupKey }> = {
   addresses: { label: "Addresses", key: "addresses" },
   units: { label: "Equipment", key: "units" },
+  notes: { label: "Customer notes", key: "notes" },
+  people: { label: "People", key: "people" },
 };
 
 /**
  * FIND ANYTHING
  *
- * Customers, jobs, invoices, estimates, addresses, units and the company's
- * own records, five of each, each found by its own list's service, so nothing
- * appears here that its list would not show this person. "See all" opens the
- * list filtered by the same words; addresses and units have no list, so theirs
- * is this page with that group alone.
+ * Customers, jobs, invoices, estimates, addresses, units, customer notes, the
+ * price book, people and the company's own records, five of each, each found
+ * by its own list's service, so nothing appears here that its list would not
+ * show this person. "See all" opens the list filtered by the same words; the
+ * groups with no list are this page with that group alone.
+ *
+ * A hit found by a word a letter off what was typed comes after the exact
+ * ones and says so, "Close to what you typed", so nobody takes a guess for
+ * the thing they asked for.
  */
 export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string; in?: string }> }) {
   const user = await requireSetupUser();
@@ -58,6 +64,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                 <li key={hit.id} className="px-3 py-2">
                   <a href={hit.href} className="font-medium underline underline-offset-4">{hit.title}</a>
                   {hit.detail ? <span className="ml-2 text-ink-500">{hit.detail}</span> : null}
+                  {hit.close ? <span className="ml-2 text-xs text-ink-500">Close to what you typed</span> : null}
                 </li>
               ))}
             </ul>

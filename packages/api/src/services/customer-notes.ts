@@ -6,6 +6,7 @@ import {
   ConflictError, NotFoundError, type ExternalRef, type ServiceContext,
 } from "./context";
 import { customerScopeFilter } from "./scope";
+import { closeMatching, textFilter } from "./text-search";
 import { admitInstant } from "./history";
 import { remember, replayed } from "./once";
 
@@ -159,6 +160,51 @@ export async function list(
       nextCursor: hasMore && last ? encodeCursor(`${last.notedAt.toISOString()}|${last.id}`) : null,
       /** Said, so a screen can tell a technician why the list is short. */
       fieldOnly,
+    };
+  });
+}
+
+/** A note the search box found, with whose it is. */
+export interface FoundNote { id: string; customerId: string; customerName: string; body: string; notedAt: string }
+
+/**
+ * THE NOTES THAT SAY THESE WORDS, for the search box.
+ *
+ * Read exactly as a customer's own notes are: through the customer, found
+ * under the caller's customer scope first, so a customer outside a branch
+ * manager's branch or one a technician was never sent to has no notes to
+ * find, and at a field scope only the notes marked for the field. A merged
+ * or removed customer's notes are not found here, as their page is not
+ * listed. Newest first, the words read the way every list reads them
+ * (`text-search.ts`), against a trigram index on the note.
+ */
+export async function find(
+  ctx: ServiceContext, input: { q: string; limit: number; close?: boolean | undefined },
+): Promise<{ data: FoundNote[]; hasMore: boolean }> {
+  return guardedRead(ctx, "customer:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
+    const fieldOnly = FIELD_SCOPES.has(scopeOf(ctx, "customer"));
+    const rows = await tx.select({
+      id: schema.customerNote.id,
+      customerId: schema.customerNote.customerId,
+      customerName: schema.customer.name,
+      body: schema.customerNote.body,
+      notedAt: schema.customerNote.notedAt,
+    }).from(schema.customerNote)
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.customerNote.customerId))
+      .where(and(
+        eq(schema.customerNote.organizationId, ctx.actor.organizationId),
+        eq(schema.customer.organizationId, ctx.actor.organizationId),
+        isNull(schema.customer.deletedAt),
+        customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor),
+        fieldOnly ? eq(schema.customerNote.forField, true) : undefined,
+        textFilter(input.q, [schema.customerNote.body], undefined, { close: input.close }) ?? sql`false`,
+      ))
+      .orderBy(desc(schema.customerNote.notedAt), desc(schema.customerNote.id))
+      .limit(input.limit + 1);
+    return {
+      data: rows.slice(0, input.limit).map((row) => ({ ...row, notedAt: row.notedAt.toISOString() })),
+      hasMore: rows.length > input.limit,
     };
   });
 }

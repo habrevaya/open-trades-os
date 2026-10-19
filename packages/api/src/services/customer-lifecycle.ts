@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { customerMerge, tags as tagRules, time } from "@opentradesos/core";
 import {
@@ -41,9 +41,32 @@ import { remember, replayed } from "./once";
  * Listed explicitly rather than discovered from the catalogue, because a new
  * table pointing at `customer` should have to come here and say which side
  * it falls on. A merge that silently missed a table would leave history
- * split across two rows, which is the exact thing it exists to end.
+ * split across two rows, which is the exact thing it exists to end. The
+ * guard in `test/customer-merge-coverage.integration.test.ts` reads every
+ * foreign key to `customer` from the database and fails on one that is in
+ * none of these lists, so a new table cannot be forgotten quietly.
  */
-type Ref = { table: string; column: string; label: string };
+type Ref = {
+  table: string;
+  column: string;
+  label: string;
+  /**
+   * Narrows a table whose column names more kinds of record than a customer
+   * (a file or a task is about whatever its `entity_type` says). Written
+   * against the row as `t`.
+   */
+  only?: SQL | undefined;
+  /**
+   * THE DUPLICATE'S ROWS THAT STAY WITH IT, given the kept record's id and
+   * written against the row as `t`: the ones the kept record may hold only
+   * one of and already does (a statement for the same month, a piece in the
+   * same mailing). Moving them would be refused by the database, or worse,
+   * make two of something there must be one of. `why` says so in words, on
+   * the merge's answer and on the kept record's page.
+   */
+  unless?: ((keepId: string) => SQL) | undefined;
+  why?: string | undefined;
+};
 
 const MONEY: Ref[] = [
   { table: "invoice", column: "customer_id", label: "invoices" },
@@ -53,6 +76,29 @@ const MONEY: Ref[] = [
   { table: "ledger_entry", column: "customer_id", label: "ledger entries" },
   { table: "agreement", column: "customer_id", label: "agreements" },
   { table: "service_contract", column: "customer_id", label: "contracts" },
+  /**
+   * Money owed to them or by them that is not an invoice. Each stops a
+   * removal for the reason an invoice does: a credit sitting on an account,
+   * a refund paid out or a claim against a warranty company has to stay
+   * explicable after the customer row is gone from every list.
+   */
+  { table: "credit_note", column: "customer_id", label: "credit notes" },
+  { table: "credit_note_payout", column: "customer_id", label: "credit payouts" },
+  { table: "card_on_file_charge", column: "customer_id", label: "card charges" },
+  { table: "financing_application", column: "customer_id", label: "financing applications" },
+  { table: "coverage_claim", column: "payer_customer_id", label: "coverage claims they pay" },
+  {
+    table: "referral_reward", column: "referrer_customer_id", label: "referral rewards",
+    /** A reward for referring the kept record itself is a person referring themselves twice over. */
+    unless: (keepId) => sql`t.referred_customer_id = ${keepId}`,
+    why: "It was for referring the record kept, which is the same person.",
+  },
+  {
+    table: "referral_reward", column: "referred_customer_id", label: "referral rewards for them",
+    unless: (keepId) => sql`exists (select 1 from public.referral_reward x
+      where x.organization_id = t.organization_id and x.referred_customer_id = ${keepId})`,
+    why: "The record kept already earned whoever referred it a reward, and one person earns one.",
+  },
 ];
 
 /**
@@ -77,26 +123,139 @@ const HISTORY: Ref[] = [
   { table: "job", column: "customer_id", label: "jobs" },
   { table: "job_party", column: "customer_id", label: "job parties" },
   { table: "estimate", column: "customer_id", label: "estimates" },
+  { table: "project", column: "customer_id", label: "projects" },
   { table: "customer_property", column: "customer_id", label: "property links" },
   { table: "contact", column: "customer_id", label: "contacts" },
   { table: "customer_note", column: "customer_id", label: "notes" },
   { table: "conversation", column: "customer_id", label: "conversations" },
   { table: "call", column: "customer_id", label: "calls" },
   { table: "communication_consent", column: "customer_id", label: "consent records" },
+  {
+    /** Run after a no to advertising has superseded a yes on the record kept (`merge`). */
+    table: "advertising_consent", column: "customer_id", label: "advertising answers",
+    unless: (keepId) => sql`t.superseded_at is null and exists (select 1 from public.advertising_consent x
+      where x.customer_id = ${keepId} and x.superseded_at is null)`,
+    why: "The record kept already has its own answer about advertising, and gave the same one or said no.",
+  },
   { table: "booking_request", column: "customer_id", label: "booking requests" },
   { table: "recurring_schedule", column: "customer_id", label: "recurring work" },
+  { table: "visit_change_request", column: "customer_id", label: "visit change requests" },
   { table: "review", column: "customer_id", label: "reviews" },
   { table: "review_request", column: "customer_id", label: "review requests" },
   { table: "marketing_touch", column: "customer_id", label: "marketing touches" },
+  { table: "campaign_recipient", column: "customer_id", label: "campaign sends" },
+  {
+    table: "mail_piece", column: "customer_id", label: "mail pieces",
+    unless: (keepId) => sql`exists (select 1 from public.mail_piece x
+      where x.mail_campaign_id = t.mail_campaign_id and x.customer_id = ${keepId})`,
+    why: "The record kept was sent a piece in the same mailing.",
+  },
+  { table: "ad_conversion_send", column: "customer_id", label: "ad conversions sent" },
   { table: "form_submission", column: "customer_id", label: "form submissions" },
   { table: "lead_offer", column: "customer_id", label: "lead offers" },
   { table: "portal_grant", column: "customer_id", label: "portal links" },
   { table: "portal_event", column: "customer_id", label: "portal events" },
+  { table: "portal_sign_in", column: "customer_id", label: "portal sign ins" },
+  {
+    table: "statement_delivery", column: "customer_id", label: "statements sent",
+    unless: (keepId) => sql`t.period is not null and exists (select 1 from public.statement_delivery x
+      where x.organization_id = t.organization_id and x.customer_id = ${keepId} and x.period = t.period)`,
+    why: "The record kept was sent its own statement for the same month.",
+  },
+  /**
+   * SAVED CARDS: THE PROCESSOR'S REFERENCE MOVES, AND NOTHING ELSE EXISTS TO.
+   *
+   * The card itself is at the processor, filed under the processor's own
+   * customer (`payment_profile`), and this product holds the references and
+   * the four digits a person recognises it by. A charge names the card and
+   * reaches the processor's customer through the card's own `profile_id`, so
+   * a card moved to the record kept still charges where it was saved, whether
+   * or not its processor record moved too.
+   *
+   * The processor record moves when the record kept has none at that
+   * processor account, and stays otherwise: a customer has one there per
+   * account, and the kept record's own is the one its next saved card uses.
+   */
+  {
+    table: "payment_profile", column: "customer_id", label: "card processor records",
+    unless: (keepId) => sql`exists (select 1 from public.payment_profile x
+      where x.organization_id = t.organization_id and x.connection_id = t.connection_id and x.customer_id = ${keepId})`,
+    why: "The record kept has its own record at the card processor. The duplicate's cards still moved, and charge through the duplicate's.",
+  },
+  /**
+   * A card that pays the duplicate's bills automatically stays with the
+   * duplicate, with its agreements, when the record kept already pays
+   * automatically with a card of its own: one card pays each customer's bills
+   * automatically, or every bill would be charged twice, and which of the two
+   * the customer meant is theirs to say. They can save it again on the
+   * record kept. Nothing can charge it from the duplicate, which has no bills.
+   */
+  {
+    table: "saved_payment_method", column: "customer_id", label: "saved cards",
+    unless: (keepId) => sql`exists (select 1 from public.payment_agreement a
+        where a.saved_payment_method_id = t.id and a.withdrawn_at is null and a.autopay_at is not null)
+      and exists (select 1 from public.payment_agreement k
+        where k.organization_id = t.organization_id and k.customer_id = ${keepId}
+          and k.withdrawn_at is null and k.autopay_at is not null)`,
+    why: "The record kept already pays its bills automatically with a card of its own, so the duplicate's automatic card stayed with it. The customer can save it again.",
+  },
+  /** After the cards: an agreement goes where its card went, and nowhere else. */
+  {
+    table: "payment_agreement", column: "customer_id", label: "card payment agreements",
+    unless: (keepId) => sql`not exists (select 1 from public.saved_payment_method s
+      where s.id = t.saved_payment_method_id and s.customer_id = ${keepId})`,
+    why: "Its card stayed with the duplicate.",
+  },
   { table: "delivery", column: "customer_id", label: "deliveries" },
   { table: "deficiency", column: "customer_id", label: "deficiencies" },
   { table: "inspection", column: "customer_id", label: "inspections" },
   { table: "service_report", column: "customer_id", label: "service reports" },
+  { table: "custom_object_record", column: "customer_id", label: "custom records" },
+  { table: "container_hold", column: "customer_id", label: "container holds" },
+  /** A file filed on the customer, which names it by kind and id rather than by a foreign key. */
+  { table: "attachment", column: "entity_id", label: "files", only: sql`t.entity_type = 'customer'` },
+  {
+    table: "task", column: "entity_id", label: "tasks", only: sql`t.entity_type = 'customer'`,
+    unless: (keepId) => sql`t.raised_by_run_id is not null and exists (select 1 from public.task x
+      where x.organization_id = t.organization_id and x.raised_by_run_id = t.raised_by_run_id
+        and x.entity_type = 'customer' and x.entity_id = ${keepId})`,
+    why: "The same automation raised its own task about the record kept.",
+  },
 ];
+
+/**
+ * Other records that name the duplicate as somebody, rather than belonging to
+ * it: who referred a customer, who a review was matched to, who uploaded a
+ * file. They follow the person to the record kept, but they are not the
+ * duplicate's to lose, so a removal does not count them as going with it.
+ */
+const REFERENCES: Ref[] = [
+  {
+    table: "customer", column: "referred_by_customer_id", label: "customers they referred",
+    unless: (keepId) => sql`t.id = ${keepId}`,
+    why: "That is the record kept, which cannot have referred itself.",
+  },
+  { table: "marketing_touch", column: "referrer_customer_id", label: "referrals they made" },
+  { table: "review", column: "suggested_customer_id", label: "reviews matched to them" },
+  { table: "attachment", column: "uploaded_by_customer_id", label: "files they uploaded" },
+];
+
+/**
+ * What names a customer and is deliberately left where it is by a merge, each
+ * with why. Named so the coverage guard can tell a decision from an omission.
+ */
+export const MERGE_LEAVES: { table: string; column: string; why: string }[] = [
+  { table: "ledger_entry", column: "customer_id", why: "Append only: a posting made against the duplicate was made against it." },
+  { table: "customer_merge", column: "kept_customer_id", why: "The merge's own record." },
+  { table: "customer_merge", column: "merged_customer_id", why: "The merge's own record." },
+  { table: "customer_not_duplicate", column: "customer_a_id", why: "A judgement about a pair, which says nothing about the record kept." },
+  { table: "customer_not_duplicate", column: "customer_b_id", why: "A judgement about a pair, which says nothing about the record kept." },
+  { table: "customer_tag", column: "customer_id", why: "Written only by the database, from the customer's own list, which the merge joins." },
+];
+
+/** Every customer column a merge moves, in the order it moves them. */
+export const MERGE_MOVES: readonly { table: string; column: string }[] = [...MOVES, ...HISTORY, ...REFERENCES]
+  .map(({ table, column }) => ({ table, column }));
 
 async function countsFor(
   tx: Database, organizationId: string, customerId: string,
@@ -105,9 +264,10 @@ async function countsFor(
   const found: { label: string; n: number }[] = [];
   for (const ref of refs) {
     const rows = await tx.execute(sql`
-      select count(*)::int as n from ${sql.identifier(ref.table)}
-      where ${sql.identifier(ref.column)} = ${customerId}
-        and organization_id = ${organizationId}`);
+      select count(*)::int as n from ${sql.identifier(ref.table)} as t
+      where t.${sql.identifier(ref.column)} = ${customerId}
+        and t.organization_id = ${organizationId}
+        ${ref.only ? sql`and ${ref.only}` : sql``}`);
     const n = Number((rows as unknown as { n: number }[])[0]?.n ?? 0);
     if (n > 0) found.push({ label: ref.label, n });
   }
@@ -217,22 +377,69 @@ export async function merge(
     if (input.keepId === input.mergeId) {
       throw new ConflictError("Those are the same record.");
     }
+    /**
+     * Both rows locked, in a fixed order, before anything is read: the order
+     * an undo takes them in, so a merge and an undo touching one customer
+     * queue rather than deadlock, and two merges of one duplicate into two
+     * records cannot both move its history.
+     */
+    await tx.execute(sql`select id from public.customer
+      where id in (${input.keepId}, ${input.mergeId}) and organization_id = ${ctx.actor.organizationId}
+      order by id for update`);
     const keep = await load(tx, ctx.actor.organizationId, input.keepId);
     const loser = await load(tx, ctx.actor.organizationId, input.mergeId);
 
+    /**
+     * A NO TO ADVERTISING WINS. When the duplicate's live answer is no and
+     * the kept record's is yes, the yes is superseded and the no comes
+     * across as the live answer: one person said no to their details being
+     * used for advertising, and joining their two records must not turn that
+     * into a yes. The conservative reading; the superseded yes is written on
+     * the merge's record, and an undo makes it live again.
+     */
+    const overruled = await tx.execute<{ id: string }>(sql`
+      update public.advertising_consent k
+      set superseded_at = now(), updated_at = now()
+      where k.organization_id = ${ctx.actor.organizationId}
+        and k.customer_id = ${input.keepId}
+        and k.superseded_at is null
+        and k.choice = 'granted'
+        and exists (select 1 from public.advertising_consent d
+          where d.organization_id = ${ctx.actor.organizationId} and d.customer_id = ${input.mergeId}
+            and d.superseded_at is null and d.choice = 'refused')
+      returning k.id`);
+    const superseded = [...overruled].length > 0
+      ? [{ table: "advertising_consent", ids: [...overruled].map((row) => String(row.id)) }]
+      : [];
+
     const moved: { label: string; n: number }[] = [];
     const recorded: MovedRows[] = [];
-    for (const ref of [...MOVES, ...HISTORY]) {
+    const stayed: StayedRows[] = [];
+    for (const ref of [...MOVES, ...HISTORY, ...REFERENCES]) {
+      const only = ref.only ? sql`and ${ref.only}` : sql``;
       const rows = await tx.execute<{ id: string }>(sql`
-        update ${sql.identifier(ref.table)}
+        update ${sql.identifier(ref.table)} as t
         set ${sql.identifier(ref.column)} = ${input.keepId}
-        where ${sql.identifier(ref.column)} = ${input.mergeId}
-          and organization_id = ${ctx.actor.organizationId}
-        returning id`);
+        where t.${sql.identifier(ref.column)} = ${input.mergeId}
+          and t.organization_id = ${ctx.actor.organizationId}
+          ${only}
+          ${ref.unless ? sql`and not (${ref.unless(input.keepId)})` : sql``}
+        returning t.id`);
       const ids = [...rows].map((row) => String(row.id));
       if (ids.length > 0) {
         moved.push({ label: ref.label, n: ids.length });
         recorded.push({ table: ref.table, column: ref.column, label: ref.label, ids });
+      }
+      if (ref.unless) {
+        const left = await tx.execute<{ id: string }>(sql`
+          select t.id from ${sql.identifier(ref.table)} as t
+          where t.${sql.identifier(ref.column)} = ${input.mergeId}
+            and t.organization_id = ${ctx.actor.organizationId}
+            ${only}`);
+        const leftIds = [...left].map((row) => String(row.id));
+        if (leftIds.length > 0) {
+          stayed.push({ table: ref.table, column: ref.column, label: ref.label, ids: leftIds, why: ref.why ?? "" });
+        }
       }
     }
 
@@ -308,6 +515,8 @@ export async function merge(
       mergedByUserId: ctx.actor.userId,
       reason: input.reason?.trim() || null,
       moved: recorded,
+      stayed,
+      superseded,
       removedLinks,
       filled,
       tagsAdded,
@@ -316,6 +525,8 @@ export async function merge(
     await audit(tx, ctx, "customer.merged", "customer", input.keepId, loser, {
       keptId: input.keepId, mergedId: input.mergeId, mergeRecordId: record!.id,
       moved, filled, tagsAdded, reason: input.reason?.trim() || null,
+      stayed: stayed.map(({ label, ids, why }) => ({ label, n: ids.length, why })),
+      superseded,
     });
 
     const answer: MergeAnswer = {
@@ -324,6 +535,7 @@ export async function merge(
       mergeRecordId: record!.id,
       name: after!.name,
       moved,
+      stayed: stayed.map(({ label, ids, why }) => ({ label, n: ids.length, why })),
       /** Which blank fields on the survivor were filled from the duplicate. */
       filled: Object.keys(filled),
       tagsAdded,
@@ -334,6 +546,10 @@ export async function merge(
 }
 
 type MovedRows = { table: string; column: string; label: string; ids: string[] };
+type StayedRows = MovedRows & { why: string };
+
+/** Rows of the duplicate a merge left with it, counted, with why. */
+export interface Stayed { label: string; n: number; why: string }
 
 export interface MergeAnswer {
   keptId: string;
@@ -342,6 +558,8 @@ export interface MergeAnswer {
   mergeRecordId: string;
   name: string;
   moved: { label: string; n: number }[];
+  /** What stayed with the duplicate, and why: never silently. */
+  stayed: Stayed[];
   filled: string[];
   tagsAdded: string[];
 }
@@ -355,13 +573,15 @@ export interface MergeAnswer {
  * a guess, and putting one on the wrong person's account is worse than a
  * merge that stands. The ledger is here because a payment, a void or a
  * refund on an invoice the merge moved posts to it.
+ *
+ * An agreement to charge a saved card is here too, though it is not money
+ * yet: given since, for a card the merge moved, it would stay with the
+ * survivor while its card went back, an agreement to charge a card that is
+ * no longer theirs.
  */
 const MONEY_SINCE: Ref[] = [
   ...MONEY,
-  { table: "credit_note", column: "customer_id", label: "credit notes" },
-  { table: "credit_note_payout", column: "customer_id", label: "credit payouts" },
-  { table: "card_on_file_charge", column: "customer_id", label: "card charges" },
-  { table: "financing_application", column: "customer_id", label: "financing applications" },
+  { table: "payment_agreement", column: "customer_id", label: "card payment agreements" },
 ];
 
 type MergeRow = typeof schema.customerMerge.$inferSelect;
@@ -483,6 +703,7 @@ export interface MergeView {
   by: { userId: string; name: string | null } | null;
   reason: string | null;
   moved: { label: string; n: number }[];
+  stayed: Stayed[];
   filled: string[];
   tagsAdded: string[];
   undone: { at: string; by: { userId: string; name: string | null } | null; reason: string | null } | null;
@@ -528,6 +749,7 @@ export async function merges(ctx: ServiceContext, input: { id: string }): Promis
         by: who(row.mergedByUserId),
         reason: row.reason,
         moved: row.moved.map((g) => ({ label: g.label, n: g.ids.length })),
+        stayed: row.stayed.map((g) => ({ label: g.label, n: g.ids.length, why: g.why })),
         filled: Object.keys(row.filled),
         tagsAdded: row.tagsAdded,
         undone: row.undoneAt
@@ -606,6 +828,27 @@ export async function undoMerge(
         on conflict (id) do nothing`);
     }
 
+    /**
+     * A yes to advertising the merge superseded with the duplicate's no is
+     * the kept record's live answer again, now the no has gone back with the
+     * duplicate. Unless somebody recorded a new answer on the kept record
+     * since: that one is live, and it stands.
+     */
+    let answersRestored = 0;
+    for (const group of merge.superseded) {
+      if (group.table !== "advertising_consent") continue;
+      const rows = await tx.execute<{ id: string }>(sql`
+        update public.advertising_consent k
+        set superseded_at = null, updated_at = now()
+        where k.id = any(${sql.param(group.ids)}::uuid[])
+          and k.customer_id = ${merge.keptCustomerId}
+          and k.organization_id = ${ctx.actor.organizationId}
+          and not exists (select 1 from public.advertising_consent x
+            where x.customer_id = ${merge.keptCustomerId} and x.superseded_at is null)
+        returning k.id`);
+      answersRestored += [...rows].length;
+    }
+
     const filledCleared: string[] = [];
     const filledKept: string[] = [];
     const clear: Record<string, null> = {};
@@ -645,7 +888,7 @@ export async function undoMerge(
       tagsRemoved,
     };
     await audit(tx, ctx, "customer.merge_undone", "customer", merge.keptCustomerId, null, {
-      ...answer, reason: input.reason?.trim() || null, mergedAt: merge.createdAt.toISOString(),
+      ...answer, answersRestored, reason: input.reason?.trim() || null, mergedAt: merge.createdAt.toISOString(),
     });
     await remember(tx, ctx, "customer_merge_undo", merge.id, answer);
     return answer;

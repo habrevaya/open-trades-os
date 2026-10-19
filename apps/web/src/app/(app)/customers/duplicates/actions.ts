@@ -19,7 +19,11 @@ export async function mergePair(_previous: FormState, form: FormData): Promise<F
       keepId: field(form, "keepId"), mergeId: field(form, "mergeId"),
     });
     const done = await customerLifecycle.merge(await ctx(), { keepId: input.keepId, mergeId: input.mergeId });
-    return { message: `Merged into ${done.name}.` };
+    return {
+      message: done.stayed.length > 0
+        ? `Merged into ${done.name}. A few records stayed with the duplicate. ${done.name}'s page says which and why.`
+        : `Merged into ${done.name}.`,
+    };
   });
   revalidatePath("/customers/duplicates");
   return state;

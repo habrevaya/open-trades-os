@@ -12,7 +12,7 @@ import { enforceWithin, listFilter } from "./custom-fields";
 import { layoutForNew } from "./proposal-templates";
 import { admitDate, requireImport } from "./history";
 import { estimateScopeFilter, estimateBranchFilter } from "./scope";
-import { textFilter } from "./text-search";
+import { closeMatching, textFilter } from "./text-search";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { inForceAt } from "./pricebook";
@@ -509,8 +509,14 @@ export async function assertEstimateVisible(tx: Database, ctx: ServiceContext, i
   if (!visible) throw new NotFoundError("Estimate");
 }
 
-export async function list(ctx: ServiceContext, input: z.infer<typeof listEstimates.input>) {
+/**
+ * `close` is the search box's second look, after its exact one: each word may
+ * also be close to one that is written (`text-search.ts`). Not on the API.
+ */
+type Looking = { close?: boolean | undefined };
+export async function list(ctx: ServiceContext, input: z.infer<typeof listEstimates.input> & Looking) {
   return guardedRead(ctx, "estimate:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
     const after = decodeCursor(input.cursor);
     const rows = await tx.select({
       id: schema.estimate.id,
@@ -551,16 +557,16 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
         // finds the estimate whose best option is one, whatever it is called.
         textFilter(input.q, [
           schema.customer.name, schema.estimate.title,
-          (pattern) => sql`exists (
+          (match) => sql`exists (
             select 1 from public.estimate_option so
             where so.estimate_id = ${schema.estimate.id}
-              and (so.name ilike ${pattern} or so.description ilike ${pattern})
+              and (${match(sql`so.name`)} or ${match(sql`so.description`)})
           )`,
-          (pattern) => sql`exists (
+          (match) => sql`exists (
             select 1 from public.estimate_line sl
             join public.estimate_option slo on slo.id = sl.option_id
             where slo.estimate_id = ${schema.estimate.id}
-              and (sl.name ilike ${pattern} or sl.description ilike ${pattern})
+              and (${match(sql`sl.name`)} or ${match(sql`sl.description`)})
           )`,
         ], schema.estimate.number),
         await listFilter(tx, ctx.actor.organizationId, "estimate", input, sql`${schema.estimate.customFields}`),

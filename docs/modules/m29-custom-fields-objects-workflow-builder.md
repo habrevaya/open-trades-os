@@ -447,7 +447,10 @@ customer) or the customer's name; invoices by their number, the customer's name,
 the memo, or what any line says (its name or its description); estimates by
 their number, their title, the customer's name, or what any option or any line
 says; addresses by their street; units by the serial on their sticker or their
-make and model; and the company's own records by their name or any value. Every
+make and model; a customer's notes by what they say; price book items by their
+name, code or description; the company's people by their name, their email or
+the name they go by on the board; and the company's own records by their name
+or any value. Every
 word typed has to be somewhere, and each word may be in a different place
 ("smith furnace" finds the Smiths' job when "furnace" is only in a technician's
 note on it, either way round). A number on its own is also a job's, an invoice's
@@ -470,15 +473,45 @@ the address: at a restricted scope an address is found only when a job the reade
 can see is at it, and a unit only at such an address. An address or a unit in the
 box says where and what, never whose.
 
+**A typo is forgiven, after what was typed.** Each group is read as typed
+first. When that finds fewer than the group shows, it is read again with each
+word of four letters or more allowed to be one letter off a word that is
+written (a letter wrong, missing or extra), or two letters off for a word of
+eight or more: "furnice" finds the furnace job, "jonson" finds the Johnsons,
+"thermstat" finds the thermostat. Those come after every exact match, marked
+"Close to what you typed" (`close` on the API), so a guess is never taken for
+what was asked. A number is never guessed at, because one digit off is a
+different invoice or a different house, and neither is a word of three letters
+or anything with a digit in it. The trigram indexes the box already uses hand
+over the candidates (pg_trgm's strict word similarity, at a low bar), and the
+letters are counted only on those (`app.has_close_word`, with Postgres's
+`fuzzystrmatch`), so the second look stays an index read; it is taken only when
+the first came up short, and never for a query with no word long enough. Close
+matches go through the same lists with the same permission and scope as exact
+ones, so a typo finds nothing a correct spelling would not.
+
+**Notes, prices and people.** A customer's notes are a group of their own for
+whoever holds `customer:read`, found through the customer under the reader's
+customer scope exactly as the customer's page lists them: a branch manager
+their branch's customers' notes, a technician only the notes marked for the
+field on customers they were sent to. Each hit is the customer, with the part
+of the note around the word, and opens the customer's page. Price book items
+are a group for `pricebook:read`, opening the item. The company's people are a
+group for `user:read`, narrowed the way the people list is (a branch manager
+finds their branch's people), and somebody who has left is listed after
+everybody who is here, saying so.
+
 Five of each, and a group with more says "See all", which opens its own list
 filtered by the same words: `/customers?q=`, `/jobs?q=`, `/invoices?q=`,
-`/estimates?q=` and `/records/{type}?q=`, each with a search box of its own that
+`/estimates?q=`, `/pricebook?q=` and `/records/{type}?q=`, each with a search box of its own that
 reads words the same way (`q` on `GET /v1/customers`, `GET /v1/jobs`,
 `GET /v1/invoices`, `GET /v1/estimates` and `GET /v1/custom-records`). A kind
 of record's list matches each word in the record's name or in one of its
-values, not in the keys the values are stored under. Addresses and units have no list
-screen, so theirs is the search page showing that group alone, at up to fifty
-(`/search?q=...&in=addresses`, `in` on the API).
+values, not in the keys the values are stored under. Addresses, units, customer
+notes and people have no list screen searched by words, so theirs is the search
+page showing that group alone, at up to fifty (`/search?q=...&in=addresses`,
+`in` on the API). "See all" and `more` are about the exact matches: the lists
+behind them read words exactly, and the close ones are only in the box.
 
 On a technician's day, in the phone app and on `/my-day`, each visit lists the
 company's records pointing at its job or at a unit recorded on the visit, of the
@@ -651,7 +684,7 @@ second is a much smaller list of people.
 | `PATCH /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own; a new link also needs the permission that reads what it points at (`job:read`, `customer:read`, `property:read`, `equipment:read`, `invoice:read`, `user:read` for anybody but yourself) |
 | `DELETE /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/custom-objects/{key}/export` | `record:read` and the kind's own |
-| `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read`, `job:read`, `invoice:read`, `estimate:read`, `property:read`, `equipment:read`, `record:read` and the kind's own) |
+| `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read` for customers and their notes, `job:read`, `invoice:read`, `estimate:read`, `property:read`, `equipment:read`, `pricebook:read`, `user:read` for people, `record:read` and the kind's own) |
 | `POST /v1/custom-objects/{key}/import` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/workflows` | `workflow:read` |
 | `GET /v1/workflows/{id}/runs` | `workflow:read` |
@@ -745,11 +778,15 @@ opening that form from that record's page, or afterwards on the record's own pag
 a kind of record by its fields, its month, its customer and its job type, and not by
 another record's fields, its invoice, its person or the record it points at.
 
-The search box matches pieces of words, not meanings or misspellings: "furn"
-finds "Furnace" and "furnice" finds nothing, because there is no stemming and no
-fuzzy match. It looks in a visit's notes only to find the visit's job, and does
-not list visits, people, price book items or messages. A customer's notes
-(M03) are not searched, nor is the text of an attached file.
+The search box matches pieces of words, and words a letter or two off, not
+meanings or sounds: "furnice" finds "Furnace" but "fone" does not find "phone",
+and there is no stemming. Only the box forgives a typo: the lists behind "See
+all", and `q` on the list routes, match words exactly, so a group of only close
+matches has no "See all" to more of them. A number, a word of three letters
+and a word with a digit in it are matched only as typed. Close matches are
+listed after the exact ones in each list's own order, not ranked by how close
+they are. The box looks in a visit's notes only to find the visit's job, and
+does not list visits or messages, nor read the text of an attached file.
 Addresses and units are narrowed by scope in the search box only: the address
 list (`GET /v1/properties`) and a unit's page read the whole company for anybody
 holding `property:read` or `equipment:read`, as they did before, and narrowing

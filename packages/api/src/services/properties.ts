@@ -9,7 +9,7 @@ import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import * as taxRates from "./tax";
 import { propertyVisibility } from "./scope";
-import { textFilter } from "./text-search";
+import { closeMatching, textFilter } from "./text-search";
 import type {
   listProperties, getProperty, createProperty, linkCustomerToProperty,
 } from "../contracts/properties";
@@ -191,15 +191,17 @@ export async function list(ctx: ServiceContext, input: ListInput) {
  * the address list above does not do and the search box must, because a
  * street is the first thing anybody types into it.
  */
-export async function findByStreet(ctx: ServiceContext, input: { q: string; limit: number }) {
+export async function findByStreet(ctx: ServiceContext, input: { q: string; limit: number; close?: boolean | undefined }) {
   return guardedRead(ctx, "property:read", async (tx) => {
+    /** The search box's second look, close as well as exact (`text-search.ts`). */
+    if (input.close) await closeMatching(tx);
     const rows = await tx.select({
       id: schema.property.id, line1: schema.property.addressLine1, line2: schema.property.addressLine2,
       city: schema.property.city, state: schema.property.state, postalCode: schema.property.postalCode,
     }).from(schema.property)
       .where(and(
         isNull(schema.property.deletedAt),
-        textFilter(input.q, [schema.property.addressLine1, schema.property.addressLine2]) ?? sql`false`,
+        textFilter(input.q, [schema.property.addressLine1, schema.property.addressLine2], undefined, { close: input.close }) ?? sql`false`,
         propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.property.id}`),
       ))
       .orderBy(schema.property.addressLine1, schema.property.id)

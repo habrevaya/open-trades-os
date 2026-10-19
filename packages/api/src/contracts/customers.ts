@@ -235,6 +235,9 @@ export const updateCustomer = defineRoute({
 
 export const BlockingCount = z.object({ label: z.string(), n: z.number().int() });
 
+/** The duplicate's rows a merge left with it, counted, with why in words. */
+const StayedCount = z.object({ label: z.string(), n: z.number().int(), why: z.string() });
+
 export const getCustomerDeletability = defineRoute({
   method: "get",
   path: "/v1/customers/{id}/deletability",
@@ -269,7 +272,7 @@ export const mergeCustomers = defineRoute({
   path: "/v1/customers/{keepId}/merge",
   summary: "Join two records that are the same person",
   description:
-    "EVERYTHING MOVES, including the money, which is the difference between this and removing: a merge does not discard a history, it re-parents one, so the invoices raised against the duplicate become invoices against the survivor and the balance is right for the first time. The duplicate is soft deleted and keeps a pointer to the survivor, because an id that stops resolving breaks a link somebody emailed, an integration that stored it and every audit row naming it. The response says what moved and which blank fields on the survivor were filled in from the duplicate.",
+    "EVERYTHING MOVES, including the money, which is the difference between this and removing: a merge does not discard a history, it re-parents one, so the invoices raised against the duplicate become invoices against the survivor and the balance is right for the first time. Projects, credit notes, statements sent, saved cards (the processor's reference, never the card), files, tasks and every other table naming a customer move too, inside the one company and the one transaction; only the ledger, which is append only, stays where it was posted. The duplicate is soft deleted and keeps a pointer to the survivor, because an id that stops resolving breaks a link somebody emailed, an integration that stored it and every audit row naming it. The response says what moved, what stayed with the duplicate and why (`stayed`: a statement for a month the survivor already has one for, a piece in a mailing the survivor was also sent, a card that pays automatically when the survivor already pays automatically with another), and which blank fields on the survivor were filled in from the duplicate.",
   module: "M03",
   permissions: ["customer:merge"],
   idempotent: true,
@@ -281,6 +284,8 @@ export const mergeCustomers = defineRoute({
     mergeRecordId: Uuid,
     name: z.string(),
     moved: z.array(BlockingCount),
+    /** The duplicate's rows that stayed with it, and why. */
+    stayed: z.array(StayedCount),
     filled: z.array(z.string()),
     /** The duplicate's tags added to the record kept, as they were added. */
     tagsAdded: z.array(z.string()),
@@ -307,6 +312,7 @@ export const getCustomerMerges = defineRoute({
       by: Who.nullable(),
       reason: z.string().nullable(),
       moved: z.array(BlockingCount),
+      stayed: z.array(StayedCount),
       filled: z.array(z.string()),
       tagsAdded: z.array(z.string()),
       undone: z.object({ at: z.string().datetime(), by: Who.nullable(), reason: z.string().nullable() }).nullable(),

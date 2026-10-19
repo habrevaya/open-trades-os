@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { searchTerms, containsPattern, isSearchable, MAX_WORDS } from "../src/search/index.js";
+import {
+  searchTerms, containsPattern, isSearchable, closeWords, closeEdits, MAX_WORDS, CLOSE_MIN_LENGTH, CLOSE_SIMILARITY,
+} from "../src/search/index.js";
 
 /**
  * WHAT THE SEARCH BOX READS FROM WHAT WAS TYPED
@@ -39,5 +41,26 @@ describe("search terms", () => {
     expect(isSearchable("a")).toBe(false);
     expect(isSearchable(" ab ")).toBe(true);
     expect(isSearchable(undefined)).toBe(false);
+  });
+});
+
+describe("close to what was typed", () => {
+  it("forgives words of four letters or more, letters only, and matches the rest only as typed", () => {
+    expect(closeWords(searchTerms("oak furnice"))).toEqual(["furnice"]);
+    expect(closeWords(searchTerms("ab 12"))).toEqual([]);
+    expect(closeWords(searchTerms("1042 zx-200 thermstat"))).toEqual(["thermstat"]);
+    expect(closeWords(searchTerms("Señor"))).toEqual(["señor"]);
+    expect(CLOSE_MIN_LENGTH).toBe(4);
+  });
+
+  it("allows one letter off, and two in a long word", () => {
+    expect(closeEdits("pipe")).toBe(1);
+    expect(closeEdits("furnice")).toBe(1);
+    expect(closeEdits("thermstat")).toBe(2);
+  });
+
+  it("narrows by trigrams loosely enough that one letter off always gets through", () => {
+    expect(CLOSE_SIMILARITY).toBeLessThanOrEqual(0.25);
+    expect(CLOSE_SIMILARITY).toBeGreaterThan(0);
   });
 });

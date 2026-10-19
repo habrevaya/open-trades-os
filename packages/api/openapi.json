@@ -45009,7 +45009,7 @@
       "post": {
         "operationId": "mergeCustomers",
         "summary": "Join two records that are the same person",
-        "description": "EVERYTHING MOVES, including the money, which is the difference between this and removing: a merge does not discard a history, it re-parents one, so the invoices raised against the duplicate become invoices against the survivor and the balance is right for the first time. The duplicate is soft deleted and keeps a pointer to the survivor, because an id that stops resolving breaks a link somebody emailed, an integration that stored it and every audit row naming it. The response says what moved and which blank fields on the survivor were filled in from the duplicate.\n\nRequires a session holding: customer:merge.",
+        "description": "EVERYTHING MOVES, including the money, which is the difference between this and removing: a merge does not discard a history, it re-parents one, so the invoices raised against the duplicate become invoices against the survivor and the balance is right for the first time. Projects, credit notes, statements sent, saved cards (the processor's reference, never the card), files, tasks and every other table naming a customer move too, inside the one company and the one transaction; only the ledger, which is append only, stays where it was posted. The duplicate is soft deleted and keeps a pointer to the survivor, because an id that stops resolving breaks a link somebody emailed, an integration that stored it and every audit row naming it. The response says what moved, what stayed with the duplicate and why (`stayed`: a statement for a month the survivor already has one for, a piece in a mailing the survivor was also sent, a card that pays automatically when the survivor already pays automatically with another), and which blank fields on the survivor were filled in from the duplicate.\n\nRequires a session holding: customer:merge.",
         "tags": [
           "M03"
         ],
@@ -125689,8 +125689,8 @@
       ],
       "get": {
         "operationId": "searchEverything",
-        "summary": "Find customers, jobs, invoices, estimates, addresses, units and the company's own records",
-        "description": "Every word of `q` has to be somewhere in what each group searches, and a number on its own (`1042` or `#1042`) is also a document's number. Customers by name, email and phone (`customer:read`); jobs by number, summary, description, the customer's words from intake, visit notes and customer name (`job:read`); invoices by number, memo, line names and descriptions and customer name (`invoice:read`); estimates by number, title, option and line names and descriptions and customer name (`estimate:read`); addresses by street (`property:read`); units by serial, make and model (`equipment:read`); and each kind of record by its name and values, word by word (`record:read` and the kind's own read permission). Every part is held to the caller's scope as its own list is: addresses and units by the work at the address, the way customers are. A part the caller may not read is left out. At most five of each with `more` and a `seeAll` link to the list filtered by the same words, and nothing for fewer than two characters. `in` asks for one of the first six groups alone, at up to fifty.\n\nRequires a session. No further permission is checked.",
+        "summary": "Find customers, jobs, invoices, estimates, addresses, units, customer notes, price book items, people and the company's own records",
+        "description": "Every word of `q` has to be somewhere in what each group searches, and a number on its own (`1042` or `#1042`) is also a document's number. Customers by name, email and phone (`customer:read`); jobs by number, summary, description, the customer's words from intake, visit notes and customer name (`job:read`); invoices by number, memo, line names and descriptions and customer name (`invoice:read`); estimates by number, title, option and line names and descriptions and customer name (`estimate:read`); addresses by street (`property:read`); units by serial, make and model (`equipment:read`); customer notes by what they say (`customer:read`, through the customer's scope, and only the notes marked for the field at a technician's scope); price book items by name, code and description (`pricebook:read`); people by name, email and the name they go by on the board (`user:read`, through the people scope); and each kind of record by its name and values, word by word (`record:read` and the kind's own read permission). Every part is held to the caller's scope as its own list is: addresses and units by the work at the address, the way customers are. A part the caller may not read is left out. Each group is read as typed first; when that finds fewer than the group shows, it is read again with each word of four letters or more allowed to be one letter off a written word (two for a word of eight or more), and those hits come after every exact one with `close: true`. Numbers are never matched close. At most five of each with `more` (more exact matches) and a `seeAll` link to the list filtered by the same words, and nothing for fewer than two characters. `in` asks for one group alone, at up to fifty.\n\nRequires a session. No further permission is checked.",
         "tags": [
           "M29"
         ],
@@ -125716,14 +125716,17 @@
                 "invoices",
                 "estimates",
                 "addresses",
-                "units"
+                "units",
+                "notes",
+                "pricebook",
+                "people"
               ]
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Find customers, jobs, invoices, estimates, addresses, units and the company's own records",
+            "description": "Find customers, jobs, invoices, estimates, addresses, units, customer notes, price book items, people and the company's own records",
             "content": {
               "application/json": {
                 "schema": {
@@ -188718,6 +188721,28 @@
                     ]
                   }
                 },
+                "stayed": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "n",
+                      "why"
+                    ]
+                  }
+                },
                 "filled": {
                   "type": "array",
                   "items": {
@@ -188797,6 +188822,7 @@
                 "by",
                 "reason",
                 "moved",
+                "stayed",
                 "filled",
                 "tagsAdded",
                 "undone",
@@ -246810,6 +246836,28 @@
               ]
             }
           },
+          "stayed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "n": {
+                  "type": "integer"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "n",
+                "why"
+              ]
+            }
+          },
           "filled": {
             "type": "array",
             "items": {
@@ -246829,6 +246877,7 @@
           "mergeRecordId",
           "name",
           "moved",
+          "stayed",
           "filled",
           "tagsAdded"
         ]
@@ -270014,13 +270063,17 @@
                       },
                       "href": {
                         "type": "string"
+                      },
+                      "close": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
                       "id",
                       "title",
                       "detail",
-                      "href"
+                      "href",
+                      "close"
                     ]
                   }
                 },

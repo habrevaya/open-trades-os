@@ -70,7 +70,10 @@ is re-priced for the company's own market.
 ### Look something up
 
 `GET /v1/pricebook/items` takes a search and a category, and `/pricebook` is the
-same list. Cost and margin appear only for a reader holding
+same list. The search reads words the way every list does (M29): each word in
+the name, the code or the description, in any order, and a typed `%` is the
+character it is. The search box at the top of the menu finds items too, by the
+same words or a letter off them, for whoever holds `pricebook:read`. Cost and margin appear only for a reader holding
 `pricebook.cost:read`.
 
 ### Add or change an item

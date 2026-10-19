@@ -46,6 +46,10 @@ function singular(label: string): string {
     "property links": "property link", "invoices they pay for": "invoice they pay for",
     "consent records": "consent record", "ledger entries": "ledger entry", "deliveries": "delivery",
     "deficiencies": "deficiency", "addresses": "address",
+    "coverage claims they pay": "coverage claim they pay", "referral rewards for them": "referral reward for them",
+    "statements sent": "statement sent", "ad conversions sent": "ad conversion sent",
+    "customers they referred": "customer they referred", "referrals they made": "referral they made",
+    "reviews matched to them": "review matched to them", "files they uploaded": "file they uploaded",
   };
   if (irregular[label]) return irregular[label]!;
   return label.endsWith("s") ? label.slice(0, -1) : label;

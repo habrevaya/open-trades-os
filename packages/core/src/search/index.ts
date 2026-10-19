@@ -23,6 +23,23 @@
  * A WORD IS NEVER A PATTERN. `%` and `_` are what LIKE reads as "anything",
  * so typing `%` would match every row. They are escaped here, once, rather
  * than at each list that would otherwise forget.
+ *
+ * A TYPO IS FORGIVEN, BELOW WHAT WAS TYPED. "furnice" is what somebody types
+ * with a customer on the phone, and finding nothing sends them to a slower
+ * way round. So the search box, after the exact matches, also offers rows
+ * where each word is either there or one letter off a word that is there
+ * (two letters off for a word of eight or more): a letter wrong, missing or
+ * extra, which is what a typo is. Close matches come after every exact one
+ * and are marked as close, so a person never mistakes a guess for what they
+ * typed.
+ *
+ * Only words of `CLOSE_MIN_LENGTH` letters or more, and only words made of
+ * letters: three letters are one letter off half the dictionary ("oak" and
+ * "oat"), and a number one digit off is a different invoice, a different
+ * house and a different phone, never a typo worth guessing at.
+ *
+ * Letters, not sounds or meanings: the distance counts letters changed, so
+ * "jonson" finds "Johnson" and "fone" does not find "phone".
  */
 
 /** More words than this narrow nothing a person meant and cost a join each. */
@@ -57,6 +74,27 @@ export function searchTerms(q: string | undefined | null): SearchTerms {
 export function containsPattern(word: string): string {
   return `%${word.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
+
+/** The shortest word a close match is looked for: shorter words are matched as typed, or not at all. */
+export const CLOSE_MIN_LENGTH = 4;
+
+/** From this many letters a word may be two letters off rather than one. */
+export const TWO_OFF_FROM = 8;
+
+/** How many letters a word may be off and still be close: one, or two for a long word. */
+export const closeEdits = (word: string): number => ([...word].length >= TWO_OFF_FROM ? 2 : 1);
+
+/**
+ * The trigram similarity a written word has to reach before its letters are
+ * counted at all. It only narrows what the index hands over, and is low
+ * enough that a word one letter off always reaches it ("tank" and "tonk" are
+ * 0.25 by pg_trgm's strict word similarity); the letters decide.
+ */
+export const CLOSE_SIMILARITY = 0.25;
+
+/** The words of a query a close match is looked for, in the order typed: four letters or more, letters only. */
+export const closeWords = (terms: SearchTerms): string[] =>
+  terms.words.filter((word) => [...word].length >= CLOSE_MIN_LENGTH && /^\p{L}+$/u.test(word));
 
 /** Nothing to search for: the box asks for two characters before it looks. */
 export const MIN_LENGTH = 2;

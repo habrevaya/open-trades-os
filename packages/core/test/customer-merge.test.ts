@@ -20,6 +20,14 @@ describe("what is in the way, in words", () => {
     expect(counted([{ label: "jobs", n: 0 }])).toBe("");
   });
 
+  it("says one of a label whose plural is not at its end", () => {
+    expect(counted([{ label: "statements sent", n: 1 }])).toBe("1 statement sent");
+    expect(counted([{ label: "coverage claims they pay", n: 1 }, { label: "files they uploaded", n: 1 }]))
+      .toBe("1 coverage claim they pay and 1 file they uploaded");
+    expect(counted([{ label: "mail pieces", n: 1 }, { label: "portal sign ins", n: 1 }]))
+      .toBe("1 mail piece and 1 portal sign in");
+  });
+
   it("says nothing when nothing is in the way", () => {
     expect(reasons({ moneySince: [], movedAway: [{ label: "jobs", n: 0 }] }, names)).toEqual([]);
   });

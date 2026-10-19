@@ -6,6 +6,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { comms, consent, contacts, customerLifecycle, portal, customers, ConflictError, NotFoundError } from "@opentradesos/api/services";
 import { issuePortalGrant } from "@opentradesos/api/contracts";
+import { customerMerge } from "@opentradesos/core";
 import { attempt, field, parsed, type FormState, refused } from "@/lib/actions";
 import { sourceFrom } from "@/lib/lead-source";
 
@@ -190,6 +191,7 @@ export async function mergeCustomer(_previous: unknown, form: FormData) {
   return {
     done: true,
     moved: result.moved.map((m) => `${m.n} ${m.label}`),
+    stayed: result.stayed.map((m) => `${customerMerge.counted([m])}: ${m.why}`),
     filled: result.filled,
   };
 }

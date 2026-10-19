@@ -11,7 +11,7 @@ import { emit } from "./events";
 import { customerScopeFilter, invoiceScopeFilter, jobVisibility, propertyVisibility } from "./scope";
 import { members } from "./people-scope";
 import { remember, replayed } from "./once";
-import { textFilter } from "./text-search";
+import { closeMatching, textFilter } from "./text-search";
 
 /**
  * A COMPANY'S OWN KINDS OF RECORD
@@ -637,6 +637,8 @@ export interface ListRecordsInput {
   linkedRecordId?: string | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
+  /** The search box's second look: each word close as well as exact (`text-search.ts`). Not on the API. */
+  close?: boolean | undefined;
 }
 
 /**
@@ -649,6 +651,8 @@ export interface ListRecordsInput {
 export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) {
   gate(ctx, false);
   return inTenant(ctx, async (tx) => {
+    /** The search box's second look, close as well as exact (`text-search.ts`). */
+    if (input.close) await closeMatching(tx);
     const kind = await kindFor(tx, ctx, input.type, false);
     const byField = await listFilter(tx, ctx.actor.organizationId, rules.entityTypeFor(kind.key),
       input, sql`${schema.customObjectRecord.customFields}`);
@@ -668,11 +672,11 @@ export async function listRecords(ctx: ServiceContext, input: ListRecordsInput) 
          */
         textFilter(input.q, [
           schema.customObjectRecord.title,
-          (pattern) => sql`exists (
+          (match) => sql`exists (
             select 1 from jsonb_each_text(${schema.customObjectRecord.customFields}) rv
-            where rv.value ilike ${pattern}
+            where ${match(sql`rv.value`)}
           )`,
-        ]),
+        ], undefined, { close: input.close }),
         byField,
         input.customerId ? eq(schema.customObjectRecord.customerId, input.customerId) : undefined,
         input.propertyId ? eq(schema.customObjectRecord.propertyId, input.propertyId) : undefined,

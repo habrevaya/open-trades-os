@@ -11,7 +11,7 @@ import * as retainage from "./retainage";
 import { enforceWithin, listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
-import { textFilter } from "./text-search";
+import { closeMatching, textFilter } from "./text-search";
 import { inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
@@ -1400,8 +1400,14 @@ export async function get(ctx: ServiceContext, input: z.infer<typeof getInvoice.
   });
 }
 
-export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoices.input>) {
+/**
+ * `close` is the search box's second look, after its exact one: each word may
+ * also be close to one that is written (`text-search.ts`). Not on the API.
+ */
+type Looking = { close?: boolean | undefined };
+export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoices.input> & Looking) {
   return guardedRead(ctx, "invoice:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
     const cursor = decodeCursor(input.cursor);
     const rows = await tx
       .select({ invoice: schema.invoice, customerName: schema.customer.name })
@@ -1422,12 +1428,12 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listInvoic
         // reads on it), so "water heater" finds the invoice that charged one.
         textFilter(input.q, [
           schema.customer.name, schema.invoice.memo,
-          (pattern) => sql`exists (
+          (match) => sql`exists (
             select 1 from public.invoice_line sl
             where sl.invoice_id = ${schema.invoice.id}
-              and (sl.name ilike ${pattern} or sl.description ilike ${pattern})
+              and (${match(sql`sl.name`)} or ${match(sql`sl.description`)})
           )`,
-        ], schema.invoice.number),
+        ], schema.invoice.number, { close: input.close }),
         await listFilter(tx, ctx.actor.organizationId, "invoice", input, sql`${schema.invoice.customFields}`),
         cursor ? lt(schema.invoice.createdAt, new Date(cursor)) : undefined,
       ))

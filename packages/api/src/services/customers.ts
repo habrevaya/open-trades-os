@@ -9,7 +9,7 @@ import {
 import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { customerScopeFilter, customerBranchFilter } from "./scope";
-import { textFilter } from "./text-search";
+import { closeMatching, textFilter } from "./text-search";
 import { emit } from "./events";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
@@ -78,8 +78,14 @@ function tagFilter(input: ListInput) {
 /**
  * The exemplar service. Every other one follows this shape.
  */
-export async function list(ctx: ServiceContext, input: ListInput) {
+/**
+ * `close` is the search box's second look, after its exact one: each word may
+ * also be close to one that is written (`text-search.ts`). Not on the API.
+ */
+type Looking = { close?: boolean | undefined };
+export async function list(ctx: ServiceContext, input: ListInput & Looking) {
   return guardedRead(ctx, "customer:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
     const cursor = decodeCursor(input.cursor);
     /**
      * The custom fields the list was asked for, every one of which has to
@@ -104,7 +110,7 @@ export async function list(ctx: ServiceContext, input: ListInput) {
       // Trigram search across the three things a CSR actually types while
       // somebody is on the phone, every word somewhere in one of them, so
       // "smith john" finds John Smith and a typed `%` is a percent sign.
-      textFilter(input.q, [schema.customer.name, schema.customer.email, schema.customer.phone]),
+      textFilter(input.q, [schema.customer.name, schema.customer.email, schema.customer.phone], undefined, { close: input.close }),
       tagFilter(input),
       byField,
       // A branch somebody picked: customers that branch has done work for.
