@@ -8,7 +8,7 @@ import { Crumb, Facts, Fact } from "@/components/Detail";
 import { ActionForm, TextField, Select, TextArea } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import { CLAIM_TONE } from "../labels";
-import { decideClaim, recordClaimPayment } from "../actions";
+import { billClaimRest, decideClaim, recordClaimPayment } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +31,14 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const decides = can(user.actor, "invoice:write") && (claim.status === "submitted" || claim.status === "approved")
     && claim.paidAmount === "0.0000";
   const collects = can(user.actor, "payment:collect") && claim.status !== "denied" && claim.status !== "paid";
+  /**
+   * The rest, once the payer is done with the claim and paid less than was
+   * claimed: billed to the customer by a person pressing the button, or why
+   * it cannot be yet. Nothing is said while the payer is still deciding.
+   */
+  const done = claim.status === "paid" || claim.status === "short_paid" || claim.status === "denied";
+  const unpaid = Number(claim.claimedAmount) - Number(claim.paidAmount) > 0;
+  const billsOn = can(user.actor, "invoice:write");
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -58,6 +66,35 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           <a href={`/invoices/${claim.invoiceId}`} className="underline">the invoice</a>, to chase or write off there.
         </p>
       )}
+
+      {claim.billedInvoice ? (
+        <section aria-label="Billed to the customer" className="mt-8">
+          <h2 className="text-base font-semibold">Billed to the customer</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            The rest, <Money value={claim.billedInvoice.total} />, is on{" "}
+            <a href={`/invoices/${claim.billedInvoice.id}`} className="font-medium underline">invoice {claim.billedInvoice.number}</a>
+            {claim.billedInvoice.status === "draft" ? ", still a draft. Read it and issue it when you have spoken to the customer." : "."}
+          </p>
+        </section>
+      ) : done && unpaid ? (
+        <section aria-label="Bill the rest to the customer" className="mt-8">
+          <h2 className="text-base font-semibold">Bill the rest to the customer</h2>
+          {claim.billOn.amount ? (
+            <>
+              <p className="mt-1 max-w-2xl text-sm text-ink-700">
+                {claim.payerName} paid <Money value={claim.paidAmount} /> of the <Money value={claim.claimedAmount} /> claimed.
+                This makes a draft invoice to the customer for the rest, <Money value={claim.billOn.amount} />, with a line
+                saying what it is. Nothing is sent or posted until you issue it.
+              </p>
+              {billsOn ? (
+                <ActionForm action={billClaimRest} submit="Bill the rest to the customer" hidden={{ claimId: claim.id }} className="mt-3" />
+              ) : null}
+            </>
+          ) : (
+            <p className="mt-1 max-w-2xl text-sm text-ink-700">{claim.billOn.refusal}</p>
+          )}
+        </section>
+      ) : null}
 
       {decides && (
         <section aria-label="Their decision" className="mt-8">

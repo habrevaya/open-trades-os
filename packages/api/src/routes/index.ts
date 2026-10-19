@@ -221,6 +221,7 @@ export const handlers = {
   fileClaim: claims.handlers.fileClaim,
   decideClaim: claims.handlers.decideClaim,
   recordClaimPayment: claims.handlers.recordClaimPayment,
+  billClaimRestToCustomer: claims.handlers.billClaimRestToCustomer,
   exportPayerInvoices: payerDelivery.handlers.exportPayerInvoices,
   issuePayerPortalLink: payerDelivery.handlers.issuePayerPortalLink,
   viewPayerPortal: payerDelivery.handlers.viewPayerPortal,
@@ -1095,7 +1096,6 @@ export const handlers = {
   getPortalSettings: portalSettings.handlers.getPortalSettings,
   setPortalSettings: portalSettings.handlers.setPortalSettings,
   listInvoiceTips: (ctx: ServiceContext, input: { id: string }) => tips.forInvoice(ctx, { invoiceId: input.id }),
-  shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
   getInvoiceTipOffer: (ctx: ServiceContext, input: { id: string }) => tips.officeOffer(ctx, { invoiceId: input.id }),
   recordInvoicePaymentWithTip: (ctx: ServiceContext, input: {
     id: string; method: "cash" | "check" | "ach" | "other"; amount: string; tip: string;
@@ -1106,6 +1106,7 @@ export const handlers = {
     ...(input.checkNumber ? { checkNumber: input.checkNumber } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
   }),
+  shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
   markAttachmentSeen: files.handlers.markAttachmentSeen,
   // Sign ins seen from the office, the public brand, visit notes, bank payments, booking from the account (M05, M13)
   listPortalSignIns: portalAccess.handlers.listPortalSignIns,

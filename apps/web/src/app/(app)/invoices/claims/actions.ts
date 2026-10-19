@@ -48,3 +48,20 @@ export async function recordClaimPayment(_previous: FormState, form: FormData): 
   revalidatePath(`/invoices/claims/${id}`);
   return result;
 }
+
+/**
+ * Bill the customer for what the payer did not pay: a draft invoice, made only
+ * when somebody presses the button on the claim, and opened so they can read
+ * it before it goes anywhere.
+ */
+export async function billClaimRest(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "claimId") ?? "";
+  let invoiceId = "";
+  const result = await attempt(form, async () => {
+    const claim = await claims.billRest(await ctx(), { id });
+    invoiceId = claim.billedInvoice?.id ?? "";
+  });
+  revalidatePath(`/invoices/claims/${id}`);
+  if (result?.error || !invoiceId) return result;
+  redirect(`/invoices/${invoiceId}`);
+}

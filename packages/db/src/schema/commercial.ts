@@ -679,6 +679,15 @@ export const coverageClaim = pgTable("coverage_claim", {
   paidAt: timestamp("paid_at", { withTimezone: true }),
   /** Their reason, in their words, for a denial or a short payment. */
   decisionNote: text("decision_note"),
+  /**
+   * The draft invoice to the customer for what the payer did not pay, made
+   * when somebody pressed "Bill the rest to the customer" on the claim. Kept
+   * here so the claim shows it and is not billed on twice. A draft deleted
+   * is removed outright, which sets this null; an invoice voided is read as
+   * no longer standing. Either way the claim can be billed on again.
+   */
+  billedInvoiceId: uuid("billed_invoice_id").references(() => invoice.id, { onDelete: "set null" }),
+  billedAt: timestamp("billed_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => ({
   invoiceIdx: uniqueIndex("coverage_claim_invoice_idx").on(t.invoiceId),
