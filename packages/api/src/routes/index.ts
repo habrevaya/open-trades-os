@@ -199,6 +199,8 @@ export const handlers = {
   resumeContractBilling: contractBilling.handlers.resumeContractBilling,
   endContractBilling: contractBilling.handlers.endContractBilling,
   raiseContractBilling: contractBilling.handlers.raiseContractBilling,
+  draftContractFeeDifference: contractBilling.handlers.draftContractFeeDifference,
+  waiveContractFeeDifference: contractBilling.handlers.waiveContractFeeDifference,
   createContract: contractService.handlers.createContract,
   addContractSite: contractService.handlers.addContractSite,
   createRateCard: contractService.handlers.createRateCard,

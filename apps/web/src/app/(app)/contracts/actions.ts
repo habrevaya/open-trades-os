@@ -153,9 +153,12 @@ export async function applyEscalation(_previous: FormState, form: FormData): Pro
     const done = await contractEscalation.apply(await ctx(), {
       contractId, anniversary: field(form, "anniversary") ?? "", key: field(form, "key") ?? "",
     });
+    const late = done.billedAtOldFee === 0 ? ""
+      : ` ${done.billedAtOldFee === 1 ? "One period" : `${done.billedAtOldFee} periods`} from ${done.anniversary} were already billed at the old fee. `
+        + "What each is short is listed under Billed on a schedule. Nothing is billed for it unless you ask.";
     return {
       message: `${done.cards.length === 1 ? "One card" : `${done.cards.length} cards`} risen from ${done.anniversary}. `
-        + "The earlier prices stay in force until the day before.",
+        + `The earlier prices stay in force until the day before.${late}`,
     };
   });
   revalidatePath(`/contracts/${contractId}`);
@@ -222,6 +225,35 @@ export async function changeContractBilling(_previous: FormState, form: FormData
           : `${done.raised.length === 1 ? "One invoice" : `${done.raised.length} invoices`} raised.`,
       };
     }
+    return undefined;
+  });
+  revalidatePath(`/contracts/${contractId}`);
+  return result;
+}
+
+/**
+ * What a late rise left short on the periods ticked, on one draft invoice.
+ * A draft, so it is read before it goes: issuing it is the ordinary issue on
+ * the invoice.
+ */
+export async function draftFeeDifference(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  const periodIds = form.getAll("periodId").filter((v): v is string => typeof v === "string" && v !== "");
+  const result = await attempt(form, async () => {
+    const done = await contractBilling.draftDifference(await ctx(), { contractId, periodIds });
+    return {
+      message: `Draft invoice ${done.invoiceNumber} made for ${done.periods === 1 ? "one period" : `${done.periods} periods`}. It is not sent until somebody issues it.`,
+    };
+  });
+  revalidatePath(`/contracts/${contractId}`);
+  return result;
+}
+
+/** What a late rise left short on one period, written down as not billed. */
+export async function waiveFeeDifference(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  const result = await attempt(form, async () => {
+    await contractBilling.waiveDifference(await ctx(), { contractId, periodIds: [field(form, "periodId") ?? ""] });
     return undefined;
   });
   revalidatePath(`/contracts/${contractId}`);

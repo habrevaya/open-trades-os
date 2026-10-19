@@ -380,6 +380,28 @@ moved to the card's new version, so it still applies the year after. Each new
 card records its own rise (what its listed prices rose by), and the audit line
 of the rise records every row that applied.
 
+**A rise can be a fixed amount.** A row says a per cent or an amount in dollars,
+never both (`amount` on `PUT /v1/contracts/{contractId}/escalation/rises`; a row
+with both is refused in words). An amount is added to each price the row covers:
+"Plumbing hourly rates, every year, 2.00" puts 2.00 on each plumbing hourly
+rate, and an amount for every price puts it on each listed price, hourly rate
+and trip charge (`core/rates.riseBy`). The preview says "2.00 more, Every year,
+Plumbing hourly rates" beside the price, and the key covers the amount, so an
+amount changed since the preview is refused like a per cent. A card risen by an
+amount records no rate of its own; the audit line of the rise records the rows.
+
+**The fixed fee can have a row of its own.** Picking **The fixed fee** under
+Prices makes the row a rise of the fee alone, by a per cent or by an amount each
+time the fee is billed ("50.00 more a month"). It names no card and no trade, and
+it never rises a card's prices. Without one, the fee rises as below.
+
+**The editor shows every row.** The rises, a card's hourly rates and its markup
+bands each show at least their usual number of rows (six, six and four), and
+always every row saved plus two empty ones, up to fifty, which is the most the
+services take. The form says how many rows it showed and the screen reads that
+many, so a contract with nine rises is edited nine at a time, a tenth is typed
+into the first empty row, and saving it brings back two more.
+
 The worker prepares the draft and raises the task thirty days ahead exactly as
 above, with each price risen by its own row, and the task says each one
 ("rates rise on 2026-11-01: year 2 by 3%, every year, plumbing hourly rates by
@@ -402,6 +424,14 @@ says it ("The fixed fee rises with them, from 1200.00 to 1236.00 a month."),
 and the page says the draft has it (`feeDraft`). A contract whose only price is
 its fee rises without a card in force.
 
+The fee's own row (above) comes first: the fee rises by it, a per cent or an
+amount a period. Failing that, by the year's rise for every card and trade when
+that is a per cent, or the contract's yearly rate. An amount written for every
+price is an amount per item or per hour and says nothing about a fee per month,
+so it never reaches the fee: a fee that rises by an amount takes a row of its
+own. A fee risen by an amount says so under the schedule ("up from 1,200.00 by
+50.00"), and `riseAmount` on the fee is the amount.
+
 Applying the year's prices applies the fee with them: the risen fee is the fee
 for every period that starts on or after the anniversary
 (`contract_billing_fee`), shown under the schedule ("From 2026-11-01 the fee is
@@ -413,6 +443,42 @@ billed. The preview's key covers the fee, so a fee changed since the preview
 is a rise to look at again, and one rate alone no longer says what was shown.
 A fee typed on the schedule afterwards is the fee meant, and replaces the rise
 for every period not yet billed.
+
+### A rise applied late
+
+A rise applied after the anniversary reaches only the periods not yet billed, so
+a month from the anniversary that the worker had already billed at the old fee
+keeps its invoice. Applying it says how many there are (`billedAtOldFee` on `POST
+/v1/contracts/{contractId}/escalation`, and in the message under the button), and
+under **Billed on a schedule** the contract's page lists them as **Billed before
+the rise was applied**: each period, what it was billed and on which invoice,
+what the risen fee makes it, and what it is short (`differences` on `GET
+/v1/contracts/{contractId}/billing`). The period is repriced exactly as it was
+billed, by the fee in force on its first day and by the day when it was a part
+period charged by the day (`core/contract-billing.repriced`), so the difference is
+the rise and nothing else.
+
+Nothing bills it by itself. The office ticks the periods to bill and presses
+**Make a draft invoice for the ticked periods** (`POST
+/v1/contracts/{contractId}/billing/differences`, `invoice:write`): one draft
+invoice to the contract's customer with its PO number, one line per period
+("Planned maintenance, fee rise from 2026-11-01": "1 Nov 2026 to 30 Nov 2026:
+1250.00 at the risen fee, less 1200.00 billed on invoice 1042"), taxed as the fee
+is, recording the contract as its price authority. A draft is numbered and
+nothing else: nothing is posted or owed until somebody issues it on the invoice,
+the way any draft is, and it carries no due date until then. Or, under **Do not
+bill the difference**, a period is written down as not billed (`POST
+/v1/contracts/{contractId}/billing/differences/waive`, `invoice:write`), with who
+decided on the audit line, and is not offered again.
+
+Each decision is a row (`contract_billing_difference`) claimed under a unique
+index on the period in the same transaction as the draft, so a period is never on
+two drafts and a second press is refused in words. Deleting the draft deletes its
+row and offers the period again: a draft deleted is a decision not yet made. A
+period billed after the rise was applied was priced by it and is never offered,
+nor is one whose invoice was voided. A fee typed on the schedule afterwards
+removes the rise and the offer with it, because the fee typed never reaches a
+period already billed.
 
 It is never applied by itself, however long after the anniversary: the client
 is priced by last year's card until a person applies it. Applying it, as above,
@@ -620,7 +686,10 @@ to set, `pricebook:read` to see. A contract's terms and clocks need
 rises that differ by year, card or trade; seeing them needs `contract:read`.
 Applying a rise writes prices, so it needs `pricebook:write`, and so does the
 fixed fee it rises with it; saying whether the fee rises is one of the
-schedule's terms, under `contract:write`. Raising what a fixed fee owes now needs
+schedule's terms, under `contract:write`. Billing what a late rise left short on a
+draft, or writing it down as not billed, needs `invoice:write`, because not
+billing money owed is the same decision as billing it; seeing what is short is
+part of the schedule, under `contract:read`. Raising what a fixed fee owes now needs
 `invoice:write`, because it raises invoices; the worker raises them as the
 system with only that. Previewing how a job would be billed needs `invoice:read`,
 and billing it `invoice:write`. Exporting a payer's invoices needs
@@ -686,12 +755,13 @@ looking at; it is not edited into the new card, which is written from the cards
 in force when the rise is applied. Rises can differ by year, by card and by
 trade, but a trade is the job type an hourly rate is booked under: a listed
 price is not given a trade, so a rise for "plumbing parts" is written as a rise
-on the card that lists them, not by trade. A rise is a percentage: a rise by a
-fixed amount, or one tied to an index such as the CPI, is loaded as next year's
-card by hand. A markup on our cost is never risen, by any row. The rows are
-edited six at a time on the page; a contract with more uses the API. A rate
-typed with more than four decimal places of a percentage is rounded when it is
-saved.
+on the card that lists them, not by trade. A rise is a per cent or a fixed amount;
+one tied to an index such as the CPI is loaded as next year's card by hand,
+because the index is published after the anniversary and nothing here reads it. A
+fall is not a rise: an amount must be more than nothing, and a lower price is a
+new card. A markup on our cost is never risen, by any row. The page edits up to
+fifty rows of each kind, which is the most the services take. A rate typed with
+more than four decimal places of a percentage is rounded when it is saved.
 
 **Tax rates on a split.** Each line is billed at its own rate, but the rates
 are the company's own: nothing looks up a jurisdiction's rate, and a line taxed
@@ -725,10 +795,14 @@ days before the pause; in arrears a paused day is never billed at all. The
 pause takes effect on the day it is pressed: that day is not billed. Moving a
 schedule between advance and arrears starts the new way the day after the last
 period billed; it does not go back and rebill anything. A fee that rises with
-the escalation rises only by the year's rise for every card and trade or the
-contract's yearly rate, never by a fixed amount or an index, and a period that
-straddles the anniversary is billed whole at the old fee: charging part of a
-period at each fee is a decision nobody has made. Applied after periods from
-the anniversary were billed, the rise does not rebill them or raise an invoice
-for the difference. The invoice is raised and not sent; it goes out the way any
-invoice does.
+the escalation rises by its own row or the year's per cent or the contract's
+yearly rate, never by an index, and a period that straddles the anniversary is
+billed whole at the old fee: charging part of a period at each fee is a decision
+nobody has made, so a late rise offers no difference on it either. Applied after
+periods from the anniversary were billed, the rise offers what each is short as a
+draft a person asks for, and never rebills or credits anything by itself; the
+draft has no due date until it is issued. Only the fixed fee is offered this way:
+work on a job billed by last year's card after the anniversary, because the rise
+was applied late, keeps its price, and charging the difference on it is an
+ordinary invoice somebody writes. The invoice is raised and not sent; it goes out
+the way any invoice does.

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { contractBilling as cb, money as m, time, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import {
@@ -58,6 +58,19 @@ import { remember, replayed } from "./once";
  * its last day and none after. An invoice already raised for a period the
  * end cuts short is left as it is: crediting the difference is a decision
  * made on the invoice (a credit note), not one this makes for the office.
+ *
+ * A RISE APPLIED LATE. The escalation's rise of the fee is applied by a
+ * person, sometimes after the anniversary, and by then a period from it may
+ * have been billed at the old fee. That invoice is left as it is. What the
+ * period is short is OFFERED on the contract's page, period by period
+ * (`differences` on the view), and billed only when a person asks: on one
+ * draft invoice for the periods they pick (`draftDifference`), never issued
+ * by this, or written down as waived (`waiveDifference`). Each decision is a
+ * row claimed under a unique index on the period, so a period is never on two
+ * drafts. A draft deleted takes its row with it and the period is offered
+ * again. A fee typed on the schedule afterwards removes the rise, and with it
+ * the offer: the fee typed is the fee meant, and it never reaches a period
+ * already billed.
  */
 
 const usd = (value: string) => m.money(value, "USD");
@@ -117,7 +130,7 @@ export interface ScheduleView {
     /** The fee for a period starting today, after any rise that has taken effect. */
     feeNow: string;
     /** Each rise of the fee, oldest first: the fee from that day on, what it was, and the rise. */
-    fees: Array<{ from: string; amount: string; previousAmount: string; rate: string }>;
+    fees: Array<{ from: string; amount: string; previousAmount: string; rate: string; riseAmount?: string }>;
   } | null;
   /** The next period, when there is one still to come: what it covers, when it is billed and what for. */
   next: { start: string; end: string; billOn: string; amount: string; prorated: boolean; days: number; fullDays: number } | null;
@@ -127,6 +140,31 @@ export interface ScheduleView {
   periods: PeriodView[];
   /** Why nothing is being billed, in words, when nothing is. */
   standing: string | null;
+  /**
+   * Periods billed at the old fee before a rise from their first day was
+   * applied, with what each is short: offered until a person bills it on a
+   * draft or waives it, and then with what they decided.
+   */
+  differences: DifferenceView[];
+}
+
+export interface DifferenceView {
+  periodId: string;
+  start: string;
+  end: string;
+  /** The period's own invoice, at the old fee. */
+  invoiceId: string | null;
+  invoiceNumber: number | null;
+  /** The day the fee rose from. */
+  feeFrom: string;
+  /** What the period was billed, what it would be billed at the risen fee, and the difference, before tax. */
+  billed: string;
+  risen: string;
+  difference: string;
+  status: "offered" | "drafted" | "waived";
+  /** The draft the difference is billed on, once it is. */
+  draftInvoiceId: string | null;
+  draftInvoiceNumber: number | null;
 }
 
 async function loadContract(tx: Database, id: string): Promise<ContractRow> {
@@ -244,7 +282,7 @@ async function viewWithin(tx: Database, organizationId: string, contractId: stri
     .orderBy(desc(schema.contractBillingPeriod.periodStart));
 
   if (!schedule) {
-    return { contractId, schedule: null, next: null, due: 0, periods: [], standing: null };
+    return { contractId, schedule: null, next: null, due: 0, periods: [], standing: null, differences: [] };
   }
   const fees = await feesOf(tx, schedule.id);
   const terms = termsOf(schedule, contract, await writtenRows(tx, contractId), fees);
@@ -279,7 +317,11 @@ async function viewWithin(tx: Database, organizationId: string, contractId: stri
       endedOn: schedule.endedOn,
       lastDay: terms.endsOn,
       feeNow: m.toString(cb.feeOn(terms, today)),
-      fees: fees.map((f) => ({ from: f.effectiveFrom, amount: f.amount, previousAmount: f.previousAmount, rate: f.rate })),
+      fees: fees.map((f) => ({
+        from: f.effectiveFrom, amount: f.amount, previousAmount: f.previousAmount, rate: f.rate,
+        /** The amount it rose by only when it rose by one, so a fee risen by a per cent reads as it always did. */
+        ...(f.riseAmount !== null ? { riseAmount: f.riseAmount } : {}),
+      })),
     },
     next: coming ? {
       start: coming.start, end: coming.end, billOn: coming.billOn, amount: m.toString(coming.amount),
@@ -301,7 +343,200 @@ async function viewWithin(tx: Database, organizationId: string, contractId: stri
       note: period.note,
     })),
     standing,
+    differences: await differencesWithin(tx, contract, schedule),
   };
+}
+
+/* ------------------------------------------------- a rise applied late */
+
+type DifferenceRow = typeof schema.contractBillingDifference.$inferSelect;
+
+/**
+ * Every period billed at the old fee before a rise from its first day was
+ * applied, with what it is short, and every one a person has decided.
+ *
+ * Billed before the rise means its row was written before the risen fee was:
+ * a period billed after it was priced by it. A period whose invoice was
+ * voided was not billed at all, as far as the customer is concerned, and is
+ * not offered. Nothing short, nothing offered: a fee typed lower on the
+ * schedule removes the rise and is never a credit worked out here.
+ */
+async function differencesWithin(tx: Database, contract: ContractRow, schedule: ScheduleRow): Promise<DifferenceView[]> {
+  const fees = await feesOf(tx, schedule.id);
+  const decided = await tx.select({ row: schema.contractBillingDifference, number: schema.invoice.number })
+    .from(schema.contractBillingDifference)
+    .leftJoin(schema.invoice, eq(schema.invoice.id, schema.contractBillingDifference.invoiceId))
+    .where(eq(schema.contractBillingDifference.contractId, contract.id));
+  if (fees.length === 0 && decided.length === 0) return [];
+  const byPeriod = new Map<string, { row: DifferenceRow; number: number | null }>(decided.map((d) => [d.row.periodId, d]));
+  const periods = await tx.select({ period: schema.contractBillingPeriod, number: schema.invoice.number, status: schema.invoice.status })
+    .from(schema.contractBillingPeriod)
+    .leftJoin(schema.invoice, eq(schema.invoice.id, schema.contractBillingPeriod.invoiceId))
+    .where(and(eq(schema.contractBillingPeriod.contractId, contract.id), eq(schema.contractBillingPeriod.status, "invoiced")))
+    .orderBy(asc(schema.contractBillingPeriod.periodStart));
+  const terms = termsOf(schedule, contract, [], fees);
+  const out: DifferenceView[] = [];
+  for (const { period, number, status } of periods) {
+    const base = { periodId: period.id, start: period.periodStart, end: period.periodEnd, invoiceId: period.invoiceId, invoiceNumber: number ?? null };
+    const made = byPeriod.get(period.id);
+    if (made) {
+      const fee = fees.find((f) => f.id === made.row.feeId);
+      out.push({
+        ...base, feeFrom: fee?.effectiveFrom ?? period.periodStart,
+        billed: made.row.billedAmount, risen: made.row.risenAmount, difference: made.row.amount,
+        status: made.row.status, draftInvoiceId: made.row.invoiceId, draftInvoiceNumber: made.number,
+      });
+      continue;
+    }
+    const fee = fees.filter((f) => f.effectiveFrom <= period.periodStart).at(-1);
+    if (!fee || period.createdAt >= fee.createdAt) continue;
+    if (!period.invoiceId || status === "void") continue;
+    const risen = cb.repriced(terms, { start: period.periodStart, prorated: period.prorated, days: period.days, fullDays: period.fullDays });
+    const difference = m.subtract(risen, usd(period.amount));
+    if (!m.isPositive(difference)) continue;
+    out.push({
+      ...base, feeFrom: fee.effectiveFrom,
+      billed: period.amount, risen: m.toString(risen), difference: m.toString(difference),
+      status: "offered", draftInvoiceId: null, draftInvoiceNumber: null,
+    });
+  }
+  return out;
+}
+
+/** The periods picked, each one offered now, or refused in words. */
+async function pickOffered(
+  tx: Database, contract: ContractRow, schedule: ScheduleRow, periodIds: readonly string[],
+): Promise<DifferenceView[]> {
+  const ids = [...new Set(periodIds)];
+  if (ids.length === 0) throw new ConflictError("Pick at least one period.");
+  const all = await differencesWithin(tx, contract, schedule);
+  return ids.map((id) => {
+    const found = all.find((d) => d.periodId === id);
+    if (!found) throw new ConflictError("A period picked was not billed short by a late rise, so there is no difference to bill on it.");
+    if (found.status !== "offered") {
+      throw new ConflictError(
+        `The difference for ${cb.periodWords(found.start, found.end)} has already been ${found.status === "drafted" ? `put on draft invoice ${found.draftInvoiceNumber ?? ""}`.trim() : "waived"}.`,
+      );
+    }
+    return found;
+  }).sort((a, b) => (a.start < b.start ? -1 : 1));
+}
+
+/** The decisions claimed under the unique index on the period, or refused when somebody got there first. */
+async function claimDifferences(
+  tx: Database, ctx: ServiceContext, contractId: string, picked: readonly DifferenceView[], fees: readonly FeeRow[],
+  status: "drafted" | "waived",
+): Promise<string[]> {
+  const rows = await tx.insert(schema.contractBillingDifference).values(picked.map((d) => ({
+    organizationId: ctx.actor.organizationId,
+    contractId,
+    periodId: d.periodId,
+    feeId: fees.filter((f) => f.effectiveFrom <= d.start).at(-1)!.id,
+    status,
+    billedAmount: d.billed,
+    risenAmount: d.risen,
+    amount: d.difference,
+  }))).onConflictDoNothing().returning({ id: schema.contractBillingDifference.id });
+  if (rows.length !== picked.length) {
+    throw new ConflictError("Somebody decided one of these periods a moment ago. Look at the contract again.");
+  }
+  return rows.map((r) => r.id);
+}
+
+export interface DifferenceDrafted {
+  contractId: string;
+  invoiceId: string;
+  invoiceNumber: number;
+  /** The draft's total, with tax when the fee is taxed. */
+  total: string;
+  periods: number;
+}
+
+/**
+ * The difference a late rise left on the periods picked, as ONE DRAFT
+ * INVOICE: a line per period saying the period, what it was billed and on
+ * which invoice, and what the risen fee makes it. A draft, because whether to
+ * ask a client for money after the fact is a person's call, and the draft is
+ * where they read it before it goes: issuing it is the ordinary issue on the
+ * invoice. To the contract's customer, with its PO number, taxed as the fee
+ * is. `invoice:write`, because it writes an invoice.
+ */
+export function draftDifference(ctx: ServiceContext, input: { contractId: string; periodIds: string[] }): Promise<DifferenceDrafted> {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const seen = await replayed<DifferenceDrafted>(tx, ctx, "contract_billing_difference");
+    if (seen) return seen;
+    const contract = await loadContract(tx, input.contractId);
+    const schedule = await scheduleOrRefuse(tx, contract.id);
+    const picked = await pickOffered(tx, contract, schedule, input.periodIds);
+    const fees = await feesOf(tx, schedule.id);
+    const claimed = await claimDifferences(tx, ctx, contract.id, picked, fees, "drafted");
+
+    const edit = (v: string) => m.edit(m.round(usd(v), 2));
+    const { idempotencyKey: _key, ...plain } = ctx;
+    const invoice = await billing.createIn(tx, plain, {
+      customerId: contract.customerId,
+      ...(contract.purchaseOrderNumber ? { purchaseOrderNumber: contract.purchaseOrderNumber } : {}),
+      draft: true,
+      memo: `${contract.name}${contract.contractNumber ? `, contract ${contract.contractNumber}` : ""}: `
+        + `the fee rose from ${picked[0]!.feeFrom} after ${picked.length === 1 ? "this period was" : "these periods were"} billed at the old fee.`,
+      lines: picked.map((d) => ({
+        name: `${schedule.description}, fee rise from ${d.feeFrom}`,
+        description: `${cb.periodWords(d.start, d.end)}: ${edit(d.risen)} at the risen fee, less ${edit(d.billed)} billed`
+          + `${d.invoiceNumber !== null ? ` on invoice ${d.invoiceNumber}` : ""}`,
+        quantity: "1",
+        unitPrice: d.difference,
+        discountAmount: "0",
+        taxable: schedule.taxable,
+      })),
+    }, {
+      prepared: picked.map((d) => ({
+        unitPrice: usd(d.difference),
+        quantity: "1",
+        authority: "contract" as const,
+        basis: "contract_fee" as const,
+        note: `${contract.name}: the fee for the period rose from ${edit(d.billed)} to ${edit(d.risen)} on ${d.feeFrom}, `
+          + "applied after the period was billed.",
+        rateCardId: null,
+        rateCardLineId: null,
+      })),
+      /** A contract's fee is the contract's price: no member discount comes off it. */
+      memberPricing: false,
+    });
+    await tx.update(schema.contractBillingDifference).set({ invoiceId: invoice.id as string, updatedAt: new Date() })
+      .where(inArray(schema.contractBillingDifference.id, claimed));
+    await audit(tx, ctx, "contract.fee_difference_drafted", "service_contract", contract.id, null, {
+      invoiceId: invoice.id, periods: picked.map((d) => ({ start: d.start, end: d.end, amount: d.difference })),
+    });
+    const result: DifferenceDrafted = {
+      contractId: contract.id, invoiceId: invoice.id as string, invoiceNumber: invoice.number as number,
+      total: invoice.total as string, periods: picked.length,
+    };
+    await remember(tx, ctx, "contract_billing_difference", contract.id, result);
+    return result;
+  });
+}
+
+/**
+ * The difference on the periods picked written down as not billed: the
+ * company has decided not to ask. Recorded, with who decided in the audit
+ * line, so it is not offered again. `invoice:write`, because not billing
+ * money owed is the same decision as billing it.
+ */
+export function waiveDifference(ctx: ServiceContext, input: { contractId: string; periodIds: string[] }): Promise<ScheduleView> {
+  return guardedWrite(ctx, "invoice:write", async (tx) => {
+    const seen = await replayed<ScheduleView>(tx, ctx, "contract_billing_difference_waive");
+    if (seen) return seen;
+    const contract = await loadContract(tx, input.contractId);
+    const schedule = await scheduleOrRefuse(tx, contract.id);
+    const picked = await pickOffered(tx, contract, schedule, input.periodIds);
+    await claimDifferences(tx, ctx, contract.id, picked, await feesOf(tx, schedule.id), "waived");
+    await audit(tx, ctx, "contract.fee_difference_waived", "service_contract", contract.id, null, {
+      periods: picked.map((d) => ({ start: d.start, end: d.end, amount: d.difference })),
+    });
+    const result = await viewWithin(tx, ctx.actor.organizationId, contract.id);
+    await remember(tx, ctx, "contract_billing_difference_waive", contract.id, result);
+    return result;
+  });
 }
 
 /** The contract's schedule, its next period and every period billed or skipped. */
@@ -741,4 +976,6 @@ export const handlers = {
   resumeContractBilling: (ctx: ServiceContext, input: { contractId: string }) => resume(ctx, input),
   endContractBilling: (ctx: ServiceContext, input: { contractId: string; lastDay?: string | undefined }) => end(ctx, input),
   raiseContractBilling: (ctx: ServiceContext, input: { contractId: string }) => raiseDue(ctx, input),
+  draftContractFeeDifference: (ctx: ServiceContext, input: { contractId: string; periodIds: string[] }) => draftDifference(ctx, input),
+  waiveContractFeeDifference: (ctx: ServiceContext, input: { contractId: string; periodIds: string[] }) => waiveDifference(ctx, input),
 } as const;

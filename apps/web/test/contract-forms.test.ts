@@ -74,3 +74,31 @@ describe("the rises that differ by year, card or trade", () => {
     ]);
   });
 });
+
+describe("more rows than the form usually shows", () => {
+  it("shows every saved row and two more, and reads as many rows as the form said it showed", async () => {
+    const { rowsToShow, rowsShown } = await import("@/lib/contract-forms");
+    expect(rowsToShow(6, 0)).toBe(6);
+    expect(rowsToShow(6, 9)).toBe(11);
+    expect(rowsToShow(6, 80)).toBe(50);
+    const values: Record<string, string> = { labourRows: "9" };
+    for (let i = 0; i < 9; i += 1) Object.assign(values, { [`rate${i}`]: `${90 + i}.00`, [`band${i}`]: "standard", [`trade${i}`]: `trade-${i}` });
+    const terms = cardTermsFromForm(form(values));
+    expect(terms.labourRates).toHaveLength(9);
+    expect(terms.labourRates[8]).toMatchObject({ jobTypeId: "trade-8", hourlyRate: "98.00" });
+    expect(rowsShown(form({}), "rise", 6)).toBe(6);
+    expect(rowsShown(form({ riseRows: "500" }), "rise", 6)).toBe(50);
+  });
+
+  it("reads a rise past the sixth row, a fixed amount, and a rise of the fixed fee", () => {
+    const values: Record<string, string> = {
+      riseRows: "8",
+      riseYear7: "", riseCard7: "", riseTrade7: "trade-1", riseRate7: "", riseAmount7: "$2.00",
+      riseYear6: "2", riseCard6: "", riseTrade6: "fee", riseRate6: "", riseAmount6: "50",
+    };
+    expect(risesFromForm(form(values))).toEqual([
+      { contractYear: 2, rateCardId: null, jobTypeId: null, amount: "50", fee: true },
+      { contractYear: null, rateCardId: null, jobTypeId: "trade-1", amount: "2.00" },
+    ]);
+  });
+});

@@ -333,3 +333,47 @@ describe("rises that differ by year, by card or by trade", () => {
     expect(rates.risesProblem([rises[0]!, { ...rises[0]!, rate: "0.02" }])).toMatch(/Row 2 says the same year/);
   });
 });
+
+describe("a rise by a fixed amount, and a rise of the fixed fee alone", () => {
+  const card = "card-a";
+  const plumbing = "trade-plumbing";
+  const rises: rates.Rise[] = [
+    { contractYear: null, rateCardId: null, jobTypeId: plumbing, rate: "0", amount: "2.00" },
+    { contractYear: 2, rateCardId: null, jobTypeId: null, rate: "0.03" },
+    { contractYear: null, rateCardId: null, jobTypeId: null, rate: "0", amount: "50.00", fee: true },
+  ];
+
+  it("adds the amount to each price it covers, to the cent", () => {
+    const found = rates.riseFor({ rises, baseRate: null, year: 2, rateCardId: card, jobTypeId: plumbing })!;
+    expect(found.amount).toBe("2.00");
+    expect(m.toString(rates.riseBy(usd("95.00"), found))).toBe("97.0000");
+    const listed = rates.riseFor({ rises, baseRate: null, year: 2, rateCardId: card, jobTypeId: null })!;
+    expect(listed.amount).toBeNull();
+    expect(m.toString(rates.riseBy(usd("142.50"), listed))).toBe("146.7800");
+  });
+
+  it("keeps the fee's own row off the card's prices, and the card's amounts off the fee", () => {
+    const fee = rates.riseFor({ rises, baseRate: "0.025", year: 2, rateCardId: "fixed-fee", jobTypeId: null, fee: true })!;
+    expect(fee.amount).toBe("50.00");
+    expect(m.toString(rates.riseBy(usd("1200.00"), fee))).toBe("1250.0000");
+    /** Without a row of its own, the fee takes the year's per cent, never an amount written for every price. */
+    const byAmount: rates.Rise[] = [{ contractYear: null, rateCardId: null, jobTypeId: null, rate: "0", amount: "5.00" }];
+    expect(rates.riseFor({ rises: byAmount, baseRate: "0.025", year: 2, rateCardId: "fixed-fee", jobTypeId: null, fee: true }))
+      .toEqual({ rate: "0.025", amount: null, rise: null });
+    expect(rates.riseFor({ rises: byAmount, baseRate: null, year: 2, rateCardId: "fixed-fee", jobTypeId: null, fee: true })).toBeNull();
+    expect(rates.riseFor({ rises: [rises[2]!], baseRate: null, year: 2, rateCardId: card, jobTypeId: null })).toBeNull();
+  });
+
+  it("counts an amount as a rise, and refuses one it cannot apply, in words", () => {
+    expect(rates.risesIn([rises[0]!], null, 3)).toBe(true);
+    expect(rates.risesProblem(rises)).toBeNull();
+    expect(rates.risesProblem([{ ...rises[0]!, amount: "two" }])).toMatch(/not an amount/);
+    expect(rates.risesProblem([{ ...rises[0]!, amount: "0" }])).toMatch(/rise of nothing/);
+    expect(rates.risesProblem([{ ...rises[0]!, rate: "0.03" }])).toMatch(/both a per cent and an amount/);
+    expect(rates.risesProblem([{ ...rises[2]!, rateCardId: card }])).toMatch(/for the fee alone/);
+    /** The fee's row and the year's row for everything are different rows. */
+    expect(rates.risesProblem([
+      { contractYear: null, rateCardId: null, jobTypeId: null, rate: "0.03" }, rises[2]!,
+    ])).toBeNull();
+  });
+});

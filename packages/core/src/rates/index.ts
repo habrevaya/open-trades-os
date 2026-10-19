@@ -623,6 +623,20 @@ export function escalationRateProblem(rate: string | null | undefined): string |
  * and a price nothing applies to is kept. A rise of nothing is allowed here,
  * where the contract's own rate refuses it, because "the emergency card does
  * not rise" is a real thing a client signs.
+ *
+ * A PERCENTAGE OR A FIXED AMOUNT. "Labour rates go up 2.00 an hour each year"
+ * is as common in a commercial agreement as "3%", and so is "the monthly fee
+ * goes up 50.00 a year". A rise with an `amount` adds that amount to each
+ * price it covers: an hourly rate rises by it an hour, a listed price by it
+ * each, a trip charge by it a visit. Its `rate` is then "0" and unused.
+ *
+ * THE FIXED FEE HAS ROWS OF ITS OWN. A rise marked `fee` is for the
+ * contract's fixed fee alone, by the period it is billed for ("50.00 more a
+ * month"), and names no card and no trade. Without one, the fee rises by the
+ * year's rise for every card and trade when that is a percentage, or the
+ * contract's yearly rate. A fixed amount for every price is an amount per
+ * item or per hour, which says nothing about a fee per month, so it never
+ * reaches the fee: that takes a row of the fee's own.
  */
 export interface Rise {
   /** The year of the contract it opens: 2 for the first anniversary. Null for every year. */
@@ -631,45 +645,78 @@ export interface Rise {
   rateCardId: string | null;
   /** The trade (job type) whose hourly rates it applies to, or null for every price. */
   jobTypeId: string | null;
-  /** A fraction: 0.04 for four per cent. */
+  /** A fraction: 0.04 for four per cent. "0" on a rise by a fixed amount. */
   rate: string;
+  /** A fixed amount added to each price it covers, "2.00"; null or left off for a percentage. */
+  amount?: string | null | undefined;
+  /** True for a rise of the contract's fixed fee alone, which names no card and no trade. */
+  fee?: boolean | undefined;
 }
 
 export interface RiseFound {
   rate: string;
+  /** The fixed amount it adds, when it is one; null for a percentage. */
+  amount: string | null;
   /** The rise it came from, or null for the contract's own yearly rate. */
   rise: Rise | null;
 }
 
+const amountOf = (r: Rise): string | null => (r.amount === null || r.amount === undefined || r.amount === "" ? null : r.amount);
+const found = (r: Rise): RiseFound => ({ rate: amountOf(r) ? "0" : r.rate, amount: amountOf(r), rise: r });
+
 /**
- * The rate one price rises by in a year, or null when nothing applies and it
- * is kept. `jobTypeId` is the hourly rate's trade, or null for a listed price,
- * a trip charge, or an hourly rate for every kind of work.
+ * The rise one price takes in a year, or null when nothing applies and it is
+ * kept. `jobTypeId` is the hourly rate's trade, or null for a listed price, a
+ * trip charge, or an hourly rate for every kind of work. With `fee`, the rise
+ * of the contract's fixed fee instead, and `rateCardId` is not read.
  */
 export function riseFor(input: {
   rises: readonly Rise[]; baseRate: string | null; year: number; rateCardId: string; jobTypeId: string | null;
+  fee?: boolean | undefined;
 }): RiseFound | null {
-  const { rises, year, rateCardId, jobTypeId } = input;
+  const { year, rateCardId, jobTypeId } = input;
   const thisYear = (r: Rise) => r.contractYear === year;
   const anyYear = (r: Rise) => r.contractYear === null;
-  const tiers: Array<(r: Rise) => boolean> = [
-    (r) => jobTypeId !== null && r.jobTypeId === jobTypeId && r.rateCardId === rateCardId,
-    (r) => jobTypeId !== null && r.jobTypeId === jobTypeId && r.rateCardId === null,
-    (r) => r.jobTypeId === null && r.rateCardId === rateCardId,
-    (r) => r.jobTypeId === null && r.rateCardId === null,
-  ];
-  for (const tier of tiers) {
-    const found = rises.find((r) => tier(r) && thisYear(r)) ?? rises.find((r) => tier(r) && anyYear(r));
-    if (found) return { rate: found.rate, rise: found };
-  }
-  if (input.baseRate !== null && Number(input.baseRate) > 0) return { rate: input.baseRate, rise: null };
+  const pick = (list: readonly Rise[], tiers: Array<(r: Rise) => boolean>): RiseFound | null => {
+    for (const tier of tiers) {
+      const hit = list.find((r) => tier(r) && thisYear(r)) ?? list.find((r) => tier(r) && anyYear(r));
+      if (hit) return found(hit);
+    }
+    return null;
+  };
+  const prices = input.rises.filter((r) => !r.fee);
+  const hit = input.fee
+    ? pick(input.rises, [
+      (r) => r.fee === true,
+      /** The year's rise for everything reaches the fee only as a percentage: an amount per item is not an amount per month. */
+      (r) => !r.fee && r.jobTypeId === null && r.rateCardId === null && amountOf(r) === null,
+    ])
+    : pick(prices, [
+      (r) => jobTypeId !== null && r.jobTypeId === jobTypeId && r.rateCardId === rateCardId,
+      (r) => jobTypeId !== null && r.jobTypeId === jobTypeId && r.rateCardId === null,
+      (r) => r.jobTypeId === null && r.rateCardId === rateCardId,
+      (r) => r.jobTypeId === null && r.rateCardId === null,
+    ]);
+  if (hit) return hit;
+  if (input.baseRate !== null && Number(input.baseRate) > 0) return { rate: input.baseRate, amount: null, rise: null };
   return null;
+}
+
+/**
+ * A price risen by what was found: by the amount, to the cent, or by the
+ * rate (`escalate`). A rise of nothing keeps the price exactly as it is.
+ */
+export function riseBy(price: Money, rise: { rate: string; amount?: string | null | undefined }): Money {
+  if (rise.amount !== null && rise.amount !== undefined && rise.amount !== "") {
+    return round(add(price, money(rise.amount, price.currency)), 2);
+  }
+  return Number(rise.rate) === 0 ? price : escalate(price, rise.rate);
 }
 
 /** Whether anything at all could rise in a year: the contract's own rate, or a rise for that year or every year above nothing. */
 export function risesIn(rises: readonly Rise[], baseRate: string | null, year: number): boolean {
   if (baseRate !== null && Number(baseRate) > 0) return true;
-  return rises.some((r) => (r.contractYear === null || r.contractYear === year) && Number(r.rate) > 0);
+  return rises.some((r) => (r.contractYear === null || r.contractYear === year) && (Number(r.rate) > 0 || Number(amountOf(r) ?? "0") > 0));
 }
 
 /** Whether a list of rises can be saved, in words, or null. */
@@ -677,12 +724,22 @@ export function risesProblem(rises: readonly Rise[]): string | null {
   const seen = new Set<string>();
   for (const [i, rise] of rises.entries()) {
     const row = `Row ${i + 1}`;
-    if (!/^\d+(\.\d+)?$/.test(rise.rate.trim())) return `${row}: "${rise.rate}" is not a rise. Write 0.04 for four per cent.`;
-    if (Number(rise.rate) >= 1) return `${row}: a rise of ${rise.rate} would more than double every price. Write 0.04 for four per cent.`;
+    const amount = amountOf(rise);
+    if (amount !== null) {
+      if (!/^\d+(\.\d{1,2})?$/.test(amount.trim())) return `${row}: "${amount}" is not an amount. Write 2.00 for two dollars more.`;
+      if (Number(amount) <= 0) return `${row}: a rise of no dollars is a rise of nothing. Write 0 per cent to keep those prices as they are.`;
+      if (Number(rise.rate) !== 0) return `${row} says both a per cent and an amount. Keep one.`;
+    } else {
+      if (!/^\d+(\.\d+)?$/.test(rise.rate.trim())) return `${row}: "${rise.rate}" is not a rise. Write 0.04 for four per cent.`;
+      if (Number(rise.rate) >= 1) return `${row}: a rise of ${rise.rate} would more than double every price. Write 0.04 for four per cent.`;
+    }
     if (rise.contractYear !== null && (!Number.isInteger(rise.contractYear) || rise.contractYear < 2)) {
       return `${row}: the first rise opens year 2, on the first anniversary. Pick year 2 or later, or every year.`;
     }
-    const key = `${rise.contractYear ?? "*"}|${rise.rateCardId ?? "*"}|${rise.jobTypeId ?? "*"}`;
+    if (rise.fee && (rise.rateCardId !== null || rise.jobTypeId !== null)) {
+      return `${row}: a rise of the fixed fee is for the fee alone. Leave the card as every card.`;
+    }
+    const key = `${rise.contractYear ?? "*"}|${rise.rateCardId ?? "*"}|${rise.jobTypeId ?? "*"}|${rise.fee ? "fee" : ""}`;
     if (seen.has(key)) return `${row} says the same year, card and trade as a row above it. Keep one.`;
     seen.add(key);
   }

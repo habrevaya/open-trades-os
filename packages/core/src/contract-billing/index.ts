@@ -348,3 +348,18 @@ export function periodNote(period: Period, amount: Money, timing: Timing = "adva
   }
   return `The contract's fee for the period.`;
 }
+
+/**
+ * A RISE APPLIED LATE: what a period already billed would be billed now.
+ *
+ * A rise of the fee is applied by a person, and sometimes after the
+ * anniversary, by which time a period starting on or after it has been
+ * billed at the old fee. What it would be billed now is worked out exactly as
+ * it was then (the fee in force on its first day, by the day when it was a
+ * part period charged by the day), so the difference is the rise and nothing
+ * else: never a different proration, never a period cut another way.
+ */
+export function repriced(schedule: Schedule, period: { start: string; prorated: boolean; days: number; fullDays: number }): Money {
+  const fee = feeOn(schedule, period.start);
+  return period.prorated ? prorate(fee, period.days, period.fullDays) : round(fee, 2);
+}

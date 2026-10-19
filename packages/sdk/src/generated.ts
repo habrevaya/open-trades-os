@@ -839,7 +839,9 @@ export interface ApplyContractEscalationOutput {
     amount: string;
     previousAmount: string;
     rate: string;
+    riseAmount?: string;
   } | null;
+  billedAtOldFee: number;
 }
 
 export interface ApplyCreditNoteInput {
@@ -6149,6 +6151,18 @@ export interface DismissTruckFillOutput {
   status: "dismissed";
 }
 
+export interface DraftContractFeeDifferenceInput {
+  periodIds: string[];
+}
+
+export interface DraftContractFeeDifferenceOutput {
+  contractId: string;
+  invoiceId: string;
+  invoiceNumber: number;
+  total: string;
+  periods: number;
+}
+
 export interface DrillMarketingFunnelOutput {
   key: string;
   label: string;
@@ -6443,6 +6457,7 @@ export interface EndContractBillingOutput {
       amount: string;
       previousAmount: string;
       rate: string;
+      riseAmount?: string;
     }>;
   } | null;
   next: {
@@ -6470,6 +6485,20 @@ export interface EndContractBillingOutput {
     note: string | null;
   }>;
   standing: string | null;
+  differences: Array<{
+    periodId: string;
+    start: string;
+    end: string;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    feeFrom: string;
+    billed: string;
+    risen: string;
+    difference: string;
+    status: "offered" | "drafted" | "waived";
+    draftInvoiceId: string | null;
+    draftInvoiceNumber: number | null;
+  }>;
 }
 
 export interface EndCustomerPortalSessionsInput {
@@ -7642,6 +7671,7 @@ export interface GetContractBillingOutput {
       amount: string;
       previousAmount: string;
       rate: string;
+      riseAmount?: string;
     }>;
   } | null;
   next: {
@@ -7669,6 +7699,20 @@ export interface GetContractBillingOutput {
     note: string | null;
   }>;
   standing: string | null;
+  differences: Array<{
+    periodId: string;
+    start: string;
+    end: string;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    feeFrom: string;
+    billed: string;
+    risen: string;
+    difference: string;
+    status: "offered" | "drafted" | "waived";
+    draftInvoiceId: string | null;
+    draftInvoiceNumber: number | null;
+  }>;
 }
 
 export interface GetConversationOutput {
@@ -14436,6 +14480,8 @@ export type ListContractRisesOutput = Array<{
   jobTypeId: string | null;
   jobTypeName: string | null;
   rate: string;
+  amount: string | null;
+  fee: boolean;
 }>;
 
 export interface ListContractsOutput {
@@ -19243,6 +19289,7 @@ export interface PauseContractBillingOutput {
       amount: string;
       previousAmount: string;
       rate: string;
+      riseAmount?: string;
     }>;
   } | null;
   next: {
@@ -19270,6 +19317,20 @@ export interface PauseContractBillingOutput {
     note: string | null;
   }>;
   standing: string | null;
+  differences: Array<{
+    periodId: string;
+    start: string;
+    end: string;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    feeFrom: string;
+    billed: string;
+    risen: string;
+    difference: string;
+    status: "offered" | "drafted" | "waived";
+    draftInvoiceId: string | null;
+    draftInvoiceNumber: number | null;
+  }>;
 }
 
 export interface PayCommissionsInput {
@@ -19707,6 +19768,7 @@ export interface PreviewContractEscalationOutput {
       before: string;
       after: string;
       rate: string;
+      amount?: string;
       because: string;
       id: string;
       description: string;
@@ -19715,6 +19777,7 @@ export interface PreviewContractEscalationOutput {
       before: string;
       after: string;
       rate: string;
+      amount?: string;
       because: string;
       id: string;
       band: string;
@@ -19724,6 +19787,7 @@ export interface PreviewContractEscalationOutput {
       before: string;
       after: string;
       rate: string;
+      amount?: string;
       because: string;
     } | null;
   }>;
@@ -19740,6 +19804,7 @@ export interface PreviewContractEscalationOutput {
     before: string;
     after: string;
     rate: string;
+    amount?: string;
     because: string;
     per: string;
   } | null;
@@ -19751,6 +19816,8 @@ export interface PreviewContractEscalationOutput {
     jobTypeId: string | null;
     jobTypeName: string | null;
     rate: string;
+    amount: string | null;
+    fee: boolean;
   }>;
   key: string | null;
 }
@@ -22766,6 +22833,7 @@ export interface ResumeContractBillingOutput {
       amount: string;
       previousAmount: string;
       rate: string;
+      riseAmount?: string;
     }>;
   } | null;
   next: {
@@ -22793,6 +22861,20 @@ export interface ResumeContractBillingOutput {
     note: string | null;
   }>;
   standing: string | null;
+  differences: Array<{
+    periodId: string;
+    start: string;
+    end: string;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    feeFrom: string;
+    billed: string;
+    risen: string;
+    difference: string;
+    status: "offered" | "drafted" | "waived";
+    draftInvoiceId: string | null;
+    draftInvoiceNumber: number | null;
+  }>;
 }
 
 export type RetireAgreementPlanInput = Record<string, unknown>;
@@ -24474,6 +24556,7 @@ export interface SetContractBillingOutput {
       amount: string;
       previousAmount: string;
       rate: string;
+      riseAmount?: string;
     }>;
   } | null;
   next: {
@@ -24501,6 +24584,20 @@ export interface SetContractBillingOutput {
     note: string | null;
   }>;
   standing: string | null;
+  differences: Array<{
+    periodId: string;
+    start: string;
+    end: string;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    feeFrom: string;
+    billed: string;
+    risen: string;
+    difference: string;
+    status: "offered" | "drafted" | "waived";
+    draftInvoiceId: string | null;
+    draftInvoiceNumber: number | null;
+  }>;
 }
 
 export interface SetContractRisesInput {
@@ -24508,7 +24605,9 @@ export interface SetContractRisesInput {
     contractYear?: number | null;
     rateCardId?: string | null;
     jobTypeId?: string | null;
-    rate: string;
+    rate?: string;
+    amount?: string | null;
+    fee?: boolean;
   }>;
 }
 
@@ -24520,6 +24619,8 @@ export type SetContractRisesOutput = Array<{
   jobTypeId: string | null;
   jobTypeName: string | null;
   rate: string;
+  amount: string | null;
+  fee: boolean;
 }>;
 
 export interface SetCostingRateInput {
@@ -29729,6 +29830,77 @@ export interface VoidInvoiceOutput {
   updatedAt: string;
 }
 
+export interface WaiveContractFeeDifferenceInput {
+  periodIds: string[];
+}
+
+export interface WaiveContractFeeDifferenceOutput {
+  contractId: string;
+  schedule: {
+    id: string;
+    amount: string;
+    frequency: "monthly" | "quarterly" | "yearly";
+    billingDay: number;
+    timing: "advance" | "arrears";
+    startsOn: string;
+    prorate: boolean;
+    taxable: boolean;
+    description: string;
+    risesWithEscalation: boolean;
+    state: "active" | "paused" | "ended";
+    pausedOn: string | null;
+    endedOn: string | null;
+    lastDay: string | null;
+    feeNow: string;
+    fees: Array<{
+      from: string;
+      amount: string;
+      previousAmount: string;
+      rate: string;
+      riseAmount?: string;
+    }>;
+  } | null;
+  next: {
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+  } | null;
+  due: number;
+  periods: Array<{
+    start: string;
+    end: string;
+    billOn: string;
+    amount: string;
+    prorated: boolean;
+    days: number;
+    fullDays: number;
+    id: string;
+    status: "invoiced" | "skipped";
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    note: string | null;
+  }>;
+  standing: string | null;
+  differences: Array<{
+    periodId: string;
+    start: string;
+    end: string;
+    invoiceId: string | null;
+    invoiceNumber: number | null;
+    feeFrom: string;
+    billed: string;
+    risen: string;
+    difference: string;
+    status: "offered" | "drafted" | "waived";
+    draftInvoiceId: string | null;
+    draftInvoiceNumber: number | null;
+  }>;
+}
+
 export interface WaiveObligationInput {
   reason: string;
 }
@@ -30489,6 +30661,10 @@ export interface DismissIntakeDraftParams {
 
 export interface DismissTruckFillParams {
   id: string;
+}
+
+export interface DraftContractFeeDifferenceParams {
+  contractId: string;
 }
 
 export interface DrillMarketingFunnelInput {
@@ -33724,6 +33900,10 @@ export interface VoidInvoiceParams {
   id: string;
 }
 
+export interface WaiveContractFeeDifferenceParams {
+  contractId: string;
+}
+
 export interface WaiveObligationParams {
   id: string;
 }
@@ -33992,6 +34172,7 @@ export interface OperationTypes {
   dismissEstimateDraft: { input: DismissEstimateDraftParams & DismissEstimateDraftInput; output: DismissEstimateDraftOutput };
   dismissIntakeDraft: { input: DismissIntakeDraftParams & DismissIntakeDraftInput; output: DismissIntakeDraftOutput };
   dismissTruckFill: { input: DismissTruckFillParams & DismissTruckFillInput; output: DismissTruckFillOutput };
+  draftContractFeeDifference: { input: DraftContractFeeDifferenceParams & DraftContractFeeDifferenceInput; output: DraftContractFeeDifferenceOutput };
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
   dropJobSkill: { input: DropJobSkillParams & DropJobSkillInput; output: DropJobSkillOutput };
@@ -34950,6 +35131,7 @@ export interface OperationTypes {
   visitPaymentLink: { input: VisitPaymentLinkParams & VisitPaymentLinkInput; output: VisitPaymentLinkOutput };
   voidCreditNote: { input: VoidCreditNoteParams & VoidCreditNoteInput; output: VoidCreditNoteOutput };
   voidInvoice: { input: VoidInvoiceParams & VoidInvoiceInput; output: VoidInvoiceOutput };
+  waiveContractFeeDifference: { input: WaiveContractFeeDifferenceParams & WaiveContractFeeDifferenceInput; output: WaiveContractFeeDifferenceOutput };
   waiveObligation: { input: WaiveObligationParams & WaiveObligationInput; output: WaiveObligationOutput };
   withdrawChangeOrder: { input: WithdrawChangeOrderParams & WithdrawChangeOrderInput; output: WithdrawChangeOrderOutput };
   withdrawComplianceDocument: { input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput; output: WithdrawComplianceDocumentOutput };
@@ -35194,6 +35376,7 @@ export const OPERATIONS = {
   dismissEstimateDraft: { method: "POST", path: "/v1/ai/estimate-drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   dismissIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide"] },
   dismissTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/dismissal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  draftContractFeeDifference: { method: "POST", path: "/v1/contracts/{contractId}/billing/differences", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   dropJobSkill: { method: "POST", path: "/v1/jobs/{id}/dropped-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","visit:assign_unqualified"] },
@@ -36152,6 +36335,7 @@ export const OPERATIONS = {
   visitPaymentLink: { method: "POST", path: "/v1/visits/{id}/payment-link", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   voidCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   voidInvoice: { method: "POST", path: "/v1/invoices/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:void"] },
+  waiveContractFeeDifference: { method: "POST", path: "/v1/contracts/{contractId}/billing/differences/waive", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   waiveObligation: { method: "POST", path: "/v1/obligations/{id}/waive", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   withdrawChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   withdrawComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
@@ -38238,6 +38422,15 @@ export abstract class GeneratedOperations {
    */
   dismissTruckFill(input: DismissTruckFillParams & DismissTruckFillInput, options?: CallOptions): Promise<DismissTruckFillOutput> {
     return this.call("dismissTruckFill", input, options);
+  }
+
+  /**
+   * Bill what a late rise of the fee left short, on a draft invoice.
+   *
+   * POST /v1/contracts/{contractId}/billing/differences. Needs invoice:write.
+   */
+  draftContractFeeDifference(input: DraftContractFeeDifferenceParams & DraftContractFeeDifferenceInput, options?: CallOptions): Promise<DraftContractFeeDifferenceOutput> {
+    return this.call("draftContractFeeDifference", input, options);
   }
 
   /**
@@ -46860,6 +47053,15 @@ export abstract class GeneratedOperations {
    */
   voidInvoice(input: VoidInvoiceParams & VoidInvoiceInput, options?: CallOptions): Promise<VoidInvoiceOutput> {
     return this.call("voidInvoice", input, options);
+  }
+
+  /**
+   * Decide not to bill what a late rise of the fee left short.
+   *
+   * POST /v1/contracts/{contractId}/billing/differences/waive. Needs invoice:write.
+   */
+  waiveContractFeeDifference(input: WaiveContractFeeDifferenceParams & WaiveContractFeeDifferenceInput, options?: CallOptions): Promise<WaiveContractFeeDifferenceOutput> {
+    return this.call("waiveContractFeeDifference", input, options);
   }
 
   /**
