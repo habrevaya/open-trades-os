@@ -5,7 +5,8 @@ import { Uuid } from "./common";
 /**
  * THE TIMES A CONTAINER'S TURNAROUND IS MADE OF (M22)
  *
- * When a full can was emptied at the facility, the moment a can was put down
+ * When a full can was emptied at the facility (or that it came back empty and
+ * when), the moment a can was put down
  * on a site, and the periods a can was out for repair or held because a
  * customer asked. The dumpster pack's turnaround is hours from the first to
  * the second, leaving out a can that spent any of them in the third. The
@@ -38,6 +39,19 @@ export const recordRentalTip = defineRoute({
   idempotent: true,
   input: z.object({ id: Uuid, tippedAt: z.string().datetime().nullable() }),
   output: z.object({ id: Uuid, tippedAt: z.string().datetime().nullable() }),
+});
+
+export const recordRentalEmpty = defineRoute({
+  method: "put",
+  path: "/v1/rentals/{id}/came-back-empty",
+  summary: "Record that a collected can came back empty",
+  description:
+    "The customer put nothing in it, so no tip is expected. `at` is the moment it was collected, on the collection's day; null takes the mark off. The turnaround then measures the can's next placement from that moment rather than counting it beside as not known. Refused before the collection is recorded, for a haul with a tip time or a scale ticket (then it was not empty), for a time still to come, and after the can was already on its next site. On the audit log.",
+  module: "M22",
+  permissions: ["asset:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, at: z.string().datetime().nullable() }),
+  output: z.object({ id: Uuid, cameBackEmptyAt: z.string().datetime().nullable() }),
 });
 
 export const recordRentalDrop = defineRoute({
@@ -103,5 +117,5 @@ export const endContainerHold = defineRoute({
 });
 
 export const haulTimeRoutes = {
-  recordRentalTip, recordRentalDrop, listContainerHolds, holdContainer, endContainerHold,
+  recordRentalTip, recordRentalEmpty, recordRentalDrop, listContainerHolds, holdContainer, endContainerHold,
 } as const;

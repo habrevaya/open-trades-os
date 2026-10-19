@@ -3440,6 +3440,11 @@ export interface CreateDisposalFacilityInput {
   feeBasis?: "per_ton" | "per_load" | null;
   feeAmount?: string | null;
   minimumFee?: string | null;
+  materials?: Array<{
+    material: string;
+    feeBasis: "per_ton" | "per_load" | null;
+    feeAmount: string | null;
+  }>;
   tipMinutes?: number;
   isDefault?: boolean;
   notes?: string | null;
@@ -3474,6 +3479,12 @@ export interface CreateDisposalFacilityOutput {
   feeAmount: string | null;
   minimumFee: string | null;
   feeText: string;
+  materials: Array<{
+    material: string;
+    feeBasis: "per_ton" | "per_load" | null;
+    feeAmount: string | null;
+  }>;
+  materialsText: string;
   tipMinutes: number;
   isDefault: boolean;
   active: boolean;
@@ -5958,6 +5969,7 @@ export interface DeliverRentalInput {
   perTonRate?: string | null;
   invoiceAs?: "per_haul" | "chain";
   disposalPassThrough?: boolean;
+  materialType?: string | null;
 }
 
 export interface DeliverRentalOutput {
@@ -5971,6 +5983,7 @@ export interface DeliverRentalOutput {
   deliveredTimeKnown: boolean;
   pickedUpAt: string | null;
   tippedAt: string | null;
+  cameBackEmptyAt: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -11997,6 +12010,7 @@ export interface GetRentalDispatchOutput {
   collectionLeadDays: number;
   containersPerTruck: number;
   yardMinutes: number;
+  truckHourCost?: string | null;
 }
 
 export interface GetRentalOutput {
@@ -12010,6 +12024,7 @@ export interface GetRentalOutput {
   deliveredTimeKnown: boolean;
   pickedUpAt: string | null;
   tippedAt: string | null;
+  cameBackEmptyAt: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -12189,6 +12204,9 @@ export interface GetRouteProposalOutput {
       facilityName: string | null;
       driveMinutes: number | null;
       why: string | null;
+      fee: string | null;
+      feeWeighed: boolean | null;
+      notTaken: string[];
     }>;
     facilities: Array<{
       id: string;
@@ -15100,6 +15118,12 @@ export interface ListDisposalFacilitiesOutput {
     feeAmount: string | null;
     minimumFee: string | null;
     feeText: string;
+    materials: Array<{
+      material: string;
+      feeBasis: "per_ton" | "per_load" | null;
+      feeAmount: string | null;
+    }>;
+    materialsText: string;
     tipMinutes: number;
     isDefault: boolean;
     active: boolean;
@@ -17077,6 +17101,7 @@ export interface ListRentalsOutput {
     deliveredTimeKnown: boolean;
     pickedUpAt: string | null;
     tippedAt: string | null;
+    cameBackEmptyAt: string | null;
     open: boolean;
     daysSoFar: number | null;
     includedDays: number | null;
@@ -19459,6 +19484,7 @@ export interface PickUpRentalOutput {
   deliveredTimeKnown: boolean;
   pickedUpAt: string | null;
   tippedAt: string | null;
+  cameBackEmptyAt: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -21187,6 +21213,15 @@ export interface RecordRentalDropOutput {
   id: string;
   deliveredAt: string;
   deliveredTimeKnown: boolean;
+}
+
+export interface RecordRentalEmptyInput {
+  at: string | null;
+}
+
+export interface RecordRentalEmptyOutput {
+  id: string;
+  cameBackEmptyAt: string | null;
 }
 
 export interface RecordRentalTipInput {
@@ -25573,6 +25608,7 @@ export interface SetRentalDispatchInput {
   collectionLeadDays?: number;
   containersPerTruck?: number;
   yardMinutes?: number;
+  truckHourCost?: string | null;
 }
 
 export interface SetRentalDispatchOutput {
@@ -25580,6 +25616,54 @@ export interface SetRentalDispatchOutput {
   collectionLeadDays: number;
   containersPerTruck: number;
   yardMinutes: number;
+  truckHourCost?: string | null;
+}
+
+export interface SetRentalMaterialInput {
+  materialType: string | null;
+}
+
+export interface SetRentalMaterialOutput {
+  id: string;
+  assetId: string;
+  assetIdentifier: string | null;
+  assetSize: string | null;
+  propertyId: string;
+  propertyAddress: string | null;
+  deliveredAt: string | null;
+  deliveredTimeKnown: boolean;
+  pickedUpAt: string | null;
+  tippedAt: string | null;
+  cameBackEmptyAt: string | null;
+  open: boolean;
+  daysSoFar: number | null;
+  includedDays: number | null;
+  dailyRate: string | null;
+  overageRate: string | null;
+  includedTons: string | null;
+  perTonRate: string | null;
+  weightTons: string | null;
+  divertedTons: string | null;
+  disposalTicketNumber: string | null;
+  disposalFacility: string | null;
+  disposalFacilityId: string | null;
+  materialType: string | null;
+  disposalFee: string | null;
+  previousRentalId: string | null;
+  collectionVisitId: string | null;
+  collectionAgreedStart: string | null;
+  collectionAgreedEnd: string | null;
+  invoiceId: string | null;
+  invoiceAs: "per_haul" | "chain";
+  disposalPassThrough: boolean;
+  disposalFeePassedOn: boolean | null;
+  disposalFeeAmount: string | null;
+  disposalFeeOffer: {
+    amount: string | null;
+    source: "recorded" | "worked_out" | null;
+    why: string;
+    facility: string | null;
+  } | null;
 }
 
 export interface SetReorderPolicyInput {
@@ -26545,6 +26629,7 @@ export interface SwapRentalOutput {
     deliveredTimeKnown: boolean;
     pickedUpAt: string | null;
     tippedAt: string | null;
+    cameBackEmptyAt: string | null;
     open: boolean;
     daysSoFar: number | null;
     includedDays: number | null;
@@ -26586,6 +26671,7 @@ export interface SwapRentalOutput {
     deliveredTimeKnown: boolean;
     pickedUpAt: string | null;
     tippedAt: string | null;
+    cameBackEmptyAt: string | null;
     open: boolean;
     daysSoFar: number | null;
     includedDays: number | null;
@@ -27757,6 +27843,11 @@ export interface UpdateDisposalFacilityInput {
   feeBasis?: "per_ton" | "per_load" | null;
   feeAmount?: string | null;
   minimumFee?: string | null;
+  materials?: Array<{
+    material: string;
+    feeBasis: "per_ton" | "per_load" | null;
+    feeAmount: string | null;
+  }>;
   tipMinutes?: number;
   isDefault?: boolean;
   notes?: string | null;
@@ -27792,6 +27883,12 @@ export interface UpdateDisposalFacilityOutput {
   feeAmount: string | null;
   minimumFee: string | null;
   feeText: string;
+  materials: Array<{
+    material: string;
+    feeBasis: "per_ton" | "per_load" | null;
+    feeAmount: string | null;
+  }>;
+  materialsText: string;
   tipMinutes: number;
   isDefault: boolean;
   active: boolean;
@@ -32681,6 +32778,10 @@ export interface RecordRentalDropParams {
   id: string;
 }
 
+export interface RecordRentalEmptyParams {
+  id: string;
+}
+
 export interface RecordRentalTipParams {
   id: string;
 }
@@ -33305,6 +33406,10 @@ export interface SetRentalBillingTermsParams {
 }
 
 export interface SetRentalCollectionTimeParams {
+  id: string;
+}
+
+export interface SetRentalMaterialParams {
   id: string;
 }
 
@@ -34579,6 +34684,7 @@ export interface OperationTypes {
   recordRefund: { input: RecordRefundParams & RecordRefundInput; output: RecordRefundOutput };
   recordRentalCharge: { input: RecordRentalChargeParams & RecordRentalChargeInput; output: RecordRentalChargeOutput };
   recordRentalDrop: { input: RecordRentalDropParams & RecordRentalDropInput; output: RecordRentalDropOutput };
+  recordRentalEmpty: { input: RecordRentalEmptyParams & RecordRentalEmptyInput; output: RecordRentalEmptyOutput };
   recordRentalTip: { input: RecordRentalTipParams & RecordRentalTipInput; output: RecordRentalTipOutput };
   recordReview: { input: RecordReviewInput; output: RecordReviewOutput };
   recordServiceRouteStopServiced: { input: RecordServiceRouteStopServicedParams & RecordServiceRouteStopServicedInput; output: RecordServiceRouteStopServicedOutput };
@@ -34807,6 +34913,7 @@ export interface OperationTypes {
   setRentalBillingTerms: { input: SetRentalBillingTermsParams & SetRentalBillingTermsInput; output: SetRentalBillingTermsOutput };
   setRentalCollectionTime: { input: SetRentalCollectionTimeParams & SetRentalCollectionTimeInput; output: SetRentalCollectionTimeOutput };
   setRentalDispatch: { input: SetRentalDispatchInput; output: SetRentalDispatchOutput };
+  setRentalMaterial: { input: SetRentalMaterialParams & SetRentalMaterialInput; output: SetRentalMaterialOutput };
   setReorderPolicy: { input: SetReorderPolicyInput; output: SetReorderPolicyOutput };
   setReportSchedulePaused: { input: SetReportSchedulePausedParams & SetReportSchedulePausedInput; output: SetReportSchedulePausedOutput };
   setReportingLine: { input: SetReportingLineInput; output: SetReportingLineOutput };
@@ -35781,6 +35888,7 @@ export const OPERATIONS = {
   recordRefund: { method: "POST", path: "/v1/payments/{id}/refunds", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   recordRentalCharge: { method: "POST", path: "/v1/rentals/{id}/charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordRentalDrop: { method: "PUT", path: "/v1/rentals/{id}/delivered-at", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  recordRentalEmpty: { method: "PUT", path: "/v1/rentals/{id}/came-back-empty", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordRentalTip: { method: "PUT", path: "/v1/rentals/{id}/tipped-at", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordReview: { method: "POST", path: "/v1/reviews", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   recordServiceRouteStopServiced: { method: "POST", path: "/v1/service-routes/stops/{id}/serviced", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -36009,6 +36117,7 @@ export const OPERATIONS = {
   setRentalBillingTerms: { method: "PUT", path: "/v1/rentals/{id}/billing-terms", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalCollectionTime: { method: "PUT", path: "/v1/rentals/{id}/collection-time", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setRentalDispatch: { method: "PUT", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setRentalMaterial: { method: "PUT", path: "/v1/rentals/{id}/material", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setReorderPolicy: { method: "PUT", path: "/v1/reorder-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   setReportSchedulePaused: { method: "POST", path: "/v1/report-schedules/{id}/paused", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   setReportingLine: { method: "POST", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -43524,6 +43633,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Record that a collected can came back empty.
+   *
+   * PUT /v1/rentals/{id}/came-back-empty. Needs asset:write.
+   */
+  recordRentalEmpty(input: RecordRentalEmptyParams & RecordRentalEmptyInput, options?: CallOptions): Promise<RecordRentalEmptyOutput> {
+    return this.call("recordRentalEmpty", input, options);
+  }
+
+  /**
    * Record when a haul's load was emptied at the facility.
    *
    * PUT /v1/rentals/{id}/tipped-at. Needs asset:write.
@@ -45573,6 +45691,15 @@ export abstract class GeneratedOperations {
    */
   setRentalDispatch(input: SetRentalDispatchInput = {} as SetRentalDispatchInput, options?: CallOptions): Promise<SetRentalDispatchOutput> {
     return this.call("setRentalDispatch", input, options);
+  }
+
+  /**
+   * Say what is in a container.
+   *
+   * PUT /v1/rentals/{id}/material. Needs asset:write.
+   */
+  setRentalMaterial(input: SetRentalMaterialParams & SetRentalMaterialInput, options?: CallOptions): Promise<SetRentalMaterialOutput> {
+    return this.call("setRentalMaterial", input, options);
   }
 
   /**

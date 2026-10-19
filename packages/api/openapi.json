@@ -47929,7 +47929,7 @@
       "post": {
         "operationId": "createDisposalFacility",
         "summary": "Record a landfill or transfer station",
-        "description": "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. Holidays are the days it is shut whatever its week says (a yearly one repeats every year), and win over the hours. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.\n\nRequires a session holding: asset:write.",
+        "description": "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. Holidays are the days it is shut whatever its week says (a yearly one repeats every year), and win over the hours. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. `materials` is what it takes, each with a rate of its own or the general one; a facility that lists them is not sent a can of anything else, and none listed means not recorded. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.\n\nRequires a session holding: asset:write.",
         "tags": [
           "M22"
         ],
@@ -114562,7 +114562,7 @@
       "get": {
         "operationId": "getRentalDispatch",
         "summary": "How collections are booked and a driver's day is ordered",
-        "description": "Whether the worker books collections on its own as hires come due and how many days ahead, and how many containers a truck carries and how long a run to the yard takes, which `GET /v1/dispatch/optimise` uses to order a driver's day by what is on the truck.\n\nRequires a session holding: asset:read.",
+        "description": "Whether the worker books collections on its own as hires come due and how many days ahead, how many containers a truck carries and how long a run to the yard takes, which `GET /v1/dispatch/optimise` uses to order a driver's day by what is on the truck, and what an hour of a truck costs, which it uses to weigh a facility's fee beside the drive.\n\nRequires a session holding: asset:read.",
         "tags": [
           "M22"
         ],
@@ -115192,6 +115192,144 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetRentalBillingTermsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
+        ]
+      }
+    },
+    "/v1/rentals/{id}/came-back-empty": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "recordRentalEmpty",
+        "summary": "Record that a collected can came back empty",
+        "description": "The customer put nothing in it, so no tip is expected. `at` is the moment it was collected, on the collection's day; null takes the mark off. The turnaround then measures the can's next placement from that moment rather than counting it beside as not known. Refused before the collection is recorded, for a haul with a tip time or a scale ticket (then it was not empty), for a time still to come, and after the can was already on its next site. On the audit log.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordRentalEmptyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record that a collected can came back empty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordRentalEmptyOutput"
                 }
               }
             }
@@ -115932,6 +116070,144 @@
         "x-permissions": [
           "invoice:write",
           "asset:read"
+        ]
+      }
+    },
+    "/v1/rentals/{id}/material": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setRentalMaterial",
+        "summary": "Say what is in a container",
+        "description": "The material the customer is putting in the can, \"Yard waste\", or null when not known. \"Optimise route\" sends the full can only to a facility that takes it and prices the tip at that material's rate. Compared with a facility's list with case and spacing ignored. The collection can correct it. On the audit log.\n\nRequires a session holding: asset:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRentalMaterialInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Say what is in a container",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetRentalMaterialOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:write"
         ]
       }
     },
@@ -165074,6 +165350,42 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "material": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "feeBasis": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "per_ton",
+                    "per_load"
+                  ]
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "material",
+                "feeBasis",
+                "feeAmount"
+              ]
+            },
+            "maxItems": 40
+          },
           "tipMinutes": {
             "type": "integer",
             "minimum": 0,
@@ -165247,6 +165559,44 @@
           "feeText": {
             "type": "string"
           },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "material": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "feeBasis": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "per_ton",
+                    "per_load"
+                  ]
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "material",
+                "feeBasis",
+                "feeAmount"
+              ]
+            }
+          },
+          "materialsText": {
+            "type": "string"
+          },
           "tipMinutes": {
             "type": "integer"
           },
@@ -165284,6 +165634,8 @@
           "feeAmount",
           "minimumFee",
           "feeText",
+          "materials",
+          "materialsText",
           "tipMinutes",
           "isDefault",
           "active",
@@ -178197,6 +178549,13 @@
           },
           "disposalPassThrough": {
             "type": "boolean"
+          },
+          "materialType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
           }
         },
         "required": [
@@ -178253,6 +178612,13 @@
             ]
           },
           "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cameBackEmptyAt": {
             "type": [
               "string",
               "null"
@@ -178458,6 +178824,7 @@
           "deliveredTimeKnown",
           "pickedUpAt",
           "tippedAt",
+          "cameBackEmptyAt",
           "open",
           "daysSoFar",
           "includedDays",
@@ -209921,6 +210288,13 @@
             ],
             "format": "date-time"
           },
+          "cameBackEmptyAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "open": {
             "type": "boolean"
           },
@@ -210120,6 +210494,7 @@
           "deliveredTimeKnown",
           "pickedUpAt",
           "tippedAt",
+          "cameBackEmptyAt",
           "open",
           "daysSoFar",
           "includedDays",
@@ -210166,6 +210541,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 120
+          },
+          "truckHourCost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         },
         "required": [
@@ -210871,6 +211253,25 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "fee": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "feeWeighed": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "notTaken": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
@@ -210883,7 +211284,10 @@
                     "facilityId",
                     "facilityName",
                     "driveMinutes",
-                    "why"
+                    "why",
+                    "fee",
+                    "feeWeighed",
+                    "notTaken"
                   ]
                 }
               },
@@ -226180,6 +226584,44 @@
                 "feeText": {
                   "type": "string"
                 },
+                "materials": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "material": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "feeBasis": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "per_ton",
+                          "per_load"
+                        ]
+                      },
+                      "feeAmount": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "material",
+                      "feeBasis",
+                      "feeAmount"
+                    ]
+                  }
+                },
+                "materialsText": {
+                  "type": "string"
+                },
                 "tipMinutes": {
                   "type": "integer"
                 },
@@ -226217,6 +226659,8 @@
                 "feeAmount",
                 "minimumFee",
                 "feeText",
+                "materials",
+                "materialsText",
                 "tipMinutes",
                 "isDefault",
                 "active",
@@ -236802,6 +237246,13 @@
                   ],
                   "format": "date-time"
                 },
+                "cameBackEmptyAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "open": {
                   "type": "boolean"
                 },
@@ -237001,6 +237452,7 @@
                 "deliveredTimeKnown",
                 "pickedUpAt",
                 "tippedAt",
+                "cameBackEmptyAt",
                 "open",
                 "daysSoFar",
                 "includedDays",
@@ -248806,6 +249258,13 @@
             ],
             "format": "date-time"
           },
+          "cameBackEmptyAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "open": {
             "type": "boolean"
           },
@@ -249005,6 +249464,7 @@
           "deliveredTimeKnown",
           "pickedUpAt",
           "tippedAt",
+          "cameBackEmptyAt",
           "open",
           "daysSoFar",
           "includedDays",
@@ -257613,6 +258073,41 @@
           "id",
           "deliveredAt",
           "deliveredTimeKnown"
+        ]
+      },
+      "RecordRentalEmptyInput": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "at"
+        ]
+      },
+      "RecordRentalEmptyOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cameBackEmptyAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "cameBackEmptyAt"
         ]
       },
       "RecordRentalTipInput": {
@@ -278512,6 +279007,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 120
+          },
+          "truckHourCost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         }
       },
@@ -278535,6 +279037,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 120
+          },
+          "truckHourCost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         },
         "required": [
@@ -278542,6 +279051,309 @@
           "collectionLeadDays",
           "containersPerTruck",
           "yardMinutes"
+        ]
+      },
+      "SetRentalMaterialInput": {
+        "type": "object",
+        "properties": {
+          "materialType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "materialType"
+        ]
+      },
+      "SetRentalMaterialOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assetIdentifier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assetSize": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deliveredAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deliveredTimeKnown": {
+            "type": "boolean"
+          },
+          "pickedUpAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cameBackEmptyAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "daysSoFar": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "includedDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "dailyRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "overageRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "includedTons": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "perTonRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "weightTons": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "divertedTons": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "disposalTicketNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disposalFacility": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disposalFacilityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "materialType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disposalFee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "previousRentalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "collectionVisitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "collectionAgreedStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "collectionAgreedEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "invoiceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "invoiceAs": {
+            "type": "string",
+            "enum": [
+              "per_haul",
+              "chain"
+            ]
+          },
+          "disposalPassThrough": {
+            "type": "boolean"
+          },
+          "disposalFeePassedOn": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "disposalFeeAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "disposalFeeOffer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "recorded",
+                  "worked_out"
+                ]
+              },
+              "why": {
+                "type": "string"
+              },
+              "facility": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "source",
+              "why",
+              "facility"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "assetId",
+          "assetIdentifier",
+          "assetSize",
+          "propertyId",
+          "propertyAddress",
+          "deliveredAt",
+          "deliveredTimeKnown",
+          "pickedUpAt",
+          "tippedAt",
+          "cameBackEmptyAt",
+          "open",
+          "daysSoFar",
+          "includedDays",
+          "dailyRate",
+          "overageRate",
+          "includedTons",
+          "perTonRate",
+          "weightTons",
+          "divertedTons",
+          "disposalTicketNumber",
+          "disposalFacility",
+          "disposalFacilityId",
+          "materialType",
+          "disposalFee",
+          "previousRentalId",
+          "collectionVisitId",
+          "collectionAgreedStart",
+          "collectionAgreedEnd",
+          "invoiceId",
+          "invoiceAs",
+          "disposalPassThrough",
+          "disposalFeePassedOn",
+          "disposalFeeAmount",
+          "disposalFeeOffer"
         ]
       },
       "SetReorderPolicyInput": {
@@ -282923,6 +283735,13 @@
                 ],
                 "format": "date-time"
               },
+              "cameBackEmptyAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "open": {
                 "type": "boolean"
               },
@@ -283122,6 +283941,7 @@
               "deliveredTimeKnown",
               "pickedUpAt",
               "tippedAt",
+              "cameBackEmptyAt",
               "open",
               "daysSoFar",
               "includedDays",
@@ -283203,6 +284023,13 @@
                 ],
                 "format": "date-time"
               },
+              "cameBackEmptyAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "open": {
                 "type": "boolean"
               },
@@ -283402,6 +284229,7 @@
               "deliveredTimeKnown",
               "pickedUpAt",
               "tippedAt",
+              "cameBackEmptyAt",
               "open",
               "daysSoFar",
               "includedDays",
@@ -289361,6 +290189,42 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "material": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "feeBasis": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "per_ton",
+                    "per_load"
+                  ]
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "material",
+                "feeBasis",
+                "feeAmount"
+              ]
+            },
+            "maxItems": 40
+          },
           "tipMinutes": {
             "type": "integer",
             "minimum": 0,
@@ -289534,6 +290398,44 @@
           "feeText": {
             "type": "string"
           },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "material": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "feeBasis": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "per_ton",
+                    "per_load"
+                  ]
+                },
+                "feeAmount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "material",
+                "feeBasis",
+                "feeAmount"
+              ]
+            }
+          },
+          "materialsText": {
+            "type": "string"
+          },
           "tipMinutes": {
             "type": "integer"
           },
@@ -289571,6 +290473,8 @@
           "feeAmount",
           "minimumFee",
           "feeText",
+          "materials",
+          "materialsText",
           "tipMinutes",
           "isDefault",
           "active",

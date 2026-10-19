@@ -898,6 +898,7 @@ export const handlers = {
 
   // Rentals (M22): the asset_rental capacity model the dumpster pack declares
   addRentableAsset: rentals.handlers.addRentableAsset,
+  setRentalMaterial: rentals.handlers.setRentalMaterial,
   listRentableAssets: rentals.handlers.listRentableAssets,
   tagAssetOutOfService: rentals.handlers.tagAssetOutOfService,
   returnAssetToService: rentals.handlers.returnAssetToService,

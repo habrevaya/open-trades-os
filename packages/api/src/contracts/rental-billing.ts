@@ -217,6 +217,12 @@ const RentalDispatch = z.object({
   containersPerTruck: z.number().int().min(1).max(4),
   /** Minutes at the yard to tip a full container and load an empty. */
   yardMinutes: z.number().int().min(0).max(120),
+  /**
+   * What an hour of a truck and its driver costs, so a facility's fee is
+   * weighed beside the drive to it. Absent until set, and then fees are not
+   * weighed; null on a change clears it.
+   */
+  truckHourCost: MoneyString.nullable().optional(),
 });
 
 export const getRentalDispatch = defineRoute({
@@ -224,7 +230,7 @@ export const getRentalDispatch = defineRoute({
   path: "/v1/rental-dispatch",
   summary: "How collections are booked and a driver's day is ordered",
   description:
-    "Whether the worker books collections on its own as hires come due and how many days ahead, and how many containers a truck carries and how long a run to the yard takes, which `GET /v1/dispatch/optimise` uses to order a driver's day by what is on the truck.",
+    "Whether the worker books collections on its own as hires come due and how many days ahead, how many containers a truck carries and how long a run to the yard takes, which `GET /v1/dispatch/optimise` uses to order a driver's day by what is on the truck, and what an hour of a truck costs, which it uses to weigh a facility's fee beside the drive.",
   module: "M22",
   permissions: ["asset:read"],
   input: z.object({}),

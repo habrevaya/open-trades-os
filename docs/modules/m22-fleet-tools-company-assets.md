@@ -136,6 +136,16 @@ moment, `on` only its day, and the empty can it leaves is placed then.
 A hire with no job behind it is ordinary and is the standing container on a
 commercial site. Nothing invents a visit for it.
 
+**What goes in it.** A delivery can say what the customer is putting in the
+can (`materialType`, "What goes in it" on the board), and an open hire's row
+changes it with "Save what is in it" (`PUT /v1/rentals/{id}/material`,
+`asset:write`, on the audit log). It is what sends the full can to a facility
+that takes it and prices the tip at that material's rate. A swap carries it to
+the next can, and a collection that does not mention it keeps it; one that
+does corrects it. The board offers the names the company's facilities list,
+because a facility is matched by the name, with case and spacing ignored, and
+nothing guesses that "brush" is "yard waste".
+
 ### A swap
 
 `POST /v1/rentals/{id}/swap` with the empty can the driver brought. Same
@@ -163,6 +173,20 @@ before the delivery, one on a day before the collection, and one after the can
 was already on its next site; a delivery before the can's last tip is refused
 the same way, so a turnaround can never run backwards. Both times are on the
 audit log with where they came from.
+
+**A can that came back empty.** A customer who put nothing in the can leaves
+no load to tip, and no tip time will ever come. On a collected hire's row,
+"Came back empty" takes the time it was collected, on the collection's day
+(`PUT /v1/rentals/{id}/came-back-empty` with `at`, `asset:write`), and "It was
+not empty" takes the mark off (`at: null`). The row then says "Came back
+empty" where it would say "No ticket". Refused in words: a can still on its
+site, a haul with a tip time, a scale ticket, a weight or a disposal fee on it
+(then it was not empty), a time still to come, another day than the
+collection, and a time after the can was already on its next site. A tip time
+on a haul marked empty is refused the same way, a delivery before the can came
+back is refused as one before its tip is, a facility's ticket file does not
+match a haul marked empty, and the disposal fee it would pass on says there is
+none. On the audit log.
 
 ### Repairs and customer holds, from when to when
 
@@ -210,9 +234,9 @@ The worker runs the same booking on its own, on every pass, for each company
 with a hire coming due, as many days ahead as the company says (the day
 before, unless changed), so nobody has to remember the button. A company
 turns it off, sets how far ahead, and says how many containers a truck
-carries and how long the yard takes under "Collections and the truck" on
-`/fleet/containers` (`GET /v1/rental-dispatch`, and
-`PUT /v1/rental-dispatch` with `settings:write`). It is on unless turned off.
+carries, how long the yard takes and what an hour of a truck and driver costs
+under "Collections and the truck" on `/fleet/containers` (`GET
+/v1/rental-dispatch`, and `PUT /v1/rental-dispatch` with `settings:write`). It is on unless turned off.
 
 ### A collection time agreed with the customer
 
@@ -292,7 +316,14 @@ address (put on the map by the worker like a property's, or pinned by hand and
 then never moved), the days and hours it takes loads (a day left empty is a day
 it is closed; none at all means the hours are not recorded, which is never a
 reason to refuse a trip), what it charges (by the ton or by the load, with a
-minimum when it has one) and the minutes a tip takes there. `GET
+minimum when it has one), what it takes ("What it takes": one material a
+line, "Yard waste, 38.00 a ton" for one with its own price or the name alone
+for the general one, `materials` on the API) and the minutes a tip takes
+there. A list left empty is not recorded, which never turns a load away; a
+listed one is the whole of what it takes. A line that is not that shape, a
+material twice and a price with no amount are refused in words. A haul's fee
+worked out from its weight uses its material's own price where the facility
+has one. `GET
 /v1/disposal-facilities` lists them, `POST /v1/disposal-facilities` records one,
 `PATCH /v1/disposal-facilities/{id}` changes one, `DELETE
 /v1/disposal-facilities/{id}` stops using one (closed, never deleted: every haul
@@ -305,8 +336,34 @@ company records is its default, and a company has one default at a time.
 **Which facility a haul goes to.** "Optimise route" does not send every can to
 the default. For each run it picks the nearest facility **by road** (the same
 drive times the rest of the plan uses, from wherever the truck is at that point
-of the day) that is open when the truck gets there, among every active facility
-the company has on the map, or only the `facilityId` asked for. One shut that
+of the day) that is open when the truck gets there and takes what is on the
+truck, among every active facility the company has on the map, or only the
+`facilityId` asked for. A facility that lists what it takes and does not take
+the material of a full can on board is left out ("Near Transfer does not take
+Yard waste."). A can of no known material and a facility whose list nobody
+recorded are never a reason to leave one out. When no facility takes
+everything on the truck, the nearest is named, the run is refused in words
+(`facilityRuns[].notTaken`), and the search counts it as it counts a closed
+gate.
+
+**The fee beside the time.** Among the facilities open that take the load, the
+fee is weighed beside the time when the company has said what an hour of a
+truck and driver costs ("An hour of a truck and driver costs" under
+"Collections and the truck", `truckHourCost` on `PUT /v1/rental-dispatch`) and
+every one of them can say what the load would cost: each can at its
+material's price, by the ton at the hire's recorded weight or, before the
+scale, the tons its price includes, or by the load. A run's cost is the fee
+plus the minutes until the can is tipped at that hour's price, and the
+cheapest all told wins ("Far Landfill costs the least all told, 50.00 to tip,
+29 min by road. Green Yard is 10 min by road and would charge 120.00. Fees are
+weighed beside time, at 90.00 an hour of the truck."). With no hour cost, or
+with any open facility unable to price the load (no rate, or a price by the
+ton and no weight to work from), the fee is not weighed at all, the run goes
+by time as before, and the reason says which (`facilityRuns[].feeWeighed`,
+`fee`). Comparing a known fee with an unknown one would favour the facility
+that knows less, and no hour cost is assumed. The fee moves which facility a
+run goes to, never the order of the stops, and it does not count the drive on
+from the facility to the next stop, only the time until the tip. One shut that
 day is skipped: by its hours (a day left out of its week) or by a holiday it
 keeps. So is one the truck would reach after it has closed. A gate that opens a
 little later counts from when it opens, so it wins only when waiting for it still
@@ -444,9 +501,10 @@ haul is the cost. M21 says what each counts and leaves out.
 The last, `turnaround_hours`, is on the scorecard too, because both ends are
 now recorded to the minute and both exclusions as history: the tip and the
 drop above, and the repairs and customer holds as periods. Each placement of a
-can counts the hours from the tip of its previous hire; a placement recorded
-only as a day, or a haul whose tip nobody recorded, is counted beside the figure
-and never given an hour, and a can out for repair or held for a customer at any
+can counts the hours from the tip of its previous hire, or from its collection
+when that haul was marked as having come back empty; a placement recorded only
+as a day, or a haul whose tip nobody recorded and that was not marked empty, is
+counted beside the figure and never given an hour, and a can out for repair or held for a customer at any
 moment between the two is left out, whole. M21 says what it counts and leaves
 out. A KPI computed from the nearest available number (the collection instead
 of the tip, midday instead of the drop) is one an owner makes a fleet purchase
@@ -485,7 +543,8 @@ most real use:
 - `POST /v1/rentable-assets` once per unit.
 - `POST /v1/rentals`, then `/swap` or `/pickup`.
 - `PUT /v1/rentals/{id}/delivered-at` and `PUT /v1/rentals/{id}/tipped-at` for
-  the drop and the tip, `POST /v1/rentable-assets/{id}/holds` and
+  the drop and the tip, `PUT /v1/rentals/{id}/came-back-empty` for a can with
+  nothing to tip, `PUT /v1/rentals/{id}/material` for what is in it, `POST /v1/rentable-assets/{id}/holds` and
   `GET /v1/container-holds` for the holds.
 - `GET /v1/rentals?open=true` for what is out and where.
 - `GET /v1/fleet-report`.
@@ -612,10 +671,15 @@ this product's own board first.
   carries is one figure per size, and a mixed load fits by shares: a truck
   that can carry a 10 beside a 20 but not beside a 30, in a way shares do not
   describe, is not said. A swap is assumed to bring back a can of the size it
-  left. The choice of facility looks only at drive time and opening hours: a
-  queue at one gate, a facility that does not take a material (green waste, tyres,
-  concrete) or one that charges less per ton does not move a haul, and the fee
-  does not enter the choice. A haul is not given a facility the day before, so a
+  left. The choice of facility reads opening hours, what each facility takes and,
+  once the company prices an hour of the truck, the fee for the load; a queue at
+  one gate does not move a haul. A load with two materials on one truck goes to
+  one facility that takes both, or is refused: nothing splits a load between two
+  gates. Before the scale the fee by the ton is worked out from the tons the
+  hire's price includes, and a hire with none cannot be priced by the ton, so
+  the fee is not weighed on that run. Material names are matched as written,
+  case and spacing ignored; nothing knows that two names are the same thing. A
+  haul is not given a facility the day before, so a
   can tipped somewhere other than the plan said is recorded as the driver says
   on the haul. Holidays are the lists the company types, one facility at a
   time. The load in the morning is not recorded; for a day already under way it is
@@ -632,8 +696,9 @@ this product's own board first.
   recorded as a day, every hire from before the time was kept among them, is
   counted beside the figure until somebody says when the can was put down, on
   its row or from the phone; nothing reads a visit's completion as the drop. A
-  can collected empty and never tipped has no tip, so the next placement is
-  counted beside as not known; there is no way to say "came back empty". The
+  can collected empty counts from the time the office gives with "Came back
+  empty"; the driver's phone does not say it yet, so until the office does, the
+  next placement is counted beside as not known. The
   phone times a stop's haul only once the office has recorded the hire on it
   (a drop off booked before the can was chosen shows nothing to time), and a
   time typed on the phone is the phone's own clock. A customer hold names the

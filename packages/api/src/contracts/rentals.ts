@@ -51,6 +51,8 @@ const RentalView = z.object({
   pickedUpAt: z.string().nullable(),
   /** When the full can was emptied at the facility: not the pickup, not the scale ticket's weighbridge time. */
   tippedAt: z.string().datetime().nullable(),
+  /** When it was collected empty, for a haul that came back with nothing to tip: the turnaround runs from here. */
+  cameBackEmptyAt: z.string().datetime().nullable(),
   open: z.boolean(),
   daysSoFar: z.number().int().nullable(),
   includedDays: z.number().int().nullable(),
@@ -215,6 +217,8 @@ export const deliverRental = defineRoute({
     invoiceAs: z.enum(["per_haul", "chain"]).optional(),
     /** The terms pass the facility's disposal fee on, at cost, when a person says to on the invoice. Refused with a per ton rate. */
     disposalPassThrough: z.boolean().optional(),
+    /** What the customer is putting in it, "Yard waste", so the full can goes only to a facility that takes it. Carried through a swap. */
+    materialType: z.string().max(100).nullable().optional(),
   }),
   output: RentalView,
 });
@@ -363,7 +367,21 @@ export const getFleetReport = defineRoute({
   }),
 });
 
+export const setRentalMaterial = defineRoute({
+  method: "put",
+  path: "/v1/rentals/{id}/material",
+  summary: "Say what is in a container",
+  description:
+    "The material the customer is putting in the can, \"Yard waste\", or null when not known. \"Optimise route\" sends the full can only to a facility that takes it and prices the tip at that material's rate. Compared with a facility's list with case and spacing ignored. The collection can correct it. On the audit log.",
+  module: "M22",
+  permissions: ["asset:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, materialType: z.string().max(100).nullable() }),
+  output: RentalView,
+});
+
 export const rentalRoutes = {
+  setRentalMaterial,
   addRentableAsset,
   listRentableAssets,
   tagAssetOutOfService,

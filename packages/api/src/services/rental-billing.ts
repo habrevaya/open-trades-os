@@ -69,11 +69,21 @@ export interface RentalDispatchSettings {
   containersPerTruck: number;
   /** Minutes at the yard to tip what is full and load what is needed. */
   yardMinutes: number;
+  /**
+   * What an hour of a truck and its driver costs, which is what lets a
+   * facility's fee be weighed beside the drive to it. Absent until the
+   * company says: no figure is assumed, and without one the fee is not weighed.
+   */
+  truckHourCost?: string | undefined;
 }
 
 const DEFAULT_RENTAL_DISPATCH: RentalDispatchSettings = {
   automaticCollections: true, collectionLeadDays: 1, containersPerTruck: 1, yardMinutes: 20,
 };
+
+/** An hour's cost as stored: a positive amount of money, or null. */
+const hourCostOf = (value: unknown): string | null =>
+  typeof value === "string" && /^\d+(\.\d{1,4})?$/.test(value) ? m.toString(m.money(value)) : null;
 
 export async function rentalDispatchOf(tx: Database, organizationId: string): Promise<RentalDispatchSettings> {
   const [row] = await tx.select({ settings: schema.organization.settings })
@@ -87,6 +97,7 @@ export async function rentalDispatchOf(tx: Database, organizationId: string): Pr
     collectionLeadDays: int(held?.collectionLeadDays, DEFAULT_RENTAL_DISPATCH.collectionLeadDays, 0, 7),
     containersPerTruck: int(held?.containersPerTruck, DEFAULT_RENTAL_DISPATCH.containersPerTruck, 1, 4),
     yardMinutes: int(held?.yardMinutes, DEFAULT_RENTAL_DISPATCH.yardMinutes, 0, 120),
+    ...(hourCostOf(held?.truckHourCost) !== null ? { truckHourCost: hourCostOf(held?.truckHourCost)! } : {}),
   };
 }
 
@@ -94,7 +105,9 @@ export function rentalDispatch(ctx: ServiceContext): Promise<RentalDispatchSetti
   return guardedRead(ctx, "asset:read", (tx) => rentalDispatchOf(tx, ctx.actor.organizationId));
 }
 
-export function setRentalDispatch(ctx: ServiceContext, input: Partial<RentalDispatchSettings>): Promise<RentalDispatchSettings> {
+export function setRentalDispatch(
+  ctx: ServiceContext, input: Partial<Omit<RentalDispatchSettings, "truckHourCost">> & { truckHourCost?: string | null | undefined },
+): Promise<RentalDispatchSettings> {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const before = await rentalDispatchOf(tx, ctx.actor.organizationId);
     const after: RentalDispatchSettings = {
@@ -103,6 +116,8 @@ export function setRentalDispatch(ctx: ServiceContext, input: Partial<RentalDisp
       containersPerTruck: input.containersPerTruck ?? before.containersPerTruck,
       yardMinutes: input.yardMinutes ?? before.yardMinutes,
     };
+    /** Null clears it; left out keeps it. */
+    const hourCost = input.truckHourCost !== undefined ? input.truckHourCost : before.truckHourCost ?? null;
     if (!Number.isInteger(after.collectionLeadDays) || after.collectionLeadDays < 0 || after.collectionLeadDays > 7) {
       throw new ConflictError("Book collections between the day they are due and a week ahead.");
     }
@@ -111,6 +126,13 @@ export function setRentalDispatch(ctx: ServiceContext, input: Partial<RentalDisp
     }
     if (!Number.isInteger(after.yardMinutes) || after.yardMinutes < 0 || after.yardMinutes > 120) {
       throw new ConflictError("Time at the yard is between none and two hours.");
+    }
+    if (hourCost !== null) {
+      const cost = hourCostOf(hourCost);
+      if (cost === null || Number(cost) > 10000) {
+        throw new ConflictError("What an hour of a truck costs is an amount of money, like 95.00, or leave it empty.");
+      }
+      after.truckHourCost = cost;
     }
     await tx.update(schema.organization).set({
       settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ rentalDispatch: after })}::jsonb`,
@@ -1005,6 +1027,8 @@ async function planWithin(tx: Database, ctx: ServiceContext, csv: string) {
       .where(and(
         eq(schema.rental.organizationId, ctx.actor.organizationId),
         isNotNull(schema.rental.pickedUpAt),
+        /** A haul marked as having come back empty had nothing weighed; a ticket for it is a mistake on one side or the other. */
+        isNull(schema.rental.cameBackEmptyAt),
         sql`${schema.rental.pickedUpAt} >= ${start.toISOString()}::timestamptz`,
         sql`${schema.rental.pickedUpAt} < ${end.toISOString()}::timestamptz`,
       ));
@@ -1108,8 +1132,9 @@ export const handlers = {
   getRentalDispatch: (ctx: ServiceContext): Promise<RentalDispatchSettings> => rentalDispatch(ctx),
   setRentalDispatch: (ctx: ServiceContext, input: {
     automaticCollections?: boolean | undefined; collectionLeadDays?: number | undefined;
-    containersPerTruck?: number | undefined; yardMinutes?: number | undefined;
+    containersPerTruck?: number | undefined; yardMinutes?: number | undefined; truckHourCost?: string | null | undefined;
   }): Promise<RentalDispatchSettings> => setRentalDispatch(ctx, {
+    ...(input.truckHourCost !== undefined ? { truckHourCost: input.truckHourCost } : {}),
     ...(input.automaticCollections !== undefined ? { automaticCollections: input.automaticCollections } : {}),
     ...(input.collectionLeadDays !== undefined ? { collectionLeadDays: input.collectionLeadDays } : {}),
     ...(input.containersPerTruck !== undefined ? { containersPerTruck: input.containersPerTruck } : {}),

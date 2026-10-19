@@ -125,6 +125,8 @@ export async function rentalDispatchAction(_previous: FormState, form: FormData)
       collectionLeadDays: Number(field(form, "collectionLeadDays") ?? 1),
       containersPerTruck: Number(field(form, "containersPerTruck") ?? 1),
       yardMinutes: Number(field(form, "yardMinutes") ?? 20),
+      /** Left out by a form that does not ask for it; emptied, it is cleared. */
+      ...(form.has("truckHourCost") ? { truckHourCost: field(form, "truckHourCost")?.replace(/[$,\s]/g, "") ?? null } : {}),
     }));
     return { message: "Saved." };
   });

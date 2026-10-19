@@ -649,6 +649,10 @@ midday. And the exclusions were the can's state today, with no history. Now
   taps it, and a delivery recorded only as a day stays one.
 - **The holds.** A repair (tagged out and back) and a customer hold (kept for
   somebody who asked) are periods with a start and an end (`container_hold`).
+- **A can that came back empty.** Nothing was tipped and nothing will be. The
+  office marks the haul with the moment it was collected ("Came back empty"
+  on the board, `came_back_empty_at`), and that moment stands where the tip
+  would.
 
 What it counts:
 
@@ -657,10 +661,14 @@ What it counts:
   previous hire is found by delivery, not by collection, because a collection
   recorded as a day sits at midday and a can put back out that morning must
   not skip back a hire. A can's first placement is no turnaround.
-- Its **hours** run from the previous hire's tip to this placement.
+- Its **hours** run from the previous hire's tip to this placement, or from
+  its collection when that haul was marked as having come back empty ("Container
+  101 (20 yd): came back empty Jun 20, 10:00 AM, placed Jun 22, 10:00 AM"). A
+  tip recorded on the haul wins, though recording refuses both on one haul.
 - **Not known**, left out of both halves and counted beside: a placement
   recorded only as a day (every hire from before the time was kept among
-  them), a previous haul whose tip nobody recorded, and times that run
+  them), a previous haul whose tip nobody recorded and that was not marked
+  empty, and times that run
   backwards (which recording refuses, so only data from elsewhere can have
   them). Never given an hour.
 - **Left out**, and counted beside: a can out for repair or held for a
@@ -674,8 +682,10 @@ yd): emptied Jun 2, 2:00 PM, placed Jun 3, 9:30 AM"), the denominator's the same
 placements one each, opening on the container fleet. The rule is core's
 `reporting.turnaroundOf`, with unit tests, written again in SQL, and
 `kpi-turnaround.integration.test.ts` checks a month worked out by hand, puts
-the same placements through both, and records the drop, the tip and the holds
-from the office and the tip and the drop from the phone.
+the same placements through both, records the drop, the tip and the holds
+from the office and the tip and the drop from the phone, and marks a can that
+came back empty, which moves the month from 78 hours over four placements to
+126 over five.
 
 ### Production per crew hour, and the mobilisation it waited on
 
@@ -1425,8 +1435,10 @@ Turnaround between pickup and redelivery is only as complete as the times
 recorded: a delivery recorded as a day (every hire from before the time was
 kept among them) and a haul whose tip nobody recorded are counted beside the
 figure, never given an hour, so a company's first months read "Not this window"
-or a figure over only the placements timed since. A can collected empty and
-never tipped has no tip, and its next placement is counted beside as not known.
+or a figure over only the placements timed since. A can collected empty is
+measured from its collection only once the office marks it so with the time;
+until then, and for every empty can before the mark existed, its next placement
+is counted beside as not known. The driver's phone does not say it.
 A repair or a customer hold running at any moment between a tip and the next
 drop leaves the whole turnaround out rather than the hours it ran; that is the
 conservative reading of "EXCLUDES cans held", and the product owner has not

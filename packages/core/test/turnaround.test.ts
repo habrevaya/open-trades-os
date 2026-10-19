@@ -36,3 +36,26 @@ describe("a container's turnaround", () => {
     ] })).toEqual({ counted: true, hours: 48 });
   });
 });
+
+describe("a container that came back empty", () => {
+  it("is measured from the collection, with no tip expected", () => {
+    const placedAt = at("2026-06-09T14:40:00Z");
+    expect(r.turnaroundOf({
+      tippedAt: null, cameBackEmptyAt: at("2026-06-09T08:40:00Z"), placedAt, placedTimeKnown: true, holds: [],
+    })).toEqual({ counted: true, hours: 6 });
+    // A tip recorded on the haul wins: then it was not empty.
+    expect(r.turnaroundOf({
+      tippedAt: at("2026-06-09T10:40:00Z"), cameBackEmptyAt: at("2026-06-09T08:40:00Z"), placedAt, placedTimeKnown: true, holds: [],
+    })).toEqual({ counted: true, hours: 4 });
+    // Still not known for a placement recorded as a day, and still backwards is not a turnaround.
+    expect(r.turnaroundOf({ tippedAt: null, cameBackEmptyAt: at("2026-06-09T08:40:00Z"), placedAt, placedTimeKnown: false, holds: [] }))
+      .toEqual({ counted: false, why: "placed_day_only" });
+    expect(r.turnaroundOf({ tippedAt: null, cameBackEmptyAt: at("2026-06-09T15:00:00Z"), placedAt, placedTimeKnown: true, holds: [] }))
+      .toEqual({ counted: false, why: "times_disagree" });
+    // The exclusions are the same: a repair in between leaves it out.
+    expect(r.turnaroundOf({
+      tippedAt: null, cameBackEmptyAt: at("2026-06-09T08:40:00Z"), placedAt, placedTimeKnown: true,
+      holds: [{ kind: "repair", startsAt: at("2026-06-09T09:00:00Z"), endsAt: at("2026-06-09T10:00:00Z") }],
+    })).toEqual({ counted: false, why: "repair" });
+  });
+});

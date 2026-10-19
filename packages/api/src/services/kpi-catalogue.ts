@@ -477,8 +477,10 @@ const disposalHauls = (pick: "numerator" | "denominator" | "unknown" | "excluded
  * before it, judged by core's `reporting.turnaroundOf`. The haul before is the
  * can's previous hire by delivery (a collection recorded as a day sits at
  * midday, and a can put back out that morning must not skip back a hire), and
- * its tip is where the hours start. A placement whose time is only a day, a
- * haul whose tip nobody recorded, and times that run backwards are not known;
+ * its tip is where the hours start, or its collection when it came back empty
+ * (nothing to tip). A placement whose time is only a day, a haul whose tip
+ * nobody recorded and that was not marked empty, and times that run backwards
+ * are not known;
  * a can out for repair or held for a customer at any moment in between is left
  * out, whole, as the definition says. See `turnaround_hours`.
  */
@@ -486,10 +488,11 @@ const turnarounds = (pick: "numerator" | "denominator" | "unknown" | "excluded")
   const at = (column: string) => sql`to_char(${sql.raw(column)} at time zone ${zone}, 'Mon FMDD, FMHH12:MI AM')`;
   return sql`
   with placed as (
-    select n.id, n.asset_id, n.delivered_at, n.delivered_time_known, h.tipped_at
+    select n.id, n.asset_id, n.delivered_at, n.delivered_time_known,
+           coalesce(h.tipped_at, h.came_back_empty_at) as tipped_at, h.tipped_at is null and h.came_back_empty_at is not null as empty
     from public.rental n
     join lateral (
-      select p.tipped_at, p.picked_up_at from public.rental p
+      select p.tipped_at, p.came_back_empty_at, p.picked_up_at from public.rental p
       where p.asset_id = n.asset_id and p.id <> n.id and p.delivered_at < n.delivered_at
       order by p.delivered_at desc limit 1
     ) as h on h.picked_up_at is not null
@@ -519,7 +522,7 @@ const turnarounds = (pick: "numerator" | "denominator" | "unknown" | "excluded")
              when 'placed_day_only' then concat('placed ', to_char(j.delivered_at at time zone ${zone}, 'Mon FMDD'), ', time not recorded')
              when 'no_tip' then concat('placed ', ${at("j.delivered_at")}, ', emptied at a time not recorded')
              when 'times_disagree' then concat('placed ', ${at("j.delivered_at")}, ', recorded emptied after that')
-             else concat('emptied ', ${at("j.tipped_at")}, ', placed ', ${at("j.delivered_at")},
+             else concat(case when j.empty then 'came back empty ' else 'emptied ' end, ${at("j.tipped_at")}, ', placed ', ${at("j.delivered_at")},
                          case j.verdict when 'repair' then ', out for repair in between'
                                         when 'customer_hold' then ', held for a customer in between' else '' end)
            end) as label,
@@ -3130,7 +3133,9 @@ export const CATALOGUE: Record<string, Entry> = {
        * today.
        *
        * A placement counts in the window it was put down, against the tip of
-       * the can's previous hire. A placement recorded only as a day (every
+       * the can's previous hire, or its collection when the office marked it
+       * as having come back empty (`came_back_empty_at`): nothing was tipped
+       * and nothing will be, so the can was ready when it was collected. A placement recorded only as a day (every
        * hire from before the time was kept, and the board's day when nobody
        * gives a time), a haul whose tip nobody recorded, and times that run
        * backwards are LEFT OUT OF BOTH HALVES and counted beside as not known,
@@ -3141,7 +3146,7 @@ export const CATALOGUE: Record<string, Entry> = {
       numerator: { label: "hours from emptied to placed, over the placements counted", records: turnarounds("numerator") },
       denominator: { label: "placements with both times recorded", records: turnarounds("denominator") },
       besides: {
-        unknown: { label: "Placements with a time not recorded (a delivery recorded as a day, or no tip time), left out of both halves", records: turnarounds("unknown") },
+        unknown: { label: "Placements with a time not recorded (a delivery recorded as a day, or no tip time and not marked as come back empty), left out of both halves", records: turnarounds("unknown") },
         excluded: { label: "Placements of a can out for repair or held for a customer in between, left out of both halves", records: turnarounds("excluded") },
       },
     },

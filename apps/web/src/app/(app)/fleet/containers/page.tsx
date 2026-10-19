@@ -134,6 +134,17 @@ export default async function ContainersPage(
       {tipping.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
     </select>
   ) : null;
+  /**
+   * The materials the company's facilities list, offered as the words for what
+   * is in a can: a facility is matched by the name, so the same name on both
+   * sides is what sends a can where it is taken.
+   */
+  const materialNames = [...new Set(tipping.flatMap((f) => f.materials.map((entry) => entry.material)))].sort();
+  const materialList = materialNames.length > 0 ? (
+    <datalist id="materials">
+      {materialNames.map((name) => <option key={name} value={name} />)}
+    </datalist>
+  ) : null;
   const settingsWrite = can(user.actor, "settings:write");
   const agreedText = (start: string | null, end: string | null) => {
     if (!start) return null;
@@ -193,6 +204,7 @@ export default async function ContainersPage(
           </span>
         ) : null}
       </div>
+      {materialList}
       <Hires
         hires={hires.data}
         zone={zone}
@@ -213,9 +225,34 @@ export default async function ContainersPage(
               the phone, or the office types it when the ticket arrives. Not the
               collection, which includes the drive and the queue at the gate.
             */}
-            {writes && !hire.open && !hire.tippedAt && (
+            {writes && !hire.open && !hire.tippedAt && !hire.cameBackEmptyAt && (
               <ActionForm op="tip" label="Save time emptied" quiet hidden={{ id: hire.id }}>
                 <input name="tippedAt" type="datetime-local" required className={input} aria-label="Emptied at the facility" />
+              </ActionForm>
+            )}
+            {/*
+              A can the customer never filled has nothing to tip, and no tip
+              time will ever come. Saying so, with the time it was collected,
+              lets the turnaround measure its next placement from then. Only a
+              time is asked: the day is the collection's.
+            */}
+            {writes && !hire.open && hire.pickedUpAt && !hire.tippedAt && !hire.cameBackEmptyAt && !hire.disposalTicketNumber && (
+              <ActionForm op="empty" label="Came back empty" quiet hidden={{ id: hire.id, day: localDay(hire.pickedUpAt) }}>
+                <input name="time" type="time" required className={input} aria-label={`Collected empty at, on ${localDay(hire.pickedUpAt)}`} />
+              </ActionForm>
+            )}
+            {writes && hire.cameBackEmptyAt && (
+              <ActionForm op="not-empty" label="It was not empty" quiet hidden={{ id: hire.id }} />
+            )}
+            {/*
+              What the customer is putting in it, so Optimise route sends the
+              full can only to a facility that takes it and prices the tip at
+              that material's rate.
+            */}
+            {writes && hire.open && (
+              <ActionForm op="material" label="Save what is in it" quiet hidden={{ id: hire.id }}>
+                <input name="materialType" list="materials" defaultValue={hire.materialType ?? ""} placeholder="What is in it"
+                       aria-label={`What is in ${hire.assetIdentifier ?? "the can"}`} className={`${input} w-36`} />
               </ActionForm>
             )}
             {hire.open && writes && (
@@ -381,6 +418,11 @@ export default async function ContainersPage(
           a hook lift and a roll off truck can each have their own on{" "}
           <a href="/fleet/containers/trucks" className="underline underline-offset-4">Trucks</a>.
         </p>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          {dispatching.truckHourCost
+            ? `An hour of a truck and driver costs ${Number(dispatching.truckHourCost).toFixed(2)}, so a facility that charges less can win over a nearer one when the saving is worth the drive.`
+            : "Say what an hour of a truck and driver costs, and a facility that charges less can win over a nearer one when the saving is worth the drive. Until then the nearest open facility is used."}
+        </p>
         {settingsWrite ? (
           <SaidForm action={rentalDispatchAction} submit="Save" className="mt-2 flex flex-wrap items-end gap-3">
             <label className="flex items-center gap-2 text-sm">
@@ -393,6 +435,8 @@ export default async function ContainersPage(
                        defaultValue={dispatching.containersPerTruck} className="w-48" />
             <TextField label="Minutes at the yard" name="yardMinutes" type="number" min={0} max={120}
                        defaultValue={dispatching.yardMinutes} className="w-40" />
+            <TextField label="An hour of a truck and driver costs" name="truckHourCost" inputMode="decimal" placeholder="Leave empty if not known"
+                       defaultValue={dispatching.truckHourCost ? Number(dispatching.truckHourCost).toFixed(2) : ""} className="w-60" />
           </SaidForm>
         ) : null}
       </section>
@@ -456,6 +500,8 @@ export default async function ContainersPage(
                   counts it beside the figure rather than guess an hour.
                 */}
                 <input name="deliveredTime" type="time" className={input} aria-label="Time dropped" />
+                <input name="materialType" list="materials" placeholder="What goes in it" aria-label="What goes in it"
+                       className={`${input} w-32`} />
                 <input name="includedDays" inputMode="numeric" placeholder="Days incl." className={`${input} w-24`} />
                 <input name="dailyRate" inputMode="decimal" placeholder="Day rate" className={`${input} w-24`} />
                 <input name="overageRate" inputMode="decimal" placeholder="Over/day" className={`${input} w-24`} />

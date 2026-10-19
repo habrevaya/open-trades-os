@@ -71,6 +71,19 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
         await haulTimes.recordPlacement(ctx, { id, deliveredAt: at });
         return;
       }
+      case "empty": {
+        const day = String(form.get("day") ?? "");
+        const at = localInstant(field(form, "time") ? `${day}T${field(form, "time")}` : undefined, zone);
+        if (!at) throw new ConflictError("Type the time the empty can was collected.");
+        await haulTimes.recordEmpty(ctx, { id, at });
+        return;
+      }
+      case "not-empty":
+        await haulTimes.recordEmpty(ctx, { id, at: null });
+        return;
+      case "material":
+        await rentals.setMaterial(ctx, { id, materialType: field(form, "materialType") ?? null });
+        return;
       case "tip": {
         const at = localInstant(field(form, "tippedAt"), zone);
         if (!at) throw new ConflictError("Type the day and time the load was emptied.");
@@ -97,6 +110,7 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
           perTonRate: field(form, "perTonRate") ?? null,
           invoiceAs: field(form, "invoiceAs") === "chain" ? "chain" : "per_haul",
           disposalPassThrough: form.get("disposalPassThrough") === "on",
+          materialType: field(form, "materialType") ?? null,
         });
         return;
       case "pickup":

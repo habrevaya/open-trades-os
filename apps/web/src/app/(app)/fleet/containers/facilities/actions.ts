@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { disposalFacilities, ConflictError } from "@opentradesos/api/services";
 import { createDisposalFacility } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
+import { rental as rt } from "@opentradesos/core";
 
 /**
  * DISPOSAL FACILITIES: the address, the week it takes loads, what it charges,
@@ -50,6 +51,17 @@ function holidaysOf(form: FormData) {
   ];
 }
 
+/**
+ * What it takes, one material a line ("Yard waste, 38.00 a ton", or the name
+ * alone for the general rate). A line that is not that shape is refused in
+ * words that name it. Empty is not recorded, which never turns a load away.
+ */
+function materialsOf(form: FormData) {
+  const read = rt.parseMaterialLines(String(form.get("materials") ?? ""));
+  if (!read.ok) throw new ConflictError(read.message);
+  return read.materials;
+}
+
 /** What the form says about the rate, with a rate left empty meaning none recorded. */
 function rateOf(form: FormData) {
   const basis = field(form, "feeBasis");
@@ -73,6 +85,7 @@ export async function addFacilityAction(_previous: FormState, form: FormData): P
       hours: hoursOf(form),
       holidays: holidaysOf(form),
       ...rateOf(form),
+      materials: materialsOf(form),
       tipMinutes: Number(field(form, "tipMinutes") ?? 20),
     }));
     return { message: `Added ${facility.name}.${facility.address ? " It goes on the map shortly." : ""}` };
@@ -92,6 +105,7 @@ export async function changeFacilityAction(_previous: FormState, form: FormData)
       hours: hoursOf(form),
       holidays: holidaysOf(form),
       ...rateOf(form),
+      materials: materialsOf(form),
       tipMinutes: Number(field(form, "tipMinutes") ?? 20),
     });
     return { message: "Saved." };

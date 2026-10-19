@@ -27,6 +27,14 @@ const Holiday = z.object({
 
 const FeeBasis = z.enum(["per_ton", "per_load"]);
 
+const Material = z.object({
+  /** The material as the company names it, "Yard waste". Compared with case and spacing ignored. */
+  material: z.string().min(1).max(100),
+  /** What it is charged by, when it has a rate of its own; null for the facility's general rate. */
+  feeBasis: FeeBasis.nullable(),
+  feeAmount: MoneyString.nullable(),
+});
+
 const Facility = z.object({
   id: Uuid,
   name: z.string(),
@@ -53,6 +61,9 @@ const Facility = z.object({
   feeAmount: MoneyString.nullable(),
   minimumFee: MoneyString.nullable(),
   feeText: z.string(),
+  /** What it takes, each with its own rate or the general one. Empty when nobody recorded it, which never turns a load away. */
+  materials: z.array(Material),
+  materialsText: z.string(),
   /** Minutes for the queue, the scale and the tip. */
   tipMinutes: z.number().int(),
   /** The facility a day is planned around unless another is asked for. */
@@ -73,6 +84,7 @@ const Figures = {
   feeBasis: FeeBasis.nullable().optional(),
   feeAmount: MoneyString.nullable().optional(),
   minimumFee: MoneyString.nullable().optional(),
+  materials: z.array(Material).max(40).optional(),
   tipMinutes: z.number().int().min(0).max(180).optional(),
   isDefault: z.boolean().optional(),
   notes: z.string().max(1000).nullable().optional(),
@@ -95,7 +107,7 @@ export const createDisposalFacility = defineRoute({
   path: "/v1/disposal-facilities",
   summary: "Record a landfill or transfer station",
   description:
-    "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. Holidays are the days it is shut whatever its week says (a yearly one repeats every year), and win over the hours. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.",
+    "A name and, so the route can drive to it, an address the worker puts on the map (or a pin placed by hand with `PUT /v1/disposal-facilities/{id}/pin`). Hours are the days it takes loads, a day not listed being a day it is closed. Holidays are the days it is shut whatever its week says (a yearly one repeats every year), and win over the hours. A rate is what it charges by (a ton or a load) and how much, with a minimum when it has one. `materials` is what it takes, each with a rate of its own or the general one; a facility that lists them is not sent a can of anything else, and none listed means not recorded. The first facility a company records is its default; saying `isDefault` makes this one it and the previous one stops being it.",
   module: "M22",
   permissions: ["asset:write"],
   idempotent: true,
