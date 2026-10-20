@@ -906,7 +906,7 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
      * variance would read every overrun as on budget. Hours the customer agreed
      * to add are a change order's crew hours, which the variance takes off.
      */
-    let budget: { budgetedHours: string | null } | null = null;
+    let budget: { budgetedHours: string | null; budgetEstimateId: null } | null = null;
     if (input.budgetedHours !== undefined) {
       const next = input.budgetedHours === null ? null : budgetOf(input.budgetedHours);
       if (next !== before.budgetedHours && Number(next ?? -1) !== Number(before.budgetedHours ?? -1)) {
@@ -918,7 +918,11 @@ export async function update(ctx: ServiceContext, input: z.infer<typeof updateJo
             + "If the customer agreed to more work, put the hours on a change order.",
           );
         }
-        budget = { budgetedHours: next };
+        /**
+         * A figure the office changed is the office's again, so the page stops
+         * saying it came from the estimate.
+         */
+        budget = { budgetedHours: next, budgetEstimateId: null };
       }
     }
 
@@ -1695,14 +1699,22 @@ export async function haulsAt(ctx: ServiceContext, input: { jobId: string }) {
  * A job's crew hours against its budget, for its page: what was budgeted,
  * the working hours punched on it so far (each person separately, as the
  * budgeted hour variance counts them), and whether the budget is fixed, which
- * it is from the first punch.
+ * it is from the first punch, and the estimate the budget was added up from
+ * when it was, so the page can say so.
  */
 export async function hoursAgainstBudget(ctx: ServiceContext, input: { id: string }) {
   return guardedRead(ctx, "job:read", async (tx) => {
-    const [job] = await tx.select({ budgetedHours: schema.job.budgetedHours }).from(schema.job)
+    const [job] = await tx.select({
+      budgetedHours: schema.job.budgetedHours, budgetEstimateId: schema.job.budgetEstimateId,
+    }).from(schema.job)
       .where(and(eq(schema.job.id, input.id), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf(ctx, "job"), ctx.actor)))
       .limit(1);
     if (!job) throw new NotFoundError("Job");
+    /** The estimate the budget was added up from, when it was, for the page to say so and link to. */
+    const [source] = job.budgetEstimateId && job.budgetedHours !== null
+      ? await tx.select({ id: schema.estimate.id, number: schema.estimate.number }).from(schema.estimate)
+        .where(eq(schema.estimate.id, job.budgetEstimateId)).limit(1)
+      : [];
     const [row] = await tx.execute<{ punches: string; minutes: string; running: string; changed: string }>(sql`
       select count(*)::text as punches,
              coalesce(sum(te.minutes) filter (where te.ended_at is not null
@@ -1714,6 +1726,7 @@ export async function hoursAgainstBudget(ctx: ServiceContext, input: { id: strin
       where te.job_id = ${input.id} and te.deleted_at is null`);
     return {
       budgetedHours: job.budgetedHours,
+      fromEstimate: source ? { id: source.id, number: source.number } : null,
       crewHours: (Number(row?.minutes ?? 0) / 60).toFixed(2),
       approvedChangeHours: Number(row?.changed ?? 0).toFixed(2),
       punchStillRunning: Number(row?.running ?? 0) > 0,

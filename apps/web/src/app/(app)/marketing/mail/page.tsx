@@ -1,13 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { directMail, acquisition } from "@opentradesos/api/services";
+import { directMail, doNotMail, acquisition } from "@opentradesos/api/services";
 import { can, directMail as dm } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
 import { ActionForm, TextArea, TextField } from "@/components/ActionForm";
 import { LeadSourceSelect } from "@/components/LeadSourceSelect";
 import { RuleBoxes } from "../campaigns/RuleBoxes";
-import { createMailing } from "./actions";
+import { createMailing, addToDoNotMail, takeOffDoNotMail } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,9 @@ const BACK = `<div style="padding:0.4in;font-family:sans-serif;width:2.5in">
 export default async function MailPage() {
   const user = await requireSetupUser();
   const ctx = { actor: user.actor, db: getDb() };
-  const [mailings, channels] = await Promise.all([directMail.list(ctx), acquisition.channelOptions(ctx)]);
+  const [mailings, channels, left] = await Promise.all([
+    directMail.list(ctx), acquisition.channelOptions(ctx), doNotMail.list(ctx),
+  ]);
   const writes = can(user.actor, "campaign:write");
 
   return (
@@ -69,6 +71,52 @@ export default async function MailPage() {
           ))}
         </Table>
       )}
+
+      <section className="mt-10 max-w-3xl" aria-labelledby="dnm-heading">
+        <h2 id="dnm-heading" className="text-base font-semibold">Do not mail</h2>
+        <p className="mt-1 text-sm text-ink-700">
+          Everyone and every address here is left out of every mailing, checked when a mailing is sent and again before each
+          piece goes to the printer. Add a customer from their own page, or an address below. An address with no unit
+          is the whole building.
+        </p>
+        {left.length === 0 ? (
+          <p className="mt-3 text-sm text-ink-500">Nobody is on the list.</p>
+        ) : (
+          <Table label="Do not mail list" head={<><Th>Who</Th><Th>Address</Th><Th>Why</Th><Th>{writes ? "Take off" : ""}</Th></>}>
+            {left.map((e) => (
+              <tr key={e.id}>
+                <Td>
+                  {e.customerId
+                    ? <a href={`/customers/${e.customerId}`} className="underline underline-offset-4">{e.customerName ?? e.name}</a>
+                    : e.name ?? "Whoever lives there"}
+                </Td>
+                <Td>{e.address ?? "No address to post to"}</Td>
+                <Td>{e.reason ?? ""}</Td>
+                <Td>
+                  {writes ? (
+                    <ActionForm action={takeOffDoNotMail} submit="Take off the list" tone="quiet" hidden={{ id: e.id }} className="" />
+                  ) : null}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {can(user.actor, "customer:write") ? (
+          <ActionForm action={addToDoNotMail} submit="Add this address" className="mt-4 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextField label="Who lives there (optional)" name="dnmName" />
+              <TextField label="Why (printed on the piece it stops)" name="dnmReason" maxLength={200} placeholder="Asked on the phone, 3 June" />
+              <TextField label="Street" name="dnmLine1" required />
+              <TextField label="Apartment or unit (leave empty for the whole building)" name="dnmLine2" />
+              <TextField label="City" name="dnmCity" required />
+              <div className="grid grid-cols-2 gap-3">
+                <TextField label="State" name="dnmState" required maxLength={2} />
+                <TextField label="ZIP" name="dnmPostalCode" required inputMode="numeric" />
+              </div>
+            </div>
+          </ActionForm>
+        ) : null}
+      </section>
 
       {writes ? (
         <section className="mt-10 max-w-3xl">

@@ -196,6 +196,94 @@ export function checkAddress(address: MailAddress): { ok: true } | { ok: false; 
   return { ok: true };
 }
 
+/* ------------------------------------------------------- do not mail list */
+
+/**
+ * THE DO NOT MAIL LIST
+ *
+ * Somebody rings and says "stop sending me postcards", or a landlord writes
+ * that nobody at the building wants them. A customer can be put on the list
+ * (they are then never mailed, wherever they move to, and the address they
+ * were listed at is held as well) or an address can be typed in (whoever lives
+ * there is never mailed). Every mailing checks the list twice: when it freezes
+ * who it goes to, and again as each piece is about to be handed to the printer,
+ * so a name added after the button was pressed still stops the card.
+ *
+ * ADDRESSES ARE COMPARED AS THE POST OFFICE WOULD, NOT AS TYPED. "12 Oak
+ * Street" and "12 OAK ST." are one door, and so are "12 Oak St Apt 4" and
+ * "12 Oak St, #4". A listed address with no unit is the whole building: a
+ * note from one flat of a block is a no for the block until somebody says
+ * which flat, because posting a card to a person who asked not to get one
+ * costs far more than not posting one to their neighbour. A listed address
+ * with a unit holds that flat only.
+ */
+
+const STREET_WORDS: Readonly<Record<string, string>> = {
+  street: "st", avenue: "ave", road: "rd", drive: "dr", lane: "ln", boulevard: "blvd", court: "ct",
+  circle: "cir", place: "pl", parkway: "pkwy", highway: "hwy", terrace: "ter", trail: "trl", way: "way",
+  north: "n", south: "s", east: "e", west: "w", northeast: "ne", northwest: "nw", southeast: "se", southwest: "sw",
+  apartment: "apt", suite: "ste", building: "bldg", floor: "fl", room: "rm",
+};
+
+/** The words that say what follows is a unit inside the building. */
+const UNIT_WORDS: ReadonlySet<string> = new Set(["apt", "ste", "unit", "bldg", "fl", "rm", "#"]);
+
+const tokens = (text: string | null | undefined): string[] =>
+  (text ?? "").toLowerCase().replace(/#/g, " # ").replace(/[^a-z0-9#]+/g, " ").trim().split(/\s+/).filter(Boolean)
+    .map((t) => STREET_WORDS[t] ?? t);
+
+/**
+ * Where a postal address is, for comparing: the building (street line and ZIP,
+ * abbreviated and with the unit peeled off) and the unit ("" for none). Null
+ * for an address that cannot be posted to, which no list entry can name.
+ */
+export function addressKeys(address: Omit<MailAddress, "name">): { building: string; unit: string } | null {
+  if (!checkAddress({ name: "", ...address }).ok) return null;
+  const street = tokens(address.line1);
+  /** A unit written at the end of the street line ("12 Oak St Apt 4") is the unit, not part of the street. */
+  let unit = tokens(address.line2).filter((t) => t !== "#" && !UNIT_WORDS.has(t));
+  const at = street.findIndex((t, i) => i > 1 && UNIT_WORDS.has(t));
+  const peeled = at === -1 ? [] : street.splice(at).filter((t) => t !== "#" && !UNIT_WORDS.has(t));
+  if (unit.length === 0) unit = peeled;
+  return { building: `${street.join(" ")}|${(address.postalCode ?? "").trim().slice(0, 5)}`, unit: unit.join(" ") };
+}
+
+/** A name on the list: a customer, an address, or both. `building` is null for a customer listed without a postable address. */
+export interface DoNotMailEntry {
+  id: string;
+  customerId: string | null;
+  building: string | null;
+  unit: string;
+  /** Who it is for, as written when it was added. */
+  name: string | null;
+  /** Why, in the words of whoever added it. */
+  reason: string | null;
+}
+
+/** The entry that stops this piece, if any: the customer first, then the door. */
+export function doNotMailEntryFor(
+  entries: readonly DoNotMailEntry[], piece: { customerId: string | null; address: Omit<MailAddress, "name"> },
+): { entry: DoNotMailEntry; by: "customer" | "address" } | null {
+  if (piece.customerId) {
+    const person = entries.find((e) => e.customerId === piece.customerId);
+    if (person) return { entry: person, by: "customer" };
+  }
+  const keys = addressKeys(piece.address);
+  if (!keys) return null;
+  const door = entries.find((e) => e.building === keys.building && (e.unit === "" || e.unit === keys.unit));
+  return door ? { entry: door, by: "address" } : null;
+}
+
+/**
+ * The reason a piece was skipped, in words for the mailing's page: that it is
+ * on the list, who or where, why when somebody wrote it, and how to change it.
+ */
+export function doNotMailWords(hit: { entry: DoNotMailEntry; by: "customer" | "address" }, address: string): string {
+  const who = hit.by === "customer" ? (hit.entry.name ? `${hit.entry.name} is` : "This customer is") : `${address} is`;
+  const why = hit.entry.reason?.trim() ? `: ${hit.entry.reason.trim()}` : "";
+  return `Not posted. ${who} on your do not mail list${why}. Take them off the list on the Direct mail page to mail them.`;
+}
+
 /* ------------------------------------------------------------------- codes */
 
 /**

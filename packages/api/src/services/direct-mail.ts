@@ -9,6 +9,7 @@ import {
 } from "./context";
 import { replayed, remember } from "./once";
 import * as acquisition from "./acquisition";
+import * as doNotMail from "./do-not-mail";
 import { clauseFor, parseRules, utmFor, MAX_AUDIENCE } from "./campaigns";
 import { revenueByJob } from "./marketing";
 import { senderFor } from "./phone-numbers";
@@ -317,7 +318,10 @@ export async function preview(ctx: ServiceContext, input: { id: string }) {
     const campaign = await load(tx, org, input.id);
     const rules = parseRules(campaign.audience);
     const selected = await select(tx, rules, MAX_AUDIENCE + 1);
-    const postable = selected.filter((c) => dm.checkAddress(c.address).ok);
+    /** Left off the list first: a person who asked not to be mailed is not "no address", whatever their address is. */
+    const listed = await doNotMail.entriesWithin(tx, org);
+    const stopped = (c: MailCandidate) => dm.doNotMailEntryFor(listed, { customerId: c.customerId, address: c.address }) !== null;
+    const postable = selected.filter((c) => !stopped(c) && dm.checkAddress(c.address).ok);
     const sender = await senderOf(tx, org, campaign);
     const first = postable[0] ?? selected[0] ?? null;
     const base = process.env["PUBLIC_URL"] ?? "https://your-installation";
@@ -335,7 +339,8 @@ export async function preview(ctx: ServiceContext, input: { id: string }) {
       selected: Math.min(selected.length, MAX_AUDIENCE),
       overflow: selected.length > MAX_AUDIENCE,
       postable: Math.min(postable.length, MAX_AUDIENCE),
-      noAddress: selected.filter((c) => !dm.checkAddress(c.address).ok).length,
+      doNotMail: selected.filter(stopped).length,
+      noAddress: selected.filter((c) => !stopped(c) && !dm.checkAddress(c.address).ok).length,
       estimatedCost: dm.mailCost(Math.min(postable.length, MAX_AUDIENCE), campaign.pricePerPiece),
       trackingPhone: sender.trackingPhone,
       returnAddress: sender.returnAddress,
@@ -343,7 +348,8 @@ export async function preview(ctx: ServiceContext, input: { id: string }) {
         customerId: c.customerId,
         name: c.name,
         address: [c.address.line1, c.address.city, c.address.state, c.address.postalCode].filter(Boolean).join(", "),
-        postable: dm.checkAddress(c.address).ok,
+        postable: !stopped(c) && dm.checkAddress(c.address).ok,
+        doNotMail: stopped(c),
       })),
       /** As the first person on the list will get it, escaped as it will be printed. Shown in a frame that runs nothing. */
       front: render(campaign.front, sampleScope),
@@ -397,9 +403,18 @@ export async function send(ctx: ServiceContext, input: { id: string }, deps: Mai
     const rules = parseRules(campaign.audience);
     const selected = await select(tx, rules, MAX_AUDIENCE);
     if (selected.length === 0) throw new ConflictError(`Nobody is ${cp.describeAudience(rules)} right now, so there is nothing to post.`);
+    /**
+     * THE DO NOT MAIL LIST, CHECKED AS WHO IT GOES TO IS FROZEN. A listed
+     * customer or door is written as a skipped piece in the list's own words,
+     * so the mailing's page says who was left out and why; and it is checked
+     * again before each batch goes (`sendBatch`), because a name can be added
+     * after the button was pressed.
+     */
+    const listed = await doNotMail.entriesWithin(tx, org);
     for (let i = 0; i < selected.length; i += 500) {
       await tx.insert(schema.mailPiece).values(selected.slice(i, i + 500).map((c) => {
-        const verdict = dm.checkAddress(c.address);
+        const hit = dm.doNotMailEntryFor(listed, { customerId: c.customerId, address: c.address });
+        const verdict = hit ? { ok: false as const, reason: doNotMail.wordsFor(hit, c.address) } : dm.checkAddress(c.address);
         return {
           organizationId: org,
           mailCampaignId: campaign.id,
@@ -478,10 +493,28 @@ export async function sendBatch(db: Database, organizationId: string, id: string
     if (!connection) return null;
     const sender = await senderOf(tx, organizationId, campaign);
     if (!sender.returnAddress) return null;
-    const pieces = await tx.select().from(schema.mailPiece).where(and(
+    const waiting = await tx.select().from(schema.mailPiece).where(and(
       eq(schema.mailPiece.mailCampaignId, id),
       or(eq(schema.mailPiece.status, "pending"), and(eq(schema.mailPiece.status, "failed"), lt(schema.mailPiece.attempts, MAX_ATTEMPTS))),
     )).orderBy(asc(schema.mailPiece.name), asc(schema.mailPiece.id)).limit(MAIL_BATCH);
+    /**
+     * THE LIST AGAIN, PIECE BY PIECE, before anything is handed to the printer:
+     * somebody who rang this morning to say stop is stopped even though the
+     * mailing was frozen last week. A piece it catches is skipped in the list's
+     * words and never printed; the rest go.
+     */
+    const listed = await doNotMail.entriesWithin(tx, organizationId);
+    const pieces: typeof waiting = [];
+    for (const piece of waiting) {
+      const address: dm.MailAddress = {
+        name: piece.name, line1: piece.addressLine1, line2: piece.addressLine2, city: piece.city, state: piece.state, postalCode: piece.postalCode,
+      };
+      const hit = dm.doNotMailEntryFor(listed, { customerId: piece.customerId, address });
+      if (!hit) { pieces.push(piece); continue; }
+      await tx.update(schema.mailPiece).set({
+        status: "skipped", reason: doNotMail.wordsFor(hit, address), updatedAt: new Date(),
+      }).where(eq(schema.mailPiece.id, piece.id));
+    }
     return { campaign, connection, sender, pieces, returnAddress: sender.returnAddress };
   });
   if (!claimed) return 0;

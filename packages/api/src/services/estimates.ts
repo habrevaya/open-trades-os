@@ -138,6 +138,7 @@ export async function createIn(
           taxable: schema.priceBookItemVersion.taxable,
           kind: schema.priceBookItem.kind,
           feeRole: schema.priceBookItem.feeRole,
+          crewHours: schema.priceBookItem.quantityIsCrewHours,
         })
         .from(schema.priceBookItemVersion)
         .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -166,6 +167,7 @@ export async function createIn(
           taxable: schema.priceBookItemVersion.taxable,
           kind: schema.priceBookItem.kind,
           feeRole: schema.priceBookItem.feeRole,
+          crewHours: schema.priceBookItem.quantityIsCrewHours,
           effectiveFrom: schema.priceBookItemVersion.effectiveFrom,
           effectiveTo: schema.priceBookItemVersion.effectiveTo,
         })
@@ -299,6 +301,8 @@ export async function createIn(
           name: version?.name ?? line.name,
           description: line.description ?? null,
           quantity: line.quantity,
+          /** What the line says, else what the item says: a line typed by hand is hours only when its writer said so. */
+          quantityIsCrewHours: line.quantityIsCrewHours ?? version?.crewHours ?? false,
           unitPrice: version?.price ?? line.unitPrice,
           unitCost: version?.cost ?? line.unitCost ?? null,
           discountAmount: line.discountAmount,
@@ -446,6 +450,7 @@ export async function createIn(
         name: line.name,
         description: line.description,
         quantity: line.quantity,
+        quantityIsCrewHours: line.quantityIsCrewHours,
         unitPrice: line.unitPrice,
         unitCost: line.unitCost,
         discountAmount: line.discountAmount,
@@ -1159,6 +1164,21 @@ export async function convertIn(
     const lines = (option["lines"] as Array<Record<string, unknown>>)
       .filter((l) => !l["isOptional"] || l["isSelected"] === true);
 
+    /**
+     * THE JOB'S CREW HOUR BUDGET, from the lines of the option that say their
+     * quantity is crew hours and that the customer took. Null when there are
+     * none (most estimates), and also when the sum is more hours than a job
+     * can be budgeted (`budgetOf` in `jobs.ts` refuses more than a hundred
+     * thousand): a conversion is never refused over a figure the office can
+     * type itself, so the job is made without a budget and the office is left
+     * to set one.
+     */
+    const taken = est.crewHoursBudget(lines.map((l) => ({
+      quantity: l["quantity"] as string,
+      quantityIsCrewHours: l["quantityIsCrewHours"] === true,
+    })));
+    const budget = taken !== null && Number(taken) <= 100_000 ? taken : null;
+
     let jobId: string | null = current.jobId as string | null;
     if (input.createJob && !jobId) {
       const number = await nextNumber(tx, ctx.actor.organizationId, "job");
@@ -1171,6 +1191,7 @@ export async function convertIn(
         jobTypeId: input.jobTypeId ?? null,
         status: "scheduled",
         summary: (current.title as string | null) ?? `${option["name"]}`,
+        ...(budget !== null ? { budgetedHours: budget, budgetEstimateId: input.id } : {}),
       }).returning({ id: schema.job.id });
 
       /**
@@ -1185,6 +1206,20 @@ export async function convertIn(
        */
       await marketing.creditWork(tx, ctx.actor.organizationId, { jobId: job!.id });
       jobId = job!.id;
+    } else if (input.createJob && jobId && budget !== null) {
+      /**
+       * A job the estimate was already written for (booked first, priced
+       * after). Its budget is taken from the estimate only when nobody has
+       * set one and nobody has punched an hour: a figure the office typed is
+       * theirs, and a budget set after the work started is the fitted
+       * budget the service refuses everywhere else.
+       */
+      const [punched] = await tx.select({ id: schema.timeclockEntry.id }).from(schema.timeclockEntry)
+        .where(eq(schema.timeclockEntry.jobId, jobId)).limit(1);
+      if (!punched) {
+        await tx.update(schema.job).set({ budgetedHours: budget, budgetEstimateId: input.id, updatedAt: new Date() })
+          .where(and(eq(schema.job.id, jobId), isNull(schema.job.budgetedHours)));
+      }
     }
 
     let invoiceId: string | null = null;
@@ -1289,8 +1324,17 @@ export async function convertIn(
       jobId,
       invoiceId,
       depositId: deposit?.id ?? null,
+      budgetedHours: await budgetOfJob(tx, jobId),
     };
   }
+}
+
+/** The crew hour budget a job carries, or null: what a conversion reports it set. */
+async function budgetOfJob(tx: Database, jobId: string | null): Promise<string | null> {
+  if (!jobId) return null;
+  const [job] = await tx.select({ hours: schema.job.budgetedHours, from: schema.job.budgetEstimateId })
+    .from(schema.job).where(eq(schema.job.id, jobId)).limit(1);
+  return job?.from ? job.hours ?? null : null;
 }
 
 /** The result of a conversion that already happened, for a retry. */
@@ -1310,6 +1354,7 @@ async function loadConversion(tx: Database, ctx: ServiceContext, estimateId: str
     jobId: (estimate.jobId ?? null) as string | null,
     invoiceId: invoice?.id ?? null,
     depositId: deposit?.id ?? null,
+    budgetedHours: await budgetOfJob(tx, (estimate.jobId ?? null) as string | null),
   };
 }
 

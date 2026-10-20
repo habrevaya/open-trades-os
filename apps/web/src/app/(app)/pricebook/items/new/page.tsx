@@ -4,7 +4,7 @@ import { priceCategories } from "@opentradesos/api/services";
 import { assertCan, can } from "@opentradesos/core";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
-import { FEE_ROLES, KINDS, PriceFields, shelfOptions } from "../ItemFields";
+import { CrewHoursBox, FEE_ROLES, KINDS, PriceFields, shelfOptions } from "../ItemFields";
 import { createItem } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,7 @@ export default async function NewPriceBookItemPage() {
           <TextField label="Code" name="code" required maxLength={60} placeholder="CAP-45-5" />
           <Select label="Category" name="categoryId" options={shelfOptions(shelves)} />
           <Select label="Fee a plan can waive" name="feeRole" options={FEE_ROLES} />
+          <CrewHoursBox />
         </div>
         <PriceFields seesCost={can(user.actor, "pricebook.cost:read")} />
       </ActionForm>

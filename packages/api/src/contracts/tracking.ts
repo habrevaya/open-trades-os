@@ -203,11 +203,17 @@ export const setWebsiteTracking = defineRoute({
 const RewardSettings = z.object({
   reward: z.enum(["credit_note", "owed", "none"]),
   amount: z.string(),
+  /** A credit note reward comes off the referrer's next invoice by itself. Off unless the company turned it on. */
+  applyToNextInvoice: z.boolean(),
 });
 
 const Reward = z.object({
   id: Uuid, kind: z.string(), amount: MoneyString, state: z.string(),
   creditNoteId: Uuid.nullable(), paidAt: z.string().nullable(),
+  /** What is left of a credit note reward to apply to an invoice, or null for a reward that is not a credit. */
+  creditLeft: MoneyString.nullable(),
+  /** When the credit was put on the next invoice by itself, or null. */
+  autoAppliedAt: z.string().nullable(),
 });
 
 export const getReferrals = defineRoute({
@@ -232,11 +238,32 @@ export const setReferralSettings = defineRoute({
   path: "/v1/marketing/referral-settings",
   summary: "What a referral earns",
   description:
-    "A credit note on the referrer's account, or a fixed amount recorded as owed, granted once when the referred customer's first job is paid in full. Or nothing.",
+    "A credit note on the referrer's account, or a fixed amount recorded as owed, granted once when the referred customer's first job is paid in full. Or nothing. `applyToNextInvoice` (off unless sent) puts a credit note reward on the referrer's next invoice by itself, through the credit note application a person would make; it is refused for any other reward.",
   module: "M19",
   permissions: ["settings:write"],
-  input: z.object({ reward: z.enum(["credit_note", "owed", "none"]), amount: z.string().max(12).optional() }),
+  input: z.object({
+    reward: z.enum(["credit_note", "owed", "none"]), amount: z.string().max(12).optional(),
+    applyToNextInvoice: z.boolean().optional(),
+  }),
   output: RewardSettings,
+});
+
+export const getInvoiceReferralCredit = defineRoute({
+  method: "get",
+  path: "/v1/invoices/{id}/referral-credit",
+  summary: "Referral reward credit that could come off this invoice",
+  description:
+    "The credit note referral rewards the invoice's customer (or the customer who pays it) has not used yet, with how much of each would come off this invoice. Empty for an invoice that is not owed. Applying one is `POST /v1/credit-notes/{id}/apply`, the same application a person makes from the credit note.",
+  module: "M19",
+  permissions: ["invoice:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    invoiceBalance: MoneyString,
+    credits: z.array(z.object({
+      rewardId: Uuid, creditNoteId: Uuid, creditNoteNumber: z.number().int(), referredName: z.string(),
+      balance: MoneyString, apply: MoneyString,
+    })),
+  }),
 });
 
 export const settleReferralReward = defineRoute({
@@ -296,6 +323,6 @@ export const viewPortalReferral = defineRoute({
 export const trackingRoutes = {
   searchAvailableNumbers, buyTrackingNumber, setNumberRouting, releasePhoneNumber,
   recordPublicTouch, getVisitorNumber, getWebsiteTracking, setWebsiteTracking,
-  getReferrals, setReferralSettings, settleReferralReward, getCustomerReferral, setCustomerReferrer,
+  getReferrals, setReferralSettings, getInvoiceReferralCredit, settleReferralReward, getCustomerReferral, setCustomerReferrer,
   viewPortalReferral,
 } as const;

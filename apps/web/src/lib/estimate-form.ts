@@ -21,6 +21,8 @@ export interface FormOption {
     discountAmount: string;
     taxable: boolean;
     isOptional: boolean;
+    /** Said only on a line typed by hand; a line from the book takes its item's mark. */
+    quantityIsCrewHours?: boolean;
   }[];
 }
 
@@ -47,6 +49,7 @@ export function optionsFromForm(form: FormData): FormOption[] {
         discountAmount: money(at("discountAmount")) || "0",
         taxable: form.get(`line.${ok}.${lk}.taxable`) !== null,
         isOptional: form.get(`line.${ok}.${lk}.optional`) !== null,
+        ...(!item && form.get(`line.${ok}.${lk}.crewHours`) !== null ? { quantityIsCrewHours: true } : {}),
       });
     }
     if (lines.length === 0) continue;

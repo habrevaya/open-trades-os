@@ -86,6 +86,8 @@ const ORDER = [
    * campaign it is credited to, further down.
    */
   "mail_piece", "mail_campaign",
+  /** The do not mail list points at a customer and at the people who put names on it and took them off. */
+  "do_not_mail",
   "delivery",
   "obligation", "authorization", "external_work_order",
   /**

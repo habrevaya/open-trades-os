@@ -78,6 +78,17 @@ export const priceBookItem = pgTable("price_book_item", {
    */
   feeRole: feeRole("fee_role"),
   /**
+   * ITS QUANTITY IS CREW HOURS: people times hours, with the drive. A line of
+   * this item on an estimate says "16" and means sixteen hours of a crew's
+   * time, so converting the approved estimate to a job can budget the job in
+   * hours (`job.budgeted_hours`). Nothing else about a quantity says which
+   * unit it is in, which is why the budget was typed by hand until this
+   * existed. On the item rather than the version, like `feeRole`, because it is
+   * what the item IS: no price changes, and every estimate line copies the
+   * mark as it was the day the line was written.
+   */
+  quantityIsCrewHours: boolean("quantity_is_crew_hours").notNull().default(false),
+  /**
    * A CHEMICAL, AND THE UNIT ITS COST IS PER. Null for everything that is not
    * chemistry, which is nearly everything; set, the item is a product a
    * technician applies and is offered by name on the phone's application

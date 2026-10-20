@@ -87,9 +87,9 @@ from a date ahead; every price the item has ever had is listed with when it
 was in force and whether it is past, in force or scheduled, and a scheduled
 one can be brought forward or called off there by whoever holds
 `pricebook:publish`. "What it is" changes the kind, the code, the category
-and which fee it is (the diagnostic fee or the after hours rate, which a
-membership plan can waive) in place, writing no version, because no document
-points at any of those. The item can be retired or sold again, and the
+which fee it is (the diagnostic fee or the after hours rate, which a
+membership plan can waive) and whether its quantity is crew hours, in place,
+writing no version, because no document points at any of those. The item can be retired or sold again, and the
 vendors who sell it to us are listed with their part numbers (M16).
 `/pricebook` can include retired items.
 
@@ -113,6 +113,14 @@ the plan on its line; whichever of the two comes to more; or the item's rate on 
 the plan. Commission reads the rate on the version an invoice line was priced from,
 never the item's version today, so a rate changed here reaches only lines priced after
 the change (the form says so and links to the choice).
+
+**Counted in crew hours** is a tick on "What it is" and on a new item
+(`quantityIsCrewHours` on `POST /v1/pricebook/items` and `PATCH /v1/pricebook/items/{id}`,
+audited before and after, needing `pricebook:write`). It says a line of the item counts its
+quantity as crew hours, people times hours with the drive: "Install crew", 16. An estimate
+line copies the mark the day it is written, so unticking the item later rewrites no estimate,
+and converting an approved estimate adds up those lines as the job's budgeted hours (M07,
+M10). The mark changes no price and writes no version.
 
 **A chemical your technicians apply**, on the same screen for a material,
 marks the item as a product applied on a visit, with the unit its cost is per
@@ -172,7 +180,7 @@ item with every version. `POST /v1/pricebook/items/{id}/revise` is how a price
 changes: it writes a new version rather than editing the old one, and carries
 the warranty, the registration days and tax class forward unless they change.
 `PATCH /v1/pricebook/items/{id}` changes what the item is, refusing a code
-another item already has, and marks or unmarks a material as a chemical. `POST /v1/pricebook/items/{id}/active` stops an item
+another item already has, marks or unmarks a material as a chemical, and says whether its quantity is crew hours. `POST /v1/pricebook/items/{id}/active` stops an item
 being sold without removing it, because documents point at its versions.
 
 ### Prepare a price change for next quarter

@@ -79,6 +79,7 @@ export * as marketplaceLeads from "./marketplace-leads";
 export * as leadEmails from "./lead-emails";
 export * as metaLeads from "./meta-leads";
 export * as directMail from "./direct-mail";
+export * as doNotMail from "./do-not-mail";
 export * as marketingOverview from "./marketing-overview";
 export * as forms from "./forms";
 export * as voice from "./voice";

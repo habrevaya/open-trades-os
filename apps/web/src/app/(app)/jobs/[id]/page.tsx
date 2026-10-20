@@ -279,7 +279,7 @@ export default async function JobPage({ params, searchParams }: {
       {writes ? <Priority jobId={id} current={job.priority} /> : null}
       <PlannedVisits jobId={id} plannedAt={job.multiVisitPlannedAt ?? null} started={started} writes={writes}
                      timezone={user.organizationTimezone} action={setMultiVisitPlanned} />
-      <CrewBudget jobId={id} budget={crewBudget} writes={writes} action={setBudgetedHours} />
+      <CrewBudget jobId={id} budget={crewBudget} writes={writes} action={setBudgetedHours} canOpenEstimate={can(user.actor, "estimate:read")} />
       {production ? <Production jobId={id} production={production} writes={writes} action={setProduction} /> : null}
       <Branch jobId={id} current={job.businessUnitId ?? null} options={branchOptions} writes={writes} />
       <RequiredSkills jobId={id} actor={user.actor} writes={writes} timezone={user.organizationTimezone} />

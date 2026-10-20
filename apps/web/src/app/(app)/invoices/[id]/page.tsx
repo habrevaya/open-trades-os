@@ -4,7 +4,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import {
   agreements, billing, creditNotes, customers, invoiceDelivery, jobs, payments, tips, NotFoundError,
-  claims as claimService, entitlements, financing, customFields, fieldSales, cardOnFile, contacts,
+  claims as claimService, entitlements, financing, customFields, fieldSales, cardOnFile, contacts, referrals,
 } from "@opentradesos/api/services";
 import { can, claims, rates, tax, work } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
@@ -26,6 +26,7 @@ import { creditInvoice } from "../credit-notes/actions";
 import { FinancingPanel } from "@/components/FinancingPanel";
 import { chargeCardOnFile } from "./card-actions";
 import { addressInvoice } from "./bill-to-actions";
+import { applyReferralCredit } from "./referral-credit-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,10 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     && ["open", "partially_paid", "paid"].includes(invoice.status);
   const tz = user.organizationTimezone;
   const owed = (invoice.status === "open" || invoice.status === "partially_paid") && Number(invoice.balance ?? "0") > 0;
+  /** Referral reward credit the customer has not used, for whoever may apply a credit. */
+  const rewardCredit = owed && can(user.actor, "invoice:credit")
+    ? (await referrals.creditForInvoice(ctx, { id })).credits
+    : [];
   const collects = owed && can(user.actor, "payment:collect");
   /**
    * A card only when a processor is connected to take it. Whoever may not
@@ -444,6 +449,26 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
               </tr>
             ))}
           </Table>
+        </section>
+      )}
+
+      {rewardCredit.length > 0 && (
+        <section aria-label="Referral reward credit" className="mt-6 rounded-md border border-steel-200 p-4">
+          <h2 className="text-base font-semibold">Referral reward credit</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            This customer has credit on their account for people they sent. Put it on this bill and they owe that much less.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {rewardCredit.map((credit) => (
+              <li key={credit.rewardId} className="text-sm">
+                <span className="font-medium">For sending {credit.referredName}</span>
+                <span className="ml-2 text-ink-500">credit note {credit.creditNoteNumber}, <Money value={credit.balance} /> left</span>
+                <ActionForm action={applyReferralCredit} submit={`Take $${Number(credit.apply).toFixed(2)} off this invoice`} tone="quiet"
+                            hidden={{ invoiceId: invoice.id, creditNoteId: credit.creditNoteId, amount: credit.apply, formKey: crypto.randomUUID() }}
+                            className="mt-2" />
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

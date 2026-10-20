@@ -578,6 +578,14 @@ export const referralReward = pgTable("referral_reward", {
   state: referralRewardState("state").notNull(),
   /** The credit note issued for it, when the reward was a credit. */
   creditNoteId: uuid("credit_note_id"),
+  /**
+   * When the worker put this reward's credit on the customer's next invoice by
+   * itself (the company's "apply to their next invoice" setting). Set once,
+   * claimed before the credit is applied, and never again: what is left of a
+   * credit that was bigger than the invoice stays on the account for the
+   * office to apply, and a reward is never auto applied to a second invoice.
+   */
+  autoAppliedAt: timestamp("auto_applied_at", { withTimezone: true }),
   paidAt: timestamp("paid_at", { withTimezone: true }),
   note: text("note"),
   ...timestamps,

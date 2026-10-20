@@ -1,9 +1,9 @@
 import { randomInt } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, referrals as rf, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, money as m, referrals as rf, time, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, inTenant, ConflictError, InvalidGrantError, NotFoundError,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, InvalidGrantError, NotFoundError,
   type ServiceContext,
 } from "./context";
 import * as marketing from "./marketing";
@@ -39,7 +39,14 @@ export async function settingsWithin(tx: Database, organizationId: string): Prom
   return checked.ok ? checked.settings : rf.DEFAULT_REFERRAL_SETTINGS;
 }
 
-export async function setSettings(ctx: ServiceContext, input: { reward: string; amount?: string | undefined }) {
+/** The settings as the API says them: the switch is always there, off unless the company turned it on. */
+const settingsView = (settings: rf.ReferralSettings) => ({
+  reward: settings.reward, amount: settings.amount, applyToNextInvoice: settings.applyToNextInvoice === true,
+});
+
+export async function setSettings(
+  ctx: ServiceContext, input: { reward: string; amount?: string | undefined; applyToNextInvoice?: boolean | undefined },
+) {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const checked = rf.checkReferralSettings(input);
     if (!checked.ok) throw new ConflictError(checked.reason);
@@ -49,7 +56,7 @@ export async function setSettings(ctx: ServiceContext, input: { reward: string; 
       updatedAt: new Date(),
     }).where(eq(schema.organization.id, ctx.actor.organizationId));
     await audit(tx, ctx, "referrals.settings", "organization", ctx.actor.organizationId, before, checked.settings);
-    return checked.settings;
+    return settingsView(checked.settings);
   });
 }
 
@@ -223,6 +230,12 @@ export async function overview(ctx: ServiceContext) {
     const rewards = await tx.select().from(schema.referralReward)
       .orderBy(desc(schema.referralReward.createdAt)).limit(500);
     const rewardBy = new Map(rewards.map((r) => [r.referredCustomerId, r]));
+    /** What is left of each credit note reward, for the screen to say and to point at the invoice that takes it. */
+    const noteIds = rewards.map((r) => r.creditNoteId).filter((id): id is string => id !== null);
+    const notes = noteIds.length === 0 ? [] : await tx.select({
+      id: schema.creditNote.id, balance: schema.creditNote.balance, status: schema.creditNote.status,
+    }).from(schema.creditNote).where(inArray(schema.creditNote.id, noteIds));
+    const left = new Map(notes.map((n) => [n.id, n.status === "open" || n.status === "partially_applied" ? n.balance : "0.0000"]));
 
     const referrers = new Map<string, { id: string; name: string; referred: number; rewarded: number }>();
     for (const row of referred) {
@@ -235,7 +248,7 @@ export async function overview(ctx: ServiceContext) {
       referrers.set(row.referrerId, entry);
     }
     return {
-      settings: await settingsWithin(tx, ctx.actor.organizationId),
+      settings: settingsView(await settingsWithin(tx, ctx.actor.organizationId)),
       referrers: [...referrers.values()].sort((a, b) => b.referred - a.referred),
       referred: referred.map((r) => {
         const reward = rewardBy.get(r.id);
@@ -245,6 +258,8 @@ export async function overview(ctx: ServiceContext) {
           reward: reward ? {
             id: reward.id, kind: reward.kind, amount: reward.amount, state: reward.state,
             creditNoteId: reward.creditNoteId, paidAt: reward.paidAt?.toISOString() ?? null,
+            creditLeft: reward.creditNoteId && reward.state !== "void" ? left.get(reward.creditNoteId) ?? null : null,
+            autoAppliedAt: reward.autoAppliedAt?.toISOString() ?? null,
           } : null,
         };
       }),
@@ -280,6 +295,58 @@ export async function settleReward(
     await audit(tx, ctx, `referral_reward.${input.action}`, "referral_reward", reward.id, reward, after);
     return after!;
   });
+}
+
+/* ------------------------------------------------- the reward on an invoice */
+
+/**
+ * The credit note rewards a customer has not used, as they would come off one
+ * invoice: the smaller of what is left on each and what the invoice still
+ * owes, in the order they were granted, so two small rewards can both go on
+ * one bill and neither is applied past what it owes. Rewards of the customer
+ * the invoice is for, or of the customer who pays it, because that is whose
+ * credit a credit note application accepts (`credit-notes.ts`).
+ */
+async function creditForInvoiceWithin(tx: Database, invoiceId: string) {
+  const [invoice] = await tx.select({
+    id: schema.invoice.id, customerId: schema.invoice.customerId, payerId: schema.invoice.payerCustomerId,
+    status: schema.invoice.status, balance: schema.invoice.balance,
+  }).from(schema.invoice).where(and(eq(schema.invoice.id, invoiceId), isNull(schema.invoice.deletedAt))).limit(1);
+  if (!invoice) throw new NotFoundError("Invoice");
+  const owed = invoice.status === "open" || invoice.status === "partially_paid";
+  if (!owed || !m.isPositive(m.money(invoice.balance))) return { invoiceBalance: invoice.balance, credits: [] };
+
+  const holders = [invoice.customerId, ...(invoice.payerId ? [invoice.payerId] : [])];
+  const rows = await tx.select({
+    rewardId: schema.referralReward.id, creditNoteId: schema.creditNote.id, number: schema.creditNote.number,
+    balance: schema.creditNote.balance, referred: schema.customer.name,
+  }).from(schema.referralReward)
+    .innerJoin(schema.creditNote, eq(schema.creditNote.id, schema.referralReward.creditNoteId))
+    .innerJoin(schema.customer, eq(schema.customer.id, schema.referralReward.referredCustomerId))
+    .where(and(
+      eq(schema.referralReward.state, "credited"),
+      inArray(schema.creditNote.customerId, holders),
+      inArray(schema.creditNote.status, ["open", "partially_applied"]),
+      gt(schema.creditNote.balance, "0"),
+    )).orderBy(asc(schema.referralReward.createdAt));
+
+  let remaining = invoice.balance;
+  const credits: { rewardId: string; creditNoteId: string; creditNoteNumber: number; referredName: string; balance: string; apply: string }[] = [];
+  for (const row of rows) {
+    const apply = rf.creditToApply(row.balance, remaining);
+    if (Number(apply) <= 0) continue;
+    remaining = m.toString(m.subtract(m.money(remaining), m.money(apply)));
+    credits.push({
+      rewardId: row.rewardId, creditNoteId: row.creditNoteId, creditNoteNumber: row.number,
+      referredName: row.referred, balance: row.balance, apply,
+    });
+  }
+  return { invoiceBalance: invoice.balance, credits };
+}
+
+/** For the invoice's screen: which referral reward credit could come off it, and how much of each. */
+export async function creditForInvoice(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "invoice:read", (tx) => creditForInvoiceWithin(tx, input.id));
 }
 
 /* ------------------------------------------------------------ the worker */
@@ -377,6 +444,90 @@ export async function grantDue(db: Database, organizationId: string): Promise<{ 
   return { granted };
 }
 
+/**
+ * PUT EACH CREDIT NOTE REWARD ON THE REFERRER'S NEXT INVOICE, when the company
+ * turned that on (it is off until they do).
+ *
+ * Next means the referrer's oldest invoice that is still owed and came after
+ * the reward was granted (`nextInvoiceFor`), so a bill already sent is never
+ * changed by a thank you given later. It is the credit
+ * note application a person makes (`creditNotes.apply`), under a key named for
+ * the reward, for the smaller of what is left on the credit and what the
+ * invoice owes. A reward is claimed first (`auto_applied_at`, set once) so a
+ * second pass or a second worker does nothing, and a claim whose application
+ * is refused is given back for the next pass; what is left of a credit bigger
+ * than the invoice stays on the account for a person to apply, and is not put
+ * on a second invoice by itself.
+ */
+export async function applyDue(db: Database, organizationId: string): Promise<{ applied: number }> {
+  const ctx: ServiceContext = { actor: rewardActor(organizationId), db };
+  const due = await inTenant(ctx, async (tx) => {
+    const settings = await settingsWithin(tx, organizationId);
+    if (settings.applyToNextInvoice !== true) return [];
+    const zone = await timezoneOf(tx, organizationId);
+    const rewards = await tx.select({
+      id: schema.referralReward.id, createdAt: schema.referralReward.createdAt, noteId: schema.creditNote.id,
+      holder: schema.creditNote.customerId, left: schema.creditNote.balance,
+    }).from(schema.referralReward)
+      .innerJoin(schema.creditNote, eq(schema.creditNote.id, schema.referralReward.creditNoteId))
+      .where(and(
+        eq(schema.referralReward.state, "credited"),
+        isNull(schema.referralReward.autoAppliedAt),
+        inArray(schema.creditNote.status, ["open", "partially_applied"]),
+        gt(schema.creditNote.balance, "0"),
+      )).orderBy(asc(schema.referralReward.createdAt)).limit(100);
+
+    const out: { rewardId: string; noteId: string; invoiceId: string; amount: string }[] = [];
+    const spoken = new Map<string, string>();
+    for (const reward of rewards) {
+      const invoices = (await tx.select({
+        id: schema.invoice.id, issuedOn: schema.invoice.issuedOn, balance: schema.invoice.balance,
+        createdAt: schema.invoice.createdAt,
+      }).from(schema.invoice).where(and(
+        or(eq(schema.invoice.customerId, reward.holder), eq(schema.invoice.payerCustomerId, reward.holder)),
+        inArray(schema.invoice.status, ["open", "partially_paid"]),
+        isNull(schema.invoice.deletedAt),
+      ))).map((i) => ({
+        ...i, createdAt: i.createdAt.toISOString(),
+        balance: m.toString(m.subtract(m.money(i.balance), m.money(spoken.get(i.id) ?? "0"))),
+      }));
+      const invoiceId = rf.nextInvoiceFor(invoices, { on: time.dateIn(reward.createdAt, zone), at: reward.createdAt.toISOString() });
+      if (!invoiceId) continue;
+      const amount = rf.creditToApply(reward.left, invoices.find((i) => i.id === invoiceId)!.balance);
+      if (Number(amount) <= 0) continue;
+      /** Two rewards in one pass must not both count the same balance. */
+      spoken.set(invoiceId, m.toString(m.add(m.money(spoken.get(invoiceId) ?? "0"), m.money(amount))));
+      out.push({ rewardId: reward.id, noteId: reward.noteId, invoiceId, amount });
+    }
+    return out;
+  });
+
+  let applied = 0;
+  for (const item of due) {
+    const claimed = await inTenant(ctx, async (tx) => {
+      const [row] = await tx.update(schema.referralReward).set({ autoAppliedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(schema.referralReward.id, item.rewardId), isNull(schema.referralReward.autoAppliedAt)))
+        .returning({ id: schema.referralReward.id });
+      return row ?? null;
+    });
+    if (!claimed) continue;
+    try {
+      await creditNotes.apply({ ...ctx, idempotencyKey: `referral-reward-apply:${item.rewardId}` }, {
+        id: item.noteId, applications: [{ invoiceId: item.invoiceId, amount: item.amount }],
+      });
+    } catch (error) {
+      await inTenant(ctx, (tx) => tx.update(schema.referralReward).set({ autoAppliedAt: null, updatedAt: new Date() })
+        .where(eq(schema.referralReward.id, item.rewardId)));
+      console.error(`[worker] referral reward ${item.rewardId} was not applied to an invoice:`,
+        error instanceof Error ? error.message : error);
+      continue;
+    }
+    await inTenant(ctx, (tx) => audit(tx, ctx, "referral_reward.auto_applied", "referral_reward", item.rewardId, null, item));
+    applied += 1;
+  }
+  return { applied };
+}
+
 /* --------------------------------------------------------------- handlers */
 
 export const handlers = {
@@ -385,8 +536,10 @@ export const handlers = {
   setCustomerReferrer: (ctx: ServiceContext, input: {
     id: string; referrerId: string | null; replace?: boolean | undefined;
   }) => setReferredBy(ctx, { customerId: input.id, referrerId: input.referrerId, replace: input.replace }),
-  setReferralSettings: (ctx: ServiceContext, input: { reward: string; amount?: string | undefined }) =>
-    setSettings(ctx, input),
+  setReferralSettings: (
+    ctx: ServiceContext, input: { reward: string; amount?: string | undefined; applyToNextInvoice?: boolean | undefined },
+  ) => setSettings(ctx, input),
+  getInvoiceReferralCredit: (ctx: ServiceContext, input: { id: string }) => creditForInvoice(ctx, input),
   settleReferralReward: (ctx: ServiceContext, input: { id: string; action: "paid" | "void"; note?: string | undefined }) =>
     settleReward(ctx, input),
   viewPortalReferral: (db: Database, input: { token: string }) => forPortal(db, input),

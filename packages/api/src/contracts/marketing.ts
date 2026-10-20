@@ -298,8 +298,20 @@ export const FormField = z.object({
   page: z.number().int().min(0).max(mk.MAX_FORM_PAGES - 1).optional(),
 });
 
-/** One page of a form split into pages: the heading it shows. */
-export const FormPage = z.object({ title: z.string().max(120) });
+/**
+ * One page of a form split into pages: the heading it shows, and, when it
+ * should be shown only for some answers, the earlier pick one or pick several
+ * question it waits for and the options that bring the person to it. The
+ * server holds the rule at submit as well as the page: a hidden page's answers
+ * are dropped, never required.
+ */
+export const FormPage = z.object({
+  title: z.string().max(120),
+  showWhen: z.object({
+    field: z.string().min(1).max(60),
+    oneOf: z.array(z.string().min(1).max(200)).max(mk.MAX_CONDITION_VALUES),
+  }).optional(),
+});
 
 /**
  * A file sent with a lead form, as base64 like every other upload here. Its
@@ -322,10 +334,13 @@ export const FormSettings = z.object({
   confirmationText: z.string().max(320).optional(),
   confirmationEmailSubject: z.string().max(200).optional(),
   confirmationEmailBody: z.string().max(4000).optional(),
+  /** What `{{ firstName }}` reads as for a lead who gave no name. Empty, "there". */
+  firstNameFallback: z.string().max(mk.MAX_FIRST_NAME_FALLBACK).optional(),
 });
 /*
  * Every one of the four may repeat a short answer by its field's key, as
- * `{{ name }}`; a name that is not one is refused when the form is saved.
+ * `{{ name }}`, or the first word of the name answer as `{{ firstName }}`; a
+ * name that is not one is refused when the form is saved.
  */
 
 export const listForms = defineRoute({

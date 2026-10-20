@@ -268,6 +268,27 @@ going Back keeps what they typed. Nothing is posted until the last page, and
 the server checks the whole form again: a page skipped in a browser is still
 refused, and a refusal on an earlier page takes the person back to it.
 
+**Pages that wait for an answer.** From the second page on, the builder's "Who
+sees page 2" can be set to "Only some answers": the page waits for a pick one or
+pick several question on an earlier page and is shown only when the answer is
+one of the options ticked there (`showWhen` on a page of `PUT
+/v1/marketing/forms/{slug}`: the question's key and `oneOf`, its option values).
+On the hosted page Next and Back skip a page the answers so far do not lead to,
+"Page 1 of 3" counts only the pages that will be shown, and nothing typed on a
+skipped page is posted. The server holds the same rule (`marketing.shownPages`
+in core), because a post can be made by anything: a question on a page the
+answers do not lead to is not asked, so it is never required, what was sent for
+it is dropped before the submission is stored (the stored copy of what arrived
+too, and a file picked for it is not read, counted or kept), and a skipped
+page's answer opens no other page. A rule is refused when the form is saved if
+it waits for a question that is not on an earlier page, that is not a pick one
+or pick several question, or for an option the question does not offer, or if
+the first page is given one. A form needs a required phone or email on a page
+everybody sees, so a lead cannot reach the office with no way to be rung back
+because the only phone question was on a page they were never sent to. A form
+saved on one page keeps no rule. A pick several question shows the page when
+any one of the ticked options is among its options.
+
 **Their answers in the confirmation.** The sentence the page shows, the text
 and the email may repeat an answer by its question's key, as `{{ name }}` or
 `{{ system }}`, filled by the one renderer the product has. Only the short
@@ -276,7 +297,17 @@ number, date and address; a choice reads as its label, a phone as "(512)
 555-0134"); a long answer, a tick box, a hidden value, the spam trap and the
 files cannot, and a name that is not a usable question on the form is refused
 when the form is saved, including a confirmation kept from before when only
-the questions changed. The renderer makes one pass, so an answer that itself
+the questions changed. `{{ firstName }}` is also there on a form that asks a name (the question keyed
+`name`, else a short answer whose key or wording says name, the same answer the
+lead's customer is named from): the first word of that answer, made safe for
+where it is going like every other answer. A lead with no name, or whose first
+word is a web address (which a text or an email never repeats), reads as the
+words the builder's "When they gave no name" box holds (`firstNameFallback` in
+the form's settings, at most 40 characters, no braces), and as "there" when the
+company set none. `{{ name }}` is still the whole answer; the first word is only
+the first word, so "Dr. Ada Lovelace" reads as "Dr." and "Lovelace, Ada" as
+"Lovelace,", and a company whose customers write names that way is better served
+by asking for first and last name as two questions. The renderer makes one pass, so an answer that itself
 says `{{ phone }}` is never filled, and braces are taken out of answers anyway.
 Because the text and the email go to whatever number or address was typed, a
 stranger could aim them at somebody else, so in a message an answer is one
@@ -301,7 +332,43 @@ credit note on the referrer's account, an amount recorded as owed, or nothing.
 The worker grants it when the referred customer's first job has invoices and
 all of them are paid, once per referred customer however many times it looks,
 and the screen lists the referrers, who they sent and every reward, with "Mark
-paid" for an owed one and "Withdraw".
+paid" for an owed one and "Withdraw", and, for a credit note reward, what is
+left of the credit to use.
+
+**A credit note reward on an invoice.** The credit sits on the referrer's
+account until it is applied, and there are two ways it gets onto a bill, both
+the credit note application that has always existed (`POST
+/v1/credit-notes/{id}/apply`, `invoice:credit`).
+By a person: an invoice that is still owed (`/invoices/{id}`) shows "Referral
+reward credit" for a person who may credit invoices, one line per reward the
+invoice's customer (or the customer who pays it) has not used, with "Take $25.00
+off this invoice"; the figure is the smaller of what is left on the credit and
+what the invoice owes, two small rewards can both go on one bill and neither
+goes past what it owes, and the button is keyed by the form so a double press
+takes it off once (`GET /v1/invoices/{id}/referral-credit`, `invoice:read`, says
+what would come off). By itself: "Take a credit off their next invoice by
+itself" on `/marketing/referrals` (`applyToNextInvoice` on `PUT
+/v1/marketing/referral-settings`, `settings:write`) is **off until the company
+ticks it**, and refused for any reward but a credit on their account. Ticked,
+the worker's pass puts each unused credit note reward on the referrer's oldest
+invoice that is still owed and came after the reward: an invoice issued on a
+later company day, or raised after the reward was granted on the same day,
+never a bill already out. It is applied under a key named for the reward, once:
+the reward is marked (`auto_applied_at`) before the credit is applied and the
+mark is given back if the application is refused, so the next pass tries
+again; what a small invoice cannot take stays on the account for a person to
+apply, and is not put on a second invoice by itself. It runs in the worker's
+marketing upkeep, on the pass that handles the invoice's `invoice.issued` event
+(every five seconds by default, `WORKER_INTERVAL_MS`), so the credit is on the
+invoice moments after it goes out rather than in the same instant, and an invoice
+paid in full before the pass reaches it is not changed; the credit waits for the
+next one.
+
+**Judgements the product owner has not made, and the conservative readings
+taken.** "Next invoice" means after the reward, not the next one a person looks
+at: an invoice already out is never reduced by a thank you given later. The
+setting is off by default, and is not offered for an amount owed or for no
+reward. Only that one invoice is taken from, even when the credit is larger.
 
 ## Crediting work, on every path
 
@@ -550,6 +617,33 @@ mailing by `creditWork`. The page shows the mailing's words, the tracking
 number to ring and a booking link carrying the mailing's tag. The mailing's
 page shows what it brought: people who opened their address, calls to its
 number, jobs credited to it and their revenue, against what it cost.
+
+**The do not mail list.** A customer who rings to say stop, or an address a
+landlord wrote about, can be put on a list that every mailing checks. A customer
+is added from their own page ("Mail" on `/customers/{id}`, with the reason), an
+address is typed on `/marketing/mail` under "Do not mail"; both are `POST
+/v1/marketing/do-not-mail`, needing `customer:write` so whoever takes the call
+can record it, and taking a name off (`POST /v1/marketing/do-not-mail/{id}/remove`)
+needs `campaign:write` like sending a mailing, because it lets mail go. The list
+is `GET /v1/marketing/do-not-mail` (`campaign:read`; with `customerId`, only
+what stops that customer). A customer on it is never mailed wherever they
+move to, and the address they were listed at is held too (the same household is
+so often two customer records); an address typed in holds whoever lives there.
+Addresses are compared as the post office would, not as typed: "12 Oak Street",
+"12 OAK ST." and "12 Oak St, #4" are the same door and unit, and a listed address
+with no unit is the whole building, so a note from one flat of a block is a no
+for the block until somebody lists the flat. The list is checked twice: when
+the mailing freezes who it goes to, and again as each batch is about to go to the
+printer, so a name added after the button was pressed still stops its card. A
+piece it stops is skipped, never printed or paid for, and its reason on the
+mailing's page is in words: "Not posted. Ann Bell is on your do not mail list:
+asked on the phone, 3 June. Take them off the list on the Direct mail page to
+mail them." The preview counts them apart from people with no address, and a
+mailing's page says how many "are on your do not mail list and will be
+skipped". Taking a name off keeps the entry with who took it off and when, a
+mailing that has not posted a piece yet no longer skips them, and a piece
+already skipped stays skipped. Merging two customers moves the entry to the
+record kept, unless that record is listed already.
 
 **Lob is tested against a fake of its documented API, not a live account.** A
 Lob key starting `test_` prints and charges nothing.
@@ -1143,7 +1237,11 @@ is connecting a marketplace and rotating the lead inbox (reading its address is
 `integration:read`). A lead offer and its thread, and the lead emails, are
 `job:read`; replying to a lead through its marketplace is `message:send`. Direct
 mail is `campaign:read` to see and `campaign:write` to draft, send and stop,
-because it spends money by the piece, like texts and emails. A
+because it spends money by the piece, like texts and emails. The do not mail
+list is `campaign:read` to see, `customer:write` to add to (whoever takes the
+call, and it only ever stops mail) and `campaign:write` to take a name off.
+The referral reward credit an invoice offers is `invoice:read` to see and
+`invoice:credit` to apply. A
 customer's answer about advertising is `customer:read` to see and
 `customer:write` to record. Buying, routing and releasing numbers, the snippet's idle
 time and what a referral earns are `settings:write`; reading the snippet's key
@@ -1202,7 +1300,9 @@ most real use:
   `GET /v1/marketing/mail/{id}`, `PATCH /v1/marketing/mail/{id}`,
   `GET /v1/marketing/mail/{id}/preview`, `POST /v1/marketing/mail/{id}/send`,
   `POST /v1/marketing/mail/{id}/cancel` and `GET /v1/marketing/mail/{id}/pieces`
-  for direct mail.
+  for direct mail, and `GET /v1/marketing/do-not-mail`,
+  `POST /v1/marketing/do-not-mail` and `POST /v1/marketing/do-not-mail/{id}/remove`
+  for the list every mailing checks.
 - `GET /v1/marketing/overview` for sessions and searches beside leads and jobs;
   `GET /v1/marketing/conversion-adjustments` for restatements.
 - `GET /v1/marketing/settings` and `PATCH /v1/marketing/settings`.
@@ -1220,6 +1320,7 @@ most real use:
   brought are read with `GET /v1/attachments` for the customer, under
   `document:read`.
 - `GET /v1/marketing/referrals`, `PUT /v1/marketing/referral-settings`,
+  `GET /v1/invoices/{id}/referral-credit`,
   `POST /v1/marketing/referral-rewards/{id}/settle`,
   `GET /v1/customers/{id}/referral`, `PUT /v1/customers/{id}/referrer` and
   `GET /v1/portal/referral` for referrals.
@@ -1366,8 +1467,13 @@ sample and therefore not a test of anything.
 - **Direct mail.** Lob is the only mail house. Where a piece is in the post is
   not read back from Lob (its id and expected delivery are kept), the price per
   piece is typed from Lob's price list because its API does not say, and
-  addresses are United States only. There is no do not mail list beyond a
-  customer marked do not service.
+  addresses are United States only. The do not mail list holds a customer or
+  an address and nothing more: no list uploaded from the post office's own
+  opt out file, nothing that adds a customer to it by itself when they reply
+  STOP to a text, and a customer marked do not service is still left out of every
+  mailing as well. Two address spellings the comparison does not know (a street
+  named in another language's abbreviations, a PO box written as "Box 4") are
+  different doors, so list the address as the mail is posted to.
 - **Spend in another currency.** An ad account billing in a currency other
   than the company's is refused rather than converted.
 - **Google Analytics' silence.** The Measurement Protocol accepts a malformed
@@ -1397,16 +1503,24 @@ sample and therefore not a test of anything.
   check and the per address ceilings are what there is). Files arrive only in
   the one post at the end, so a form takes at most five files and four
   megabytes in all, and a PDF is not made smaller; a person whose files are
-  refused picks them again rather than resuming. A page cannot be skipped or
-  shown only for some answers: every page is shown, in order. A confirmation
+  refused picks them again rather than resuming. A page waits only for
+  one earlier pick one or pick several question and the options that show it:
+  there is no rule over several questions, over a typed answer or a number, or
+  that hides a single question rather than a page. A confirmation
   repeats answers only from the closed list of short kinds, cut short and with
-  links left out in a text or an email; there is no first name of its own
-  (`{{ name }}` is the whole answer). Files sent with a form are matched to a
+  links left out in a text or an email; `{{ firstName }}` is the first word of
+  the name answer as it was typed, with no attempt to tell a title or a
+  surname written first from a first name. Files sent with a form are matched to a
   customer only by the phone or email typed, the same as the lead itself, and
   cannot be moved onto a job from the customer page.
 - **Referral rewards' limits.** One reward per referred customer, on their
   first paid job. A reward paid as owed is marked paid by hand; nothing pays it.
-  A credit note reward is not applied to an invoice until somebody applies it.
+  A credit note reward is applied to an invoice by a person from the invoice,
+  or by the worker on the referrer's next invoice when the company ticks that
+  box (off by default). The worker's way runs moments after the invoice goes
+  out and not in the same instant, so an invoice emailed or paid in those
+  moments shows the full balance; it takes from one invoice only; and it does
+  not apply to a reward for an amount owed.
 - **An outbound campaign's own phone number.** A text campaign's credit comes
   from a click on its utm tag, not from a reply to a dedicated number.
 - **A/B tests' limits.** Up to four versions, in shares of whole percents of at

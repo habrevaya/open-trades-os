@@ -133,13 +133,17 @@ export const previewMailCampaign = defineRoute({
     selected: z.number().int(),
     overflow: z.boolean(),
     postable: z.number().int(),
+    /** On the do not mail list, so they would be skipped with the reason. */
+    doNotMail: z.number().int(),
     noAddress: z.number().int(),
     estimatedCost: MoneyString,
     trackingPhone: z.string().nullable(),
     returnAddress: z.object({
       name: z.string(), line1: z.string(), line2: z.string().nullable(), city: z.string(), state: z.string(), postalCode: z.string(),
     }).nullable(),
-    sample: z.array(z.object({ customerId: Uuid, name: z.string(), address: z.string(), postable: z.boolean() })),
+    sample: z.array(z.object({
+      customerId: Uuid, name: z.string(), address: z.string(), postable: z.boolean(), doNotMail: z.boolean(),
+    })),
     front: z.string(),
     back: z.string().nullable(),
   }),
@@ -190,7 +194,75 @@ export const listMailPieces = defineRoute({
   }),
 });
 
+/* ----------------------------------------------------------- do not mail */
+
+export const DoNotMailEntry = z.object({
+  id: Uuid,
+  /** `customer` for a customer who asked to be left off, `address` for a door typed in. */
+  kind: z.enum(["customer", "address"]),
+  customerId: Uuid.nullable(),
+  /** The customer's name now, or what was typed. */
+  customerName: z.string().nullable(),
+  name: z.string().nullable(),
+  /** The address held, on one line, or null for a customer listed with none that could be posted to. */
+  address: z.string().nullable(),
+  /** The flat inside the building, empty for the whole building. */
+  unit: z.string(),
+  reason: z.string().nullable(),
+  addedOn: z.string().datetime(),
+});
+
+export const listDoNotMail = defineRoute({
+  method: "get",
+  path: "/v1/marketing/do-not-mail",
+  summary: "The do not mail list",
+  description:
+    "Every customer and address that every mailing leaves out, newest first. With `customerId`, only what stops that customer: an entry for them, or for the address they would be mailed at.",
+  module: "M19",
+  permissions: ["campaign:read"],
+  input: z.object({ customerId: Uuid.optional() }),
+  output: z.object({ entries: z.array(DoNotMailEntry) }),
+});
+
+export const addDoNotMail = defineRoute({
+  method: "post",
+  path: "/v1/marketing/do-not-mail",
+  summary: "Put a customer or an address on the do not mail list",
+  description:
+    "Give a customer, who is then never mailed wherever they move to (the address they are listed at is held as well, since a household is so often two customer records), or an address typed in, which holds whoever lives there. An address with no unit is the whole building. Every mailing checks the list when it freezes who it goes to and again before each piece is handed to the printer; a piece it stops is skipped with the reason in words. Listing something already listed is refused. Needs `customer:write`, so whoever takes the call can record it; taking a name off is `campaign:write`.",
+  module: "M19",
+  permissions: ["customer:write"],
+  idempotent: true,
+  input: z.object({
+    customerId: Uuid.optional(),
+    address: z.object({
+      /** Who lives there, if known. */
+      name: z.string().max(200).optional(),
+      line1: z.string().min(1).max(200),
+      line2: z.string().max(200).optional(),
+      city: z.string().min(1).max(100),
+      state: z.string().length(2),
+      postalCode: z.string().min(5).max(10),
+    }).optional(),
+    /** Why, printed with every piece it stops. */
+    reason: z.string().max(200).optional(),
+  }),
+  output: DoNotMailEntry,
+});
+
+export const removeDoNotMail = defineRoute({
+  method: "post",
+  path: "/v1/marketing/do-not-mail/{id}/remove",
+  summary: "Take a name or an address off the do not mail list",
+  description: "The entry is kept, with who took it off and when. A mailing that has not posted a piece yet no longer skips them; a piece already skipped stays skipped, and the next mailing can include them.",
+  module: "M19",
+  permissions: ["campaign:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, removed: z.literal(true) }),
+});
+
 export const directMailRoutes = {
   listMailCampaigns, createMailCampaign, getMailCampaign, updateMailCampaign, previewMailCampaign,
-  sendMailCampaign, cancelMailCampaign, listMailPieces,
+  sendMailCampaign, cancelMailCampaign, listMailPieces, listDoNotMail, addDoNotMail, removeDoNotMail,
 } as const;

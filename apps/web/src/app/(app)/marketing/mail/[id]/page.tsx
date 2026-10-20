@@ -60,6 +60,7 @@ export default async function MailingPage({ params }: { params: Promise<{ id: st
             <span className="text-xl font-semibold tabular-nums">{preview.postable.toLocaleString("en-US")}</span>{" "}
             {preview.postable === 1 ? "piece to post." : "pieces to post."}{" "}
             <span className="text-ink-700">{preview.sentence}</span> Estimated cost <Money value={preview.estimatedCost} />.
+            {preview.doNotMail > 0 ? ` ${preview.doNotMail} more ${preview.doNotMail === 1 ? "is" : "are"} on your do not mail list and will be skipped.` : ""}
             {preview.noAddress > 0 ? ` ${preview.noAddress} more have no address that can be posted to and will be skipped.` : ""}
             {preview.overflow ? " More are selected than one mailing takes; it goes to the first twenty five thousand by name, which is not a sample." : ""}
           </p>
@@ -89,7 +90,11 @@ export default async function MailingPage({ params }: { params: Promise<{ id: st
               {preview.sample.map((s) => (
                 <tr key={s.customerId}>
                   <Td>{s.name}</Td>
-                  <Td>{s.postable ? s.address : <Chip tone="warning">No address that can be posted to</Chip>}</Td>
+                  <Td>
+                    {s.postable ? s.address
+                      : s.doNotMail ? <Chip tone="warning">On your do not mail list</Chip>
+                        : <Chip tone="warning">No address that can be posted to</Chip>}
+                  </Td>
                 </tr>
               ))}
             </Table>

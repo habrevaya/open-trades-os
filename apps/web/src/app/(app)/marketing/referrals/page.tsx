@@ -42,9 +42,15 @@ export default async function ReferralsPage() {
             <Select label="Reward" name="reward" defaultValue={view.settings.reward}
                     options={rf.REWARD_KINDS.map((k) => ({ value: k, label: rf.REWARD_KIND[k].label }))} />
             <TextField label="Amount" name="amount" inputMode="decimal" defaultValue={view.settings.reward === "none" ? "" : view.settings.amount} className="w-32" />
+            <label className="flex items-center gap-2 pb-2 text-sm">
+              <input type="checkbox" name="applyToNextInvoice" defaultChecked={view.settings.applyToNextInvoice} />
+              Take a credit off their next invoice by itself
+            </label>
           </ActionForm>
           <p className="mt-2 text-xs text-ink-500">
             Given once, when the referred customer&rsquo;s first job is paid in full. {rf.REWARD_KIND[view.settings.reward].meaning}
+            {" "}Turned on, a credit comes off the first invoice they are sent after it is given, moments after the invoice goes out,
+            and only that invoice: anything left stays on their account. Off, you apply it yourself from the invoice. Only for a credit on their account.
           </p>
         </section>
       )}
@@ -82,6 +88,10 @@ export default async function ReferralsPage() {
                         {STATE_LABEL[r.reward.state] ?? r.reward.state}
                       </Chip>
                       {r.reward.creditNoteId ? <a href={`/invoices/credit-notes/${r.reward.creditNoteId}`} className="text-xs underline underline-offset-4">Credit note</a> : null}
+                      {r.reward.creditLeft !== null && Number(r.reward.creditLeft) > 0
+                        ? <span className="text-xs text-ink-500">Left to use: <Money value={r.reward.creditLeft} /></span>
+                        : r.reward.creditLeft !== null && r.reward.state !== "void"
+                          ? <span className="text-xs text-ink-500">Used{r.reward.autoAppliedAt ? " by itself" : ""}</span> : null}
                     </span>
                   ) : <span className="text-ink-500">Not yet: their first job is not paid</span>}
                 </Td>

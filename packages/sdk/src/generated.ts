@@ -181,6 +181,31 @@ export interface AddCustomerNoteOutput {
   } | null;
 }
 
+export interface AddDoNotMailInput {
+  customerId?: string;
+  address?: {
+    name?: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+  };
+  reason?: string;
+}
+
+export interface AddDoNotMailOutput {
+  id: string;
+  kind: "customer" | "address";
+  customerId: string | null;
+  customerName: string | null;
+  name: string | null;
+  address: string | null;
+  unit: string;
+  reason: string | null;
+  addedOn: string;
+}
+
 export interface AddEmergencyContactInput {
   name: string;
   relationship?: string | null;
@@ -1323,6 +1348,7 @@ export interface ApproveEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -2705,6 +2731,7 @@ export interface ConvertEstimateOutput {
         name: string;
         description: string | null;
         quantity: string;
+        quantityIsCrewHours: boolean;
         unitPrice: string;
         discountAmount: string;
         memberDiscountAmount?: string;
@@ -2745,6 +2772,7 @@ export interface ConvertEstimateOutput {
   jobId: string | null;
   invoiceId: string | null;
   depositId: string | null;
+  budgetedHours: string | null;
 }
 
 export interface CopyBackFromSandboxInput {
@@ -3549,6 +3577,7 @@ export interface CreateEstimateInput {
       name: string;
       description?: string;
       quantity?: string;
+      quantityIsCrewHours?: boolean;
       unitPrice: string;
       unitCost?: string;
       discountAmount?: string;
@@ -3595,6 +3624,7 @@ export interface CreateEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -3891,6 +3921,7 @@ export interface CreateJobOutput {
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
   budgetedHours?: string | null;
+  budgetEstimateId?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -4304,6 +4335,7 @@ export interface CreatePriceBookItemInput {
     usePerBuy: string;
   };
   feeRole?: "diagnostic" | "after_hours";
+  quantityIsCrewHours?: boolean;
   externalRef?: {
     source: string;
     id: string;
@@ -4321,6 +4353,7 @@ export interface CreatePriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -5534,6 +5567,7 @@ export interface DeclineEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -8608,6 +8642,7 @@ export interface GetEstimateOutput {
       name: string;
       description: string | null;
       quantity: string;
+      quantityIsCrewHours: boolean;
       unitPrice: string;
       discountAmount: string;
       memberDiscountAmount?: string;
@@ -9189,9 +9224,14 @@ export interface GetFormOutput {
     confirmationText?: string;
     confirmationEmailSubject?: string;
     confirmationEmailBody?: string;
+    firstNameFallback?: string;
   };
   pages: Array<{
     title: string;
+    showWhen?: {
+      field: string;
+      oneOf: string[];
+    };
   }>;
 }
 
@@ -9256,6 +9296,10 @@ export interface GetHostedFormOutput {
   thankYou: string | null;
   pages: Array<{
     title: string;
+    showWhen?: {
+      field: string;
+      oneOf: string[];
+    };
   }>;
   uploads: {
     maxFiles: number;
@@ -9536,6 +9580,18 @@ export interface GetInvoiceOutput {
   updatedAt: string;
 }
 
+export interface GetInvoiceReferralCreditOutput {
+  invoiceBalance: string;
+  credits: Array<{
+    rewardId: string;
+    creditNoteId: string;
+    creditNoteNumber: number;
+    referredName: string;
+    balance: string;
+    apply: string;
+  }>;
+}
+
 export interface GetInvoiceTipOfferOutput {
   available: boolean;
   presets: Array<{
@@ -9660,6 +9716,7 @@ export interface GetJobOutput {
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
   budgetedHours?: string | null;
+  budgetEstimateId?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -11330,6 +11387,7 @@ export interface GetPriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -12043,6 +12101,7 @@ export interface GetReferralsOutput {
   settings: {
     reward: "credit_note" | "owed" | "none";
     amount: string;
+    applyToNextInvoice: boolean;
   };
   referrers: Array<{
     id: string;
@@ -12063,6 +12122,8 @@ export interface GetReferralsOutput {
       state: string;
       creditNoteId: string | null;
       paidAt: string | null;
+      creditLeft: string | null;
+      autoAppliedAt: string | null;
     } | null;
   }>;
 }
@@ -15252,6 +15313,20 @@ export interface ListDisposalFacilitiesOutput {
   }>;
 }
 
+export interface ListDoNotMailOutput {
+  entries: Array<{
+    id: string;
+    kind: "customer" | "address";
+    customerId: string | null;
+    customerName: string | null;
+    name: string | null;
+    address: string | null;
+    unit: string;
+    reason: string | null;
+    addedOn: string;
+  }>;
+}
+
 export interface ListDueRequestsOutput {
   requests: Array<{
     id: string;
@@ -15963,6 +16038,7 @@ export interface ListJobsOutput {
     businessUnitId?: string | null;
     multiVisitPlannedAt?: string | null;
     budgetedHours?: string | null;
+    budgetEstimateId?: string | null;
     cost?: string | null;
     grossMargin?: string | null;
     externalRef: {
@@ -16892,6 +16968,7 @@ export interface ListPriceBookOutput {
     imageUrl: string | null;
     categoryId: string | null;
     feeRole: "diagnostic" | "after_hours" | null;
+    quantityIsCrewHours: boolean;
     chemical: {
       unit: string;
       epaRegistrationNumber: string | null;
@@ -20044,6 +20121,7 @@ export interface PreviewMailCampaignOutput {
   selected: number;
   overflow: boolean;
   postable: number;
+  doNotMail: number;
   noAddress: number;
   estimatedCost: string;
   trackingPhone: string | null;
@@ -20060,6 +20138,7 @@ export interface PreviewMailCampaignOutput {
     name: string;
     address: string;
     postable: boolean;
+    doNotMail: boolean;
   }>;
   front: string;
   back: string | null;
@@ -22140,6 +22219,13 @@ export interface RemoveCustomerOutput {
   reason: string;
 }
 
+export type RemoveDoNotMailInput = Record<string, unknown>;
+
+export interface RemoveDoNotMailOutput {
+  id: string;
+  removed: true;
+}
+
 export type RemoveEmergencyContactInput = Record<string, unknown>;
 
 export interface RemoveEmergencyContactOutput {
@@ -23502,6 +23588,7 @@ export interface RevisePriceBookItemOutput {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -23868,9 +23955,14 @@ export interface SaveFormInput {
     confirmationText?: string;
     confirmationEmailSubject?: string;
     confirmationEmailBody?: string;
+    firstNameFallback?: string;
   };
   pages?: Array<{
     title: string;
+    showWhen?: {
+      field: string;
+      oneOf: string[];
+    };
   }>;
 }
 
@@ -24199,6 +24291,7 @@ export interface SendEstimateOutput {
         name: string;
         description: string | null;
         quantity: string;
+        quantityIsCrewHours: boolean;
         unitPrice: string;
         discountAmount: string;
         memberDiscountAmount?: string;
@@ -25812,11 +25905,13 @@ export interface SetRecurringScheduleActiveOutput {
 export interface SetReferralSettingsInput {
   reward: "credit_note" | "owed" | "none";
   amount?: string;
+  applyToNextInvoice?: boolean;
 }
 
 export interface SetReferralSettingsOutput {
   reward: "credit_note" | "owed" | "none";
   amount: string;
+  applyToNextInvoice: boolean;
 }
 
 export interface SetRenewalsKeeperInput {
@@ -28379,6 +28474,7 @@ export interface UpdateJobOutput {
   businessUnitId?: string | null;
   multiVisitPlannedAt?: string | null;
   budgetedHours?: string | null;
+  budgetEstimateId?: string | null;
   visits: Array<{
     id: string;
     jobId: string;
@@ -28726,6 +28822,7 @@ export interface UpdatePriceBookItemInput {
     unit: string;
     epaRegistrationNumber: string | null;
   } | null;
+  quantityIsCrewHours?: boolean;
 }
 
 export type UpdatePriceBookItemOutput = {
@@ -28739,6 +28836,7 @@ export type UpdatePriceBookItemOutput = {
   imageUrl: string | null;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
   chemical: {
     unit: string;
     epaRegistrationNumber: string | null;
@@ -31323,6 +31421,10 @@ export interface GetInvoiceFinancingInput {
   invoiceId: string;
 }
 
+export interface GetInvoiceReferralCreditInput {
+  id: string;
+}
+
 export interface GetInvoiceTipOfferInput {
   id: string;
 }
@@ -32152,6 +32254,10 @@ export interface ListDispatchPlansInput {
 
 export interface ListDisposalFacilitiesInput {
   includeClosed?: boolean;
+}
+
+export interface ListDoNotMailInput {
+  customerId?: string;
 }
 
 export type ListDueRequestsInput = Record<string, never>;
@@ -33231,6 +33337,10 @@ export interface RemoveCustomerParams {
   id: string;
 }
 
+export interface RemoveDoNotMailParams {
+  id: string;
+}
+
 export interface RemoveEmergencyContactParams {
   id: string;
 }
@@ -34233,6 +34343,7 @@ export interface OperationTypes {
   addContractSite: { input: AddContractSiteParams & AddContractSiteInput; output: AddContractSiteOutput };
   addCustomerContact: { input: AddCustomerContactParams & AddCustomerContactInput; output: AddCustomerContactOutput };
   addCustomerNote: { input: AddCustomerNoteParams & AddCustomerNoteInput; output: AddCustomerNoteOutput };
+  addDoNotMail: { input: AddDoNotMailInput; output: AddDoNotMailOutput };
   addEmergencyContact: { input: AddEmergencyContactParams & AddEmergencyContactInput; output: AddEmergencyContactOutput };
   addEstimateOptionPhoto: { input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput; output: AddEstimateOptionPhotoOutput };
   addExpenseReceipt: { input: AddExpenseReceiptParams & AddExpenseReceiptInput; output: AddExpenseReceiptOutput };
@@ -34558,6 +34669,7 @@ export interface OperationTypes {
   getInviteLifetime: { input: GetInviteLifetimeInput; output: GetInviteLifetimeOutput };
   getInvoice: { input: GetInvoiceInput; output: GetInvoiceOutput };
   getInvoiceFinancing: { input: GetInvoiceFinancingInput; output: GetInvoiceFinancingOutput };
+  getInvoiceReferralCredit: { input: GetInvoiceReferralCreditInput; output: GetInvoiceReferralCreditOutput };
   getInvoiceTipOffer: { input: GetInvoiceTipOfferInput; output: GetInvoiceTipOfferOutput };
   getJob: { input: GetJobInput; output: GetJobOutput };
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
@@ -34769,6 +34881,7 @@ export interface OperationTypes {
   listDevices: { input: ListDevicesInput; output: ListDevicesOutput };
   listDispatchPlans: { input: ListDispatchPlansInput; output: ListDispatchPlansOutput };
   listDisposalFacilities: { input: ListDisposalFacilitiesInput; output: ListDisposalFacilitiesOutput };
+  listDoNotMail: { input: ListDoNotMailInput; output: ListDoNotMailOutput };
   listDueRequests: { input: ListDueRequestsInput; output: ListDueRequestsOutput };
   listEmailMessages: { input: ListEmailMessagesInput; output: ListEmailMessagesOutput };
   listEmailSuppressions: { input: ListEmailSuppressionsInput; output: ListEmailSuppressionsOutput };
@@ -35080,6 +35193,7 @@ export interface OperationTypes {
   removeContinuingEducation: { input: RemoveContinuingEducationParams & RemoveContinuingEducationInput; output: RemoveContinuingEducationOutput };
   removeCostingRate: { input: RemoveCostingRateParams & RemoveCostingRateInput; output: RemoveCostingRateOutput };
   removeCustomer: { input: RemoveCustomerParams & RemoveCustomerInput; output: RemoveCustomerOutput };
+  removeDoNotMail: { input: RemoveDoNotMailParams & RemoveDoNotMailInput; output: RemoveDoNotMailOutput };
   removeEmergencyContact: { input: RemoveEmergencyContactParams & RemoveEmergencyContactInput; output: RemoveEmergencyContactOutput };
   removeEstimateOptionPhoto: { input: RemoveEstimateOptionPhotoParams & RemoveEstimateOptionPhotoInput; output: RemoveEstimateOptionPhotoOutput };
   removeHoliday: { input: RemoveHolidayParams & RemoveHolidayInput; output: RemoveHolidayOutput };
@@ -35444,6 +35558,7 @@ export const OPERATIONS = {
   addContractSite: { method: "POST", path: "/v1/contracts/{contractId}/sites", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   addCustomerContact: { method: "POST", path: "/v1/customers/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addCustomerNote: { method: "POST", path: "/v1/customers/{id}/notes", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
+  addDoNotMail: { method: "POST", path: "/v1/marketing/do-not-mail", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addEmergencyContact: { method: "POST", path: "/v1/people/{membershipId}/emergency-contacts", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addEstimateOptionPhoto: { method: "POST", path: "/v1/estimate-options/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addExpenseReceipt: { method: "POST", path: "/v1/me/expenses/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
@@ -35769,6 +35884,7 @@ export const OPERATIONS = {
   getInviteLifetime: { method: "GET", path: "/v1/invite-lifetime", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:invite"] },
   getInvoice: { method: "GET", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getInvoiceFinancing: { method: "GET", path: "/v1/invoices/{invoiceId}/financing", pathParams: ["invoiceId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  getInvoiceReferralCredit: { method: "GET", path: "/v1/invoices/{id}/referral-credit", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getInvoiceTipOffer: { method: "GET", path: "/v1/invoices/{id}/tip-offer", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   getJob: { method: "GET", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -35980,6 +36096,7 @@ export const OPERATIONS = {
   listDevices: { method: "GET", path: "/v1/field/devices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listDispatchPlans: { method: "GET", path: "/v1/ai/dispatch/plans", pathParams: [], queryParams: ["date","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listDisposalFacilities: { method: "GET", path: "/v1/disposal-facilities", pathParams: [], queryParams: ["includeClosed"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  listDoNotMail: { method: "GET", path: "/v1/marketing/do-not-mail", pathParams: [], queryParams: ["customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   listDueRequests: { method: "GET", path: "/v1/reviews/requests/due", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listEmailSuppressions: { method: "GET", path: "/v1/email/suppressions", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -36291,6 +36408,7 @@ export const OPERATIONS = {
   removeContinuingEducation: { method: "POST", path: "/v1/continuing-education/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   removeCostingRate: { method: "DELETE", path: "/v1/costing/rates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   removeCustomer: { method: "POST", path: "/v1/customers/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:delete"] },
+  removeDoNotMail: { method: "POST", path: "/v1/marketing/do-not-mail/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   removeEmergencyContact: { method: "POST", path: "/v1/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removeEstimateOptionPhoto: { method: "DELETE", path: "/v1/estimate-option-photos/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   removeHoliday: { method: "DELETE", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -36734,6 +36852,15 @@ export abstract class GeneratedOperations {
    */
   addCustomerNote(input: AddCustomerNoteParams & AddCustomerNoteInput, options?: CallOptions): Promise<AddCustomerNoteOutput> {
     return this.call("addCustomerNote", input, options);
+  }
+
+  /**
+   * Put a customer or an address on the do not mail list.
+   *
+   * POST /v1/marketing/do-not-mail. Needs customer:write.
+   */
+  addDoNotMail(input: AddDoNotMailInput = {} as AddDoNotMailInput, options?: CallOptions): Promise<AddDoNotMailOutput> {
+    return this.call("addDoNotMail", input, options);
   }
 
   /**
@@ -39662,6 +39789,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Referral reward credit that could come off this invoice.
+   *
+   * GET /v1/invoices/{id}/referral-credit. Needs invoice:read.
+   */
+  getInvoiceReferralCredit(input: GetInvoiceReferralCreditInput, options?: CallOptions): Promise<GetInvoiceReferralCreditOutput> {
+    return this.call("getInvoiceReferralCredit", input, options);
+  }
+
+  /**
    * Whether a payment on this invoice can carry a tip, and who it would go to.
    *
    * GET /v1/invoices/{id}/tip-offer. Needs payment:collect.
@@ -41558,6 +41694,15 @@ export abstract class GeneratedOperations {
    */
   listDisposalFacilities(input: ListDisposalFacilitiesInput = {} as ListDisposalFacilitiesInput, options?: CallOptions): Promise<ListDisposalFacilitiesOutput> {
     return this.call("listDisposalFacilities", input, options);
+  }
+
+  /**
+   * The do not mail list.
+   *
+   * GET /v1/marketing/do-not-mail. Needs campaign:read.
+   */
+  listDoNotMail(input: ListDoNotMailInput = {} as ListDoNotMailInput, options?: CallOptions): Promise<ListDoNotMailOutput> {
+    return this.call("listDoNotMail", input, options);
   }
 
   /**
@@ -44360,6 +44505,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a name or an address off the do not mail list.
+   *
+   * POST /v1/marketing/do-not-mail/{id}/remove. Needs campaign:write.
+   */
+  removeDoNotMail(input: RemoveDoNotMailParams & RemoveDoNotMailInput, options?: CallOptions): Promise<RemoveDoNotMailOutput> {
+    return this.call("removeDoNotMail", input, options);
+  }
+
+  /**
    * Remove an emergency contact.
    *
    * POST /v1/emergency-contacts/{id}/remove. Needs user:write.
@@ -47087,7 +47241,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Change an item's kind, code, category, fee or chemical mark.
+   * Change an item's kind, code, category, fee, chemical mark or crew hours mark.
    *
    * PATCH /v1/pricebook/items/{id}. Needs pricebook:write.
    */

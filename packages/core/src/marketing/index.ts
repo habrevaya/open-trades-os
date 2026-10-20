@@ -1186,7 +1186,25 @@ export interface FormDefinition {
 
 export interface FormPage {
   title: string;
+  /**
+   * Show this page only when an earlier answer is one of some values: a "pick
+   * one" or "pick several" question on an earlier page, and the options that
+   * bring the person here. Absent, the page is always shown. A page nobody is
+   * sent to is skipped on the hosted page, and whatever was typed on it is
+   * dropped by the server rather than required or kept.
+   */
+  showWhen?: PageCondition | undefined;
 }
+
+export interface PageCondition {
+  /** The key of a `choice` or `multi_choice` question on an earlier page. */
+  field: string;
+  /** The option values that show the page: any one of them is enough. */
+  oneOf: string[];
+}
+
+/** A condition names a few options, not a whole list: a page for nearly every answer is not a condition. */
+export const MAX_CONDITION_VALUES = 20;
 
 /** At most this many pages: a lead form longer than that is a survey, and people leave surveys. */
 export const MAX_FORM_PAGES = 6;
@@ -1301,8 +1319,17 @@ export function checkSubmission(
     }
   }
 
+  /**
+   * A question on a page these answers do not lead to is not asked: nothing
+   * about it is required, and whatever was sent for it is dropped. Decided
+   * from the answers alone, so a browser that skipped a page and one that was
+   * sent past it get the same answer.
+   */
+  const notAsked = hiddenFieldKeys(form, submission.values);
+
   for (const field of form.fields) {
     if (field.type === "honeypot") continue;
+    if (notAsked.has(field.key)) continue;
     const outcome = checkField(field, submission.values[field.key]);
     if (outcome.ok) {
       if (outcome.value !== undefined) values[field.key] = outcome.value;
@@ -1670,9 +1697,13 @@ export function checkForm(form: FormDefinition): FormVerdict {
    * furnace and no phone number and no email is not a lead: it is a note
    * about somebody the company cannot contact.
    */
-  const reachable = form.fields.some((f) => (f.type === "phone" || f.type === "email") && f.required);
+  const reachable = form.fields.some((f) => (f.type === "phone" || f.type === "email") && f.required && alwaysShown(form, f));
   if (form.fields.length > 0 && !reachable) {
-    problems.push("No required phone number and no required email: a lead nobody can ring back is not a lead.");
+    problems.push(
+      (form.pages ?? []).some((p) => p.showWhen)
+        ? "No required phone number or email on a page everybody sees: a lead nobody can ring back is not a lead, and a page shown only for some answers may be skipped."
+        : "No required phone number and no required email: a lead nobody can ring back is not a lead.",
+    );
   }
 
   problems.push(...pageProblems(form));
@@ -1724,6 +1755,7 @@ function pageProblems(form: FormDefinition): string[] {
       problems.push(`Page ${i + 1} has no questions on it.`);
     }
   }
+  if (pages.length > 1) pages.forEach((page, i) => problems.push(...conditionProblems(form, page, i)));
   return problems;
 }
 
@@ -1742,6 +1774,80 @@ export function pagesOf(form: FormDefinition): { title: string | null; keys: str
   }));
 }
 
+/** What is wrong with the rule that shows one page only for some answers, as sentences. */
+function conditionProblems(form: FormDefinition, page: FormPage, i: number): string[] {
+  const when = page.showWhen;
+  if (!when) return [];
+  const n = i + 1;
+  if (i === 0) return ["Page 1 is always shown, so it cannot wait for an answer."];
+  const source = form.fields.find((f) => f.key === when.field);
+  if (!source || !onAPage(source)) {
+    return [`Page ${n} is shown only for an answer to "${when.field}", and this form has no such question.`];
+  }
+  if (pageIndex(source) >= i) {
+    return [`Page ${n} waits for the answer to "${when.field}", which is not on an earlier page. Ask it on a page before this one.`];
+  }
+  if (source.type !== "choice" && source.type !== "multi_choice") {
+    return [`Page ${n} waits for the answer to "${when.field}", which is not a pick one or pick several question.`];
+  }
+  if (when.oneOf.length === 0) {
+    return [`Page ${n} is shown for no answer at all. Pick at least one option, or take the rule off.`];
+  }
+  if (when.oneOf.length > MAX_CONDITION_VALUES) {
+    return [`Page ${n} is shown for more than ${MAX_CONDITION_VALUES} answers. Name the few that bring people here.`];
+  }
+  const offered = new Set((source.options ?? []).map((o) => o.value));
+  const unknown = when.oneOf.filter((v) => !offered.has(v));
+  return unknown.length > 0
+    ? [`Page ${n} waits for ${unknown.map((v) => `"${v}"`).join(", ")}, which "${when.field}" does not offer.`]
+    : [];
+}
+
+/** Whether a field is on a page everybody sees: one with no rule, or any field of a form that is not split. */
+function alwaysShown(form: FormDefinition, field: FormField): boolean {
+  const pages = form.pages ?? [];
+  return pages.length <= 1 || !pages[pageIndex(field)]?.showWhen;
+}
+
+/** The option values an answer to a pick question holds: one, several, or none. */
+const chosen = (raw: unknown): string[] =>
+  typeof raw === "string" ? (raw.trim() === "" ? [] : [raw.trim()])
+    : Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string").map((v) => v.trim()) : [];
+
+/**
+ * WHICH PAGES THESE ANSWERS LEAD TO, in the form's page order.
+ *
+ * A page with a rule is shown when the question it waits for is on an earlier
+ * page that is itself shown and was answered with one of the rule's options.
+ * An answer typed on a page that is not shown counts as no answer at all, so a
+ * person who went Back and changed their route cannot keep a page open with a
+ * stale answer. A form that is not split is one page, always shown.
+ */
+export function shownPages(form: FormDefinition, values: Record<string, unknown>): boolean[] {
+  const pages = form.pages ?? [];
+  if (pages.length <= 1) return [true];
+  const shown: boolean[] = [];
+  pages.forEach((page, i) => {
+    const when = page.showWhen;
+    if (!when) { shown.push(true); return; }
+    const source = form.fields.find((f) => f.key === when.field);
+    const at = source && onAPage(source) ? pageIndex(source) : -1;
+    if (at < 0 || at >= i || shown[at] !== true) { shown.push(false); return; }
+    shown.push(chosen(values[when.field]).some((v) => when.oneOf.includes(v)));
+  });
+  return shown;
+}
+
+/**
+ * The keys of the questions on pages these answers do not lead to. Their
+ * answers are dropped, never required and never kept, by the submit check and
+ * by the hosted page before it posts.
+ */
+export function hiddenFieldKeys(form: FormDefinition, values: Record<string, unknown>): Set<string> {
+  const shown = shownPages(form, values);
+  return new Set(form.fields.filter((f) => onAPage(f) && shown[pageIndex(f)] === false).map((f) => f.key));
+}
+
 /**
  * The refusals for one page, before the person moves on from it.
  *
@@ -1751,6 +1857,7 @@ export function pagesOf(form: FormDefinition): { title: string | null; keys: str
  * and `checkSubmission` decides, because a page in a browser can be skipped.
  */
 export function checkPage(form: FormDefinition, page: number, values: Record<string, unknown>): FieldRefusal[] {
+  if (shownPages(form, values)[page] === false) return [];
   const keys = new Set(pagesOf(form)[page]?.keys ?? []);
   const refusals: FieldRefusal[] = [];
   for (const field of form.fields) {
@@ -1813,6 +1920,12 @@ export function confirmationProblems(form: FormDefinition, texts: readonly (stri
     for (const match of (text ?? "").matchAll(CONFIRMATION_PLACEHOLDER)) {
       const name = match[1]!;
       if (usable.has(name)) continue;
+      if (name === FIRST_NAME) {
+        if (nameFieldOf(form)) continue;
+        const message = `"{{ ${FIRST_NAME} }}" is the first word of their name, and this form has no question for a name. Add a short answer with the key "name".`;
+        if (!problems.includes(message)) problems.push(message);
+        continue;
+      }
       const field = form.fields.find((f) => f.key === name);
       const message = field
         ? `"{{ ${name} }}" is a ${field.type.replace(/_/g, " ")} field, and a confirmation can repeat only short answers.`
@@ -1855,6 +1968,65 @@ export function confirmationScope(
     scope[field.key] = confirmationValue(answerText(field, value), target);
   }
   return scope;
+}
+
+/* ------------------------------------------------------- the first name */
+
+/** The merge field for the first word of the name answer, beside `{{ name }}` which is the whole answer. */
+export const FIRST_NAME = "firstName";
+
+/** What `{{ firstName }}` reads as for a lead with no name, until the company sets its own words. */
+export const DEFAULT_FIRST_NAME_FALLBACK = "there";
+
+/** Words that stand in for a first name are a word or two, not a sentence. */
+export const MAX_FIRST_NAME_FALLBACK = 40;
+
+/**
+ * The question that holds the person's name: the one keyed `name`, else a
+ * short answer whose key or question says name. With answers, the first one
+ * that was answered, so a form with both fills in from whichever the person
+ * used. This is the rule a lead's customer record is named by, so a first
+ * name in a confirmation and the name on the customer are the same answer.
+ */
+export function nameFieldOf(form: FormDefinition, values?: Record<string, unknown>): FormField | undefined {
+  const answered = (f: FormField) => values === undefined || values[f.key] !== undefined;
+  return form.fields.find((f) => f.key === "name" && answered(f))
+    ?? form.fields.find((f) => f.type === "text" && /name/i.test(`${f.key} ${f.label}`) && answered(f));
+}
+
+/** What is wrong with the words that stand in for a missing first name, or null. */
+export function firstNameFallbackProblem(words: string): string | null {
+  const text = words.trim();
+  if (text === "") return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[{}\u0000-\u001f\u007f]/.test(text)) return "The words for a missing first name cannot hold braces or line breaks.";
+  if (text.length > MAX_FIRST_NAME_FALLBACK) {
+    return `The words for a missing first name can be at most ${MAX_FIRST_NAME_FALLBACK} characters.`;
+  }
+  return null;
+}
+
+/**
+ * `{{ firstName }}` FOR ONE SUBMISSION: the first word of the name answer,
+ * made safe for where it is going exactly as every other answer is
+ * (`confirmationValue`), or the company's own words when there is no name to
+ * take it from. "No name" is a name question left empty, or an answer whose first
+ * word is a web address, which a text or an email never repeats.
+ * Empty when the form has no name question at all, so the renderer leaves it
+ * blank and the form's save has already refused any text that uses it.
+ */
+export function firstNameScope(
+  form: FormDefinition, values: Record<string, CleanValue>, target: "page" | "message", fallback?: string,
+): Record<string, string> {
+  const field = nameFieldOf(form);
+  if (!field) return {};
+  const answer = nameFieldOf(form, values);
+  const raw = answer ? values[answer.key] : undefined;
+  const first = typeof raw === "string" ? (raw.trim().split(/\s+/)[0] ?? "") : "";
+  const own = confirmationValue(first, target);
+  if (own !== "") return { [FIRST_NAME]: own };
+  const words = (fallback ?? "").trim() === "" ? DEFAULT_FIRST_NAME_FALLBACK : fallback!.trim();
+  return { [FIRST_NAME]: confirmationValue(words, "page").slice(0, MAX_FIRST_NAME_FALLBACK) };
 }
 
 /** An answer in words: an option's label rather than its value, a phone as it is written, an address on one line. */

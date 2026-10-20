@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ActionForm, TextField } from "@/components/ActionForm";
 import type { FormState } from "@/lib/actions";
 
@@ -18,12 +19,17 @@ const hours = (value: string | number) => {
  * customer agreed to add go on a change order, which the figure takes off.
  */
 export function CrewBudget({
-  jobId, budget, writes, action,
+  jobId, budget, writes, action, canOpenEstimate = false,
 }: {
   jobId: string;
-  budget: { budgetedHours: string | null; crewHours: string; approvedChangeHours: string; punchStillRunning: boolean; locked: boolean };
+  budget: {
+    budgetedHours: string | null; crewHours: string; approvedChangeHours: string; punchStillRunning: boolean;
+    locked: boolean; fromEstimate: { id: string; number: number } | null;
+  };
   writes: boolean;
   action: Action;
+  /** Whether the viewer may open the estimate, so its number is a link only for somebody who can. */
+  canOpenEstimate?: boolean;
 }) {
   const used = Number(budget.crewHours);
   /**
@@ -49,7 +55,13 @@ export function CrewBudget({
     <section aria-label="Crew hours" className="mt-6 text-sm">
       <h2 className="text-base font-semibold">Crew hours</h2>
       <p className="mt-1">
-        Budgeted {hours(budget.budgetedHours)}. {used > 0 ? <>Punched so far: {hours(used)}.</> : "Nothing punched yet."}
+        Budgeted {hours(budget.budgetedHours)}
+        {budget.fromEstimate ? (
+          <>, added up from the crew hour lines of {canOpenEstimate
+            ? <Link href={`/estimates/${budget.fromEstimate.id}`} className="underline underline-offset-4">estimate {budget.fromEstimate.number}</Link>
+            : <>estimate {budget.fromEstimate.number}</>}</>
+        ) : null}
+        . {used > 0 ? <>Punched so far: {hours(used)}.</> : "Nothing punched yet."}
         {Number(budget.approvedChangeHours) > 0
           ? <> Change orders the customer approved add {hours(budget.approvedChangeHours)}.</> : null}
         {budget.punchStillRunning ? " Somebody is still on the clock." : null}

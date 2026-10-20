@@ -12,6 +12,8 @@ export const EstimateLine = z.object({
   name: z.string(),
   description: z.string().nullable(),
   quantity: MoneyString,
+  /** The quantity is crew hours (people times hours). Converting the estimate adds these up as the job's budgeted hours. */
+  quantityIsCrewHours: z.boolean(),
   unitPrice: MoneyString,
   discountAmount: MoneyString,
   /**
@@ -97,6 +99,11 @@ const LineInput = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   quantity: MoneyString.default("1"),
+  /**
+   * Whether the quantity is crew hours (people times hours). Left off, a line
+   * from the price book takes the item's mark and a typed line is not.
+   */
+  quantityIsCrewHours: z.boolean().optional(),
   unitPrice: MoneyString,
   unitCost: MoneyString.optional(),
   discountAmount: MoneyString.default("0"),
@@ -470,6 +477,8 @@ export const convertEstimate = defineRoute({
   method: "post",
   path: "/v1/estimates/{id}/convert",
   summary: "Convert an approved estimate into a job, an invoice, or both",
+  description:
+    "Copies the option the customer took, as priced. A job made from it is budgeted in crew hours when the lines the customer took say their quantity is crew hours: those quantities are added up into `budgetedHours`, which stays editable until the first punch like a typed one. A job the estimate was already written for takes the figure only if it has no budget and nobody has punched.",
   module: "M07",
   permissions: ["estimate:write", "job:write"],
   idempotent: true,
@@ -485,6 +494,8 @@ export const convertEstimate = defineRoute({
     jobId: Uuid.nullable(),
     invoiceId: Uuid.nullable(),
     depositId: Uuid.nullable(),
+    /** The crew hours the job was budgeted from the estimate's crew hour lines, or null when the estimate had none. */
+    budgetedHours: MoneyString.nullable(),
   }),
 });
 

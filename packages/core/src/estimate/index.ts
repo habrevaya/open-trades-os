@@ -500,4 +500,33 @@ export function checkSentOn(
   return { ok: true };
 }
 
+/**
+ * THE CREW HOURS AN APPROVED OPTION BUDGETS A JOB.
+ *
+ * The quantities of the lines that say their quantity is crew hours (people
+ * times hours, with the drive), among the lines the customer actually took: a
+ * required line, or an optional one they ticked. An optional line left
+ * unticked was priced and shown and declined, so its hours are not work the
+ * company agreed to do. Hours are added in ten thousandths, the precision the
+ * quantity is kept at, so a sum of 0.1 and 0.2 is 0.3 exactly. Null when no
+ * line counts hours, or they add up to nothing: a job with nothing to budget
+ * is left with no budget rather than a budget of nought.
+ */
+export function crewHoursBudget(lines: ReadonlyArray<{
+  quantity: string;
+  quantityIsCrewHours: boolean;
+  isOptional?: boolean | undefined;
+  isSelected?: boolean | undefined;
+}>): string | null {
+  let tenThousandths = 0;
+  for (const line of lines) {
+    if (!line.quantityIsCrewHours) continue;
+    if (line.isOptional && line.isSelected !== true) continue;
+    const quantity = Number(line.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    tenThousandths += Math.round(quantity * 10_000);
+  }
+  return tenThousandths > 0 ? (tenThousandths / 10_000).toFixed(4) : null;
+}
+
 export * from "./proposal-layout.js";

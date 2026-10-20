@@ -231,6 +231,7 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     imageUrl: row.version.imageUrl ?? null,
     categoryId: row.item.categoryId,
     feeRole: row.item.feeRole,
+    quantityIsCrewHours: row.item.quantityIsCrewHours,
     chemical: chemicalOf(row.item),
     price: row.version.price,
     taxable: row.version.taxable,
@@ -353,6 +354,7 @@ export async function create(ctx: ServiceContext, input: z.infer<typeof createPr
       kind: input.kind,
       code: input.code,
       feeRole: input.feeRole ?? null,
+      quantityIsCrewHours: input.quantityIsCrewHours ?? false,
       ...provenance(input.externalRef),
     }).returning();
 
@@ -715,6 +717,7 @@ export async function updateItem(
     categoryId?: string | null | undefined;
     feeRole?: "diagnostic" | "after_hours" | null | undefined;
     chemical?: { unit: string; epaRegistrationNumber: string | null } | null | undefined;
+    quantityIsCrewHours?: boolean | undefined;
   },
 ) {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
@@ -735,6 +738,7 @@ export async function updateItem(
       set.categoryId = input.categoryId;
     }
     if (input.feeRole !== undefined) set.feeRole = input.feeRole;
+    if (input.quantityIsCrewHours !== undefined) set.quantityIsCrewHours = input.quantityIsCrewHours;
 
     /**
      * A CHEMICAL IS A MATERIAL. The chemical cost per stop leaves out devices,
@@ -774,11 +778,11 @@ export async function updateItem(
     await audit(tx, ctx, "pricebook.item_updated", "price_book_item", input.id,
       {
         kind: before.kind, code: before.code, categoryId: before.categoryId, feeRole: before.feeRole,
-        chemical: chemicalOf(before),
+        quantityIsCrewHours: before.quantityIsCrewHours, chemical: chemicalOf(before),
       },
       {
         kind: after!.kind, code: after!.code, categoryId: after!.categoryId, feeRole: after!.feeRole,
-        chemical: chemicalOf(after!),
+        quantityIsCrewHours: after!.quantityIsCrewHours, chemical: chemicalOf(after!),
       });
 
     const fresh = await load(tx, input.id);
