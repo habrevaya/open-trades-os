@@ -1241,7 +1241,8 @@ export async function check(ctx: ServiceContext, input: { id: string }): Promise
       ...(done ? { checkedAt: new Date() } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.importRun.id, run.id)).returning();
-    const answer = await progress(tx, updated!, rows.length, (c) => c.waiting > 0);
+    if (!updated) throw new NotFoundError("Spreadsheet");
+    const answer = await progress(tx, updated, rows.length, (c) => c.waiting > 0);
     if (done) await audit(tx, ctx, "import.checked", "import_run", run.id, null, answer.counts);
     await remember(tx, ctx, "import_check", run.id, answer);
     return answer;
@@ -1287,7 +1288,9 @@ export async function load(ctx: ServiceContext, input: { id: string }): Promise<
       ...(done && run.finishedAt === null ? { finishedAt: new Date() } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.importRun.id, run.id)).returning();
-    const answer = await progress(tx, updated!, before.rows.length, (c) => c.ready > 0);
+    /** Forgotten while this batch was going in: the batch is rolled back with it, so nothing is loaded from a file that is gone. */
+    if (!updated) throw new NotFoundError("Spreadsheet");
+    const answer = await progress(tx, updated, before.rows.length, (c) => c.ready > 0);
     if (results.length + refusedNow.length > 0) {
       await audit(tx, ctx, "import.batch_loaded", "import_run", run.id, null, {
         loaded: results.filter((r) => r.outcome === "loaded").length,
@@ -1345,6 +1348,47 @@ export async function refusedFile(ctx: ServiceContext, input: { id: string }) {
   });
 }
 
+/* ----------------------------------------------------------- forgetting */
+
+/**
+ * FORGET A FILE: the file and its rows go, and what it made stays.
+ *
+ * A file is kept after it is loaded so the screen can show what happened, and
+ * keeping it for ever is a customer list sitting in a table nobody can empty.
+ * Forgetting removes the file, every row of it (so the cells, which are
+ * personal data, go with it), the refused rows that could be downloaded, and
+ * nothing else. A record it loaded is not touched: it is an ordinary record
+ * now, with its `externalRef`, which is also what makes the same file brought in
+ * again skip it rather than load it twice.
+ *
+ * `ran` is whether the file was ever loaded, and the screen says which of the
+ * two it is about to do before it does it. The run is locked first, so a batch
+ * in flight finishes (and its records are counted) before the file goes, and a
+ * batch that starts after is told the file is not there.
+ *
+ * WHAT A FORGOTTEN FILE LEAVES BEHIND IS A HOLD. The events its records raised
+ * name the file (`domain_event.import_run_id`) and the workflow engine reads
+ * the file's switch through that name. With the file gone, the engine treats an
+ * event from a file it cannot find as held (workflow-runner.ts): forgetting a
+ * file must never turn automations back on for the people on it.
+ */
+export async function forget(ctx: ServiceContext, input: { id: string }) {
+  return guardedWrite(ctx, "data:import", async (tx) => {
+    const run = await loadRun(tx, input.id);
+    await tx.execute(sql`select 1 from public.import_run where id = ${run.id} for update`);
+    const counts = (await countsOf(tx, [run.id])).get(run.id)!;
+    const ran = run.status === "loading" || run.status === "finished" || counts.loaded > 0;
+    await tx.delete(schema.importRun).where(eq(schema.importRun.id, run.id));
+    await audit(tx, ctx, "import.forgotten", "import_run", run.id,
+      {
+        kind: run.kind, fileName: run.fileName, sheetName: run.sheetName, source: run.source, status: run.status,
+        rows: run.rowCount, ran, loaded: counts.loaded,
+      },
+      null);
+    return { id: run.id, removed: true as const, ran, rows: run.rowCount, loaded: counts.loaded };
+  });
+}
+
 /* --------------------------------------------------------------- mappings */
 
 export async function mappings(ctx: ServiceContext) {
@@ -1380,6 +1424,7 @@ export const handlers = {
   ) => start(ctx, input),
   listImportSheets: (ctx: ServiceContext, input: { workbook: string }) => sheets(ctx, input),
   getImport: (ctx: ServiceContext, input: { id: string }) => get(ctx, input),
+  forgetImport: (ctx: ServiceContext, input: { id: string }) => forget(ctx, input),
   mapImport: (
     ctx: ServiceContext,
     input: {

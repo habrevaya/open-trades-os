@@ -7,7 +7,7 @@ import { Chip } from "@opentradesos/ui";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty, PageHeader } from "@/components/Table";
-import { saveColumns } from "../actions";
+import { forgetFile, saveColumns } from "../actions";
 import { Runner } from "../Runner";
 import { STATUS_TONE, STATUS_WORDS } from "../status";
 
@@ -205,6 +205,31 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
           </Table>
         </section>
       ) : null}
+
+      <section className="mt-10" aria-labelledby="forget">
+        <h2 id="forget" className="text-base font-semibold">Forget this file</h2>
+        {c.loaded > 0 || run.status === "loading" || run.status === "finished" ? (
+          <p className="mt-1 max-w-3xl text-sm text-ink-700">
+            This file has been run.{" "}
+            {c.loaded > 0
+              ? `The ${c.loaded.toLocaleString("en-US")} ${c.loaded === 1 ? "record" : "records"} it made ${c.loaded === 1 ? "stays" : "stay"} exactly as ${c.loaded === 1 ? "it is" : "they are"}.`
+              : "It made no records."}{" "}
+            Forgetting it removes the file, its rows and the list of rows that were refused, so you can no longer download
+            them. Bringing the same file in again will not make copies of what it loaded.
+          </p>
+        ) : (
+          <p className="mt-1 max-w-3xl text-sm text-ink-700">
+            This file has not been run, so nothing from it is in your books. Forgetting it removes the file and its{" "}
+            {run.rows.toLocaleString("en-US")} {run.rows === 1 ? "row" : "rows"} from here. You can upload it again.
+          </p>
+        )}
+        <ActionForm action={forgetFile} submit="Forget this file" tone="danger" hidden={{ id: run.id }} className="mt-3 space-y-3">
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" name="confirm" value="1" required className="mt-1 h-4 w-4" />
+            <span>Yes, forget this file</span>
+          </label>
+        </ActionForm>
+      </section>
 
       {run.status === "finished" && c.loaded === 0 && c.already === 0 ? (
         <Empty title="Nothing was loaded">Every row was refused. Download them, fix them and bring the file in again.</Empty>

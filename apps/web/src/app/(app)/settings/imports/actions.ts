@@ -103,6 +103,24 @@ export async function saveColumns(_previous: FormState, form: FormData): Promise
   return result;
 }
 
+/**
+ * FORGET A FILE. Behind a ticked box, so a stray press forgets nothing, and
+ * followed by the list with a sentence saying which kind of forgetting it was:
+ * the page cannot say it itself, because the file it was about is gone.
+ */
+export async function forgetFile(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  if (field(form, "confirm") !== "1") return refused(form, "Tick the box to say you want this file forgotten.");
+  let kept: string | null = null;
+  const result = await attempt(form, async () => {
+    const gone = await spreadsheetImports.forget(await ctx(), { id });
+    kept = gone.ran ? String(gone.loaded) : "none";
+  });
+  revalidatePath("/settings/imports");
+  if (kept) redirect(`/settings/imports?forgotten=${kept}`);
+  return result;
+}
+
 export async function forgetMapping(_previous: FormState, form: FormData): Promise<FormState> {
   const result = await attempt(form, async () => {
     await spreadsheetImports.removeMapping(await ctx(), { id: field(form, "id") ?? "" });

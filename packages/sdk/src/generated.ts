@@ -6700,6 +6700,16 @@ export interface FinishSetupOutput {
   setupCompletedAt: string;
 }
 
+export type ForgetImportInput = Record<string, unknown>;
+
+export interface ForgetImportOutput {
+  id: string;
+  removed: true;
+  ran: boolean;
+  rows: number;
+  loaded: number;
+}
+
 export interface GetAccountingRunOutput {
   id: string;
   startedAt: string;
@@ -9189,6 +9199,7 @@ export interface GetImportOutput {
   id: string;
   kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
+  sheetName: string | null;
   source: string;
   holdAutomations: boolean;
   status: "mapping" | "checking" | "checked" | "loading" | "finished";
@@ -15475,11 +15486,25 @@ export interface ListImportMappingsOutput {
   }>;
 }
 
+export interface ListImportSheetsInput {
+  workbook: string;
+}
+
+export interface ListImportSheetsOutput {
+  sheets: Array<{
+    name: string;
+    rows: number | null;
+    header: string[];
+    why: string | null;
+  }>;
+}
+
 export interface ListImportsOutput {
   imports: Array<{
     id: string;
     kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
     fileName: string;
+    sheetName: string | null;
     source: string;
     holdAutomations: boolean;
     status: "mapping" | "checking" | "checked" | "loading" | "finished";
@@ -18807,6 +18832,7 @@ export interface MapImportOutput {
   id: string;
   kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
+  sheetName: string | null;
   source: string;
   holdAutomations: boolean;
   status: "mapping" | "checking" | "checked" | "loading" | "finished";
@@ -26345,7 +26371,9 @@ export interface StartConversationOutput {
 export interface StartImportInput {
   kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
-  csv: string;
+  csv?: string;
+  workbook?: string;
+  sheet?: string;
   holdAutomations?: boolean;
 }
 
@@ -26353,6 +26381,7 @@ export interface StartImportOutput {
   id: string;
   kind: "customers" | "equipment" | "pricebook" | "jobs" | "invoices" | "payments" | "estimates" | "notes" | "visits";
   fileName: string;
+  sheetName: string | null;
   source: string;
   holdAutomations: boolean;
   status: "mapping" | "checking" | "checked" | "loading" | "finished";
@@ -30560,6 +30589,10 @@ export interface FailUploadParams {
   clientId: string;
 }
 
+export interface ForgetImportParams {
+  id: string;
+}
+
 export interface GetAccountingRunInput {
   id: string;
 }
@@ -34015,6 +34048,7 @@ export interface OperationTypes {
   fillOnCallWeeks: { input: FillOnCallWeeksInput; output: FillOnCallWeeksOutput };
   finishConnectorSignIn: { input: FinishConnectorSignInInput; output: FinishConnectorSignInOutput };
   finishSetup: { input: FinishSetupInput; output: FinishSetupOutput };
+  forgetImport: { input: ForgetImportParams & ForgetImportInput; output: ForgetImportOutput };
   getAccountingRun: { input: GetAccountingRunInput; output: GetAccountingRunOutput };
   getAccountingStatus: { input: GetAccountingStatusInput; output: GetAccountingStatusOutput };
   getAfterHoursRates: { input: GetAfterHoursRatesInput; output: GetAfterHoursRatesOutput };
@@ -34322,6 +34356,7 @@ export interface OperationTypes {
   listForms: { input: ListFormsInput; output: ListFormsOutput };
   listHolidays: { input: ListHolidaysInput; output: ListHolidaysOutput };
   listImportMappings: { input: ListImportMappingsInput; output: ListImportMappingsOutput };
+  listImportSheets: { input: ListImportSheetsInput; output: ListImportSheetsOutput };
   listImports: { input: ListImportsInput; output: ListImportsOutput };
   listIncidents: { input: ListIncidentsInput; output: ListIncidentsOutput };
   listInspectionPrograms: { input: ListInspectionProgramsInput; output: ListInspectionProgramsOutput };
@@ -35217,6 +35252,7 @@ export const OPERATIONS = {
   fillOnCallWeeks: { method: "POST", path: "/v1/on-call/weeks", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   finishConnectorSignIn: { method: "POST", path: "/v1/oauth/finish", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   finishSetup: { method: "POST", path: "/v1/setup/finish", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  forgetImport: { method: "DELETE", path: "/v1/imports/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   getAccountingRun: { method: "GET", path: "/v1/accounting/runs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   getAccountingStatus: { method: "GET", path: "/v1/accounting/status", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   getAfterHoursRates: { method: "GET", path: "/v1/after-hours-rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
@@ -35524,6 +35560,7 @@ export const OPERATIONS = {
   listForms: { method: "GET", path: "/v1/marketing/forms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listHolidays: { method: "GET", path: "/v1/holidays", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listImportMappings: { method: "GET", path: "/v1/import-mappings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
+  listImportSheets: { method: "POST", path: "/v1/import-sheets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listImports: { method: "GET", path: "/v1/imports", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listIncidents: { method: "GET", path: "/v1/safety/incidents", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   listInspectionPrograms: { method: "GET", path: "/v1/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -38448,6 +38485,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Forget an uploaded file.
+   *
+   * DELETE /v1/imports/{id}. Needs data:import.
+   */
+  forgetImport(input: ForgetImportParams & ForgetImportInput, options?: CallOptions): Promise<ForgetImportOutput> {
+    return this.call("forgetImport", input, options);
+  }
+
+  /**
    * What one sync pass sent and refused.
    *
    * GET /v1/accounting/runs/{id}. Needs accounting:sync.
@@ -41208,6 +41254,15 @@ export abstract class GeneratedOperations {
    */
   listImportMappings(input: ListImportMappingsInput = {} as ListImportMappingsInput, options?: CallOptions): Promise<ListImportMappingsOutput> {
     return this.call("listImportMappings", input, options);
+  }
+
+  /**
+   * The sheets of a workbook, to choose one to bring in.
+   *
+   * POST /v1/import-sheets. Needs data:import.
+   */
+  listImportSheets(input: ListImportSheetsInput, options?: CallOptions): Promise<ListImportSheetsOutput> {
+    return this.call("listImportSheets", input, options);
   }
 
   /**
@@ -45972,7 +46027,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments or past estimates.
+   * Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments, past estimates, notes or visits.
    *
    * POST /v1/imports. Needs data:import.
    */

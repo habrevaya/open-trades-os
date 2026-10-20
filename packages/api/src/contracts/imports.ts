@@ -222,6 +222,27 @@ export const getImportRefusals = defineRoute({
   output: z.object({ fileName: z.string(), rows: z.number().int(), csv: z.string() }),
 });
 
+export const forgetImport = defineRoute({
+  method: "delete",
+  path: "/v1/imports/{id}",
+  summary: "Forget an uploaded file",
+  description:
+    "Removes the file, its rows and its list of refused rows, and keeps everything it made: a record a file loaded stays exactly as it is, with where it came from, so the same file brought in again still skips it. `ran` says whether any row had been loaded or the file had been loaded at all, and `loaded` how many records it made that stay. A file that has not been run takes nothing with it. The events a file raised stay held from automations if the file said so, even though the file is gone. Forgetting is not undone: the file is uploaded again.",
+  module: "M30",
+  permissions: ["data:import"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    id: Uuid,
+    removed: z.literal(true),
+    /** The file had been loaded, wholly or in part. */
+    ran: z.boolean(),
+    /** Rows the file had. */
+    rows: z.number().int(),
+    /** Rows that became records, which stay. */
+    loaded: z.number().int(),
+  }),
+});
+
 export const listImportMappings = defineRoute({
   method: "get",
   path: "/v1/import-mappings",
@@ -255,6 +276,6 @@ export const deleteImportMapping = defineRoute({
 });
 
 export const importRoutes = {
-  listImports, listImportSheets, startImport, getImport, mapImport, checkImport, loadImport, getImportRefusals,
+  listImports, listImportSheets, startImport, getImport, forgetImport, mapImport, checkImport, loadImport, getImportRefusals,
   listImportMappings, deleteImportMapping,
 } as const;

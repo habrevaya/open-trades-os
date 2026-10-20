@@ -423,6 +423,31 @@ which record it already is. The key is per company: another company's
 records are not visible to the lookup, so a file naming an id only another
 company brought in is refused as not found.
 
+**A file can be forgotten, run or not.** An uploaded file stays on the list so the
+screen can show what happened, and its cells are a customer list sitting in a
+table, so the file page ends with **Forget this file** (`DELETE /v1/imports/{id}`,
+`data:import`, behind a ticked box). The page says which of two things it is about
+to do before it does it. A file that **has not been run** (checked or not, nothing
+loaded) has put nothing in the books: forgetting it removes the file and its rows
+and nothing else. A file that **has been run** (loaded wholly or in part) leaves
+every record it made exactly as it is: forgetting removes the file, its rows and the
+list of refused rows to download (so that download is gone with it), and the records
+keep their `externalRef`, which is also why the same file brought in again still
+skips what it loaded and makes no copies. The list says "File forgotten" and, for a
+file that was run, how many records it made are still here. The run is locked while
+it goes, so a batch in flight finishes first and a batch that starts after is told
+the file is not there; each forgetting writes an audit line (`import.forgotten`)
+with the file's name, how many rows it had and how many it loaded.
+
+**A forgotten file leaves automations held.** The events the file's records raised
+name the file, and the workflow engine reads the file's switch through that name.
+With the file gone, an event naming a file the engine cannot find is treated as held:
+the safe direction to be wrong in, because a welcome text not sent to a customer
+brought in last week is a missed text, and one sent to every customer on a list from
+years ago is what the switch is for. The one case this holds that it need not is an
+event from a file brought in with the switch off, forgotten before the worker handled
+its events; those are not started.
+
 **The refused rows come back as a file.** The original columns and cells,
 with the row's place in the first file and the reason added at the end, to
 fix and bring in again. A cell that starts like a formula (`=HYPERLINK(...)`)
@@ -430,7 +455,7 @@ was stored as the characters it holds and is written back as text, so a
 spreadsheet shows it rather than running it.
 
 The API is the screen's: `GET /v1/imports`, `POST /v1/import-sheets`, `POST /v1/imports`,
-`GET /v1/imports/{id}`, `POST /v1/imports/{id}/mapping`,
+`GET /v1/imports/{id}`, `DELETE /v1/imports/{id}`, `POST /v1/imports/{id}/mapping`,
 `POST /v1/imports/{id}/check`, `POST /v1/imports/{id}/load`,
 `GET /v1/imports/{id}/refused`, `GET /v1/import-mappings` and
 `DELETE /v1/import-mappings/{id}`. All of them need `data:import`, and checking
@@ -755,8 +780,9 @@ matched, so their visits are refused until they are added back.
 Photographs come in only through the toolkit. A file is matched to customers by
 id or email and never by name, and a payment to its invoices by id or number.
 Rows are grouped into one invoice or one payment only by an id column. A file
-and its rows are kept after loading so the screen can show what happened, and
-there is no button to forget one. Holding automations holds what the file's
+and its rows are kept after loading so the screen can show what happened, until the
+owner forgets it; forgetting is not undone, and the refused rows of a forgotten file
+cannot be downloaded again. Holding automations holds what the file's
 own events would start, and nothing else: webhooks still receive those events,
 each naming the file, and an automation on a clock or on a record waiting (an unpaid invoice
 past due, M29) can still reach a record brought in, because it starts from the
