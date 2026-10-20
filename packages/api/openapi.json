@@ -16573,7 +16573,7 @@
       "get": {
         "operationId": "getBudgetReport",
         "summary": "The year's budget against the ledger, by line and month, with variance",
-        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over; `forecast.assumption` says which, and it is an estimate, never a promise.\n\nRequires a session holding: report.financial:read.",
+        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold; with both, that job type's lines in that branch against the entries that carry the branch and are on the type's jobs, with both counts. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it, nor a branch's job type's into either. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over, or shaped like last year (the months already over taken as the share of the year they were last year in the same branch and job type, the rest in proportion; a line with nothing last year to follow is at its budget and says `noShape`); `forecast.assumption` says which, and it is an estimate, never a promise.\n\nRequires a session holding: report.financial:read.",
         "tags": [
           "M15"
         ],
@@ -16701,7 +16701,7 @@
       "put": {
         "operationId": "setBudgetForecastMethod",
         "summary": "Choose how the year end forecast takes the months to come",
-        "description": "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over. One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.\n\nRequires a session holding: finance:configure.",
+        "description": "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `seasonal` is refused, in words, unless the books hold the whole of last year (their first entry is in its January or earlier). One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -16970,7 +16970,7 @@
       "put": {
         "operationId": "setBudgetLine",
         "summary": "Set one budget line's twelve months",
-        "description": "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's; not both.\n\nRequires a session holding: finance:configure.",
+        "description": "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's, and with both that job type's in that branch, a line of its own apart from the branch's and the job type's.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -184514,6 +184514,12 @@
                     },
                     "unbudgetedMonths": {
                       "type": "integer"
+                    },
+                    "noShape": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
                     }
                   },
                   "required": [
@@ -184623,14 +184629,16 @@
                 "type": "string",
                 "enum": [
                   "budget",
-                  "run_rate"
+                  "run_rate",
+                  "seasonal"
                 ]
               },
               "method": {
                 "type": "string",
                 "enum": [
                   "budget",
-                  "run_rate"
+                  "run_rate",
+                  "seasonal"
                 ]
               },
               "closed": {
@@ -184638,6 +184646,9 @@
               },
               "fellBack": {
                 "type": "boolean"
+              },
+              "linesWithoutShape": {
+                "type": "integer"
               },
               "assumption": {
                 "type": "string"
@@ -273393,7 +273404,8 @@
             "type": "string",
             "enum": [
               "budget",
-              "run_rate"
+              "run_rate",
+              "seasonal"
             ]
           }
         },
@@ -273411,7 +273423,8 @@
             "type": "string",
             "enum": [
               "budget",
-              "run_rate"
+              "run_rate",
+              "seasonal"
             ]
           }
         },

@@ -7185,6 +7185,7 @@ export interface GetBudgetReportOutput {
       percent: number | null;
       favourable: boolean | null;
       unbudgetedMonths: number;
+      noShape?: true;
     };
   }>;
   net: {
@@ -7205,10 +7206,11 @@ export interface GetBudgetReportOutput {
     withoutJobDebits: string;
   } | null;
   forecast: {
-    chosen: "budget" | "run_rate";
-    method: "budget" | "run_rate";
+    chosen: "budget" | "run_rate" | "seasonal";
+    method: "budget" | "run_rate" | "seasonal";
     closed: number;
     fellBack: boolean;
+    linesWithoutShape?: number;
     assumption: string;
     net: {
       forecast: string;
@@ -24428,12 +24430,12 @@ export interface SetBranchNumberingOutput {
 }
 
 export interface SetBudgetForecastMethodInput {
-  method: "budget" | "run_rate";
+  method: "budget" | "run_rate" | "seasonal";
 }
 
 export interface SetBudgetForecastMethodOutput {
   year: number;
-  method: "budget" | "run_rate";
+  method: "budget" | "run_rate" | "seasonal";
 }
 
 export interface SetBudgetLineInput {

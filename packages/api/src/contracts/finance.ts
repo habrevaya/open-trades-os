@@ -269,19 +269,22 @@ export const removeCostingRate = defineRoute({
 
 const Year = z.coerce.number().int().min(2000).max(2100);
 
+/** How the year end forecast takes the months to come; mirrors `budget.FORECAST_METHODS` in core. */
+const ForecastMethod = z.enum(["budget", "run_rate", "seasonal"]);
+
 export const getBudgetReport = defineRoute({
   method: "get",
   path: "/v1/budgets/{year}",
   summary: "The year's budget against the ledger, by line and month, with variance",
   description:
-    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over; `forecast.assumption` says which, and it is an estimate, never a promise.",
+    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold; with both, that job type's lines in that branch against the entries that carry the branch and are on the type's jobs, with both counts. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it, nor a branch's job type's into either. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over, or shaped like last year (the months already over taken as the share of the year they were last year in the same branch and job type, the rest in proportion; a line with nothing last year to follow is at its budget and says `noShape`); `forecast.assumption` says which, and it is an estimate, never a promise.",
   module: "M15",
   permissions: ["report.financial:read"],
   input: z.object({
     year: Year,
     /** One branch's own lines against what the ledger put in that branch. Left out is the whole company. */
     businessUnitId: Uuid.optional(),
-    /** One job type's own lines against the ledger entries on its jobs. Not with `businessUnitId`. */
+    /** One job type's own lines against the ledger entries on its jobs. With `businessUnitId`, that type's lines in that branch. */
     jobTypeId: Uuid.optional(),
   }),
   output: z.object({
@@ -307,6 +310,8 @@ export const getBudgetReport = defineRoute({
         closedActual: MoneyString, toCome: MoneyString, forecast: MoneyString,
         variance: MoneyString, percent: z.number().nullable(), favourable: z.boolean().nullable(),
         unbudgetedMonths: z.number().int(),
+        /** Present, and true, on a line shaped like last year that had nothing last year to follow, so it is at its budget. */
+        noShape: z.literal(true).optional(),
       }),
     })),
     net: z.object({ budget: MoneyString, actual: MoneyString }).nullable(),
@@ -320,10 +325,12 @@ export const getBudgetReport = defineRoute({
       id: Uuid, name: z.string(), entriesWithoutJob: z.number().int(), withoutJobDebits: MoneyString,
     }).nullable(),
     forecast: z.object({
-      chosen: z.enum(["budget", "run_rate"]),
-      method: z.enum(["budget", "run_rate"]),
+      chosen: ForecastMethod,
+      method: ForecastMethod,
       closed: z.number().int(),
       fellBack: z.boolean(),
+      /** With last year's shape chosen, how many lines had none and were taken at their budget. */
+      linesWithoutShape: z.number().int().optional(),
       assumption: z.string(),
       net: z.object({ forecast: MoneyString, budget: MoneyString }).nullable(),
     }),
@@ -335,11 +342,11 @@ export const setBudgetForecastMethod = defineRoute({
   path: "/v1/budgets/{year}/forecast",
   summary: "Choose how the year end forecast takes the months to come",
   description:
-    "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over. One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.",
+    "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `seasonal` is refused, in words, unless the books hold the whole of last year (their first entry is in its January or earlier). One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.",
   module: "M15",
   permissions: ["finance:configure"],
-  input: z.object({ year: Year, method: z.enum(["budget", "run_rate"]) }),
-  output: z.object({ year: z.number().int(), method: z.enum(["budget", "run_rate"]) }),
+  input: z.object({ year: Year, method: ForecastMethod }),
+  output: z.object({ year: z.number().int(), method: ForecastMethod }),
 });
 
 export const setBudgetLine = defineRoute({
@@ -347,7 +354,7 @@ export const setBudgetLine = defineRoute({
   path: "/v1/budgets/{year}/lines",
   summary: "Set one budget line's twelve months",
   description:
-    "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's; not both.",
+    "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's, and with both that job type's in that branch, a line of its own apart from the branch's and the job type's.",
   module: "M15",
   permissions: ["finance:configure"],
   input: z.object({

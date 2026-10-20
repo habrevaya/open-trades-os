@@ -190,6 +190,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   budget_year_idx: "Made on the first write to a year with on conflict do nothing, so a second write finds it rather than colliding.",
   budget_line_cell_idx: "Written with on conflict do update: setting a month again replaces the figure, which is what the screen means.",
   budget_line_branch_cell_idx: "A branch's month, written with on conflict do update like the company's: setting it again replaces the figure.",
+  budget_line_branch_job_type_cell_idx: "A branch's job type's month, written with on conflict do update like the company's: setting it again replaces the figure.",
   budget_line_job_type_cell_idx: "A job type's month, written with on conflict do update like the company's: setting it again replaces the figure.",
   /* --- numbers and sequences this product generates --- */
   invoice_number_idx: "The invoice number is allocated by the numbering service under a lock.",

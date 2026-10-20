@@ -146,3 +146,38 @@ describe("the year end forecast", () => {
     expect(m.isZero(f.toCome)).toBe(true);
   });
 });
+
+describe("a forecast shaped like last year", () => {
+  /** Last year: a slow winter, a busy summer. 1,000 a month from January to April, 3,000 May to August, 1,000 after. */
+  const lastYear = [1, 1, 1, 1, 3, 3, 3, 3, 1, 1, 1, 1].map((k) => usd(String(k * 1000)));
+  const months = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1, budget: usd("1500"), actual: i < 4 ? usd("1100") : usd("0"),
+  }));
+
+  it("takes the months already over as last year's share of the year, and the rest in proportion", () => {
+    const f = b.forecastLine({ key: "category:revenue", months, closed: 4, method: "seasonal", lastYear });
+    /** January to April were 4,000 of last year's 20,000. This year they came to 4,400, so the rest is 4,400 times 16,000 over 4,000. */
+    expect(f.method).toBe("seasonal");
+    expect(f.fellBack).toBe(false);
+    expect(m.toString(f.closedActual)).toBe("4400.0000");
+    expect(m.toString(f.toCome)).toBe("17600.0000");
+    expect(m.toString(f.forecast)).toBe("22000.0000");
+    /** The run rate would read the summer as winter. */
+    expect(m.toString(b.forecastLine({ key: "category:revenue", months, closed: 4, method: "run_rate" }).forecast)).toBe("13200.0000");
+  });
+
+  it("rounds once, to the cent", () => {
+    const thirds = [3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1].map((k) => usd(String(k)));
+    expect(m.toString(b.seasonalToCome(usd("100.00"), thirds, 1)!)).toBe("233.3300");
+  });
+
+  it("falls back to the budget with no month over, or with no shape in last year", () => {
+    expect(b.forecastLine({ key: "category:revenue", months, closed: 0, method: "seasonal", lastYear })).toMatchObject({ method: "budget", fellBack: true });
+    const nothing = Array.from({ length: 12 }, () => usd("0"));
+    const f = b.forecastLine({ key: "category:revenue", months, closed: 4, method: "seasonal", lastYear: nothing });
+    expect(f).toMatchObject({ method: "budget", fellBack: true });
+    expect(m.toString(f.toCome)).toBe("12000.0000");
+    expect(b.seasonalToCome(usd("100"), [usd("-5"), ...Array.from({ length: 11 }, () => usd("10"))], 1)).toBeNull();
+    expect(b.forecastLine({ key: "category:revenue", months, closed: 4, method: "seasonal" })).toMatchObject({ method: "budget", fellBack: true });
+  });
+});

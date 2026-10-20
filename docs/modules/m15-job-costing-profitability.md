@@ -119,14 +119,31 @@ branch. The company's report does not add a job type's lines in.
 
 **The forecast is an estimate, and says so.** Every line has a year end
 forecast: the months already over (every month before the one the company is
-in) at what the ledger says, and this month and the rest at their budget, or at
-the run rate of the months already over when the company chooses that. The
+in) at what the ledger says, and this month and the rest at their budget, at
+the run rate of the months already over, or shaped like last year, as the
+company chooses. The
 month in progress is not read at its actual so far, because ten days of
 October are not October. The budget is the default because it is the figure
 the company already wrote down; a month with no budget counts as nothing, and
 the line says how many. The run rate reads a seasonal year wrongly, which the
 screen says, and with no month over yet there is none, so the budget is used and
-the screen says that too. The assumption is written above the table every time,
+the screen says that too.
+
+**Shaped like last year.** The months already over are taken as the same share
+of the year they were last year, and the rest of the year follows in proportion:
+a company that did a third of last year by May, and has done 40,000 by May this
+year, is forecast 120,000. Each line is shaped by its own last year, in the same
+branch and job type, read from the ledger the same way as the actuals, and rounded
+once, to the cent (`budget.seasonalToCome`). A line with nothing last year, or
+with nothing or less by this point of last year, has no shape to follow and is
+taken at its budget; the line says so ("Nothing last year to follow, so at its
+budget", `noShape`), and the assumption counts those lines. With no month over
+yet there is nothing to scale, so the budget is used, as for the run rate.
+Choosing it is refused, in words, unless the books hold the whole of last year:
+their first entry is in its January or earlier ("Shaping 2026 like 2025 needs all
+of 2025 in your books, and the first entry in them is on 2025-03-15, so 2025 is
+not whole."). It is one more choice for the year, set with `finance:configure`,
+like the other two. The assumption is written above the table every time,
 with "This is an estimate, not a promise." Nothing about it posts or is stored
 but the choice. The rule is core's `budget.forecastLine` and
 `budget.closedMonths`, with unit tests.
@@ -147,7 +164,11 @@ invoice in it since branches were carried (M14). The whole company's report is
 the lines set for the company against everything, as it always was; a branch's
 lines are not added into it, because a company that budgets Revenue for itself
 and for each shop has said two things, and adding them would count the money
-twice. A branch's report says how many of the year's ledger entries carry no
+twice. **A job type in a branch** ("service in the north shop") has a budget of its
+own the same way: its lines are read against the entries that carry the branch
+and are on that type's jobs, the report says both what carries no branch and
+what is on no job, and it is added into neither the branch's nor the job type's,
+nor they into it. A branch's report says how many of the year's ledger entries carry no
 branch and what their debits add up to (payroll, a payment spread over two
 branches, and everything from before branches were recorded), because none of
 that can be in a branch's figures. Nothing old is moved: every line written
@@ -243,25 +264,29 @@ replaces that line and nothing loads unless the whole file reads. A Branch
 choice above the table reads and sets one branch's budget instead of the
 company's, and a CSV loaded while a branch is chosen goes into that branch.
 A Job type choice beside it does the same for one job type, and the page
-says how much of the year was booked to no job. Asked for a branch and a job
-type at once, the page says to pick one and shows the company's.
+says how much of the year was booked to no job. Both at once are that job
+type's budget in that branch ("Budget 2026, Service in North shop"), set and read
+there like the others.
 
 Each line has a "Year end forecast" column: the forecast, the year's budget
 and whether it is better or worse, and how many months with no budget were
 counted as nothing. Above the table, "How the forecast is made" says what was
 assumed. "The forecast" section, for whoever sets the budget, chooses how the
-months to come are taken: at their budget, or at the run rate so far, for the
-whole year, which every branch's and job type's report uses too.
+months to come are taken: at their budget, at the run rate so far, or shaped
+like last year, for the whole year, which every branch's and job type's report
+uses too.
 
 `GET /v1/budgets/{year}` is the report, `PUT /v1/budgets/{year}/lines` sets a
 line, `DELETE /v1/budgets/{year}/lines/{line}` removes one and
 `POST /v1/budgets/{year}/import` loads a CSV; each takes `businessUnitId` for a
-branch's own lines or `jobTypeId` for a job type's (not both), and the report
+branch's own lines, `jobTypeId` for a job type's, or both for a job type's in a
+branch, and the report
 then carries `branch` with the count of entries that carry no branch, or
-`jobType` with the count on no job. Every line carries `forecast` and the
-report carries `forecast` with the method chosen, the one used, the months
-already over and the assumption in words. `PUT /v1/budgets/{year}/forecast`
-chooses the method.
+`jobType` with the count on no job (both, for a job type in a branch). Every
+line carries `forecast` and the report carries `forecast` with the method chosen
+(`budget`, `run_rate` or `seasonal`), the one used, the months already over, the
+lines with no shape last year and the assumption in words. `PUT
+/v1/budgets/{year}/forecast` chooses the method.
 
 ## Permissions
 
@@ -317,12 +342,18 @@ there is no fourth basis (by material cost, by visit, by truck), and a mix is
 replaced whole on a new day rather than one part at a time. The overtime
 premium is still not on a job, for the reason above. Burden and overhead are
 applied in reporting only; nothing posts them to the ledger, which keeps them
-as the company's choice rather than an entry in its books. The budget can be
-set per branch or per job type, not per branch and job type together, and a
-job type's actuals are only what was booked to its jobs. The forecast is one
-method for the whole year (the budget or the run rate), with no seasonal
-pattern, no forecast by month and no weighting of recent months; it is shown,
-never stored or posted. A branch's budget is not read for a branch manager's
+as the company's choice rather than an entry in its books. A job type's actuals, in a branch or not, are only what was booked to its jobs,
+and a branch's only what carries the branch. The forecast is one method for the
+whole year (the budget, the run rate, or shaped like last year), with no forecast
+by month, no weighting of recent months and no blend of the three; it is shown,
+never stored or posted. Shaped like last year follows one year, the one before:
+two or more years averaged into a shape is not offered, and a year with one odd
+month (a big one-off job last March) shapes this year with it. Whether a company
+has a whole last year is read from the first entry in its books, for the whole
+company: a branch or a job type that is newer is not refused, its lines simply
+have nothing to follow and are at their budget, saying so. The history needed is
+the whole calendar year before, from its January; a company whose books start on
+the second of February waits a year more, which is the conservative reading. A branch's budget is not read for a branch manager's
 own branch automatically: the report is a company financial report under
 `report.financial:read`, and whoever holds that chooses the branch. Labour and materials actuals depend on journals, because
 nothing here posts wages or supplier bills. A journal can now put a supplier
