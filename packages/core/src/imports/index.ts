@@ -1,5 +1,6 @@
 import { parseCsv } from "../custom-objects/index.js";
 import { csvCell } from "../reporting/csv.js";
+export * from "./workbook.js";
 import { add, compare, money, multiply, round, subtract, sum, toString, isZero, isNegative, isPositive } from "../money/index.js";
 
 /**
@@ -62,7 +63,8 @@ export const KIND_LABEL: Record<ImportKind, { label: string; row: string; summar
   },
   estimates: {
     label: "Past estimates", row: "estimate",
-    summary: "One row per estimate, with the customer, its amount, the day it was written and sent, and how it ended: approved, declined or expired.",
+    summary: "One row per estimate, with the customer, its amount, the day it was written and sent, and how it ended: approved, declined or expired. "
+      + "An estimate with several lines or several options is several rows with the same estimate number, one per line, and a column of option names says which option each line is in.",
   },
   notes: {
     label: "Customer notes", row: "note",
@@ -83,14 +85,15 @@ export const KIND_LABEL: Record<ImportKind, { label: string; row: string; summar
 /**
  * THE KINDS WHERE SEVERAL ROWS ARE ONE RECORD.
  *
- * An invoice with three lines is three rows with one invoice number, and a
- * cheque that paid two invoices is two rows with one payment id: that is how
- * every accounting program exports them. The rows sharing an id are read
+ * An invoice with three lines is three rows with one invoice number, a cheque
+ * that paid two invoices is two rows with one payment id, and an estimate with
+ * two options of two lines each is four rows with one estimate number: that is
+ * how every accounting program exports them. The rows sharing an id are read
  * together and go in as one create, the first row carrying the rest; for any
  * other kind a second row with the same id is the same record twice, and is
  * refused naming the first.
  */
-export const GROUPED_KINDS: readonly ImportKind[] = ["invoices", "payments"];
+export const GROUPED_KINDS: readonly ImportKind[] = ["invoices", "payments", "estimates"];
 export const isGrouped = (kind: ImportKind): boolean => GROUPED_KINDS.includes(kind);
 
 /** A file larger than this is several files. Five megabytes is tens of thousands of rows. */
@@ -230,6 +233,13 @@ export const FIELDS: Record<ImportKind, readonly ImportField[]> = {
     { key: "outcome", label: "How it ended", type: "estimateOutcome", words: ["status", "outcome", "result", "estimate status", "quote status", "stage"] },
     { key: "decidedOn", label: "Decided on", type: "date", words: ["decided", "decided on", "approved on", "declined on", "accepted on", "closed on", "won on", "lost on", "outcome date", "date decided", "date approved", "approved date"] },
     { key: "reason", label: "Why it was declined", type: "text", max: 1000, words: ["reason", "decline reason", "declined reason", "lost reason", "why"] },
+    /* An estimate that arrives whole: the columns that say which line is in which option. */
+    { key: "option", label: "Option", type: "text", max: 100, words: ["option", "option name", "package", "package name", "tier", "choice", "proposal option"] },
+    { key: "lineName", label: "Line item", type: "text", max: 200, words: ["line", "line item", "line description", "line name", "item", "item name", "item description", "product", "product name"] },
+    { key: "quantity", label: "Quantity", type: "quantity", words: ["quantity", "qty", "line quantity", "hours"] },
+    { key: "unitPrice", label: "Price each", type: "money", words: ["price each", "unit price", "rate", "line rate", "each"] },
+    { key: "recommended", label: "Recommended", type: "boolean", words: ["recommended", "is recommended", "recommended option", "best value", "preferred"] },
+    { key: "chosen", label: "Chosen by the customer", type: "boolean", words: ["chosen", "selected", "chosen option", "selected option", "approved option", "accepted option", "option chosen", "option selected", "picked"] },
   ],
   /**
    * NOTES AND VISITS, the last of a customer's history a file can carry.
@@ -389,7 +399,7 @@ export function mappingProblems(kind: ImportKind, columns: readonly (string | nu
   if (kind === "payments" && !has("customerRef") && !has("customerEmail") && !has("invoiceRef")) {
     problems.push("No column is set to Customer's id, Customer's email or Invoice's id or number, so there is no way to tell whose each payment is.");
   }
-  if (kind === "invoices" && has("quantity") && !has("unitPrice")) {
+  if ((kind === "invoices" || kind === "estimates") && has("quantity") && !has("unitPrice")) {
     problems.push("A column is set to Quantity and none to Price each. A quantity needs the price of one to make a line.");
   }
   if ((kind === "equipment" || kind === "jobs" || kind === "invoices") && !has("customerRef") && !has("customerEmail")) {
@@ -398,8 +408,8 @@ export function mappingProblems(kind: ImportKind, columns: readonly (string | nu
   if (kind === "jobs" && !has("summary") && !has("description")) {
     problems.push("No column is set to What the job was, or to Notes. Every job needs to say what it was.");
   }
-  if (kind === "estimates" && !has("total") && !has("subtotal")) {
-    problems.push("No column is set to Total or to Before tax. Every estimate needs an amount.");
+  if (kind === "estimates" && !has("total") && !has("subtotal") && !has("unitPrice")) {
+    problems.push("No column is set to Total, Before tax or Price each. Every estimate needs an amount.");
   }
   if (kind === "notes" && !has("customerRef") && !has("customerEmail")) {
     problems.push("No column is set to Customer's id or Customer's email, so there is no way to tell whose each note is.");
@@ -487,12 +497,13 @@ export function parseDate(raw: string, dayFirst = false): Parsed {
 
 /**
  * A time of day, as `HH:MM` on a 24 hour clock: "14:30", "2:30 PM", "2pm",
- * "09:05:00". Read on the company's clock by whoever places it. A time with
+ * "09:05:00", or a time with its day in front, "2021-03-04 14:30". Read on the company's clock by whoever places it. A time with
  * no AM or PM is read as a 24 hour clock, so "2:30" is the middle of the
  * night: a file that writes afternoons without PM says so in every other row.
  */
 export function parseTime(raw: string): Parsed {
-  const text = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  /** A date and time in one cell, as a workbook's date column gives it: the day is read from the Day column instead. */
+  const text = raw.trim().toLowerCase().replace(/\s+/g, " ").replace(/^\d{4}-\d{2}-\d{2}[t ]/, "");
   const match = /^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s?(am|pm|a\.m\.|p\.m\.)?$/.exec(text);
   if (!match || (match[2] === undefined && match[4] === undefined)) {
     return no(`"${raw.trim()}" is not a time this can read. Write it like 14:30 or 2:30 PM.`);
@@ -746,8 +757,6 @@ export function readRow(
     if (status !== undefined) values["status"] = status;
   }
 
-  if (kind === "estimates") readEstimate(values, problems, label);
-
   if (kind === "visits") {
     const email = values["technicianEmail"];
     if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -760,7 +769,7 @@ export function readRow(
     }
   }
 
-  if (kind === "invoices" && values["unitPrice"] !== undefined) {
+  if ((kind === "invoices" || kind === "estimates") && values["unitPrice"] !== undefined) {
     /**
      * A quantity at a price each makes the line's amount before tax, rounded
      * to the cent the way the invoice rounds it. A Before tax beside them
@@ -774,15 +783,20 @@ export function readRow(
     values["subtotal"] = before;
   }
 
-  if (kind === "invoices" && options.line) {
-    /** One line of several: its own amount, with the invoice's total checked across the rows by `readGroup`. */
+  if (kind === "estimates" && !options.line) readEstimate(values, problems, label);
+
+  if ((kind === "invoices" || kind === "estimates") && options.line) {
+    /** One line of several: its own amount, with the record's total checked across the rows by `readGroup`. */
     const sub = values["subtotal"];
     if (sub === undefined && !problems.some((p) => p.startsWith("Before tax:") || p.startsWith("Price each:"))) {
-      problems.push("A line of an invoice with several needs its own amount: fill in Before tax, or Price each.");
+      problems.push(`A line of ${kind === "invoices" ? "an invoice" : "an estimate"} with several needs its own amount: fill in Before tax, or Price each.`);
     } else if (sub !== undefined) {
       const tax = values["tax"] ?? "0";
-      if (isNegative(money(sub))) problems.push("The amount before tax is below zero. Bring in a credit as a credit note instead.");
-      else if (!isZero(money(tax)) && isZero(money(sub))) problems.push("It has tax on nothing: the amount before tax is zero.");
+      if (isNegative(money(sub))) {
+        problems.push(kind === "invoices"
+          ? "The amount before tax is below zero. Bring in a credit as a credit note instead."
+          : "The amount before tax is below zero. An estimate is for an amount.");
+      } else if (!isZero(money(tax)) && isZero(money(sub))) problems.push("It has tax on nothing: the amount before tax is zero.");
       values["tax"] = toString(money(tax));
     }
   } else if (kind === "invoices") {
@@ -825,6 +839,14 @@ function readEstimate(values: Record<string, string>, problems: string[], label:
     values["tax"] = amounts.tax;
     values["total"] = amounts.total;
   }
+  estimateOutcome(values, problems, label);
+}
+
+/**
+ * How an estimate ended, from what it says once: read on a row of its own, or
+ * on the values its rows share when it has several.
+ */
+function estimateOutcome(values: Record<string, string>, problems: string[], label: (key: string) => string): void {
   const outcome = values["outcome"] ?? (values["decidedOn"] !== undefined ? undefined : "open");
   const decided = values["decidedOn"];
   if (outcome === undefined) {
@@ -915,6 +937,18 @@ export function trimQuantity(value: string): string {
 export interface InvoiceLine { name: string; quantity: string; unitPrice: string; subtotal: string; tax: string }
 export interface Allocation { invoiceRef: string | null; amount: string }
 
+/** One option of an estimate that arrives whole: its lines, what they come to and whether the file calls it recommended or chosen. */
+export interface EstimateOptionRead {
+  name: string;
+  recommended: boolean;
+  chosen: boolean;
+  lines: InvoiceLine[];
+  /** What its lines come to, tax included. */
+  total: string;
+  /** The Total the file gives it, or null when the file gives none. */
+  fileTotal: string | null;
+}
+
 export interface GroupRead {
   /** What the record is, from its rows: the fields they share, and the amounts across them. */
   values: Record<string, string>;
@@ -922,6 +956,8 @@ export interface GroupRead {
   lines: InvoiceLine[];
   /** A payment's share of each invoice, one per row. Empty for anything else. */
   allocations: Allocation[];
+  /** An estimate's options, each with its lines, in the order the file first names them. Empty for anything else. */
+  options: EstimateOptionRead[];
   /** Why the rows cannot load together, each a sentence. */
   problems: string[];
 }
@@ -930,8 +966,10 @@ export interface GroupRead {
 const INVOICE_SHARED = ["ref", "number", "customerRef", "customerEmail", "jobRef", "issuedOn", "dueOn", "total", "paid", "paidOn", "method"];
 /** What the rows of one payment say once: the payment, not the invoice it paid. */
 const PAYMENT_SHARED = ["ref", "customerRef", "customerEmail", "paidOn", "method", "checkNumber", "memo"];
+/** What the rows of one estimate say once: the estimate and how it ended, not the option or the line. */
+const ESTIMATE_SHARED = ["ref", "number", "customerRef", "customerEmail", "street", "jobRef", "title", "issuedOn", "sentOn", "outcome", "decidedOn", "reason"];
 const sharedOf = (kind: ImportKind): string[] =>
-  kind === "invoices" ? INVOICE_SHARED : kind === "payments" ? PAYMENT_SHARED : [];
+  kind === "invoices" ? INVOICE_SHARED : kind === "payments" ? PAYMENT_SHARED : kind === "estimates" ? ESTIMATE_SHARED : [];
 
 /**
  * THE ROWS OF ONE INVOICE OR ONE PAYMENT, READ TOGETHER.
@@ -949,7 +987,7 @@ export function readGroup(
   const fields = FIELDS[kind];
   const label = (key: string) => fields.find((f) => f.key === key)?.label ?? key;
   const problems: string[] = [];
-  const shared = kind === "payments" ? PAYMENT_SHARED : INVOICE_SHARED;
+  const shared = sharedOf(kind);
   const values: Record<string, string> = {};
   const from: Record<string, number> = {};
   for (const { row, values: v } of rows) {
@@ -965,11 +1003,12 @@ export function readGroup(
     }
   }
 
-  if (rows.length > 1 && (kind === "invoices" || kind === "payments")) {
+  if (rows.length > 1 && (kind === "invoices" || kind === "payments" || kind === "estimates")) {
     /** What one row would have been refused for, asked of the rows together. */
     if (kind === "invoices" && values["issuedOn"] === undefined) {
       problems.push("It has no invoice date. Without one it would be put in today's books instead of the day it was sent.");
     }
+    if (kind === "estimates" && values["issuedOn"] === undefined) problems.push("Written on is empty.");
     if (kind === "payments" && values["paidOn"] === undefined) {
       problems.push("It has no day it was paid. Without one the payment would be put in today's books.");
     }
@@ -995,10 +1034,12 @@ export function readGroup(
       if (v["amount"] !== undefined) allocations.push({ invoiceRef, amount: v["amount"] });
     }
     values["amount"] = toString(sum(allocations.map((a) => money(a.amount))));
-    return { values, lines: [], allocations, problems };
+    return { values, lines: [], allocations, options: [], problems };
   }
 
-  if (kind !== "invoices") return { values: { ...rows[0]?.values }, lines: [], allocations: [], problems };
+  if (kind === "estimates") return readEstimateGroup(rows, values, problems, label);
+
+  if (kind !== "invoices") return { values: { ...rows[0]?.values }, lines: [], allocations: [], options: [], problems };
 
   const lines: InvoiceLine[] = rows
     .filter(({ values: v }) => v["subtotal"] !== undefined)
@@ -1014,7 +1055,7 @@ export function readGroup(
     });
   if (rows.length === 1) {
     /** One row is the whole invoice, read and checked by `readRow` already. */
-    return { values: { ...rows[0]!.values }, lines, allocations: [], problems };
+    return { values: { ...rows[0]!.values }, lines, allocations: [], options: [], problems };
   }
   const subtotal = round(sum(lines.map((l) => money(l.subtotal))), 2);
   const tax = round(sum(lines.map((l) => money(l.tax))), 2);
@@ -1031,7 +1072,176 @@ export function readGroup(
     else if (compare(money(paid), total) > 0) problems.push(`It says ${trimMoney(paid)} was paid on an invoice of ${trimMoney(toString(total))}.`);
     if (values["paidOn"] === undefined) problems.push("It says money was paid and not when. Without the day the payment would be put in today's books.");
   }
-  return { values, lines, allocations: [], problems };
+  return { values, lines, allocations: [], options: [], problems };
+}
+
+/**
+ * AN ESTIMATE'S ROWS: ITS OPTIONS, EACH WITH ITS LINES.
+ *
+ * Lines are grouped into options by the Option column (the same name, however
+ * it is spelt in capitals), and a file with no such column, or one that leaves
+ * it empty on every row, is one option. What the file says about the estimate
+ * (whose it is, the day it was written, how it ended) is said once and has to
+ * agree wherever it is said; what it says about an option (its Total, whether it
+ * is recommended, whether the customer chose it) has to agree across that
+ * option's rows. Each option's lines are added up and checked against the Total
+ * the file gives it, and a disagreement is a refusal naming the option and both
+ * figures, because loading either would be a guess about a quote a customer
+ * holds a copy of.
+ *
+ * WHICH OPTION THE CUSTOMER CHOSE IS NEVER GUESSED. An approved estimate with
+ * several options and no column saying which is refused: choosing the cheapest,
+ * or the recommended, or the first would put a sale in the books for work the
+ * customer may not have bought. An estimate with one option that was approved
+ * chose it.
+ */
+function readEstimateGroup(
+  rows: ReadonlyArray<{ row: number; values: Record<string, string> }>,
+  values: Record<string, string>,
+  problems: string[],
+  label: (key: string) => string,
+): GroupRead {
+  const single = rows.length === 1;
+  if (!single) estimateOutcome(values, problems, label);
+
+  const named = rows.filter((r) => r.values["option"] !== undefined);
+  const unnamed = rows.filter((r) => r.values["option"] === undefined);
+  if (named.length > 0 && unnamed.length > 0) {
+    problems.push(`Row ${unnamed[0]!.row} is in no option, and row ${named[0]!.row} is in the option "${named[0]!.values["option"]}". Name the option on every line, or on none.`);
+  }
+
+  /** Options in the order the file first names them, found by their name without case or extra spaces. */
+  const groups = new Map<string, { name: string; rows: typeof rows[number][] }>();
+  for (const r of rows) {
+    const name = r.values["option"] ?? "As quoted";
+    const key = name.toLowerCase().replace(/\s+/g, " ");
+    const group = groups.get(key) ?? { name, rows: [] };
+    group.rows.push(r);
+    groups.set(key, group);
+  }
+
+  const asked = (key: string) => rows.some((r) => r.values[key] !== undefined);
+  const options: EstimateOptionRead[] = [];
+  for (const group of groups.values()) {
+    const one = groups.size === 1 && named.length === 0;
+    const lines: InvoiceLine[] = group.rows
+      .filter((r) => r.values["subtotal"] !== undefined)
+      .map((r) => {
+        const v = r.values;
+        const priced = v["unitPrice"] !== undefined;
+        return {
+          name: v["lineName"] ?? values["title"] ?? "As quoted",
+          quantity: priced ? v["quantity"] ?? "1" : "1",
+          unitPrice: priced ? v["unitPrice"]! : v["subtotal"]!,
+          subtotal: v["subtotal"]!,
+          tax: v["tax"] ?? "0",
+        };
+      });
+    const subtotal = round(sum(lines.map((l) => money(l.subtotal))), 2);
+    const tax = round(sum(lines.map((l) => money(l.tax))), 2);
+    const total = add(subtotal, tax);
+
+    /** The Total the file gives the option: on any of its rows, the same on all of those that give one. */
+    const totals = group.rows.filter((r) => r.values["total"] !== undefined);
+    const first = totals[0];
+    const other = totals.find((r) => first && compare(money(r.values["total"]!), money(first.values["total"]!)) !== 0);
+    let fileTotal: string | null = first ? first.values["total"]! : null;
+    if (first && other) {
+      problems.push(`Rows ${first.row} and ${other.row} ${one ? "say" : `are in the option "${group.name}" and say its`} ${one ? "the Total is" : "Total is"} ${trimMoney(first.values["total"]!)} and ${trimMoney(other.values["total"]!)}.`);
+      fileTotal = null;
+    } else if (first && !single && lines.length === group.rows.length && compare(money(first.values["total"]!), total) !== 0) {
+      problems.push(one
+        ? `Its ${lines.length} lines come to ${trimMoney(toString(total))}, not the ${trimMoney(first.values["total"]!)} in Total.`
+        : `The option "${group.name}" comes to ${trimMoney(toString(total))}, not the ${trimMoney(first.values["total"]!)} in Total.`);
+    }
+
+    /** Yes or no about the option, from whichever of its rows say; rows that say opposite things are refused. */
+    const flag = (key: string): boolean | null => {
+      const said = group.rows.filter((r) => r.values[key] !== undefined);
+      if (said.length === 0) return null;
+      const yes = said.filter((r) => r.values[key] === "true");
+      if (yes.length > 0 && yes.length < said.length) {
+        problems.push(`Rows ${said[0]!.row} and ${said.find((r) => r.values[key] !== said[0]!.values[key])!.row} disagree about whether ${one ? "the estimate" : `the option "${group.name}"`} is ${key === "chosen" ? "chosen" : "recommended"}.`);
+      }
+      return yes.length > 0;
+    };
+    options.push({
+      name: group.name,
+      recommended: flag("recommended") ?? false,
+      chosen: flag("chosen") ?? false,
+      lines,
+      total: toString(total),
+      fileTotal: fileTotal === null ? null : toString(money(fileTotal)),
+    });
+  }
+
+  if (options.length > 5) problems.push(`It has ${options.length} options. An estimate can have at most 5.`);
+
+  const quoted = (list: EstimateOptionRead[]) => list.map((o) => `"${o.name}"`);
+  /** A single option of the estimate is the one it is recommended on, unless the file says otherwise. */
+  if (options.length === 1 && !asked("recommended")) options[0]!.recommended = true;
+  const recommended = options.filter((o) => o.recommended);
+  if (recommended.length > 1) {
+    problems.push(`${recommended.length === 2 ? "Two" : recommended.length} options are marked recommended: ${quoted(recommended).join(" and ")}. Only one can be.`);
+  }
+
+  const outcome = values["outcome"];
+  const chosen = options.filter((o) => o.chosen);
+  if (outcome === "approved") {
+    if (options.length === 1) {
+      if (asked("chosen") && !options[0]!.chosen) problems.push("It was approved, and the file says its only option was not chosen.");
+      options[0]!.chosen = true;
+    } else if (chosen.length === 0) {
+      problems.push(`It was approved and the file does not say which of its ${options.length} options the customer chose. Fill in the ${label("chosen").split(" ")[0]} column for that option.`);
+    } else if (chosen.length > 1) {
+      problems.push(`${chosen.length === 2 ? "Two" : chosen.length} options are marked chosen: ${quoted(chosen).join(" and ")}. The customer chose one.`);
+    }
+  } else if (outcome !== undefined && chosen.length > 0) {
+    problems.push(`The option "${chosen[0]!.name}" is marked chosen, and the estimate was not approved.`);
+  }
+
+  return { values, lines: [], allocations: [], options, problems };
+}
+
+/**
+ * THE TAX AN ESTIMATE'S LINES WERE CHARGED, AS A RATE THE ESTIMATE CAN CARRY.
+ *
+ * An estimate works its tax out from a rate and cannot be told an amount, so
+ * the file's tax has to become a rate. The company's own rate of today is never
+ * used: a quote written in 2022 was taxed at 2022's. When one rate, to four
+ * places, reproduces every option's tax to the cent it is the estimate's (a
+ * clean 0.0825, not the 0.082520 that a half cent of rounding implies on one
+ * line); otherwise each taxed line carries the rate its own tax implies, to six
+ * places. The caller then checks what the estimate comes to against the file.
+ */
+export interface EstimateTax {
+  /** The estimate's one rate, or null when no line was taxed or the lines carry their own. */
+  rate: string | null;
+  /** Per option, per line: the rate that line carries itself, or null. Set only when `rate` is null. */
+  lineRates: Array<Array<string | null>>;
+}
+
+export function estimateTax(options: ReadonlyArray<{ lines: ReadonlyArray<{ subtotal: string; tax: string }> }>): EstimateTax {
+  const taxed = (l: { subtotal: string; tax: string }) => !isZero(money(l.tax));
+  const own = options.map((o) => o.lines.map((l) => (taxed(l) ? taxRateOf(l.tax, l.subtotal) : null)));
+  const found = own.flat().filter((r): r is string => r !== null);
+  if (found.length === 0) return { rate: null, lineRates: [] };
+  /** A rate to six places rounded to four. */
+  const four = (rate: string): string => {
+    const scaled = BigInt(rate.replace(".", ""));
+    const cut = (scaled + 50n) / 100n;
+    return `${cut / 10_000n}.${(cut % 10_000n).toString().padStart(4, "0")}00`;
+  };
+  const candidates = [...new Set(found.map(four))];
+  for (const rate of candidates) {
+    const holds = options.every((o) => {
+      const lines = o.lines.filter(taxed);
+      const made = round(sum(lines.map((l) => multiply(money(l.subtotal), rate))), 2);
+      return compare(made, round(sum(lines.map((l) => money(l.tax))), 2)) === 0;
+    });
+    if (holds) return { rate, lineRates: [] };
+  }
+  return { rate: null, lineRates: own };
 }
 
 /** An amount as a person reads it: two places, more only when it has them. */
@@ -1075,11 +1285,11 @@ export function readFile(text: string, bytes: number):
   /**
    * A workbook is a zip, and a zip starts "PK". Reading one as text gives a
    * screen of symbols and a mapping nobody can make sense of, so it is
-   * refused with what to do instead. This reads CSV only: no workbook reader
-   * is part of this product.
+   * refused with what to do instead. A workbook has its own reader
+   * (`workbook.ts`), and a CSV that turns out to be one was sent the wrong way.
    */
   if (text.startsWith("PK\u0003\u0004") || text.includes("\u0000")) {
-    return { ok: false, why: "That is a spreadsheet workbook, not a CSV file. In your spreadsheet program choose Save As or Download, pick CSV, and bring in that file." };
+    return { ok: false, why: "That is a spreadsheet workbook, not a CSV file. Choose it as a workbook, or in your spreadsheet program choose Save As or Download, pick CSV, and bring in that file." };
   }
   const all = parseCsv(text);
   const [header, ...rows] = all;

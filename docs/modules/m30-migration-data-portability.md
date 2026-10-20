@@ -233,10 +233,44 @@ the toolkit. It takes nine kinds of file: customers with their addresses and
 a person to contact, equipment, price book items, past jobs, past invoices
 with their lines and what was paid on them, past payments, each split across
 the invoices it paid, past estimates with how they ended and the day they
-were sent, customer notes, and past visits on past jobs. CSV only: no workbook reader is part of
-this product, and a workbook uploaded by mistake is refused with how to save
-it as CSV. A file can be 5 MB and ten thousand rows; a larger one is refused
-in words, to be split.
+were sent, customer notes, and past visits on past jobs. A file is a CSV or an
+Excel workbook (`.xlsx`). A file can be 5 MB and ten thousand rows; a larger one
+is refused in words, to be split.
+
+**A workbook is read a sheet at a time, into the same rows a CSV makes.** When
+an `.xlsx` is chosen on the upload form it is read for its sheets
+(`POST /v1/import-sheets`), and the form lists each with its rows and the start
+of its header: the owner picks one, the workbook goes up again with `sheet`
+named (`POST /v1/imports`), and from there the sheet is a file like any other,
+mapped, checked and loaded by the same code. Nothing of the workbook is kept
+between the two calls, and it is never stored as a workbook: only its rows are.
+A sheet that cannot be brought in is listed with why beside its name (its first
+row is empty, it has too many rows), and choosing it is not offered. A workbook
+with several sheets is refused by the API until `sheet` says which, naming them,
+because choosing for the owner could load the wrong list.
+
+The reader is `read-excel-file`, pinned to an exact version in `packages/api`,
+and it is held to these rules. Nothing is evaluated: a cell holding a formula is
+read as the answer the spreadsheet program stored beside it, and a cell of text
+that starts with `=` is the characters it holds. A macro is never opened: only
+the XML parts of the file are read, and a macro lives in a binary part that is
+skipped. The first row of the sheet is the header, as in a CSV, and a sheet whose
+first row is empty is refused rather than skipped past, so the row numbers on the
+screen are the ones the spreadsheet program shows. A row with nothing in it is
+left out and every other keeps its number from the sheet. A number is written with
+the fifteen digits a spreadsheet shows (a price worked out by a formula and stored
+as 108.25000000000001 is 108.25), a date as the day it shows, and a time with no
+day as the time. The size cap is the CSV's (5 MB and ten thousand rows) plus 500
+columns and 50 sheets, and the file is doubted before it is read: the zip's own
+directory is read and every XML part is actually inflated under a budget of 100 MB
+before the library sees the file, so a small file that opens into gigabytes is
+refused whatever sizes it declares, a sheet whose cells reach row 200,000 or span
+more than five million cells (a single formatted cell in the far corner) is
+refused with how to clear it, and a password protected or damaged workbook, or
+an older `.xls`, is refused with how to save it as `.xlsx` or CSV. The screen
+takes files named `.csv` or `.xlsx` and refuses an `.xlsm`, `.xlsb`, `.ods` or
+`.numbers` file by its name with the same advice. Anything the library throws is
+turned into a sentence.
 
 **The columns are guessed, and the owner has the last word.** A plain matcher
 in `packages/core/src/imports` reads each header for the words people put at
@@ -278,7 +312,7 @@ stops between batches and pressing the button again carries on.
 | Past jobs | `POST /v1/jobs` with `completedAt` or `cancelledAt`, or as a lead when the row says open |
 | Past invoices | `POST /v1/invoices` with `issuedOn`, a line per row (its quantity at its price each, or one at its amount before tax) with the tax as charged on it and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
 | Past payments | `POST /v1/payments` dated the day it was paid, with an allocation per row to the invoice that row names, and whatever a row names no invoice for held for the customer |
-| Past estimates | `POST /v1/estimates` with `issuedOn`, one option of one line at the amount before tax, taxed at the rate its tax was charged at or not at all, its `outcome` (approved on its one option, declined with the reason, expired) and `sentOn`; the total is checked against the file's to the cent afterwards |
+| Past estimates | `POST /v1/estimates` with `issuedOn`, its options and the lines of each (one option of one line when the file has one row), taxed at the rate its tax was charged at or not at all, its `outcome` (approved on the option the file names, declined with the reason, expired) and `sentOn`; each option's total is checked against the file's to the cent afterwards |
 | Customer notes | `POST /v1/customers/{id}/notes` with `notedAt` at midday of the day in the file on the company's clock (now, for a note written today), `forField` when the file says the technician should see it, and `externalRef` |
 | Past visits | `POST /v1/jobs/{id}/visits` with the window at the day and times in the file on the company's clock, the one technician it names, `completedAt` at the time it finished and `technicianNotes`; an hour long when the file has no time it finished |
 
@@ -304,6 +338,48 @@ recorded the way the API records history: done, starting nothing and telling
 nobody, not refused for time off the technician recorded since, and never
 counted toward their pay or a commission.
 
+**An estimate arrives whole.** An estimate in another product is a set of
+options, each with its own lines, and a file carries it as a row per line. Rows
+with the same estimate number (or id) are one estimate, the way an invoice's
+lines are one invoice, and the **Option** column says which option each line is
+in: lines with the same option name are one option, however the name is spelt in
+capitals, and options are kept in the order the file first names them. A file
+with no Option column, or one left empty on every row, is one option called "As
+quoted", which is what a one row estimate has always been. A line is a **Line
+item**, its **Quantity** at its **Price each** (or its **Before tax**) and its
+**Tax**; the owner's mapping says which column is which, and a quantity needs a
+price each. What the file says about the estimate (whose it is, the day it was
+written, the day it was sent, how it ended) is said once and has to agree
+wherever it is said; the rows of one option have to agree about its Total,
+whether it is **Recommended** and whether it is **Chosen by the customer**, or
+every row of the estimate is refused naming the two rows that disagree.
+
+The totals are checked against the file twice, and a mismatch is refused in
+words and loads nothing. First, an option's lines are added up, tax included,
+and compared with the Total the file gives it ("The option "Good" comes to
+3397.50, not the 3400.00 in Total."); a Total belongs to its option, so an
+estimate whose Total column repeats one figure on every row of two options is
+refused rather than the figure being trusted for both. Second, after the
+estimate is written the create works its own totals out from the rates and each
+option is compared with the file again, so a cent of rounding in how another
+product charged its tax is a sentence naming both figures and not a quote that
+differs from the customer's copy. The tax is worked out as a rate: one rate to
+four places when it reproduces every option's tax to the cent (0.0825, not the
+0.08252 a half cent implies on one line), otherwise each taxed line carries the
+rate its own tax implies, to six places, and never the company's rate of today.
+
+**The option the customer chose is never guessed.** An approved estimate with
+several options needs the Chosen column to name exactly one of them; without it
+every row is refused ("It was approved and the file does not say which of its 2
+options the customer chose"), because choosing the cheapest, or the recommended
+one, or the first would put a sale in the books for work the customer may not
+have bought. An approved estimate with one option chose it. A chosen option on
+an estimate that was not approved is refused, two options marked recommended or
+chosen are refused, and an estimate has at most five options (what the create
+takes). A single option is recommended unless the file says otherwise; of
+several, only the ones the file marks are. A line with no option on a file whose
+other lines name theirs is refused rather than put in an option of its own.
+
 **An estimate comes in as it ended.** Approved, declined or expired, each with
 the day it was decided, or open. An open one comes in as a draft, to send from
 here, and one that says it was sent and is still open is refused with that
@@ -320,11 +396,12 @@ job by the job's id or by the number it kept. A number the source printed is
 kept when it is a whole number; one like `INV-1042` is said in the invoice's
 memo instead.
 
-**Several rows can be one invoice or one payment.** That is how accounting
-programs export them: an invoice of three lines is three rows with one invoice
-number, and a cheque that paid two invoices is two rows with one payment id.
-In a past invoices or past payments file, the rows sharing an id are one
-record: the first carries the rest, they are checked and loaded together as one
+**Several rows can be one invoice, one payment or one estimate.** That is how
+accounting programs export them: an invoice of three lines is three rows with
+one invoice number, a cheque that paid two invoices is two rows with one payment
+id, and an estimate with options is a row per line with one estimate number. In
+a past invoices, past payments or past estimates file, the rows sharing an id
+are one record: the first carries the rest, they are checked and loaded together as one
 create, and every one of them takes the outcome. What they share (the invoice
 date, whose it is, the invoice's Total, what was paid on it, the day a payment
 was paid) only has to be on one row, and where more than one row fills it they
@@ -346,14 +423,39 @@ which record it already is. The key is per company: another company's
 records are not visible to the lookup, so a file naming an id only another
 company brought in is refused as not found.
 
+**A file can be forgotten, run or not.** An uploaded file stays on the list so the
+screen can show what happened, and its cells are a customer list sitting in a
+table, so the file page ends with **Forget this file** (`DELETE /v1/imports/{id}`,
+`data:import`, behind a ticked box). The page says which of two things it is about
+to do before it does it. A file that **has not been run** (checked or not, nothing
+loaded) has put nothing in the books: forgetting it removes the file and its rows
+and nothing else. A file that **has been run** (loaded wholly or in part) leaves
+every record it made exactly as it is: forgetting removes the file, its rows and the
+list of refused rows to download (so that download is gone with it), and the records
+keep their `externalRef`, which is also why the same file brought in again still
+skips what it loaded and makes no copies. The list says "File forgotten" and, for a
+file that was run, how many records it made are still here. The run is locked while
+it goes, so a batch in flight finishes first and a batch that starts after is told
+the file is not there; each forgetting writes an audit line (`import.forgotten`)
+with the file's name, how many rows it had and how many it loaded.
+
+**A forgotten file leaves automations held.** The events the file's records raised
+name the file, and the workflow engine reads the file's switch through that name.
+With the file gone, an event naming a file the engine cannot find is treated as held:
+the safe direction to be wrong in, because a welcome text not sent to a customer
+brought in last week is a missed text, and one sent to every customer on a list from
+years ago is what the switch is for. The one case this holds that it need not is an
+event from a file brought in with the switch off, forgotten before the worker handled
+its events; those are not started.
+
 **The refused rows come back as a file.** The original columns and cells,
 with the row's place in the first file and the reason added at the end, to
 fix and bring in again. A cell that starts like a formula (`=HYPERLINK(...)`)
 was stored as the characters it holds and is written back as text, so a
 spreadsheet shows it rather than running it.
 
-The API is the screen's: `GET /v1/imports`, `POST /v1/imports`,
-`GET /v1/imports/{id}`, `POST /v1/imports/{id}/mapping`,
+The API is the screen's: `GET /v1/imports`, `POST /v1/import-sheets`, `POST /v1/imports`,
+`GET /v1/imports/{id}`, `DELETE /v1/imports/{id}`, `POST /v1/imports/{id}/mapping`,
 `POST /v1/imports/{id}/check`, `POST /v1/imports/{id}/load`,
 `GET /v1/imports/{id}/refused`, `GET /v1/import-mappings` and
 `DELETE /v1/import-mappings/{id}`. All of them need `data:import`, and checking
@@ -650,12 +752,25 @@ already exists.
 
 Nothing in this repository reads another product's export format. The
 migration toolkit is separate and loads through `/api/v1` with a connected
-app's token; the spreadsheet screen reads plain CSV whose columns the owner
-matches. It reads no workbook files, only CSV, because no workbook reader is a
-dependency. An invoice's lines carry a quantity, a price each, a description
+app's token; the spreadsheet screen reads a CSV or an `.xlsx` workbook whose
+columns the owner matches. It reads no older `.xls`, no `.xlsb`, `.ods` or
+`.numbers` file, no workbook with a password, and the screen takes no `.xlsm`:
+each is refused with how to save it as `.xlsx` or CSV. A workbook is read for its cells' values only: a
+formula that a program wrote without storing its answer reads as empty, a cell
+showing an error (`#N/A`) reads as empty, and merged cells, hidden rows,
+comments and pictures are not looked at. A number with more than fifteen digits
+(an id typed as a number) loses its last digits in the spreadsheet itself, and a
+zip code typed as a number has lost its leading zero before this sees it; both
+need the column formatted as text in the spreadsheet. The header has to be the
+sheet's first row. An invoice's lines carry a quantity, a price each, a description
 and the tax charged on them, not a price book item, a discount or a cost; a
-refund or a credit does not come in through it. An estimate comes in as one
-option of one line at its amount, not the options and lines of the original.
+refund or a credit does not come in through it. An estimate's lines carry a
+name, a quantity, a price each and the tax charged, not a price book item, a
+discount, a cost, a description, an optional line the customer could add, or the
+member rate; an option carries its name and whether it is recommended or chosen,
+not a description; and a file with more than five options on an estimate is
+refused, because the create takes five. An approved estimate with several options
+needs the file to say which was chosen: nothing is chosen for the owner.
 A note comes in dated by its day, not its time, and a past visit carries one
 technician, not a crew: a visit two people went on is two files' worth of
 work, or the second is added from the visit afterwards. A past visit's parts,
@@ -665,8 +780,9 @@ matched, so their visits are refused until they are added back.
 Photographs come in only through the toolkit. A file is matched to customers by
 id or email and never by name, and a payment to its invoices by id or number.
 Rows are grouped into one invoice or one payment only by an id column. A file
-and its rows are kept after loading so the screen can show what happened, and
-there is no button to forget one. Holding automations holds what the file's
+and its rows are kept after loading so the screen can show what happened, until the
+owner forgets it; forgetting is not undone, and the refused rows of a forgotten file
+cannot be downloaded again. Holding automations holds what the file's
 own events would start, and nothing else: webhooks still receive those events,
 each naming the file, and an automation on a clock or on a record waiting (an unpaid invoice
 past due, M29) can still reach a record brought in, because it starts from the

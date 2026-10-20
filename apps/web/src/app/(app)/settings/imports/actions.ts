@@ -11,21 +11,38 @@ import { imports as rules } from "@opentradesos/core";
 const ctx = async (): Promise<ServiceContext> => ({ actor: (await requireUser()).actor, db: getDb() });
 
 /**
+ * The kind of file an upload is, from its name: a CSV is text, a workbook is
+ * bytes, and anything else is refused with what to do instead. A name can lie,
+ * so the service still checks what is inside.
+ */
+function shapeOf(name: string): "csv" | "workbook" | { refusal: string } {
+  if (/\.xlsx$/i.test(name)) return "workbook";
+  if (/\.(xls|xlsm|xlsb|numbers|ods)$/i.test(name)) {
+    return { refusal: "That kind of workbook cannot be read. In your spreadsheet program choose Save As or Download and pick Excel Workbook (.xlsx) or CSV, and bring in that file." };
+  }
+  return "csv";
+}
+
+/**
  * A file, uploaded: kept as rows with its columns guessed, and nothing
- * loaded. The next page is where the owner says which column is which.
+ * loaded. The next page is where the owner says which column is which. A
+ * workbook arrives as bytes with the sheet chosen on the form; the service
+ * reads that one sheet into the same rows a CSV makes.
  */
 export async function uploadSpreadsheet(_previous: FormState, form: FormData): Promise<FormState> {
   const kind = field(form, "kind") ?? "";
   const upload = form.get("file");
   if (!rules.isImportKind(kind)) return refused(form, "Choose what the file holds.");
   if (!(upload instanceof File) || upload.size === 0) return refused(form, "Choose the file to bring in.");
-  if (/\.(xlsx|xlsm|xls|numbers|ods)$/i.test(upload.name)) {
-    return refused(form, "That is a spreadsheet workbook, not a CSV file. In your spreadsheet program choose Save As or Download, pick CSV, and bring in that file.");
-  }
+  const shape = shapeOf(upload.name);
+  if (typeof shape === "object") return refused(form, shape.refusal);
   let made: string | null = null;
   const result = await attempt(form, async () => {
     const started = await spreadsheetImports.start(await ctx(), {
-      kind, fileName: upload.name, csv: await upload.text(),
+      kind, fileName: upload.name,
+      ...(shape === "workbook"
+        ? { workbook: Buffer.from(await upload.arrayBuffer()).toString("base64"), ...(field(form, "sheet") ? { sheet: field(form, "sheet")! } : {}) }
+        : { csv: await upload.text() }),
       /** A box ticked unless the owner untick it; unticked sends nothing. */
       holdAutomations: field(form, "holdAutomations") === "1",
     });
@@ -34,6 +51,30 @@ export async function uploadSpreadsheet(_previous: FormState, form: FormData): P
   revalidatePath("/settings/imports");
   if (made) redirect(`/settings/imports/${made}`);
   return result;
+}
+
+export type Sheets =
+  | { ok: true; sheets: Array<{ name: string; rows: number | null; header: string[]; why: string | null }> }
+  | { ok: false; refusal: string };
+
+/**
+ * THE SHEETS OF A WORKBOOK, asked for as soon as one is chosen, so the form can
+ * offer them. Not a form: the page calls it with the file and answers with the
+ * list, and the workbook is sent again, with the sheet, when the form is.
+ */
+export async function readWorkbookSheets(form: FormData): Promise<Sheets> {
+  const upload = form.get("file");
+  if (!(upload instanceof File) || upload.size === 0) return { ok: false, refusal: "Choose the file to bring in." };
+  try {
+    const { sheets } = await spreadsheetImports.sheets(await ctx(), {
+      workbook: Buffer.from(await upload.arrayBuffer()).toString("base64"),
+    });
+    return { ok: true, sheets };
+  } catch (error) {
+    const said = refusalOf(error);
+    if (said === null) throw error;
+    return { ok: false, refusal: said };
+  }
 }
 
 /**
@@ -59,6 +100,24 @@ export async function saveColumns(_previous: FormState, form: FormData): Promise
     return { message: saveAs ? `Saved, and kept as "${saveAs}" for the next file like this one.` : "Saved. Every row has been read again." };
   });
   revalidatePath(`/settings/imports/${id}`);
+  return result;
+}
+
+/**
+ * FORGET A FILE. Behind a ticked box, so a stray press forgets nothing, and
+ * followed by the list with a sentence saying which kind of forgetting it was:
+ * the page cannot say it itself, because the file it was about is gone.
+ */
+export async function forgetFile(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  if (field(form, "confirm") !== "1") return refused(form, "Tick the box to say you want this file forgotten.");
+  let kept: string | null = null;
+  const result = await attempt(form, async () => {
+    const gone = await spreadsheetImports.forget(await ctx(), { id });
+    kept = gone.ran ? String(gone.loaded) : "none";
+  });
+  revalidatePath("/settings/imports");
+  if (kept) redirect(`/settings/imports?forgotten=${kept}`);
   return result;
 }
 

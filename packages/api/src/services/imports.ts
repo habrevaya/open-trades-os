@@ -8,6 +8,7 @@ import {
 } from "./context";
 import { remember, replayed } from "./once";
 import { byExternal } from "./provenance";
+import * as workbooks from "../imports/workbook";
 import { dryRun } from "../http/dry-run";
 import * as customers from "./customers";
 import * as contacts from "./contacts";
@@ -123,6 +124,7 @@ function summary(run: Run, counts: Record<Outcome, number>) {
     id: run.id,
     kind: kindOf(run),
     fileName: run.fileName,
+    sheetName: run.sheetName,
     source: run.source,
     holdAutomations: run.holdAutomations,
     status: run.status as "mapping" | "checking" | "checked" | "loading" | "finished",
@@ -361,15 +363,75 @@ function readTogether(
 
 /* --------------------------------------------------------------- upload, map */
 
+/** The most base64 text a five megabyte file can come to, with room for line breaks nobody sent. */
+const MAX_BASE64 = Math.ceil((rules.MAX_BYTES * 4) / 3) + 16;
+
+/**
+ * THE FILE, AS A HEADER AND ROWS OF TEXT, WHICHEVER WAY IT CAME.
+ *
+ * A CSV is text. A workbook is bytes (sent as base64, because the API answers
+ * in JSON) and one of its sheets is read into the same rows, so everything
+ * after this point, the mapping, the checks, the loads, is one code path for
+ * both. A row of a workbook keeps the row number it has in the spreadsheet.
+ */
+async function upload(input: {
+  csv?: string | undefined; workbook?: string | undefined; sheet?: string | undefined;
+}): Promise<{ header: string[]; rows: string[][]; numbers: number[] | null; sheet: string | null }> {
+  if (input.csv !== undefined && input.workbook !== undefined) {
+    throw new ConflictError("Send the file as a CSV or as a workbook, not both.");
+  }
+  if (input.workbook !== undefined) {
+    if (input.workbook.length > MAX_BASE64) {
+      throw new ConflictError(rules.tooBigMessage(Math.floor((input.workbook.length * 3) / 4)));
+    }
+    try {
+      const read = await workbooks.readSheet(Buffer.from(input.workbook, "base64"), input.sheet);
+      return { header: read.header, rows: read.rows, numbers: read.numbers, sheet: read.sheet };
+    } catch (error) {
+      if (error instanceof workbooks.WorkbookRefused) throw new ConflictError(error.message);
+      throw error;
+    }
+  }
+  if (input.csv === undefined) throw new ConflictError("Send the file to bring in.");
+  if (input.sheet !== undefined) throw new ConflictError("A CSV file has no sheets. Send a workbook to choose one.");
+  const file = rules.readFile(input.csv, Buffer.byteLength(input.csv, "utf8"));
+  if (!file.ok) throw new ConflictError(file.why);
+  return { header: file.header, rows: file.rows, numbers: null, sheet: null };
+}
+
+/**
+ * THE SHEETS OF A WORKBOOK, for choosing one.
+ *
+ * Each with its rows and the start of its header, and why it cannot be
+ * brought in when it cannot. Nothing is kept: the file is sent again with the
+ * sheet chosen, so there is no half uploaded file to clean up and a workbook
+ * is never stored as a workbook.
+ */
+export async function sheets(ctx: ServiceContext, input: { workbook: string }) {
+  assertCan(ctx.actor, "data:import");
+  if (input.workbook.length > MAX_BASE64) {
+    throw new ConflictError(rules.tooBigMessage(Math.floor((input.workbook.length * 3) / 4)));
+  }
+  try {
+    return { sheets: await workbooks.listSheets(Buffer.from(input.workbook, "base64")) };
+  } catch (error) {
+    if (error instanceof workbooks.WorkbookRefused) throw new ConflictError(error.message);
+    throw error;
+  }
+}
+
 export async function start(
-  ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string; holdAutomations?: boolean | undefined },
+  ctx: ServiceContext,
+  input: {
+    kind: Kind; fileName: string; csv?: string | undefined; workbook?: string | undefined; sheet?: string | undefined;
+    holdAutomations?: boolean | undefined;
+  },
 ) {
   return guardedWrite(ctx, "data:import", async (tx) => {
     const again = await replayed<{ id: string }>(tx, ctx, "import_start");
     if (again) return detail(tx, ctx, await loadRun(tx, again.id));
 
-    const file = rules.readFile(input.csv, Buffer.byteLength(input.csv, "utf8"));
-    if (!file.ok) throw new ConflictError(file.why);
+    const file = await upload(input);
 
     /**
      * A FILE SHAPED LIKE ONE BEFORE MAPS ITSELF. The newest mapping saved for
@@ -386,7 +448,8 @@ export async function start(
     const [run] = await tx.insert(schema.importRun).values({
       organizationId: ctx.actor.organizationId,
       kind: input.kind,
-      fileName: input.fileName.trim().slice(0, 300) || "spreadsheet.csv",
+      fileName: input.fileName.trim().slice(0, 300) || (file.sheet === null ? "spreadsheet.csv" : "workbook.xlsx"),
+      sheetName: file.sheet,
       source: saved?.source ?? "spreadsheet",
       dayFirst: saved?.dayFirst ?? false,
       /** On unless the owner said otherwise: a file of history is not news to text anybody about. */
@@ -403,13 +466,13 @@ export async function start(
       await tx.insert(schema.importRow).values(file.rows.slice(i, i + 1000).map((cells, j) => ({
         organizationId: ctx.actor.organizationId,
         runId: run!.id,
-        rowNumber: i + j + 2,
+        rowNumber: file.numbers?.[i + j] ?? i + j + 2,
         cells,
       })));
     }
     await reread(tx, ctx, run!);
     await audit(tx, ctx, "import.started", "import_run", run!.id, null, {
-      kind: input.kind, fileName: run!.fileName, rows: file.rows.length, mapping: saved?.name ?? null,
+      kind: input.kind, fileName: run!.fileName, sheet: file.sheet, rows: file.rows.length, mapping: saved?.name ?? null,
       holdAutomations: run!.holdAutomations,
     });
     await remember(tx, ctx, "import_start", run!.id, { id: run!.id });
@@ -829,21 +892,21 @@ async function loadOne(
 
     case "estimates": {
       /**
-       * AN ESTIMATE AS IT ENDED. One option, one line at the amount before
-       * tax, taxed at the rate its tax was charged at (or not at all: never
-       * at the company's rate of today), with how it ended and the day it
-       * was sent recorded through the create's own history fields, which
-       * emit nothing and record no signature. The total is checked against
-       * the file's afterwards, so a cent of rounding is a refusal in words
-       * rather than a quote that disagrees with the customer's copy.
+       * AN ESTIMATE AS IT ARRIVED: its options, each with its lines, taxed at
+       * the rate its tax was charged at (never the company's rate of today),
+       * with how it ended and the day it was sent recorded through the
+       * create's own history fields, which emit nothing and record no
+       * signature. The option the customer chose is the one the file names and
+       * is never guessed. What each option comes to is checked against the
+       * file's afterwards, so a cent of rounding is a refusal in words rather
+       * than a quote that disagrees with the customer's copy.
        */
       const customer = await customerFor(db, run.source, v);
       const propertyId = await propertyFor(db, customer, v["street"]);
       const jobId = v["jobRef"] !== undefined ? await jobFor(db, run.source, v["jobRef"]) : undefined;
       const number = keptNumber(v["number"]);
-      const subtotal = v["subtotal"]!;
-      const tax = v["tax"]!;
-      const taxed = !m.isZero(m.money(tax));
+      const group = together!;
+      const tax = rules.estimateTax(group.options);
       const outcome = v["outcome"] as "approved" | "declined" | "expired" | "open";
       const title = v["title"] ?? (number === undefined && v["number"] !== undefined ? `Numbered ${v["number"]} before` : undefined);
       const input = createEstimate.input.parse({
@@ -854,30 +917,44 @@ async function loadOne(
         ...(jobId ? { jobId } : {}),
         ...(title ? { title } : {}),
         issuedOn: v["issuedOn"],
-        ...(taxed ? { taxRate: rules.taxRateOf(tax, subtotal) } : { taxRateId: null }),
-        options: [{
-          name: "As quoted", isRecommended: true,
-          lines: [{ name: v["title"] ?? "As quoted", quantity: "1", unitPrice: subtotal, taxable: taxed }],
-        }],
+        ...(tax.rate !== null ? { taxRate: tax.rate } : { taxRateId: null }),
+        options: group.options.map((option, o) => ({
+          name: option.name,
+          isRecommended: option.recommended,
+          lines: option.lines.map((line, l) => {
+            const own = tax.lineRates[o]?.[l];
+            return {
+              name: line.name,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              taxable: !m.isZero(m.money(line.tax)),
+              ...(own ? { taxRate: own } : {}),
+            };
+          }),
+        })),
         ...(outcome !== "open" ? {
           outcome: {
             status: outcome, on: v["decidedOn"],
-            ...(outcome === "approved" ? { chosenOption: 0 } : {}),
+            ...(outcome === "approved" ? { chosenOption: group.options.findIndex((option) => option.chosen) } : {}),
             ...(outcome === "declined" && v["reason"] ? { reason: v["reason"] } : {}),
           },
         } : {}),
         ...(v["sentOn"] ? { sentOn: v["sentOn"] } : {}),
       });
       const estimate = await estimates.create(as, input);
-      const total = estimate.options[0]?.total ?? "0";
-      if (m.compare(m.money(total), m.money(v["total"]!)) !== 0) {
-        throw new ConflictError(
-          `Written here it comes to ${rules.trimMoney(m.toString(m.money(total)))}, not the ${rules.trimMoney(v["total"]!)} in the file. `
-          + "Check its tax: an estimate's tax is worked out from its rate.",
-        );
+      for (const option of group.options) {
+        const made = estimate.options.find((o) => o.name === option.name);
+        const total = made?.total ?? "0";
+        if (m.compare(m.money(total), m.money(option.total)) !== 0) {
+          throw new ConflictError(
+            `${group.options.length === 1 ? "Written here it" : `The option "${option.name}" written here`} comes to ${rules.trimMoney(m.toString(m.money(total)))}, `
+            + `not the ${rules.trimMoney(option.total)} in the file. Check its tax: an estimate's tax is worked out from its rate.`,
+          );
+        }
       }
       const how = outcome === "open" ? "open, to send from here" : outcome;
-      return { outcome: "loaded", recordId: estimate.id, recordLabel: `Estimate ${estimate.number}, ${how}` };
+      const many = group.options.length > 1 ? `${group.options.length} options, ` : "";
+      return { outcome: "loaded", recordId: estimate.id, recordLabel: `Estimate ${estimate.number}, ${many}${how}` };
     }
 
     case "notes": {
@@ -1164,7 +1241,8 @@ export async function check(ctx: ServiceContext, input: { id: string }): Promise
       ...(done ? { checkedAt: new Date() } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.importRun.id, run.id)).returning();
-    const answer = await progress(tx, updated!, rows.length, (c) => c.waiting > 0);
+    if (!updated) throw new NotFoundError("Spreadsheet");
+    const answer = await progress(tx, updated, rows.length, (c) => c.waiting > 0);
     if (done) await audit(tx, ctx, "import.checked", "import_run", run.id, null, answer.counts);
     await remember(tx, ctx, "import_check", run.id, answer);
     return answer;
@@ -1210,7 +1288,9 @@ export async function load(ctx: ServiceContext, input: { id: string }): Promise<
       ...(done && run.finishedAt === null ? { finishedAt: new Date() } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.importRun.id, run.id)).returning();
-    const answer = await progress(tx, updated!, before.rows.length, (c) => c.ready > 0);
+    /** Forgotten while this batch was going in: the batch is rolled back with it, so nothing is loaded from a file that is gone. */
+    if (!updated) throw new NotFoundError("Spreadsheet");
+    const answer = await progress(tx, updated, before.rows.length, (c) => c.ready > 0);
     if (results.length + refusedNow.length > 0) {
       await audit(tx, ctx, "import.batch_loaded", "import_run", run.id, null, {
         loaded: results.filter((r) => r.outcome === "loaded").length,
@@ -1259,11 +1339,53 @@ export async function refusedFile(ctx: ServiceContext, input: { id: string }) {
       .where(and(eq(schema.importRow.runId, run.id), eq(schema.importRow.outcome, "refused")))
       .orderBy(asc(schema.importRow.rowNumber));
     const base = run.fileName.replace(/\.[a-z0-9]+$/i, "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "spreadsheet";
+    const sheet = (run.sheetName ?? "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
     return {
-      fileName: `${base}-refused.csv`,
+      fileName: `${base}${sheet ? `-${sheet}` : ""}-refused.csv`,
       rows: rows.length,
       csv: rules.refusedCsv(run.header, rows.map((r) => ({ row: r.row, cells: r.cells, reason: r.reason ?? "" }))),
     };
+  });
+}
+
+/* ----------------------------------------------------------- forgetting */
+
+/**
+ * FORGET A FILE: the file and its rows go, and what it made stays.
+ *
+ * A file is kept after it is loaded so the screen can show what happened, and
+ * keeping it for ever is a customer list sitting in a table nobody can empty.
+ * Forgetting removes the file, every row of it (so the cells, which are
+ * personal data, go with it), the refused rows that could be downloaded, and
+ * nothing else. A record it loaded is not touched: it is an ordinary record
+ * now, with its `externalRef`, which is also what makes the same file brought in
+ * again skip it rather than load it twice.
+ *
+ * `ran` is whether the file was ever loaded, and the screen says which of the
+ * two it is about to do before it does it. The run is locked first, so a batch
+ * in flight finishes (and its records are counted) before the file goes, and a
+ * batch that starts after is told the file is not there.
+ *
+ * WHAT A FORGOTTEN FILE LEAVES BEHIND IS A HOLD. The events its records raised
+ * name the file (`domain_event.import_run_id`) and the workflow engine reads
+ * the file's switch through that name. With the file gone, the engine treats an
+ * event from a file it cannot find as held (workflow-runner.ts): forgetting a
+ * file must never turn automations back on for the people on it.
+ */
+export async function forget(ctx: ServiceContext, input: { id: string }) {
+  return guardedWrite(ctx, "data:import", async (tx) => {
+    const run = await loadRun(tx, input.id);
+    await tx.execute(sql`select 1 from public.import_run where id = ${run.id} for update`);
+    const counts = (await countsOf(tx, [run.id])).get(run.id)!;
+    const ran = run.status === "loading" || run.status === "finished" || counts.loaded > 0;
+    await tx.delete(schema.importRun).where(eq(schema.importRun.id, run.id));
+    await audit(tx, ctx, "import.forgotten", "import_run", run.id,
+      {
+        kind: run.kind, fileName: run.fileName, sheetName: run.sheetName, source: run.source, status: run.status,
+        rows: run.rowCount, ran, loaded: counts.loaded,
+      },
+      null);
+    return { id: run.id, removed: true as const, ran, rows: run.rowCount, loaded: counts.loaded };
   });
 }
 
@@ -1293,9 +1415,16 @@ export async function removeMapping(ctx: ServiceContext, input: { id: string }) 
 
 export const handlers = {
   listImports: (ctx: ServiceContext) => list(ctx),
-  startImport: (ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string; holdAutomations?: boolean | undefined }) =>
-    start(ctx, input),
+  startImport: (
+    ctx: ServiceContext,
+    input: {
+      kind: Kind; fileName: string; csv?: string | undefined; workbook?: string | undefined; sheet?: string | undefined;
+      holdAutomations?: boolean | undefined;
+    },
+  ) => start(ctx, input),
+  listImportSheets: (ctx: ServiceContext, input: { workbook: string }) => sheets(ctx, input),
   getImport: (ctx: ServiceContext, input: { id: string }) => get(ctx, input),
+  forgetImport: (ctx: ServiceContext, input: { id: string }) => forget(ctx, input),
   mapImport: (
     ctx: ServiceContext,
     input: {

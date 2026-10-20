@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  * `data:import`, like the toolkit's token: loading a file of invoices is
  * recording history.
  */
-export default async function ImportsPage() {
+export default async function ImportsPage({ searchParams }: { searchParams: Promise<{ forgotten?: string }> }) {
   const user = await requireSetupUser();
   if (!can(user.actor, "data:import")) {
     return (
@@ -34,6 +34,9 @@ export default async function ImportsPage() {
       </div>
     );
   }
+  const { forgotten: said } = await searchParams;
+  /** Only a count or "none" is ever shown: the address is not a place to put words on the screen. */
+  const forgotten = said === "none" || (said !== undefined && /^\d{1,7}$/.test(said)) ? said : null;
   const ctx = { actor: user.actor, db: getDb() };
   const [{ imports: runs }, { mappings }] = await Promise.all([spreadsheetImports.list(ctx), spreadsheetImports.mappings(ctx)]);
   const zone = user.organizationTimezone;
@@ -47,10 +50,23 @@ export default async function ImportsPage() {
         Bringing in the same file twice does not make copies.
       </p>
       <p className="mt-2 max-w-2xl text-sm text-ink-500">
-        CSV files only. In your spreadsheet program choose Save As or Download and pick CSV. A file can be up to 5 MB
-        and {rules.MAX_ROWS.toLocaleString("en-US")} rows. Bring in customers first: jobs, equipment and invoices are
+        A CSV file or an Excel workbook (.xlsx). A workbook with several sheets is brought in one sheet at a time, and a
+        formula comes in as the answer it shows. In your spreadsheet program choose Save As or Download to get either.
+        A file can be up to 5 MB and {rules.MAX_ROWS.toLocaleString("en-US")} rows. Bring in customers first: jobs, equipment and invoices are
         matched to them. Bring in invoices before payments: a payment is matched to the invoices it paid.
       </p>
+
+      {forgotten === "none" ? (
+        <p role="status" className="mt-4 max-w-2xl rounded-md border border-steel-200 p-3 text-sm text-ink-900">
+          File forgotten. Nothing had been loaded from it.
+        </p>
+      ) : forgotten !== null ? (
+        <p role="status" className="mt-4 max-w-2xl rounded-md border border-steel-200 p-3 text-sm text-ink-900">
+          File forgotten. {Number(forgotten) === 0
+            ? "It had made no records."
+            : `The ${Number(forgotten).toLocaleString("en-US")} ${Number(forgotten) === 1 ? "record" : "records"} it made ${Number(forgotten) === 1 ? "is" : "are"} still here.`}
+        </p>
+      ) : null}
 
       <section className="mt-6" aria-labelledby="upload">
         <h2 id="upload" className="text-base font-semibold">Upload a file</h2>
@@ -68,7 +84,7 @@ export default async function ImportsPage() {
           </>}>
             {runs.map((run) => (
               <tr key={run.id}>
-                <Td><a href={`/settings/imports/${run.id}`} className="text-blue-600 underline underline-offset-4">{run.fileName}</a></Td>
+                <Td><a href={`/settings/imports/${run.id}`} className="text-blue-600 underline underline-offset-4">{run.fileName}</a>{run.sheetName ? <span className="block text-xs text-ink-500">Sheet: {run.sheetName}</span> : null}</Td>
                 <Td>{rules.KIND_LABEL[run.kind].label}</Td>
                 <Td>{formatIn(run.createdAt, zone)}</Td>
                 <Td><Chip tone={STATUS_TONE[run.status]}>{STATUS_WORDS[run.status]}</Chip></Td>

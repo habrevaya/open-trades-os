@@ -39,6 +39,8 @@ const RunSummary = z.object({
   id: Uuid,
   kind: Kind,
   fileName: z.string(),
+  /** The sheet of a workbook the rows were read from, or null for a CSV. */
+  sheetName: z.string().nullable(),
   source: z.string(),
   /** "Do not start automations for what this file brings in". On unless turned off. */
   holdAutomations: z.boolean(),
@@ -99,12 +101,39 @@ export const listImports = defineRoute({
   output: z.object({ imports: z.array(RunSummary) }),
 });
 
+export const listImportSheets = defineRoute({
+  method: "post",
+  path: "/v1/import-sheets",
+  summary: "The sheets of a workbook, to choose one to bring in",
+  description:
+    "A workbook (.xlsx) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be brought in. Nothing is kept: send the workbook again to `POST /v1/imports` with `sheet` set to the one chosen. Formulas are never evaluated and macros are never opened.",
+  module: "M30",
+  permissions: ["data:import"],
+  /** Reading a file and keeping nothing: a retry is the same answer. */
+  idempotent: true,
+  input: z.object({
+    /** Capped well above what five megabytes comes to as base64, so a larger file is refused in words rather than by the schema. */
+    workbook: z.string().min(1).max(20_000_000),
+  }),
+  output: z.object({
+    sheets: z.array(z.object({
+      name: z.string(),
+      /** Rows under the header, or null when the sheet cannot be brought in. */
+      rows: z.number().int().nullable(),
+      /** The first columns of the header, to tell sheets apart. */
+      header: z.array(z.string()),
+      /** Why the sheet cannot be brought in, or null. */
+      why: z.string().nullable(),
+    })),
+  }),
+});
+
 export const startImport = defineRoute({
   method: "post",
   path: "/v1/imports",
-  summary: "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments or past estimates",
+  summary: "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments, past estimates, notes or visits",
   description:
-    "A CSV, as text, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds. `holdAutomations`, on unless sent false, starts no automation for anything the file brings in: every event its creates raise names the file, and the workflow engine holds them.",
+    "A CSV as `csv` (text), or a workbook as `workbook` (.xlsx, base64) with the `sheet` to read, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. A workbook with several sheets is refused until `sheet` says which (`POST /v1/import-sheets` lists them). Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds, and a formula in a workbook is read as the answer stored beside it. `holdAutomations`, on unless sent false, starts no automation for anything the file brings in: every event its creates raise names the file, and the workflow engine holds them.",
   module: "M30",
   permissions: ["data:import"],
   idempotent: true,
@@ -112,7 +141,11 @@ export const startImport = defineRoute({
     kind: Kind,
     fileName: z.string().min(1).max(300),
     /** Capped well above the five megabytes the service takes, so a file over that is refused in words rather than by the schema. */
-    csv: z.string().max(20_000_000),
+    csv: z.string().max(20_000_000).optional(),
+    /** A workbook, base64. Send this or `csv`. */
+    workbook: z.string().max(20_000_000).optional(),
+    /** The sheet of the workbook to read. Needed when it has more than one. */
+    sheet: z.string().min(1).max(200).optional(),
     /** "Do not start automations for what this file brings in". */
     holdAutomations: z.boolean().default(true),
   }),
@@ -189,6 +222,27 @@ export const getImportRefusals = defineRoute({
   output: z.object({ fileName: z.string(), rows: z.number().int(), csv: z.string() }),
 });
 
+export const forgetImport = defineRoute({
+  method: "delete",
+  path: "/v1/imports/{id}",
+  summary: "Forget an uploaded file",
+  description:
+    "Removes the file, its rows and its list of refused rows, and keeps everything it made: a record a file loaded stays exactly as it is, with where it came from, so the same file brought in again still skips it. `ran` says whether any row had been loaded or the file had been loaded at all, and `loaded` how many records it made that stay. A file that has not been run takes nothing with it. The events a file raised stay held from automations if the file said so, even though the file is gone. Forgetting is not undone: the file is uploaded again.",
+  module: "M30",
+  permissions: ["data:import"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    id: Uuid,
+    removed: z.literal(true),
+    /** The file had been loaded, wholly or in part. */
+    ran: z.boolean(),
+    /** Rows the file had. */
+    rows: z.number().int(),
+    /** Rows that became records, which stay. */
+    loaded: z.number().int(),
+  }),
+});
+
 export const listImportMappings = defineRoute({
   method: "get",
   path: "/v1/import-mappings",
@@ -222,6 +276,6 @@ export const deleteImportMapping = defineRoute({
 });
 
 export const importRoutes = {
-  listImports, startImport, getImport, mapImport, checkImport, loadImport, getImportRefusals,
+  listImports, listImportSheets, startImport, getImport, forgetImport, mapImport, checkImport, loadImport, getImportRefusals,
   listImportMappings, deleteImportMapping,
 } as const;

@@ -93,13 +93,21 @@ export async function handleEvent(
      * Raised by a row of a spreadsheet: whether that file was brought in with
      * automations held. Read off the file rather than stamped on the event,
      * so the event says only where it came from and the switch is in one
-     * place. A file is never deleted, so a missing one is not a case.
+     * place.
+     *
+     * A FILE THAT HAS BEEN FORGOTTEN (M30) IS NOT FOUND, AND NOT FOUND IS HELD.
+     * An owner can delete an uploaded file, and its records stay, along with
+     * their events. What the file said about automations went with it, and
+     * the only way to be wrong in the safe direction is to hold: a welcome text
+     * not sent to a customer brought in last week is a missed text, and one
+     * sent to every customer on a list of years ago is the thing the switch
+     * exists to prevent.
      */
     const [file] = event.importRunId && rows.length > 0
       ? await tx.select({ held: schema.importRun.holdAutomations }).from(schema.importRun)
         .where(eq(schema.importRun.id, event.importRunId)).limit(1)
       : [];
-    const heldByImport = file?.held === true;
+    const heldByImport = event.importRunId ? file?.held !== false : false;
 
     for (const { workflow, version } of rows) {
       /**

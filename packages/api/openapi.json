@@ -58985,6 +58985,135 @@
         ]
       }
     },
+    "/v1/import-sheets": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "listImportSheets",
+        "summary": "The sheets of a workbook, to choose one to bring in",
+        "description": "A workbook (.xlsx) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be brought in. Nothing is kept: send the workbook again to `POST /v1/imports` with `sheet` set to the one chosen. Formulas are never evaluated and macros are never opened.\n\nRequires a session holding: data:import.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListImportSheetsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The sheets of a workbook, to choose one to bring in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListImportSheetsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:import"
+        ]
+      }
+    },
     "/v1/imports": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -59085,8 +59214,8 @@
       },
       "post": {
         "operationId": "startImport",
-        "summary": "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments or past estimates",
-        "description": "A CSV, as text, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds. `holdAutomations`, on unless sent false, starts no automation for anything the file brings in: every event its creates raise names the file, and the workflow engine holds them.\n\nRequires a session holding: data:import.",
+        "summary": "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments, past estimates, notes or visits",
+        "description": "A CSV as `csv` (text), or a workbook as `workbook` (.xlsx, base64) with the `sheet` to read, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. A workbook with several sheets is refused until `sheet` says which (`POST /v1/import-sheets` lists them). Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds, and a formula in a workbook is read as the answer stored beside it. `holdAutomations`, on unless sent false, starts no automation for anything the file brings in: every event its creates raise names the file, and the workflow engine holds them.\n\nRequires a session holding: data:import.",
         "tags": [
           "M30"
         ],
@@ -59113,7 +59242,7 @@
         },
         "responses": {
           "201": {
-            "description": "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments or past estimates",
+            "description": "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments, past estimates, notes or visits",
             "content": {
               "application/json": {
                 "schema": {
@@ -59208,10 +59337,124 @@
       }
     },
     "/v1/imports/{id}": {
-      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: DELETE, GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
+        "DELETE",
         "GET"
       ],
+      "delete": {
+        "operationId": "forgetImport",
+        "summary": "Forget an uploaded file",
+        "description": "Removes the file, its rows and its list of refused rows, and keeps everything it made: a record a file loaded stays exactly as it is, with where it came from, so the same file brought in again still skips it. `ran` says whether any row had been loaded or the file had been loaded at all, and `loaded` how many records it made that stay. A file that has not been run takes nothing with it. The events a file raised stay held from automations if the file said so, even though the file is gone. Forgetting is not undone: the file is uploaded again.\n\nRequires a session holding: data:import.",
+        "tags": [
+          "M30"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgetImportInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Forget an uploaded file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgetImportOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "data:import"
+        ]
+      },
       "get": {
         "operationId": "getImport",
         "summary": "One spreadsheet: its columns, the first rows as they will land, and every row refused or skipped and why",
@@ -182481,6 +182724,41 @@
           "setupCompletedAt"
         ]
       },
+      "ForgetImportInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ForgetImportOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "ran": {
+            "type": "boolean"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "loaded": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "removed",
+          "ran",
+          "rows",
+          "loaded"
+        ]
+      },
       "GetAccountingRunOutput": {
         "type": "object",
         "properties": {
@@ -195594,6 +195872,12 @@
           "fileName": {
             "type": "string"
           },
+          "sheetName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source": {
             "type": "string"
           },
@@ -195814,6 +196098,7 @@
           "id",
           "kind",
           "fileName",
+          "sheetName",
           "source",
           "holdAutomations",
           "status",
@@ -229238,6 +229523,62 @@
           "mappings"
         ]
       },
+      "ListImportSheetsInput": {
+        "type": "object",
+        "properties": {
+          "workbook": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000000
+          }
+        },
+        "required": [
+          "workbook"
+        ]
+      },
+      "ListImportSheetsOutput": {
+        "type": "object",
+        "properties": {
+          "sheets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "header": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "why": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "rows",
+                "header",
+                "why"
+              ]
+            }
+          }
+        },
+        "required": [
+          "sheets"
+        ]
+      },
       "ListImportsOutput": {
         "type": "object",
         "properties": {
@@ -229266,6 +229607,12 @@
                 },
                 "fileName": {
                   "type": "string"
+                },
+                "sheetName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "source": {
                   "type": "string"
@@ -229336,6 +229683,7 @@
                 "id",
                 "kind",
                 "fileName",
+                "sheetName",
                 "source",
                 "holdAutomations",
                 "status",
@@ -246741,6 +247089,12 @@
           "fileName": {
             "type": "string"
           },
+          "sheetName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source": {
             "type": "string"
           },
@@ -246961,6 +247315,7 @@
           "id",
           "kind",
           "fileName",
+          "sheetName",
           "source",
           "holdAutomations",
           "status",
@@ -283594,6 +283949,15 @@
             "type": "string",
             "maxLength": 20000000
           },
+          "workbook": {
+            "type": "string",
+            "maxLength": 20000000
+          },
+          "sheet": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
           "holdAutomations": {
             "type": "boolean",
             "default": true
@@ -283601,8 +283965,7 @@
         },
         "required": [
           "kind",
-          "fileName",
-          "csv"
+          "fileName"
         ]
       },
       "StartImportOutput": {
@@ -283628,6 +283991,12 @@
           },
           "fileName": {
             "type": "string"
+          },
+          "sheetName": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source": {
             "type": "string"
@@ -283849,6 +284218,7 @@
           "id",
           "kind",
           "fileName",
+          "sheetName",
           "source",
           "holdAutomations",
           "status",
