@@ -449,7 +449,7 @@ for every period not yet billed.
 A rise applied after the anniversary reaches only the periods not yet billed, so
 a month from the anniversary that the worker had already billed at the old fee
 keeps its invoice. Applying it says how many there are (`billedAtOldFee` on `POST
-/v1/contracts/{contractId}/escalation`, and in the message under the button), and
+/v1/contracts/{contractId}/escalation`), and
 under **Billed on a schedule** the contract's page lists them as **Billed before
 the rise was applied**: each period, what it was billed and on which invoice,
 what the risen fee makes it, and what it is short (`differences` on `GET

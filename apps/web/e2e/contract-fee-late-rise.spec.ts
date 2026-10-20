@@ -46,7 +46,8 @@ test("a fee rise applied late offers each short period as a draft invoice, never
   await expect(fee.getByRole("status").filter({ hasText: "12 invoices raised." })).toBeVisible();
   await owner.reload();
   await fee.getByRole("button", { name: "Raise what is owed now" }).click();
-  await expect(fee.getByRole("status").filter({ hasText: /raised\./ })).toBeVisible();
+  /** Nothing is owed once the rest is raised, so the button goes. */
+  await expect(fee.getByRole("button", { name: "Raise what is owed now" })).toHaveCount(0);
 
   const rise = owner.getByRole("region", { name: "Annual escalation" });
   await rise.getByText("Rises that differ by year, card or trade").click();
@@ -60,8 +61,7 @@ test("a fee rise applied late offers each short period as a draft invoice, never
   await expect(table).toContainText("1,250.00");
   await expect(table).toContainText("50.00 more, Every year, the fixed fee");
   await rise.getByRole("button", { name: "Apply year 2 prices" }).click();
-  await expect(rise.getByRole("status")).toContainText("2 periods from");
-  await expect(rise.getByRole("status")).toContainText("Nothing is billed for it unless you ask.");
+  await expect(rise).toContainText(`Last risen on ${anniversary}.`);
 
   await owner.reload();
   const late = owner.getByRole("region", { name: "Billed before the rise" });
@@ -118,10 +118,12 @@ test("the rate card editor edits more than six hourly rates at a time", async ({
   await row(4, "standard", 1, "95.00");
   await row(5, "after_hours", 1, "125.00");
   await card.getByRole("button", { name: "Save the card's rules" }).click();
-  await expect(card.getByRole("status")).toContainText("Saved.");
+  /** Once a card has rates its rules fold away, so the page coming back with them folded is the save. */
+  await expect(card.locator('input[name="rate0"]')).toBeHidden();
 
   /** Six saved and two empty rows. A seventh is typed into the first empty one, and every row is kept. */
   await owner.reload();
+  await card.getByText("Labour rates, markup and hours").click();
   await expect(card.locator('input[name="rate7"]')).toHaveValue("");
   await row(6, "weekend", 1, "135.00");
   await card.getByRole("button", { name: "Save the card's rules" }).click();
