@@ -208,44 +208,75 @@ export function shutAllDayWhy(hours: readonly DayHours[], holidays: readonly Fac
 
 /** What `routing.pickFacility` says about a run, as far as the words need it. */
 export interface FacilityChoiceFacts {
-  basis: "only_one" | "nearest_open" | "opens_soonest" | "none_open";
+  basis: "only_one" | "nearest_open" | "opens_soonest" | "cheapest_open" | "none_open";
   driveMinutes: number;
   others: readonly {
     key: string; driveMinutes: number;
-    standing: "open" | "opens_later" | "closed_by_then" | "closed_all_day";
+    standing: "open" | "opens_later" | "closed_by_then" | "closed_all_day" | "does_not_take";
     opensAt: number | null; closesAt: number | null;
+    refuses?: readonly string[] | undefined; feeCents?: number | undefined;
   }[];
+  feeCents?: number | undefined;
+  fees?: { weighed: true; hourCents: number } | { weighed: false; why: "no_hour_cost" }
+    | { weighed: false; why: "fee_unknown"; unknown: readonly string[] } | undefined;
+  notTaken?: readonly string[] | undefined;
+}
+
+/** "yard waste", "yard waste and tyres", "brush, tyres and concrete". */
+function listWords(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
 /**
  * WHY A HAUL GOES WHERE IT GOES, in a dispatcher's words: which facility, how
  * far, and what was passed over and for what reason. A day's plan that sent a
  * can to a farther landfill with no reason given would be taken for a mistake.
+ * When the fee was weighed it says each one's fee; when it could not be, it
+ * says why, so nobody reads a choice by time as a choice by price.
  */
 export function chosenWords(
   name: string, choice: FacilityChoiceFacts,
   describe: (key: string) => { name: string; shutWhy: string | null },
 ): string {
   const drive = `${Math.max(0, Math.round(choice.driveMinutes))} min by road`;
-  const head = {
-    only_one: `${name} is the only facility on the map, ${drive}.`,
-    nearest_open: `${name} is the nearest one open when the truck gets there, ${drive}.`,
-    opens_soonest: `None is open yet when the truck gets there. ${name} opens first, ${drive}, so the truck waits at its gate.`,
-    none_open: `Every facility is shut when the truck would get there. ${name} is the nearest, ${drive}, so the run is refused.`,
-  }[choice.basis];
+  const fee = choice.feeCents !== undefined ? `, ${centsWords(choice.feeCents)} to tip` : "";
+  const notTaken = choice.notTaken && choice.notTaken.length > 0 ? choice.notTaken : null;
+  const head = notTaken
+    ? `No facility on the map takes everything on the truck. ${name} is the nearest, ${drive}, and does not take ${listWords(notTaken)}, so the run is refused.`
+    : {
+      only_one: `${name} is the only facility on the map, ${drive}.`,
+      nearest_open: `${name} is the nearest one open when the truck gets there, ${drive}${fee}.`,
+      opens_soonest: `None is open yet when the truck gets there. ${name} opens first, ${drive}${fee}, so the truck waits at its gate.`,
+      cheapest_open: `${name} costs the least all told${fee}, ${drive}.`,
+      none_open: `Every facility is shut when the truck would get there. ${name} is the nearest, ${drive}, so the run is refused.`,
+    }[choice.basis];
+  const weighed = choice.fees?.weighed === true;
   const passed = choice.others.flatMap((o) => {
     const who = describe(o.key);
+    if (o.standing === "does_not_take") {
+      return notTaken ? [] : [`${who.name} does not take ${listWords(o.refuses ?? [])}.`];
+    }
     if (o.standing === "closed_all_day") return [`${who.name} is ${who.shutWhy ?? "closed that day"}.`];
     if (o.standing === "closed_by_then") {
       return [`${who.name} would be closed by then${o.closesAt !== null ? ` (it closes at ${clockWords(o.closesAt)})` : ""}.`];
+    }
+    if (weighed && o.feeCents !== undefined) {
+      return [`${who.name} is ${Math.max(0, Math.round(o.driveMinutes))} min by road and would charge ${centsWords(o.feeCents)}.`];
     }
     if (o.standing === "opens_later" && choice.basis !== "opens_soonest") {
       return [`${who.name} does not open until ${o.opensAt !== null ? clockWords(o.opensAt) : "later"}.`];
     }
     return [];
   });
-  const fartherOpen = choice.basis === "nearest_open" && choice.others.some((o) => o.standing === "open");
-  return [head, ...passed, ...(fartherOpen ? ["The others are farther."] : [])].join(" ");
+  const fartherOpen = choice.basis === "nearest_open" && !weighed && choice.others.some((o) => o.standing === "open");
+  const tail = !choice.fees ? []
+    : choice.fees.weighed
+      ? [`Fees are weighed beside time, at ${centsWords(choice.fees.hourCents)} an hour of the truck.`]
+      : choice.fees.why === "no_hour_cost"
+        ? ["Fees are not weighed, because what an hour of the truck costs is not set under Collections and the truck."]
+        : [`Fees are not weighed, because ${listWords(choice.fees.unknown.map((k) => describe(k).name))} cannot say what this load would cost.`];
+  return [head, ...passed, ...(fartherOpen ? ["The others are farther."] : []), ...tail].join(" ");
 }
 
 /* ---------------------------------------------------------------------- fee */
@@ -291,4 +322,152 @@ export function disposalFee(rate: FacilityRate | null, tons: string | null): Fee
   let why = `${weight} ton${weight === 1 ? "" : "s"} at ${m.toString(m.money(rate.amount))} a ton`;
   if (floor !== null && m.isNegative(m.subtract(fee, floor))) { fee = m.round(floor, 2); why = "the facility's minimum for a load"; }
   return { ok: true, fee: m.toString(fee), why };
+}
+
+/* ------------------------------------------------------- what it takes, by material */
+
+/**
+ * WHAT A FACILITY TAKES, AND WHAT IT CHARGES FOR EACH.
+ *
+ * A landfill takes mixed debris and refuses tyres; a green waste yard takes
+ * brush and nothing else; a concrete crusher takes rubble and charges by the
+ * load. A truck sent to a facility that turns its load away has driven there
+ * for nothing, so a facility can list the materials it takes, each with its
+ * own rate when it has one.
+ *
+ * AN EMPTY LIST IS "NOT RECORDED", NOT "TAKES NOTHING". The same rule as the
+ * hours: a planner that left out every facility whose materials nobody typed
+ * would stop working the day somebody adds the first one. A material with no
+ * rate of its own is charged at the facility's general rate.
+ *
+ * Material names are compared with case and spacing ignored, so "Yard waste"
+ * on the facility and "yard  waste" on a hire are the same thing; anything
+ * else is a different material, and nothing guesses that "brush" is yard
+ * waste.
+ */
+export interface FacilityMaterial {
+  /** The material as the company names it: "Yard waste". */
+  material: string;
+  /** What it is charged by, when it has a rate of its own. */
+  feeBasis: FeeBasis | null;
+  /** Per ton or per load, as a decimal string. */
+  feeAmount: string | null;
+}
+
+/** A material's name as it is compared: case and spacing ignored. */
+export const materialKey = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, " ");
+
+const AMOUNT = /^\d+(\.\d{1,4})?$/;
+
+/**
+ * The list as typed, checked: a name each, no material twice, a rate that has
+ * both what it is charged by and how much, and at most forty. The sentence
+ * names the material that is wrong.
+ */
+export function checkMaterials(input: readonly FacilityMaterial[]):
+  { ok: true; materials: FacilityMaterial[] } | { ok: false; message: string } {
+  if (input.length > 40) return { ok: false, message: "A facility can list up to 40 materials." };
+  const seen = new Set<string>();
+  const cleaned: FacilityMaterial[] = [];
+  for (const entry of input) {
+    const material = entry.material.trim().replace(/\s+/g, " ");
+    if (material === "") return { ok: false, message: "Each material it takes needs a name, like Yard waste." };
+    if (material.length > 100) return { ok: false, message: `${material.slice(0, 40)}: a material's name is at most 100 letters.` };
+    if (seen.has(materialKey(material))) return { ok: false, message: `${material} is listed twice.` };
+    seen.add(materialKey(material));
+    if ((entry.feeBasis === null) !== (entry.feeAmount === null)) {
+      return { ok: false, message: `${material}: a rate needs both what it is charged by (a ton or a load) and how much.` };
+    }
+    if (entry.feeAmount !== null && !AMOUNT.test(entry.feeAmount)) {
+      return { ok: false, message: `${material}: the rate is an amount of money, like 38.00.` };
+    }
+    cleaned.push({
+      material, feeBasis: entry.feeBasis,
+      feeAmount: entry.feeAmount === null ? null : m.toString(m.money(entry.feeAmount)),
+    });
+  }
+  return { ok: true, materials: cleaned };
+}
+
+/** Whether a facility takes a material. A load of no known material, or a facility whose list nobody recorded, is never turned away. */
+export function takesMaterial(materials: readonly FacilityMaterial[], material: string | null): boolean {
+  if (material === null || materialKey(material) === "" || materials.length === 0) return true;
+  return materials.some((entry) => materialKey(entry.material) === materialKey(material));
+}
+
+/**
+ * The rate a load of a material is charged at: its own, when the facility
+ * lists one for it, otherwise the facility's general rate. The facility's
+ * minimum applies to any load either way.
+ */
+export function rateForMaterial(
+  materials: readonly FacilityMaterial[], general: FacilityRate | null, material: string | null,
+): FacilityRate | null {
+  const own = material === null ? undefined
+    : materials.find((entry) => materialKey(entry.material) === materialKey(material));
+  if (own && own.feeBasis !== null && own.feeAmount !== null) {
+    return { basis: own.feeBasis, amount: own.feeAmount, minimum: general?.minimum ?? null };
+  }
+  return general;
+}
+
+/**
+ * What a facility would charge to tip some full cans, each a load of its own
+ * material and expected weight, in cents. Not ok, with the reason, when any
+ * one of them cannot be worked out: a fee that leaves a can out is not the
+ * fee, and comparing it with another facility's would favour the one that
+ * knows less.
+ */
+export function feeForLoads(
+  materials: readonly FacilityMaterial[], general: FacilityRate | null,
+  loads: readonly { material: string | null; tons: string | null }[],
+): { ok: true; cents: number } | { ok: false; why: string } {
+  let total = m.zero();
+  for (const load of loads) {
+    const verdict = disposalFee(rateForMaterial(materials, general, load.material), load.tons);
+    if (!verdict.ok) return { ok: false, why: verdict.why };
+    total = m.add(total, m.money(verdict.fee));
+  }
+  return { ok: true, cents: Number(m.round(total, 2).amount / 100n) };
+}
+
+/** Cents as money in words: 12050 is "120.50". */
+export function centsWords(cents: number): string {
+  const whole = Math.trunc(Math.abs(cents) / 100);
+  const part = Math.abs(cents) % 100;
+  return `${cents < 0 ? "-" : ""}${whole.toLocaleString("en-US")}.${String(part).padStart(2, "0")}`;
+}
+
+/** One line of the list in words: "Yard waste, 38.00 a ton", or the name alone when it is charged the general rate. */
+export function materialLine(entry: FacilityMaterial): string {
+  if (entry.feeBasis === null || entry.feeAmount === null) return entry.material;
+  return `${entry.material}, ${Number(entry.feeAmount).toFixed(2)} ${entry.feeBasis === "per_ton" ? "a ton" : "a load"}`;
+}
+
+/**
+ * The list as a person types it, one material a line: "Yard waste", or
+ * "Yard waste, 38.00 a ton", or "Concrete, 120 a load". A line that is not
+ * that shape is refused with how to write it, never read as a guess.
+ */
+export function parseMaterialLines(text: string):
+  { ok: true; materials: FacilityMaterial[] } | { ok: false; message: string } {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const parsed: FacilityMaterial[] = [];
+  for (const line of lines) {
+    const priced = /^(.*?)[,:]\s*\$?(\d+(?:\.\d{1,4})?)\s*(?:a|per|\/)\s*(ton|load)s?\.?$/i.exec(line);
+    if (priced) {
+      parsed.push({
+        material: priced[1]!, feeBasis: priced[3]!.toLowerCase() === "ton" ? "per_ton" : "per_load", feeAmount: priced[2]!,
+      });
+      continue;
+    }
+    if (/\d/.test(line) && /[,:]/.test(line)) {
+      return {
+        ok: false,
+        message: `"${line}" is not a material and a rate. Write it as Yard waste, 38.00 a ton, or Concrete, 120 a load, or the name alone.`,
+      };
+    }
+    parsed.push({ material: line, feeBasis: null, feeAmount: null });
+  }
+  return checkMaterials(parsed);
 }

@@ -19,8 +19,10 @@ export const dynamic = "force-dynamic";
  * red (with the word as well as the colour), and who is booked on each
  * phase, read from the visits on its jobs. The sentence at the top is
  * core's: when the job finishes and how many phases decide that. Somebody
- * booked on two phases that run at once is marked on the timeline and
- * named under it; the schedule never moves them.
+ * booked on two phases that run at once (a crew's members counted through
+ * the crew) is marked on the timeline and named under it, and somebody on two
+ * visits in overlapping hours is named with what could be done instead; the
+ * schedule never moves anybody.
  */
 export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireSetupUser();
@@ -66,6 +68,24 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
         }))}
       />
 
+      {schedule.visitClashes.length > 0 && (
+        <section className="mt-6 rounded-md border border-amber-700 bg-amber-tint p-3 text-sm text-ink-900" aria-labelledby="two-visits">
+          <h2 id="two-visits" className="font-medium">On two visits at once</h2>
+          <ul className="mt-1 space-y-2">
+            {schedule.visitClashes.map((clash) => (
+              <li key={`${clash.technicianId}-${clash.visitId}-${clash.otherVisitId}`}>
+                <p>{clash.statement}</p>
+                <ul className="mt-1 list-disc pl-5 text-ink-700">
+                  {clash.suggestions.map((line) => <li key={line}>{line}</li>)}
+                </ul>
+                <a href={`/visits/${clash.visitId}`} className="text-xs underline underline-offset-4">Open the visit</a>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-ink-700">These are suggestions. Nobody has been moved: change who goes, or the day, on the dispatch board.</p>
+        </section>
+      )}
+
       <h2 className="mt-8 text-base font-semibold">Phases and who is booked</h2>
       <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
         {schedule.phases.map((phase) => (
@@ -77,6 +97,7 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
               </Chip>
               {phase.critical && <Chip tone="danger">Critical path</Chip>}
               {phase.clashes.length > 0 && <Chip tone="warning">Booked twice</Chip>}
+              {schedule.visitClashes.some((c) => c.phaseId === phase.id) && <Chip tone="warning">Two visits at once</Chip>}
               {phase.overlapsPredecessor && <Chip tone="warning">Starts before {names.get(phase.dependsOnPhaseId ?? "") ?? "the phase it waits for"} ends</Chip>}
             </div>
             <p className="mt-1 text-sm text-ink-700">

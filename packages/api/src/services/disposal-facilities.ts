@@ -31,6 +31,11 @@ import { placePin, clearPin } from "./geocoding";
  * calendar of public holidays is assumed, because a transfer station keeps its
  * own.
  *
+ * WHAT IT TAKES IS A LIST ON THE FACILITY, each material with its own rate
+ * when it has one. A facility that lists what it takes is not sent a can of
+ * anything else, and the planner weighs each one's fee for the load beside the
+ * drive. An empty list is not recorded, which never turns a load away.
+ *
  * A FACILITY IS CLOSED, NEVER DELETED. Every haul that went there keeps
  * pointing at it, and the scale ticket reconciliation is against its name.
  */
@@ -47,6 +52,8 @@ export interface FacilityInput {
   feeBasis?: rt.FeeBasis | null | undefined;
   feeAmount?: string | null | undefined;
   minimumFee?: string | null | undefined;
+  /** What it takes, each with its own rate or none. Empty is not recorded. */
+  materials?: rt.FacilityMaterial[] | undefined;
   tipMinutes?: number | undefined;
   isDefault?: boolean | undefined;
   notes?: string | null | undefined;
@@ -85,6 +92,10 @@ export interface FacilityView {
   minimumFee: string | null;
   /** The rate in words, for a screen: "62.50 a ton, at least 40.00". */
   feeText: string;
+  /** What it takes, each with its own rate or none. Empty when nobody recorded it. */
+  materials: rt.FacilityMaterial[];
+  /** The same in words: "Takes Yard waste, 38.00 a ton; Concrete, 120.00 a load", or that it is not recorded. */
+  materialsText: string;
   tipMinutes: number;
   isDefault: boolean;
   active: boolean;
@@ -113,6 +124,10 @@ export const viewOf = (row: Row): FacilityView => ({
   hours: row.hours, hoursText: rt.hoursWords(row.hours), holidays: row.holidays,
   feeBasis: row.feeBasis, feeAmount: row.feeAmount, minimumFee: row.minimumFee,
   feeText: feeText(row),
+  materials: row.materials,
+  materialsText: row.materials.length === 0
+    ? "What it takes is not recorded"
+    : `Takes ${row.materials.map(rt.materialLine).join("; ")}`,
   tipMinutes: row.tipMinutes, isDefault: row.isDefault, active: row.active, notes: row.notes,
 });
 
@@ -148,6 +163,8 @@ function checked(input: FacilityInput, before?: Row) {
   if (minimum !== null && basis === null) {
     throw new ConflictError("A minimum charge belongs to a rate. Give the rate first.");
   }
+  const listed = rt.checkMaterials(input.materials !== undefined ? input.materials : before?.materials ?? []);
+  if (!listed.ok) throw new ConflictError(listed.message);
   const tip = input.tipMinutes ?? before?.tipMinutes ?? 20;
   if (!Number.isInteger(tip) || tip < 0 || tip > 180) {
     throw new ConflictError("Time at the facility is between none and three hours.");
@@ -156,7 +173,7 @@ function checked(input: FacilityInput, before?: Row) {
     value === undefined ? kept ?? null : value?.trim() || null;
   return {
     name, hours: verdict.hours, holidays: closures.holidays, feeBasis: basis, feeAmount: amount === null ? null : m.toString(m.money(amount)),
-    minimumFee: minimum === null ? null : m.toString(m.money(minimum)), tipMinutes: tip,
+    minimumFee: minimum === null ? null : m.toString(m.money(minimum)), tipMinutes: tip, materials: listed.materials,
     addressLine1: text(input.addressLine1, before?.addressLine1), addressLine2: text(input.addressLine2, before?.addressLine2),
     city: text(input.city, before?.city), state: text(input.state, before?.state), postalCode: text(input.postalCode, before?.postalCode),
     notes: text(input.notes, before?.notes),
@@ -312,8 +329,14 @@ export interface FeeFigure {
  */
 export async function feeFigure(
   tx: Database, ctx: ServiceContext,
-  hire: { disposalFee: string | null; disposalFacilityId: string | null; disposalFacility: string | null; weightTons: string | null },
+  hire: {
+    disposalFee: string | null; disposalFacilityId: string | null; disposalFacility: string | null; weightTons: string | null;
+    materialType?: string | null | undefined; cameBackEmptyAt?: Date | null | undefined;
+  },
 ): Promise<{ ok: true; figure: FeeFigure } | { ok: false; why: string }> {
+  if (hire.disposalFee === null && hire.cameBackEmptyAt) {
+    return { ok: false, why: "The can came back empty, so nothing was tipped and there is no disposal fee. Leave it off." };
+  }
   if (hire.disposalFee !== null) {
     return {
       ok: true,
@@ -324,9 +347,27 @@ export async function feeFigure(
     return { ok: false, why: "No fee is recorded on the haul and it names no recorded facility, so there is no rate to work one out from." };
   }
   const facility = await facilityWithin(tx, ctx, hire.disposalFacilityId);
-  const verdict = rt.disposalFee(rateOf(facility), hire.weightTons);
+  /** A material the facility prices on its own is charged at that rate, as the facility's invoice will be. */
+  const verdict = rt.disposalFee(rt.rateForMaterial(facility.materials, rateOf(facility), hire.materialType ?? null), hire.weightTons);
   if (!verdict.ok) return { ok: false, why: verdict.why };
   return { ok: true, figure: { amount: verdict.fee, source: "worked_out", why: verdict.why, facility: facility.name } };
+}
+
+/**
+ * A facility as the day's planner weighs it: the materials it takes, as keys,
+ * and what it would charge for the full cans on a truck, in cents, or null
+ * when that cannot be worked out (no rate for one of them, or a can charged by
+ * the ton with no expected weight).
+ */
+export function planTerms(row: Pick<Row, "materials" | "feeBasis" | "feeAmount" | "minimumFee">) {
+  const general = rateOf(row);
+  return {
+    takes: row.materials.map((entry) => rt.materialKey(entry.material)),
+    fee: (cargo: readonly { material: string | null; tons: string | null }[]) => {
+      const verdict = rt.feeForLoads(row.materials, general, cargo);
+      return verdict.ok ? verdict.cents : null;
+    },
+  };
 }
 
 /** A facility is a pin on the map, the same pin a property has. */

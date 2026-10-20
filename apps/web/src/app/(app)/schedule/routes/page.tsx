@@ -59,6 +59,9 @@ export default async function RoutesPage(
   /** A date to ask the fit for, rather than the weekday's template. */
   const asked = one("on");
   const on = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : undefined;
+  /** "What if I add this customer": the minutes a new stop would take, asked with the date. */
+  const adding = Number(one("adding") ?? "");
+  const addingStopOfMinutes = Number.isInteger(adding) && adding > 0 && adding <= 1440 ? adding : undefined;
 
   const all = await routes.list(ctx);
   const writes = can(user.actor, "job:write");
@@ -72,9 +75,10 @@ export default async function RoutesPage(
   /** A date on another weekday than the route's is refused in words, and the template is shown with the refusal. */
   const refused: { message: string | null } = { message: null };
   const fitFor = async (id: string) => {
-    if (!on) return routes.density(ctx, { id });
+    const extra = addingStopOfMinutes ? { addingStopOfMinutes } : {};
+    if (!on) return routes.density(ctx, { id, ...extra });
     try {
-      return await routes.density(ctx, { id, on });
+      return await routes.density(ctx, { id, on, ...extra });
     } catch (error) {
       if (!(error instanceof ConflictError)) throw error;
       refused.message = error.message;
@@ -182,6 +186,15 @@ export default async function RoutesPage(
             <input type="hidden" name="route" value={route.id} />
             <label className="text-xs text-ink-500">Check a date
               <input name="on" type="date" defaultValue={on ?? ""} className={`mt-1 block ${input}`} />
+            </label>
+            {/*
+              The question as it is asked: what if this customer goes on that
+              day. Counted against the day as it is, the visits already on it
+              and the servicer's own hours and leave.
+            */}
+            <label className="text-xs text-ink-500">Minutes for a new stop
+              <input name="adding" type="number" min={1} max={1440} defaultValue={addingStopOfMinutes ?? ""}
+                     placeholder="None" className={`mt-1 block w-28 ${input}`} />
             </label>
             <button type="submit" className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 text-sm hover:bg-steel-100">
               Check this date

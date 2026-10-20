@@ -27,6 +27,12 @@ import { remember, replayed } from "./once";
  *   moment its full can was emptied (`tipped_at`), from the driver's phone or
  *   typed by the office when the ticket arrives.
  *
+ *   A CAN THAT CAME BACK EMPTY. A customer who put nothing in it leaves no
+ *   tip to record, and none will come. The office marks the haul with the
+ *   moment it was collected (`came_back_empty_at`), and the turnaround runs
+ *   from there. A haul cannot be both: a tip time or a scale ticket on it
+ *   says it was not empty.
+ *
  *   THE HOLDS. Out of service was the can's state today, with no history. A
  *   repair and a customer hold are now periods with a start and an end
  *   (`container_hold`), so last month's figure can still tell a welder from a
@@ -127,14 +133,16 @@ export async function assertPlacedAfterTip(tx: Database, input: {
   assetId: string; placedAt: Date; timeKnown: boolean; zone: string; except: string | null;
 }) {
   const before = await haulBefore(tx, input.assetId, input.placedAt, input.except);
-  if (!before?.tippedAt) return;
+  /** A can that came back empty was ready when it was collected, the same as one emptied at the facility. */
+  const ready = before?.tippedAt ?? before?.cameBackEmptyAt ?? null;
+  if (!ready) return;
   const late = input.timeKnown
-    ? before.tippedAt.getTime() > input.placedAt.getTime()
-    : time.dateIn(before.tippedAt, input.zone) > time.dateIn(input.placedAt, input.zone);
+    ? ready.getTime() > input.placedAt.getTime()
+    : time.dateIn(ready, input.zone) > time.dateIn(input.placedAt, input.zone);
   if (!late) return;
   throw new ConflictError(
-    `${await containerLabel(tx, input.assetId)} was recorded emptied at the facility at `
-    + `${when(before.tippedAt, input.zone)}, after this delivery. A can is emptied before it goes out `
+    `${await containerLabel(tx, input.assetId)} was recorded ${before?.tippedAt ? "emptied at the facility" : "collected empty"} at `
+    + `${when(ready, input.zone)}, after this delivery. A can ${before?.tippedAt ? "is emptied" : "comes back"} before it goes out `
     + "again: correct one of the two times.",
   );
 }
@@ -184,6 +192,12 @@ export async function recordTipWithin(
 ) {
   const hire = await hireWithin(tx, ctx, input.id);
   const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  if (input.tippedAt && hire.cameBackEmptyAt) {
+    throw new ConflictError(
+      `That can is recorded as coming back empty at ${when(hire.cameBackEmptyAt, zone)}, so there was nothing to tip. `
+      + "Take that mark off first if it was full.",
+    );
+  }
   if (input.tippedAt) await assertTipFits(tx, hire, input.tippedAt, zone);
   if ((hire.tippedAt?.getTime() ?? null) === (input.tippedAt?.getTime() ?? null)) return hire;
   const [row] = await tx.update(schema.rental)
@@ -201,6 +215,78 @@ export function recordTip(ctx: ServiceContext, input: { id: string; tippedAt: st
       id: input.id, tippedAt: input.tippedAt === null ? null : instant(input.tippedAt, "That tip time"), source: "office",
     });
     return { id: row.id, tippedAt: row.tippedAt?.toISOString() ?? null };
+  });
+}
+
+/* ------------------------------------------------------- came back empty */
+
+/**
+ * Mark a collected haul as having come back empty, at the moment it was
+ * collected, or take the mark off (null). On the collection's day, because the
+ * day is what the hire billed and an hour cannot move it; not still to come;
+ * and not after the can was already on its next site. Refused for a haul with
+ * a tip time or anything from a scale ticket on it, because then it was not
+ * empty, and before the collection is recorded, because an empty can on a
+ * site is still a hire.
+ */
+export async function recordEmptyWithin(
+  tx: Database, ctx: ServiceContext, input: { id: string; at: Date | null },
+) {
+  const hire = await hireWithin(tx, ctx, input.id);
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  if (input.at) {
+    if (hire.pickedUpAt === null) {
+      throw new ConflictError("That can is still on its site. Record the collection first, then that it came back empty.");
+    }
+    if (hire.tippedAt) {
+      throw new ConflictError(
+        `That load was recorded emptied at the facility at ${when(hire.tippedAt, zone)}, so it did not come back empty. `
+        + "Clear the time emptied first if that was a mistake.",
+      );
+    }
+    if (hire.disposalTicketNumber || (hire.weightTons !== null && Number(hire.weightTons) > 0) || hire.disposalFee !== null) {
+      throw new ConflictError(
+        "That haul has a scale ticket, a weight or a disposal fee on it, so it did not come back empty. Correct the ticket first.",
+      );
+    }
+    notYet(input.at, "That time");
+    if (time.dateIn(input.at, zone) !== time.dateIn(hire.pickedUpAt, zone)) {
+      throw new ConflictError(
+        `The collection is recorded on ${dayWords(hire.pickedUpAt, zone)}. The time it came back empty is on that day; `
+        + "the day is what the hire billed, and a time cannot move it.",
+      );
+    }
+    if (hire.deliveredAt && input.at.getTime() < hire.deliveredAt.getTime()) {
+      throw new ConflictError(`That is before the can was delivered (${dayWords(hire.deliveredAt, zone)}).`);
+    }
+    const next = await placementAfter(tx, hire);
+    if (next?.deliveredAt) {
+      const late = next.deliveredTimeKnown
+        ? input.at.getTime() > next.deliveredAt.getTime()
+        : time.dateIn(input.at, zone) > time.dateIn(next.deliveredAt, zone);
+      if (late) {
+        throw new ConflictError(
+          `${await containerLabel(tx, hire.assetId)} was on its next site `
+          + `${next.deliveredTimeKnown ? `at ${when(next.deliveredAt, zone)}` : `on ${dayWords(next.deliveredAt, zone)}`}, `
+          + "before that time. Correct one of the two times.",
+        );
+      }
+    }
+  }
+  if ((hire.cameBackEmptyAt?.getTime() ?? null) === (input.at?.getTime() ?? null)) return hire;
+  const [row] = await tx.update(schema.rental)
+    .set({ cameBackEmptyAt: input.at, updatedAt: new Date() })
+    .where(eq(schema.rental.id, hire.id)).returning();
+  await audit(tx, ctx, "rental.came_back_empty", "rental", hire.id,
+    { cameBackEmptyAt: hire.cameBackEmptyAt }, { cameBackEmptyAt: row!.cameBackEmptyAt });
+  return row!;
+}
+
+/** The office marks a collected can as having come back empty, or takes the mark off. `asset:write`. */
+export function recordEmpty(ctx: ServiceContext, input: { id: string; at: string | null }) {
+  return guardedWrite(ctx, "asset:write", async (tx) => {
+    const row = await recordEmptyWithin(tx, ctx, { id: input.id, at: input.at === null ? null : instant(input.at, "That time") });
+    return { id: row.id, cameBackEmptyAt: row.cameBackEmptyAt?.toISOString() ?? null };
   });
 }
 
@@ -573,6 +659,7 @@ export async function haulRevision(tx: Database, visitIds: readonly string[]): P
 
 export const handlers = {
   recordRentalTip: (ctx: ServiceContext, input: { id: string; tippedAt: string | null }) => recordTip(ctx, input),
+  recordRentalEmpty: (ctx: ServiceContext, input: { id: string; at: string | null }) => recordEmpty(ctx, input),
   recordRentalDrop: (ctx: ServiceContext, input: { id: string; deliveredAt: string }) => recordPlacement(ctx, input),
   listContainerHolds: listHolds,
   holdContainer: (ctx: ServiceContext, { id, ...input }: Omit<HoldInput, "assetId"> & { id: string }) =>

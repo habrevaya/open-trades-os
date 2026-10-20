@@ -80,9 +80,10 @@ import { streetKey } from "../geo/index.js";
  *   they are on, commercial stops left out and an address whose street is not
  *   recorded left out of both halves rather than guessed from its line.
  *
- *   A CONTAINER'S TURNAROUND. Hours from the can emptied at the facility to
- *   it placed on the next site, both moments recorded to the minute, with a
- *   can out for repair or held for a customer in between left out.
+ *   A CONTAINER'S TURNAROUND. Hours from the can emptied at the facility (or
+ *   collected, for one that came back empty) to it placed on the next site,
+ *   both moments recorded to the minute, with a can out for repair or held
+ *   for a customer in between left out.
  *
  *   PRODUCTION PER CREW HOUR. A completed job's units of work over its
  *   crew's hours on site, never drive time or getting the job ready, with a
@@ -1137,6 +1138,12 @@ export type TurnaroundVerdict =
  * gate. Times that run backwards (placed before it was emptied) are not known
  * either rather than a negative turnaround.
  *
+ * A CAN THAT CAME BACK EMPTY was never tipped, and none is expected: the
+ * customer did not fill it. Its turnaround runs from the moment it was
+ * collected, which the office records with the mark (`cameBackEmptyAt`), so
+ * its next placement is measured rather than counted beside as not known. A
+ * tip recorded on the same haul wins, because then it was not empty.
+ *
  * Only then the exclusions, and they are of the CAN, whole, as the definition
  * says, not hours taken off: any repair or customer hold running at any moment
  * between the tip and the placement leaves the turnaround out. One that ended
@@ -1145,13 +1152,16 @@ export type TurnaroundVerdict =
  */
 export function turnaroundOf(input: {
   tippedAt: Date | null;
+  /** When the haul before came back empty, collected at that moment with nothing to tip; null or absent when it did not. */
+  cameBackEmptyAt?: Date | null | undefined;
   placedAt: Date;
   placedTimeKnown: boolean;
   holds: readonly ContainerHold[];
 }): TurnaroundVerdict {
   if (!input.placedTimeKnown) return { counted: false, why: "placed_day_only" };
-  if (input.tippedAt === null) return { counted: false, why: "no_tip" };
-  const from = input.tippedAt.getTime();
+  const ready = input.tippedAt ?? input.cameBackEmptyAt ?? null;
+  if (ready === null) return { counted: false, why: "no_tip" };
+  const from = ready.getTime();
   const to = input.placedAt.getTime();
   if (to < from) return { counted: false, why: "times_disagree" };
   const during = (kind: ContainerHold["kind"]) => input.holds.some((h) => h.kind === kind

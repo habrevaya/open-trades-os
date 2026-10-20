@@ -323,6 +323,12 @@ export interface DeliverInput {
   invoiceAs?: "per_haul" | "chain" | undefined;
   /** The terms pass the facility's disposal fee on to the customer, at cost, when a person says to on the invoice. */
   disposalPassThrough?: boolean | undefined;
+  /**
+   * What the customer is putting in it, when known ("Yard waste"): the route
+   * sends the full can only to a facility that takes it, and the fee there is
+   * that material's. Carried through a swap; the collection can correct it.
+   */
+  materialType?: string | null | undefined;
 }
 
 /** Disposal billed by the ton and passed on at cost are the same load charged twice. */
@@ -383,6 +389,7 @@ export function deliver(ctx: ServiceContext, input: DeliverInput) {
       perTonRate: input.perTonRate ?? null,
       invoiceAs: input.invoiceAs ?? "per_haul",
       disposalPassThrough: input.disposalPassThrough ?? false,
+      materialType: input.materialType?.trim() || null,
     }).returning();
 
     if (input.jobId) {
@@ -508,7 +515,8 @@ export function pickUp(ctx: ServiceContext, input: PickUpInput) {
       disposalTicketNumber: input.ticketNumber?.trim() ?? null,
       disposalFacility: facility?.name ?? input.facility?.trim() ?? null,
       disposalFacilityId: facility?.id ?? null,
-      materialType: input.materialType?.trim() ?? null,
+      /** What was said at the delivery stands unless the collection says otherwise. */
+      materialType: input.materialType !== undefined ? input.materialType?.trim() || null : hire.materialType,
       disposalFee: input.disposalFee ?? null,
       updatedAt: new Date(),
     }).where(eq(schema.rental.id, input.id)).returning();
@@ -632,7 +640,7 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       disposalTicketNumber: input.ticketNumber?.trim() ?? null,
       disposalFacility: facility?.name ?? input.facility?.trim() ?? null,
       disposalFacilityId: facility?.id ?? null,
-      materialType: input.materialType?.trim() ?? null,
+      materialType: input.materialType !== undefined ? input.materialType?.trim() || null : hire.materialType,
       updatedAt: new Date(),
     }).where(eq(schema.rental.id, input.id)).returning();
 
@@ -655,6 +663,8 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       perTonRate: hire.perTonRate,
       invoiceAs: hire.invoiceAs,
       disposalPassThrough: hire.disposalPassThrough,
+      /** The same work at the same site: the next can is expected to hold what the last one did. */
+      materialType: closed!.materialType,
       previousRentalId: input.id,
     }).returning();
 
@@ -666,6 +676,24 @@ export function swap(ctx: ServiceContext, input: SwapInput) {
       closed: await rentalViewWithin(tx, ctx, full),
       opened: await rentalViewWithin(tx, ctx, opened!),
     };
+  });
+}
+
+/**
+ * Say what is in a container, or that it is not known. The route sends the
+ * full can only to a facility that takes it, and prices the tip at that
+ * material's rate, so this is worth saying before the collection; the
+ * collection can still correct it. `asset:write`, on the audit log.
+ */
+export function setMaterial(ctx: ServiceContext, input: { id: string; materialType: string | null }) {
+  return guardedWrite(ctx, "asset:write", async (tx) => {
+    const hire = await rentalWithin(tx, ctx, input.id);
+    const materialType = input.materialType?.trim().replace(/\s+/g, " ") || null;
+    if (materialType === hire.materialType) return rentalViewWithin(tx, ctx, hire);
+    const [row] = await tx.update(schema.rental).set({ materialType, updatedAt: new Date() })
+      .where(eq(schema.rental.id, hire.id)).returning();
+    await audit(tx, ctx, "rental.material_set", "rental", hire.id, { materialType: hire.materialType }, { materialType });
+    return rentalViewWithin(tx, ctx, row!);
   });
 }
 
@@ -754,6 +782,8 @@ async function rentalViewWithin(
     pickedUpAt: row.pickedUpAt?.toISOString() ?? null,
     /** When the full can was emptied at the facility, once somebody recorded it. */
     tippedAt: row.tippedAt?.toISOString() ?? null,
+    /** When it was collected empty, for a haul that came back with nothing to tip. */
+    cameBackEmptyAt: row.cameBackEmptyAt?.toISOString() ?? null,
     /** Open when it has not been collected, whatever the dates say. */
     open: row.pickedUpAt === null,
     /**
@@ -1179,6 +1209,7 @@ async function startsFor(
 /* --------------------------------------------------------------- handlers */
 
 export const handlers = {
+  setRentalMaterial: (ctx: ServiceContext, input: { id: string; materialType: string | null }) => setMaterial(ctx, input),
   addRentableAsset: (ctx: ServiceContext, input: AssetInput) => addAsset(ctx, input),
   listRentableAssets: listAssets,
   tagAssetOutOfService: (ctx: ServiceContext, input: { id: string; reason: string; at?: string | undefined }) =>

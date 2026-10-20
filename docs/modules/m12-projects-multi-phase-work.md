@@ -259,7 +259,24 @@ so agreed extra work does not read as an overrun.
 `/projects/{id}/schedule` is the timeline. `GET /v1/projects/{projectId}/schedule`
 reads it, `POST /v1/project-phases/{id}/move` drags a phase, and
 `POST /v1/project-phases/{id}/dates` gives one its own dates. The same read
-carries `clashes`, each person or crew booked on two phases at once with the days.
+carries `clashes`, each person or crew booked on two phases at once with the days,
+a crew's members counted as booked through the crew (as the crew is now: a crew
+keeps no history of who was on it). It also carries `visitClashes`: a person held
+by two visits in overlapping hours, one of them the project's and the other the
+project's or any other of theirs, whether they are on it by name or as a member
+of the crew it went to. A visit holds somebody from the start of its window to the
+later of the end of its window and its start plus its length; hours that only
+touch are no clash, and a visit done, missed or called off holds nobody. Each one
+comes with suggestions in words: the people (at most three, among those the reader
+may see on the board) with the skills the visit needs who have no visit and no
+leave in those hours, and the days after it (at most three, inside the phase's
+dates or the week after, on days the company works) when the same person is free
+at the same hours. A person on the visit through a crew is told that another
+person means changing the crew. The other visit is named only when it is the
+project's; any other is "another visit", with its hours and nothing about whose
+it is. The screen lists them under "On two visits at once" and marks the phase
+"Two visits at once". Nothing is moved or reassigned: a person does that on the
+dispatch board.
 `GET /v1/project-change-orders/{id}/schedule-days` is the proposal for the days on
 an agreed change order (pass `phaseId` when it names none, and `from` for the
 day of that phase the days push out from), and
@@ -385,9 +402,14 @@ its visits inside its dates stay. A visit on a day a credit takes off stays, nam
 person to cancel or move on the board, because which of the work is no longer needed is
 not something the schedule knows. A change order that names no phase asks which one. Moving a visit tells the customer
 by text or email when the company can reach them; nothing asks the customer first, because
-the change they agreed is what moved it. A clash is a phase to phase
-reading: it does not count a person who is booked on two visits at the same hour, which is
-the dispatch board's check, and it does not read a crew's members. A project billed before retainage was booked to a
+the change they agreed is what moved it. The clash check suggests and never acts:
+nobody is reassigned and no visit is moved from it. It reads a crew's members as
+the crew is today, because membership keeps no history, so a member who joined
+last week is read as on a crew's visit from before. "Free" is no visit and no
+approved leave in those hours: a person's own working hours and a day off they
+have not asked for are not read, and a suggested day is the same clock hours,
+not a new window offered to the customer. A crew is not suggested in place of a
+person, nor a person in place of a crew. A project billed before retainage was booked to a
 receivable stays on the old way for good; there is no switch that moves it across
 with a catching up posting. Retainage receivable is not sent to QuickBooks or Xero:
 the books there carry an application's invoice as billed, net (M14). An

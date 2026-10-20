@@ -32,6 +32,10 @@ export interface HireRow {
   pickedUpAt: string | null;
   /** When the full can was emptied at the facility, once recorded. */
   tippedAt?: string | null;
+  /** When it was collected empty, for a haul with nothing to tip. */
+  cameBackEmptyAt?: string | null;
+  /** What the customer is putting in it, when somebody said. */
+  materialType?: string | null;
   open: boolean;
   daysSoFar: number | null;
   includedDays: number | null;
@@ -233,7 +237,10 @@ export function Hires({
             {hire.assetSize ? <span className="ml-2">{hire.assetSize}</span> : null}
             {hire.previousRentalId ? <Chip tone="neutral" className="ml-2">Swap</Chip> : null}
           </Td>
-          <Td>{hire.propertyAddress ?? "a property"}</Td>
+          <Td>
+            {hire.propertyAddress ?? "a property"}
+            {hire.materialType ? <span className="block text-xs text-ink-500">{hire.materialType}</span> : null}
+          </Td>
           <Td className="tabular-nums">
             {day(hire.deliveredAt, zone)}
             {/*
@@ -265,7 +272,9 @@ export function Hires({
               ? <span className="font-mono text-xs">{hire.disposalTicketNumber}</span>
               : hire.open
                 ? <span className="text-ink-500">Still out</span>
-                : <span className="text-amber-700">No ticket</span>}
+                : hire.cameBackEmptyAt
+                  ? <span className="text-ink-700">Came back empty {moment(hire.cameBackEmptyAt, zone)}</span>
+                  : <span className="text-amber-700">No ticket</span>}
             {hire.weightTons ? <span className="ml-2 tabular-nums">{hire.weightTons} t</span> : null}
             {hire.tippedAt ? <span className="ml-2 text-ink-700">emptied {moment(hire.tippedAt, zone)}</span> : null}
           </Td>

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid } from "./common";
+import { Uuid, MoneyString } from "./common";
 
 /**
  * THE DISPATCH MAP, THE ROUTE OPTIMISER, AND WHERE THINGS ARE
@@ -244,8 +244,18 @@ export const getRouteProposal = defineRoute({
         facilityName: z.string().nullable(),
         /** Minutes by road from where the truck is when it sets off for it. */
         driveMinutes: z.number().int().nullable(),
-        /** Why this one: the nearest open when the truck gets there, what was passed over and for what. */
+        /**
+         * Why this one: the nearest open when the truck gets there, or the cheapest all told when the
+         * fee is weighed, what was passed over and for what (shut, or does not take the load), and
+         * whether the fee was weighed or why not.
+         */
         why: z.string().nullable(),
+        /** What it would charge for the load, when the fee entered the choice. */
+        fee: MoneyString.nullable(),
+        /** Whether the fee was weighed beside the time; null when there was nothing to weigh. */
+        feeWeighed: z.boolean().nullable(),
+        /** What on the truck it does not take, when no facility on the map takes it all: the run is refused. */
+        notTaken: z.array(z.string()),
       })),
       /**
        * Every facility the day was planned among: those on the map, and those left out because they

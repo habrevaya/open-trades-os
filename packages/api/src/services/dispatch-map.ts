@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, geo, qualification as q, rental as rt, routing, time } from "@opentradesos/core";
+import { assertCan, can, geo, money as m, qualification as q, rental as rt, routing, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, scopeOf, ConflictError, NotFoundError,
   type ServiceContext,
@@ -17,7 +17,7 @@ import { assign as assignCrew, crewRefusals } from "./crews";
 import { remember, replayed } from "./once";
 import { rentalDispatchOf } from "./rental-billing";
 import { truckOf } from "./trucks";
-import { facilitiesForPlan, addressText } from "./disposal-facilities";
+import { facilitiesForPlan, addressText, planTerms } from "./disposal-facilities";
 import { priorityWithin } from "./agreements";
 import { heldOnPeople } from "./booking";
 
@@ -769,6 +769,8 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
   const truck = driven.figures;
   /** Every stop's can, the ones done today too, so the truck's load after them is known by size. */
   const sizeOfStop = containers ? await containerSizes(ctx, stops.map((v) => v.id)) : new Map<string, number | null>();
+  /** What each collection's can holds and is expected to weigh, for which facility takes it and what it costs there. */
+  const cargoOfStop = containers ? await containerCargo(ctx, stops.map((v) => v.id)) : new Map<string, routing.Cargo>();
   /**
    * THE DISPOSAL FACILITIES the day tips at: the one asked for alone, or every
    * active one the company has that is on the map, each run going to the nearest
@@ -805,15 +807,20 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
 
   const truckPlan: routing.TruckPlan | null = byTruck ? {
     ...plan,
-    stops: placed.map((v) => ({ ...stopOf(day, v), work: v.truckWork, size: sizeOfStop.get(v.id) ?? null })),
+    stops: placed.map((v) => ({
+      ...stopOf(day, v), work: v.truckWork, size: sizeOfStop.get(v.id) ?? null,
+      ...(cargoOfStop.has(v.id) ? { load: cargoOfStop.get(v.id)! } : {}),
+    })),
     yard: YARD,
     capacity: truck.containers,
     yardMinutes: truck.yardMinutes,
     sizes: truck.sizes,
     perSize: truck.perSize,
+    /** A minute of the truck, in cents, when the company has said what an hour costs: what lets a fee be weighed beside a drive. */
+    minuteCost: company.truckHourCost ? Number(m.money(company.truckHourCost).amount) / 100 / 60 : null,
     facilities: candidates.map(({ row }) => ({
       key: facilityKey(row.id), minutes: row.tipMinutes, hours: facilityHours(day, row.hours, row.holidays),
-      name: row.name, preferred: row.isDefault,
+      name: row.name, preferred: row.isDefault, ...planTerms(row),
       ...(rt.shutAllDayWhy(row.hours, row.holidays, day.date) ? { closedWhy: rt.shutAllDayWhy(row.hours, row.holidays, day.date)! } : {}),
     })),
     load: locked.length > 0
@@ -934,6 +941,12 @@ export async function optimise(ctx: ServiceContext, input: { date: string; techn
           facilityName: went?.name ?? null,
           driveMinutes: r.choice ? Math.round(r.choice.driveMinutes) : null,
           why: went && r.choice ? rt.chosenWords(went.name, r.choice, describe) : null,
+          /** What the facility would charge for the load, when the fee entered the choice. */
+          fee: r.choice?.feeCents !== undefined
+            ? m.toString(m.round({ amount: BigInt(r.choice.feeCents) * 100n, currency: "USD" }, 2)) : null,
+          feeWeighed: r.choice?.fees?.weighed ?? null,
+          /** What on the truck the facility does not take, when none on the map takes it all: the run is refused. */
+          notTaken: r.notTaken ?? [],
         };
       }),
       /** Runs in the middle of the day; the one at the end to tip the last can is not a choice. */
@@ -985,6 +998,27 @@ async function containerSizes(ctx: ServiceContext, visitIds: string[]): Promise<
     .where(inArray(schema.visit.id, visitIds)));
   for (const row of rows) sizes.set(row.visitId, routing.sizeOf(row.size));
   return sizes;
+}
+
+/**
+ * What the can each stop collects holds and is expected to weigh: the hire's
+ * material, and its weight when one is recorded, else the tonnage its price
+ * includes, which is the best figure there is before the scale. A stop with
+ * no hire yet is absent, which turns no facility away.
+ */
+async function containerCargo(ctx: ServiceContext, visitIds: string[]): Promise<Map<string, routing.Cargo>> {
+  const cargo = new Map<string, routing.Cargo>();
+  if (visitIds.length === 0) return cargo;
+  const rows = await guardedRead(ctx, "visit:read", (tx) => tx.select({
+    visitId: schema.visit.id, material: schema.rental.materialType,
+    weight: schema.rental.weightTons, included: schema.rental.includedTons,
+  }).from(schema.visit)
+    .innerJoin(schema.rental, eq(schema.rental.id, schema.visit.rentalId))
+    .where(inArray(schema.visit.id, visitIds)));
+  for (const row of rows) {
+    cargo.set(row.visitId, { material: row.material?.trim() || null, tons: row.weight ?? row.included ?? null });
+  }
+  return cargo;
 }
 
 /**

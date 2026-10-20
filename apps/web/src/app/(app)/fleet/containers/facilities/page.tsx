@@ -1,7 +1,7 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { disposalFacilities } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, rental as rt } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
@@ -66,6 +66,22 @@ function HolidayBoxes({ holidays }: { holidays?: Facility["holidays"] }) {
   );
 }
 
+/** What it takes, one material a line, each with its own rate when it has one. */
+function MaterialBox({ materials }: { materials?: Facility["materials"] }) {
+  return (
+    <fieldset className="sm:col-span-4">
+      <legend className="text-sm font-medium text-ink-700">What it takes</legend>
+      <p className="text-xs text-ink-500">
+        One material a line, with its own price when it has one: Yard waste, 38.00 a ton. A name alone is charged the
+        price above. Leave it empty if you do not know: then any load can go there. When you list them, a can holding
+        anything else is never sent there.
+      </p>
+      <TextArea label="Materials it takes" name="materials" rows={3}
+                defaultValue={(materials ?? []).map(rt.materialLine).join("\n")} />
+    </fieldset>
+  );
+}
+
 function RateBoxes({ facility }: { facility?: Facility }) {
   return (
     <>
@@ -109,9 +125,11 @@ export default async function FacilitiesPage() {
       <PageHeader title="Disposal facilities" count={facilities.length} />
       <p className="mt-2 max-w-prose text-sm text-ink-700">
         Where a full container is tipped. Optimise route sends each full container to the nearest facility that is
-        open when the truck gets there, counts the time at its gate, and says which one it chose and why. A facility
-        closed that day, by its hours or a day you list as closed, is skipped. Public holidays are not known: add the
-        days each facility is closed. The default one wins a tie.
+        open when the truck gets there and takes what is in it, counts the time at its gate, and says which one it chose
+        and why. A facility closed that day, by its hours or a day you list as closed, is skipped, and so is one that
+        does not take the load. Once you say what an hour of a truck costs on Containers, a facility that charges less
+        can win over a nearer one. Public holidays are not known: add the days each facility is closed. The default one
+        wins a tie.
       </p>
 
       {facilities.length === 0 ? (
@@ -126,6 +144,7 @@ export default async function FacilitiesPage() {
               </div>
               <p className="text-sm text-ink-700">{facility.address || "No address yet"}</p>
               <p className="text-sm text-ink-700">{facility.hoursText}. {facility.feeText}. {facility.tipMinutes} minutes there.</p>
+              <p className="text-sm text-ink-700">{facility.materialsText}.</p>
               {facility.holidays.length > 0 ? (
                 <p className="text-sm text-ink-700">
                   Closed on {[...facility.holidays.filter((h) => !h.yearly), ...facility.holidays.filter((h) => h.yearly)]
@@ -146,6 +165,7 @@ export default async function FacilitiesPage() {
                     <TextField label="State" name="state" defaultValue={facility.state ?? ""} />
                     <TextField label="ZIP" name="postalCode" defaultValue={facility.postalCode ?? ""} />
                     <RateBoxes facility={facility} />
+                    <MaterialBox materials={facility.materials} />
                     <HoursBoxes hours={facility.hours} />
                     <HolidayBoxes holidays={facility.holidays} />
                   </ActionForm>
@@ -184,6 +204,7 @@ export default async function FacilitiesPage() {
             <TextField label="ZIP" name="postalCode" />
             <span />
             <RateBoxes />
+            <MaterialBox />
             <HoursBoxes />
             <HolidayBoxes />
           </ActionForm>

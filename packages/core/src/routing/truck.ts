@@ -49,6 +49,20 @@
  * so the search drives further to avoid it. Each run says which it chose and
  * what it passed over, so the day's plan can say why.
  *
+ * WHAT A FACILITY TAKES, AND WHAT IT CHARGES. A facility that lists the
+ * materials it takes is left out of a run whose full cans hold one it does
+ * not take (a facility whose list nobody recorded, and a can of no known
+ * material, are never a reason to leave one out). When none takes everything
+ * on the truck, the nearest is named and the run is refused, counted with the
+ * closed gates. Among the ones open, the fee is weighed beside the time when
+ * the company has said what an hour of the truck costs and every one of them
+ * can say what it would charge for the load: the cost of a run is its fee
+ * plus the minutes until the can is tipped at that hour's price, and the
+ * cheapest all told wins. When any of that is missing the fee is not weighed
+ * at all and the run says why, because comparing a known fee with an unknown
+ * one would favour the facility that knows less. The fee moves which facility
+ * a run goes to, never the order of the stops.
+ *
  * EACH TRUCK IS ITS OWN KIND. A hook lift that carries two small cans and
  * a roll off truck that carries one big one are not the same truck, and a
  * company's one figure is only the default for a truck nobody has given a
@@ -97,25 +111,51 @@ export interface TruckFacility {
   closedWhy?: string | undefined;
   /** The company's default: it wins a tie on drive time. */
   preferred?: boolean | undefined;
+  /**
+   * The materials it takes, as `rental.materialKey` writes them. Absent or
+   * empty when nobody recorded them, which never turns a load away.
+   */
+  takes?: readonly string[] | undefined;
+  /** What it would charge to tip these cans, in cents, or null when that cannot be worked out. */
+  fee?: ((cargo: readonly Cargo[]) => number | null) | undefined;
 }
 
 /** Where a facility stands for a truck that would reach it at a given minute. */
-export type FacilityStanding = "open" | "opens_later" | "closed_by_then" | "closed_all_day";
+export type FacilityStanding = "open" | "opens_later" | "closed_by_then" | "closed_all_day" | "does_not_take";
 
 /**
  * WHICH FACILITY A RUN WENT TO AND WHY. `basis` says how the one chosen was
  * picked: `only_one` when it was the only one the plan knew, `nearest_open`
  * when it was open when the truck got there and no open one was sooner,
- * `opens_soonest` when none was open yet and its gate opens first, and
- * `none_open` when every one would be shut and the nearest was taken anyway,
- * the run refused.
+ * `opens_soonest` when none was open yet and its gate opens first,
+ * `cheapest_open` when the fee weighed beside the time made a farther one
+ * cheaper all told, and `none_open` when every one would be shut and the
+ * nearest was taken anyway, the run refused.
  */
 export interface FacilityChoice {
-  basis: "only_one" | "nearest_open" | "opens_soonest" | "none_open";
+  basis: "only_one" | "nearest_open" | "opens_soonest" | "cheapest_open" | "none_open";
   /** Minutes by road from where the truck was. */
   driveMinutes: number;
-  /** Every other facility the plan knew, nearest first, with where it stood. */
-  others: { key: string; driveMinutes: number; standing: FacilityStanding; opensAt: number | null; closesAt: number | null }[];
+  /**
+   * Every other facility the plan knew, nearest first, with where it stood.
+   * `refuses` names what on the truck it does not take, and `feeCents` what it
+   * would have charged, each only when it is so.
+   */
+  others: {
+    key: string; driveMinutes: number; standing: FacilityStanding; opensAt: number | null; closesAt: number | null;
+    refuses?: string[]; feeCents?: number;
+  }[];
+  /** What the one chosen charges for the load, in cents, when known. */
+  feeCents?: number;
+  /**
+   * Whether the fee was weighed beside the time, among facilities open that
+   * could take the load, or why not: no hour cost for the truck, or a
+   * facility that cannot say what it would charge (named by key). Absent when
+   * there was nothing to weigh: one facility open, or no fee known anywhere.
+   */
+  fees?: { weighed: true; hourCents: number } | { weighed: false; why: "no_hour_cost" } | { weighed: false; why: "fee_unknown"; unknown: string[] };
+  /** What on the truck the one chosen does not take, when no facility takes it all: the run is refused. */
+  notTaken?: string[];
 }
 
 /** What a stop does to the truck. `none` is any other work on the day. */
@@ -129,6 +169,19 @@ export interface TruckStop extends PlanStop {
    * before a can is chosen has no size, and is not refused for it.
    */
   size?: number | null | undefined;
+  /**
+   * What the full can a collection or a swap takes on holds, and how much it
+   * is expected to weigh, for which facility takes it and what it would
+   * charge. Absent when nothing is known, which turns no facility away.
+   */
+  load?: Cargo | undefined;
+}
+
+/** A full container on the truck: its material and expected tons, each null when not known. */
+export interface Cargo {
+  material: string | null;
+  /** Tons as a decimal string, the hire's weight or the tonnage its price includes. */
+  tons: string | null;
 }
 
 export interface TruckLoad {
@@ -271,6 +324,12 @@ export interface TruckPlan extends DayPlan {
    */
   facilities?: readonly TruckFacility[] | undefined;
   /**
+   * What a minute of the truck and its driver costs, in cents, for weighing a
+   * facility's fee beside the time it takes. Null or absent when the company
+   * has not said, and then the fee is not weighed.
+   */
+  minuteCost?: number | null | undefined;
+  /**
    * What is on the truck as the plan starts. Null when the day starts at
    * the yard, where it is loaded for the stops that follow. A `Deck` says
    * each can's size; counts alone are cans of no known size.
@@ -386,6 +445,8 @@ export interface FacilityRun {
   facilityKey?: string;
   /** Why that one, when the plan chose among several. */
   choice?: FacilityChoice;
+  /** What on the truck the facility does not take, when none takes it all. The run is refused. */
+  notTaken?: string[];
 }
 
 /** How a facility stands for a truck that reaches it at `arriveAt`. */
@@ -400,44 +461,114 @@ function standingAt(f: TruckFacility, arriveAt: number): FacilityStanding {
 const hasFacility = (plan: Pick<TruckPlan, "facility" | "facilities">): boolean =>
   (plan.facilities !== undefined && plan.facilities.length > 0) || Boolean(plan.facility);
 
+/** A material's name as it is compared, the same as `rental.materialKey`: case and spacing ignored. */
+const keyOf = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+
+/** The materials on the truck a facility does not take, by name, once each. Never any for a facility whose list nobody recorded. */
+function refusedBy(f: TruckFacility, cargo: readonly Cargo[]): string[] {
+  if (!f.takes || f.takes.length === 0) return [];
+  const takes = new Set(f.takes);
+  const seen = new Set<string>();
+  const refused: string[] = [];
+  for (const can of cargo) {
+    if (can.material === null || keyOf(can.material) === "") continue;
+    const key = keyOf(can.material);
+    if (takes.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    refused.push(can.material.trim());
+  }
+  return refused;
+}
+
 /**
- * The facility a run goes to from `at` at minute `clock`, and the reasoning.
- * Deterministic: the same plan always picks the same facility, ties going to
- * the company's default and then to the key.
+ * The facility a run goes to from `at` at minute `clock` with `cargo` on the
+ * truck, and the reasoning. Deterministic: the same plan always picks the
+ * same facility, ties going to the company's default and then to the key.
  */
 export function pickFacility(
-  plan: Pick<TruckPlan, "facility" | "facilities" | "travel">, at: string, clock: number,
+  plan: Pick<TruckPlan, "facility" | "facilities" | "travel" | "minuteCost">, at: string, clock: number,
+  cargo: readonly Cargo[] = [],
 ): { facility: TruckFacility; choice: FacilityChoice | null } | null {
   const several = plan.facilities !== undefined && plan.facilities.length > 0;
   const list = several ? plan.facilities! : plan.facility ? [plan.facility] : [];
   if (list.length === 0) return null;
   if (!several) return { facility: list[0]!, choice: null };
 
-  const rows = list.map((f) => {
+  /**
+   * Only the ones that take everything on the truck are chosen among. When
+   * none does, all of them are, and the one chosen is refused for what it
+   * does not take.
+   */
+  const refusals = new Map(list.map((f) => [f.key, refusedBy(f, cargo)]));
+  const willing = list.filter((f) => refusals.get(f.key)!.length === 0);
+  const pool = willing.length > 0 ? willing : list;
+
+  const rows = pool.map((f) => {
     const drive = plan.travel(at, f.key);
     const standing = standingAt(f, clock + drive);
     /** When the can would be tipped: at once if open, when the gate opens if not yet. */
     const tippedAt = standing === "open" ? clock + drive
       : standing === "opens_later" && f.hours !== null && f.hours !== "closed" ? f.hours.opensAt : Number.POSITIVE_INFINITY;
     const tier = standing === "open" || standing === "opens_later" ? 0 : standing === "closed_by_then" ? 1 : 2;
-    return { f, drive, standing, tippedAt, tier };
-  }).sort((a, b) =>
+    const fee = f.fee && cargo.length > 0 ? f.fee(cargo) : null;
+    return { f, drive, standing: standing as FacilityStanding, tippedAt, tier, fee };
+  });
+  const byTime = (a: typeof rows[number], b: typeof rows[number]) =>
     a.tier - b.tier || a.tippedAt - b.tippedAt || a.drive - b.drive
-    || Number(Boolean(b.f.preferred)) - Number(Boolean(a.f.preferred)) || a.f.key.localeCompare(b.f.key));
+    || Number(Boolean(b.f.preferred)) - Number(Boolean(a.f.preferred)) || a.f.key.localeCompare(b.f.key);
+  rows.sort(byTime);
+
+  /**
+   * THE FEE BESIDE THE TIME, among the ones that would take the can now or
+   * once their gate opens. Weighed only when there is a choice, the company
+   * has priced a minute of the truck, and every one of them can say what it
+   * would charge; otherwise the reason is kept and the order is by time.
+   */
+  const open = rows.filter((r) => r.tier === 0);
+  let fees: FacilityChoice["fees"];
+  /** Whether the fee chose a facility the time alone would not have. */
+  let cheaper = false;
+  if (open.length > 1 && open.some((r) => r.fee !== null)) {
+    const unknown = open.filter((r) => r.fee === null).map((r) => r.f.key);
+    const minute = plan.minuteCost ?? null;
+    if (unknown.length > 0) fees = { weighed: false, why: "fee_unknown", unknown };
+    else if (minute === null || !Number.isFinite(minute) || minute < 0) fees = { weighed: false, why: "no_hour_cost" };
+    else {
+      fees = { weighed: true, hourCents: Math.round(minute * 60) };
+      const cost = (r: typeof rows[number]) => r.fee! + (r.tippedAt - clock) * minute;
+      const soonest = open[0];
+      open.sort((a, b) => cost(a) - cost(b) || byTime(a, b));
+      rows.splice(0, open.length, ...open);
+      cheaper = open[0] !== soonest;
+    }
+  }
+
   const chosen = rows[0]!;
-  const basis: FacilityChoice["basis"] = rows.length === 1 ? "only_one"
-    : chosen.standing === "open" ? "nearest_open"
-      : chosen.standing === "opens_later" ? "opens_soonest" : "none_open";
+  const notTaken = refusals.get(chosen.f.key)!;
+  const basis: FacilityChoice["basis"] = list.length === 1 ? "only_one"
+    : chosen.standing !== "open" && chosen.standing !== "opens_later" ? "none_open"
+      : cheaper ? "cheapest_open"
+        : chosen.standing === "open" ? "nearest_open" : "opens_soonest";
+  const passedOver = list.filter((f) => !pool.includes(f)).map((f) => {
+    const drive = plan.travel(at, f.key);
+    return { f, drive, standing: "does_not_take" as FacilityStanding, fee: null as number | null };
+  });
+  const others = [...rows.slice(1), ...passedOver.sort((a, b) => a.drive - b.drive || a.f.key.localeCompare(b.f.key))];
   return {
     facility: chosen.f,
     choice: {
       basis,
       driveMinutes: chosen.drive,
-      others: rows.slice(1).map((r) => ({
+      others: others.map((r) => ({
         key: r.f.key, driveMinutes: r.drive, standing: r.standing,
         opensAt: r.f.hours !== null && r.f.hours !== "closed" ? r.f.hours.opensAt : null,
         closesAt: r.f.hours !== null && r.f.hours !== "closed" ? r.f.hours.closesAt : null,
+        ...(r.standing === "does_not_take" ? { refuses: refusals.get(r.f.key)! } : {}),
+        ...(fees && r.fee !== null ? { feeCents: r.fee } : {}),
       })),
+      ...(fees && chosen.fee !== null ? { feeCents: chosen.fee } : {}),
+      ...(fees ? { fees } : {}),
+      ...(notTaken.length > 0 ? { notTaken } : {}),
     },
   };
 }
@@ -520,6 +651,8 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
 
   const startDeck: Deck = plan.load ? deckOf(plan.load) : { empties: loadDeckFor(steps, truck), fulls: [] };
   let load = startDeck;
+  /** What each full can on the truck holds, in step with `load.fulls`; a can already on board at the start is not known. */
+  let cargo: Cargo[] = startDeck.fulls.map(() => ({ material: null, tons: null }));
   let at = plan.start;
   let previous: string | null = null;
   let clock = plan.departAt;
@@ -538,6 +671,7 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
     yardRuns.push({ afterId: previous, beforeId, tipped: load.fulls.length, loaded: empties.length - load.empties.length, arriveAt });
     clock += plan.yardMinutes;
     load = { empties, fulls: [] };
+    cargo = [];
     at = plan.yard;
   };
 
@@ -548,7 +682,7 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
    * still measured and the closure is what the proposal names.
    */
   const toFacility = (beforeId: string | null) => {
-    const picked = pickFacility(plan, at, clock)!;
+    const picked = pickFacility(plan, at, clock, cargo)!;
     const f = picked.facility;
     const leg = plan.travel(at, f.key);
     drive += leg;
@@ -565,10 +699,12 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
     facilityRuns.push({
       afterId: previous, beforeId, tipped: load.fulls.length, arriveAt, waitMinutes: waited, closedBy,
       ...(picked.choice ? { facilityKey: f.key, choice: picked.choice } : {}),
+      ...(picked.choice?.notTaken ? { notTaken: picked.choice.notTaken } : {}),
     });
     clock += f.minutes;
     /** What was full is empty now, and still on the truck, each can its own size. */
     load = { empties: [...load.empties, ...load.fulls], fulls: [] };
+    cargo = [];
     at = f.key;
   };
 
@@ -591,6 +727,7 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
     at = id;
     previous = id;
     load = afterStopDeck(stop.work, size, load);
+    if (stop.work === "pickup" || stop.work === "swap") cargo.push(stop.load ?? { material: null, tons: null });
   }
 
   /**
@@ -625,13 +762,14 @@ export function evaluateTruck(given: TruckPlan, order: readonly string[]): Truck
 }
 
 /**
- * Better, for a truck's day: a broken promise to a customer and a facility
- * reached after it closed count the same, because both are a run the day
+ * Better, for a truck's day: a broken promise to a customer, a facility
+ * reached after it closed and one that does not take the load count the same, because both are a run the day
  * cannot do, and the search should drive further to avoid either. With no
  * facility this is `better`.
  */
 export function betterTruck(a: TruckEvaluation, b: TruckEvaluation): boolean {
-  const broken = (e: TruckEvaluation) => e.late.length + e.facilityRuns.filter((r) => r.closedBy > 0).length;
+  /** A facility that turns the load away is a run the day cannot do, the same as a closed gate. */
+  const broken = (e: TruckEvaluation) => e.late.length + e.facilityRuns.filter((r) => r.closedBy > 0 || (r.notTaken?.length ?? 0) > 0).length;
   const minutes = (e: TruckEvaluation) => e.lateMinutes + e.facilityRuns.reduce((n, r) => n + r.closedBy, 0);
   if (broken(a) !== broken(b)) return broken(a) < broken(b);
   if (minutes(a) !== minutes(b)) return minutes(a) < minutes(b);
@@ -653,6 +791,7 @@ export function constructTruck(given: TruckPlan): string[] {
   let clock = plan.departAt;
   const stepOf = (s: TruckStop) => ({ work: s.work, size: s.size ?? null });
   let load: Deck = plan.load ? deckOf(plan.load) : { empties: loadDeckFor(remaining.map(stepOf), truck), fulls: [] };
+  let cargo: Cargo[] = load.fulls.map(() => ({ material: null, tons: null }));
 
   /**
    * Where the truck is, when and with what, once it has done what the stop
@@ -664,24 +803,27 @@ export function constructTruck(given: TruckPlan): string[] {
     let place = at;
     let time = clock;
     let ld = load;
+    let held = cargo;
     let viaYard = false;
     if (!canServeDeck(step.work, step.size, ld, truck)) {
       if (facility && ld.fulls.length > 0) {
-        const f = pickFacility(plan, place, time)!.facility;
+        const f = pickFacility(plan, place, time, held)!.facility;
         time += plan.travel(place, f.key);
         if (f.hours !== null && f.hours !== "closed" && time < f.hours.opensAt) time = f.hours.opensAt;
         time += f.minutes;
         place = f.key;
         ld = { empties: [...ld.empties, ...ld.fulls], fulls: [] };
+        held = [];
       }
       if (!canServeDeck(step.work, step.size, ld, truck)) {
         time += plan.travel(place, plan.yard) + plan.yardMinutes;
         place = plan.yard;
         ld = { empties: loadDeckFor(upcoming, truck), fulls: [] };
+        held = [];
         viaYard = true;
       }
     }
-    return { place, time, load: ld, viaYard };
+    return { place, time, load: ld, cargo: held, viaYard };
   };
 
   while (remaining.length > 0) {
@@ -708,11 +850,13 @@ export function constructTruck(given: TruckPlan): string[] {
     clock = there.time;
     at = there.place;
     load = there.load;
+    cargo = there.cargo;
     const leg = plan.travel(at, stop!.id);
     const arrive = clock + leg;
     clock = Math.max(arrive, stop!.windowStart ?? arrive) + stop!.serviceMinutes;
     at = stop!.id;
     load = afterStopDeck(stop!.work, stop!.size ?? null, load);
+    if (stop!.work === "pickup" || stop!.work === "swap") cargo = [...cargo, stop!.load ?? { material: null, tons: null }];
     order.push(stop!.id);
   }
   return order;
@@ -728,6 +872,8 @@ export interface TruckProposal {
    * the way the day was ordered at the time: refused, and named.
    */
   facilityClosed: FacilityRun[];
+  /** Runs to a facility that does not take what is on the truck, because none on the map takes it all: refused, and named. */
+  facilityRefused: FacilityRun[];
   /** Stops about a container of a size this truck does not lift, ordered as plain driving. */
   notCarried: string[];
 }
@@ -760,6 +906,7 @@ export function optimiseTruck(
   });
   return {
     current: now, proposed, improved: proposed !== now, missed,
-    facilityClosed: proposed.facilityRuns.filter((r) => r.closedBy > 0), notCarried,
+    facilityClosed: proposed.facilityRuns.filter((r) => r.closedBy > 0),
+    facilityRefused: proposed.facilityRuns.filter((r) => (r.notTaken?.length ?? 0) > 0), notCarried,
   };
 }

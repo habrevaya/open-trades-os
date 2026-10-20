@@ -347,6 +347,15 @@ export const disposalFacility = pgTable("disposal_facility", {
   feeAmount: money("fee_amount"),
   /** The least it charges for any load, when it has a minimum. */
   minimumFee: money("minimum_fee"),
+  /**
+   * The materials it takes: `{ material: "Yard waste", feeBasis: "per_ton", feeAmount: "38.0000" }`,
+   * the rate null for one charged at the general rate above. An empty list is
+   * not recorded, which never turns a load away; a listed one is the whole of
+   * what it takes, so the route does not send it a can of anything else.
+   */
+  materials: jsonb("materials")
+    .$type<{ material: string; feeBasis: "per_ton" | "per_load" | null; feeAmount: string | null }[]>()
+    .notNull().default([]),
   /** Minutes for the queue, the scale and the tip, which the route counts. */
   tipMinutes: integer("tip_minutes").notNull().default(20),
   isDefault: boolean("is_default").notNull().default(false),
@@ -395,6 +404,15 @@ export const rental = pgTable("rental", {
    * records it.
    */
   tippedAt: timestamp("tipped_at", { withTimezone: true }),
+  /**
+   * When the can was collected EMPTY, for a haul that came back with nothing
+   * in it: no tip is expected and none will come. The container's turnaround
+   * runs from here instead, so its next placement is measured rather than
+   * counted beside as not known. A moment on the collection's day, recorded
+   * by the office with the mark; null for every haul that was not empty. A
+   * haul cannot be both tipped and empty, which the service enforces.
+   */
+  cameBackEmptyAt: timestamp("came_back_empty_at", { withTimezone: true }),
   /** Billing runs off the period, and the included window drives overage. */
   includedDays: integer("included_days"),
   dailyRate: money("daily_rate"),

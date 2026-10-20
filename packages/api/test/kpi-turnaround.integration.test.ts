@@ -361,3 +361,67 @@ run("the driver's phone", () => {
     ]));
   });
 });
+
+run("a can that came back empty", () => {
+  it("is measured from the collection once marked, with no tip expected, and through core's rule the same", async () => {
+    const ids = await june();
+    // Container 101 was collected Jun 20 at 10:00 AM with nothing in it, and went out again Jun 22 at 10:00 AM.
+    const marked = await haulTimes.recordEmpty(owner(), { id: ids.H1b!, at: iso("2026-06-20", "10:00") });
+    expect(marked).toEqual({ id: ids.H1b, cameBackEmptyAt: iso("2026-06-20", "10:00") });
+    const audited = await raw`select 1 from public.audit_log where organization_id = ${ORG} and entity_id = ${ids.H1b!} and action = 'rental.came_back_empty'`;
+    expect(audited.length).toBe(1);
+
+    // 78 hours over 4 by hand, and 48 more for the empty can: 126 over 5.
+    const kpi = await card();
+    expect([Number(kpi.numerator), Number(kpi.denominator), kpi.value]).toEqual([126, 5, "25.20"]);
+    expect(kpi.besides).toEqual([
+      expect.objectContaining({ key: "unknown", count: "1" }),
+      expect.objectContaining({ key: "excluded", count: "2" }),
+    ]);
+    const hours = await kpis.drill(owner(), { key: "turnaround_hours", half: "numerator", ...WINDOW });
+    const empty = hours.records.find((r) => r.id === ids.H1c)!;
+    expect([Number(empty.value), empty.label]).toEqual([48, "Container 101 (20 yd): came back empty Jun 20, 10:00 AM, placed Jun 22, 10:00 AM"]);
+
+    const hires = await raw<{ id: string; asset_id: string; delivered_at: Date; known: boolean; tipped_at: Date | null; empty_at: Date | null; picked_up_at: Date | null }[]>`
+      select id, asset_id, delivered_at, delivered_time_known as known, tipped_at, came_back_empty_at as empty_at, picked_up_at
+      from public.rental where organization_id = ${ORG} order by delivered_at`;
+    const placed = hires.find((h) => h.id === ids.H1c)!;
+    const before = hires.find((h) => h.id === ids.H1b)!;
+    expect(reporting.turnaroundOf({
+      tippedAt: before.tipped_at, cameBackEmptyAt: before.empty_at, placedAt: placed.delivered_at, placedTimeKnown: placed.known, holds: [],
+    })).toEqual({ counted: true, hours: 48 });
+
+    // Taken off, it is not known again.
+    expect(await haulTimes.recordEmpty(owner(), { id: ids.H1b!, at: null })).toEqual({ id: ids.H1b, cameBackEmptyAt: null });
+    expect([Number((await card()).denominator)]).toEqual([4]);
+  });
+
+  it("refuses a can still on site, one tipped or weighed, another day, a time to come, one after its next placement, and a tip after the mark", async () => {
+    const ids = await june();
+    await expect(haulTimes.recordEmpty(owner(), { id: ids.H1c!, at: iso("2026-06-22", "11:00") })).rejects.toThrow(/still on its site/);
+    await expect(haulTimes.recordEmpty(owner(), { id: ids.H2b!, at: iso("2026-06-25", "11:00") })).rejects.toThrow(/did not come back empty/);
+    await raw`update public.rental set weight_tons = '1.2' where id = ${ids.H6a!}`;
+    await raw`update public.rental set tipped_at = null where id = ${ids.H6a!}`;
+    await expect(haulTimes.recordEmpty(owner(), { id: ids.H6a!, at: iso("2026-06-15", "09:00") })).rejects.toThrow(/scale ticket, a weight/);
+    await expect(haulTimes.recordEmpty(owner(), { id: ids.H1b!, at: iso("2026-06-21", "10:00") })).rejects.toThrow(/recorded on Jun 20/);
+    await expect(haulTimes.recordEmpty(owner(), { id: ids.H1b!, at: new Date(Date.now() + 86_400_000).toISOString() })).rejects.toThrow(/has not come yet/);
+    await expect(haulTimes.recordEmpty(as(DREW, ["technician"]), { id: ids.H1b!, at: iso("2026-06-20", "10:00") }))
+      .rejects.toThrow(/asset:write/);
+
+    await haulTimes.recordEmpty(owner(), { id: ids.H1b!, at: iso("2026-06-20", "10:00") });
+    await expect(haulTimes.recordTip(owner(), { id: ids.H1b!, tippedAt: iso("2026-06-20", "11:00") })).rejects.toThrow(/coming back empty/);
+
+    // A can that came back empty cannot be placed before it came back.
+    const can = await container("301");
+    const first = await rentals.deliver(keyed(), { assetId: can, propertyId: site.a!, deliveredAt: iso("2026-06-02", "09:00") });
+    await rentals.pickUp(keyed(), { id: first.id, pickedUpAt: iso("2026-06-04", "15:00") });
+    await haulTimes.recordEmpty(owner(), { id: first.id, at: iso("2026-06-04", "15:00") });
+    await expect(rentals.deliver(keyed(), { assetId: can, propertyId: site.b!, deliveredAt: iso("2026-06-04", "14:00") }))
+      .rejects.toThrow(/collected empty at/);
+    const next = await rentals.deliver(keyed(), { assetId: can, propertyId: site.b!, deliveredAt: iso("2026-06-04", "17:00") });
+    expect(next.deliveredTimeKnown).toBe(true);
+    // And the mark cannot then move after that placement.
+    await haulTimes.recordEmpty(owner(), { id: first.id, at: null });
+    await expect(haulTimes.recordEmpty(owner(), { id: first.id, at: iso("2026-06-04", "18:00") })).rejects.toThrow(/on its next site/);
+  });
+});
