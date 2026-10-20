@@ -892,21 +892,21 @@ async function loadOne(
 
     case "estimates": {
       /**
-       * AN ESTIMATE AS IT ENDED. One option, one line at the amount before
-       * tax, taxed at the rate its tax was charged at (or not at all: never
-       * at the company's rate of today), with how it ended and the day it
-       * was sent recorded through the create's own history fields, which
-       * emit nothing and record no signature. The total is checked against
-       * the file's afterwards, so a cent of rounding is a refusal in words
-       * rather than a quote that disagrees with the customer's copy.
+       * AN ESTIMATE AS IT ARRIVED: its options, each with its lines, taxed at
+       * the rate its tax was charged at (never the company's rate of today),
+       * with how it ended and the day it was sent recorded through the
+       * create's own history fields, which emit nothing and record no
+       * signature. The option the customer chose is the one the file names and
+       * is never guessed. What each option comes to is checked against the
+       * file's afterwards, so a cent of rounding is a refusal in words rather
+       * than a quote that disagrees with the customer's copy.
        */
       const customer = await customerFor(db, run.source, v);
       const propertyId = await propertyFor(db, customer, v["street"]);
       const jobId = v["jobRef"] !== undefined ? await jobFor(db, run.source, v["jobRef"]) : undefined;
       const number = keptNumber(v["number"]);
-      const subtotal = v["subtotal"]!;
-      const tax = v["tax"]!;
-      const taxed = !m.isZero(m.money(tax));
+      const group = together!;
+      const tax = rules.estimateTax(group.options);
       const outcome = v["outcome"] as "approved" | "declined" | "expired" | "open";
       const title = v["title"] ?? (number === undefined && v["number"] !== undefined ? `Numbered ${v["number"]} before` : undefined);
       const input = createEstimate.input.parse({
@@ -917,30 +917,44 @@ async function loadOne(
         ...(jobId ? { jobId } : {}),
         ...(title ? { title } : {}),
         issuedOn: v["issuedOn"],
-        ...(taxed ? { taxRate: rules.taxRateOf(tax, subtotal) } : { taxRateId: null }),
-        options: [{
-          name: "As quoted", isRecommended: true,
-          lines: [{ name: v["title"] ?? "As quoted", quantity: "1", unitPrice: subtotal, taxable: taxed }],
-        }],
+        ...(tax.rate !== null ? { taxRate: tax.rate } : { taxRateId: null }),
+        options: group.options.map((option, o) => ({
+          name: option.name,
+          isRecommended: option.recommended,
+          lines: option.lines.map((line, l) => {
+            const own = tax.lineRates[o]?.[l];
+            return {
+              name: line.name,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              taxable: !m.isZero(m.money(line.tax)),
+              ...(own ? { taxRate: own } : {}),
+            };
+          }),
+        })),
         ...(outcome !== "open" ? {
           outcome: {
             status: outcome, on: v["decidedOn"],
-            ...(outcome === "approved" ? { chosenOption: 0 } : {}),
+            ...(outcome === "approved" ? { chosenOption: group.options.findIndex((option) => option.chosen) } : {}),
             ...(outcome === "declined" && v["reason"] ? { reason: v["reason"] } : {}),
           },
         } : {}),
         ...(v["sentOn"] ? { sentOn: v["sentOn"] } : {}),
       });
       const estimate = await estimates.create(as, input);
-      const total = estimate.options[0]?.total ?? "0";
-      if (m.compare(m.money(total), m.money(v["total"]!)) !== 0) {
-        throw new ConflictError(
-          `Written here it comes to ${rules.trimMoney(m.toString(m.money(total)))}, not the ${rules.trimMoney(v["total"]!)} in the file. `
-          + "Check its tax: an estimate's tax is worked out from its rate.",
-        );
+      for (const option of group.options) {
+        const made = estimate.options.find((o) => o.name === option.name);
+        const total = made?.total ?? "0";
+        if (m.compare(m.money(total), m.money(option.total)) !== 0) {
+          throw new ConflictError(
+            `${group.options.length === 1 ? "Written here it" : `The option "${option.name}" written here`} comes to ${rules.trimMoney(m.toString(m.money(total)))}, `
+            + `not the ${rules.trimMoney(option.total)} in the file. Check its tax: an estimate's tax is worked out from its rate.`,
+          );
+        }
       }
       const how = outcome === "open" ? "open, to send from here" : outcome;
-      return { outcome: "loaded", recordId: estimate.id, recordLabel: `Estimate ${estimate.number}, ${how}` };
+      const many = group.options.length > 1 ? `${group.options.length} options, ` : "";
+      return { outcome: "loaded", recordId: estimate.id, recordLabel: `Estimate ${estimate.number}, ${many}${how}` };
     }
 
     case "notes": {

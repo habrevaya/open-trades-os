@@ -312,7 +312,7 @@ stops between batches and pressing the button again carries on.
 | Past jobs | `POST /v1/jobs` with `completedAt` or `cancelledAt`, or as a lead when the row says open |
 | Past invoices | `POST /v1/invoices` with `issuedOn`, a line per row (its quantity at its price each, or one at its amount before tax) with the tax as charged on it and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
 | Past payments | `POST /v1/payments` dated the day it was paid, with an allocation per row to the invoice that row names, and whatever a row names no invoice for held for the customer |
-| Past estimates | `POST /v1/estimates` with `issuedOn`, one option of one line at the amount before tax, taxed at the rate its tax was charged at or not at all, its `outcome` (approved on its one option, declined with the reason, expired) and `sentOn`; the total is checked against the file's to the cent afterwards |
+| Past estimates | `POST /v1/estimates` with `issuedOn`, its options and the lines of each (one option of one line when the file has one row), taxed at the rate its tax was charged at or not at all, its `outcome` (approved on the option the file names, declined with the reason, expired) and `sentOn`; each option's total is checked against the file's to the cent afterwards |
 | Customer notes | `POST /v1/customers/{id}/notes` with `notedAt` at midday of the day in the file on the company's clock (now, for a note written today), `forField` when the file says the technician should see it, and `externalRef` |
 | Past visits | `POST /v1/jobs/{id}/visits` with the window at the day and times in the file on the company's clock, the one technician it names, `completedAt` at the time it finished and `technicianNotes`; an hour long when the file has no time it finished |
 
@@ -338,6 +338,48 @@ recorded the way the API records history: done, starting nothing and telling
 nobody, not refused for time off the technician recorded since, and never
 counted toward their pay or a commission.
 
+**An estimate arrives whole.** An estimate in another product is a set of
+options, each with its own lines, and a file carries it as a row per line. Rows
+with the same estimate number (or id) are one estimate, the way an invoice's
+lines are one invoice, and the **Option** column says which option each line is
+in: lines with the same option name are one option, however the name is spelt in
+capitals, and options are kept in the order the file first names them. A file
+with no Option column, or one left empty on every row, is one option called "As
+quoted", which is what a one row estimate has always been. A line is a **Line
+item**, its **Quantity** at its **Price each** (or its **Before tax**) and its
+**Tax**; the owner's mapping says which column is which, and a quantity needs a
+price each. What the file says about the estimate (whose it is, the day it was
+written, the day it was sent, how it ended) is said once and has to agree
+wherever it is said; the rows of one option have to agree about its Total,
+whether it is **Recommended** and whether it is **Chosen by the customer**, or
+every row of the estimate is refused naming the two rows that disagree.
+
+The totals are checked against the file twice, and a mismatch is refused in
+words and loads nothing. First, an option's lines are added up, tax included,
+and compared with the Total the file gives it ("The option "Good" comes to
+3397.50, not the 3400.00 in Total."); a Total belongs to its option, so an
+estimate whose Total column repeats one figure on every row of two options is
+refused rather than the figure being trusted for both. Second, after the
+estimate is written the create works its own totals out from the rates and each
+option is compared with the file again, so a cent of rounding in how another
+product charged its tax is a sentence naming both figures and not a quote that
+differs from the customer's copy. The tax is worked out as a rate: one rate to
+four places when it reproduces every option's tax to the cent (0.0825, not the
+0.08252 a half cent implies on one line), otherwise each taxed line carries the
+rate its own tax implies, to six places, and never the company's rate of today.
+
+**The option the customer chose is never guessed.** An approved estimate with
+several options needs the Chosen column to name exactly one of them; without it
+every row is refused ("It was approved and the file does not say which of its 2
+options the customer chose"), because choosing the cheapest, or the recommended
+one, or the first would put a sale in the books for work the customer may not
+have bought. An approved estimate with one option chose it. A chosen option on
+an estimate that was not approved is refused, two options marked recommended or
+chosen are refused, and an estimate has at most five options (what the create
+takes). A single option is recommended unless the file says otherwise; of
+several, only the ones the file marks are. A line with no option on a file whose
+other lines name theirs is refused rather than put in an option of its own.
+
 **An estimate comes in as it ended.** Approved, declined or expired, each with
 the day it was decided, or open. An open one comes in as a draft, to send from
 here, and one that says it was sent and is still open is refused with that
@@ -354,11 +396,12 @@ job by the job's id or by the number it kept. A number the source printed is
 kept when it is a whole number; one like `INV-1042` is said in the invoice's
 memo instead.
 
-**Several rows can be one invoice or one payment.** That is how accounting
-programs export them: an invoice of three lines is three rows with one invoice
-number, and a cheque that paid two invoices is two rows with one payment id.
-In a past invoices or past payments file, the rows sharing an id are one
-record: the first carries the rest, they are checked and loaded together as one
+**Several rows can be one invoice, one payment or one estimate.** That is how
+accounting programs export them: an invoice of three lines is three rows with
+one invoice number, a cheque that paid two invoices is two rows with one payment
+id, and an estimate with options is a row per line with one estimate number. In
+a past invoices, past payments or past estimates file, the rows sharing an id
+are one record: the first carries the rest, they are checked and loaded together as one
 create, and every one of them takes the outcome. What they share (the invoice
 date, whose it is, the invoice's Total, what was paid on it, the day a payment
 was paid) only has to be on one row, and where more than one row fills it they
@@ -696,8 +739,13 @@ zip code typed as a number has lost its leading zero before this sees it; both
 need the column formatted as text in the spreadsheet. The header has to be the
 sheet's first row. An invoice's lines carry a quantity, a price each, a description
 and the tax charged on them, not a price book item, a discount or a cost; a
-refund or a credit does not come in through it. An estimate comes in as one
-option of one line at its amount, not the options and lines of the original.
+refund or a credit does not come in through it. An estimate's lines carry a
+name, a quantity, a price each and the tax charged, not a price book item, a
+discount, a cost, a description, an optional line the customer could add, or the
+member rate; an option carries its name and whether it is recommended or chosen,
+not a description; and a file with more than five options on an estimate is
+refused, because the create takes five. An approved estimate with several options
+needs the file to say which was chosen: nothing is chosen for the owner.
 A note comes in dated by its day, not its time, and a past visit carries one
 technician, not a crew: a visit two people went on is two files' worth of
 work, or the second is added from the visit afterwards. A past visit's parts,
