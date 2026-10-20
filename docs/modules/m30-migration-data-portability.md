@@ -233,10 +233,44 @@ the toolkit. It takes nine kinds of file: customers with their addresses and
 a person to contact, equipment, price book items, past jobs, past invoices
 with their lines and what was paid on them, past payments, each split across
 the invoices it paid, past estimates with how they ended and the day they
-were sent, customer notes, and past visits on past jobs. CSV only: no workbook reader is part of
-this product, and a workbook uploaded by mistake is refused with how to save
-it as CSV. A file can be 5 MB and ten thousand rows; a larger one is refused
-in words, to be split.
+were sent, customer notes, and past visits on past jobs. A file is a CSV or an
+Excel workbook (`.xlsx`). A file can be 5 MB and ten thousand rows; a larger one
+is refused in words, to be split.
+
+**A workbook is read a sheet at a time, into the same rows a CSV makes.** When
+an `.xlsx` is chosen on the upload form it is read for its sheets
+(`POST /v1/import-sheets`), and the form lists each with its rows and the start
+of its header: the owner picks one, the workbook goes up again with `sheet`
+named (`POST /v1/imports`), and from there the sheet is a file like any other,
+mapped, checked and loaded by the same code. Nothing of the workbook is kept
+between the two calls, and it is never stored as a workbook: only its rows are.
+A sheet that cannot be brought in is listed with why beside its name (its first
+row is empty, it has too many rows), and choosing it is not offered. A workbook
+with several sheets is refused by the API until `sheet` says which, naming them,
+because choosing for the owner could load the wrong list.
+
+The reader is `read-excel-file`, pinned to an exact version in `packages/api`,
+and it is held to these rules. Nothing is evaluated: a cell holding a formula is
+read as the answer the spreadsheet program stored beside it, and a cell of text
+that starts with `=` is the characters it holds. A macro is never opened: only
+the XML parts of the file are read, and a macro lives in a binary part that is
+skipped. The first row of the sheet is the header, as in a CSV, and a sheet whose
+first row is empty is refused rather than skipped past, so the row numbers on the
+screen are the ones the spreadsheet program shows. A row with nothing in it is
+left out and every other keeps its number from the sheet. A number is written with
+the fifteen digits a spreadsheet shows (a price worked out by a formula and stored
+as 108.25000000000001 is 108.25), a date as the day it shows, and a time with no
+day as the time. The size cap is the CSV's (5 MB and ten thousand rows) plus 500
+columns and 50 sheets, and the file is doubted before it is read: the zip's own
+directory is read and every XML part is actually inflated under a budget of 100 MB
+before the library sees the file, so a small file that opens into gigabytes is
+refused whatever sizes it declares, a sheet whose cells reach row 200,000 or span
+more than five million cells (a single formatted cell in the far corner) is
+refused with how to clear it, and a password protected or damaged workbook, or
+an older `.xls`, is refused with how to save it as `.xlsx` or CSV. The screen
+takes files named `.csv` or `.xlsx` and refuses an `.xlsm`, `.xlsb`, `.ods` or
+`.numbers` file by its name with the same advice. Anything the library throws is
+turned into a sentence.
 
 **The columns are guessed, and the owner has the last word.** A plain matcher
 in `packages/core/src/imports` reads each header for the words people put at
@@ -352,7 +386,7 @@ fix and bring in again. A cell that starts like a formula (`=HYPERLINK(...)`)
 was stored as the characters it holds and is written back as text, so a
 spreadsheet shows it rather than running it.
 
-The API is the screen's: `GET /v1/imports`, `POST /v1/imports`,
+The API is the screen's: `GET /v1/imports`, `POST /v1/import-sheets`, `POST /v1/imports`,
 `GET /v1/imports/{id}`, `POST /v1/imports/{id}/mapping`,
 `POST /v1/imports/{id}/check`, `POST /v1/imports/{id}/load`,
 `GET /v1/imports/{id}/refused`, `GET /v1/import-mappings` and
@@ -650,9 +684,17 @@ already exists.
 
 Nothing in this repository reads another product's export format. The
 migration toolkit is separate and loads through `/api/v1` with a connected
-app's token; the spreadsheet screen reads plain CSV whose columns the owner
-matches. It reads no workbook files, only CSV, because no workbook reader is a
-dependency. An invoice's lines carry a quantity, a price each, a description
+app's token; the spreadsheet screen reads a CSV or an `.xlsx` workbook whose
+columns the owner matches. It reads no older `.xls`, no `.xlsb`, `.ods` or
+`.numbers` file, no workbook with a password, and the screen takes no `.xlsm`:
+each is refused with how to save it as `.xlsx` or CSV. A workbook is read for its cells' values only: a
+formula that a program wrote without storing its answer reads as empty, a cell
+showing an error (`#N/A`) reads as empty, and merged cells, hidden rows,
+comments and pictures are not looked at. A number with more than fifteen digits
+(an id typed as a number) loses its last digits in the spreadsheet itself, and a
+zip code typed as a number has lost its leading zero before this sees it; both
+need the column formatted as text in the spreadsheet. The header has to be the
+sheet's first row. An invoice's lines carry a quantity, a price each, a description
 and the tax charged on them, not a price book item, a discount or a cost; a
 refund or a credit does not come in through it. An estimate comes in as one
 option of one line at its amount, not the options and lines of the original.

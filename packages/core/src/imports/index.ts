@@ -1,5 +1,6 @@
 import { parseCsv } from "../custom-objects/index.js";
 import { csvCell } from "../reporting/csv.js";
+export * from "./workbook.js";
 import { add, compare, money, multiply, round, subtract, sum, toString, isZero, isNegative, isPositive } from "../money/index.js";
 
 /**
@@ -487,12 +488,13 @@ export function parseDate(raw: string, dayFirst = false): Parsed {
 
 /**
  * A time of day, as `HH:MM` on a 24 hour clock: "14:30", "2:30 PM", "2pm",
- * "09:05:00". Read on the company's clock by whoever places it. A time with
+ * "09:05:00", or a time with its day in front, "2021-03-04 14:30". Read on the company's clock by whoever places it. A time with
  * no AM or PM is read as a 24 hour clock, so "2:30" is the middle of the
  * night: a file that writes afternoons without PM says so in every other row.
  */
 export function parseTime(raw: string): Parsed {
-  const text = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  /** A date and time in one cell, as a workbook's date column gives it: the day is read from the Day column instead. */
+  const text = raw.trim().toLowerCase().replace(/\s+/g, " ").replace(/^\d{4}-\d{2}-\d{2}[t ]/, "");
   const match = /^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s?(am|pm|a\.m\.|p\.m\.)?$/.exec(text);
   if (!match || (match[2] === undefined && match[4] === undefined)) {
     return no(`"${raw.trim()}" is not a time this can read. Write it like 14:30 or 2:30 PM.`);
@@ -1075,11 +1077,11 @@ export function readFile(text: string, bytes: number):
   /**
    * A workbook is a zip, and a zip starts "PK". Reading one as text gives a
    * screen of symbols and a mapping nobody can make sense of, so it is
-   * refused with what to do instead. This reads CSV only: no workbook reader
-   * is part of this product.
+   * refused with what to do instead. A workbook has its own reader
+   * (`workbook.ts`), and a CSV that turns out to be one was sent the wrong way.
    */
   if (text.startsWith("PK\u0003\u0004") || text.includes("\u0000")) {
-    return { ok: false, why: "That is a spreadsheet workbook, not a CSV file. In your spreadsheet program choose Save As or Download, pick CSV, and bring in that file." };
+    return { ok: false, why: "That is a spreadsheet workbook, not a CSV file. Choose it as a workbook, or in your spreadsheet program choose Save As or Download, pick CSV, and bring in that file." };
   }
   const all = parseCsv(text);
   const [header, ...rows] = all;

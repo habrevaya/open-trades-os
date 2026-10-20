@@ -47,8 +47,9 @@ export default async function ImportsPage() {
         Bringing in the same file twice does not make copies.
       </p>
       <p className="mt-2 max-w-2xl text-sm text-ink-500">
-        CSV files only. In your spreadsheet program choose Save As or Download and pick CSV. A file can be up to 5 MB
-        and {rules.MAX_ROWS.toLocaleString("en-US")} rows. Bring in customers first: jobs, equipment and invoices are
+        A CSV file or an Excel workbook (.xlsx). A workbook with several sheets is brought in one sheet at a time, and a
+        formula comes in as the answer it shows. In your spreadsheet program choose Save As or Download to get either.
+        A file can be up to 5 MB and {rules.MAX_ROWS.toLocaleString("en-US")} rows. Bring in customers first: jobs, equipment and invoices are
         matched to them. Bring in invoices before payments: a payment is matched to the invoices it paid.
       </p>
 
@@ -68,7 +69,7 @@ export default async function ImportsPage() {
           </>}>
             {runs.map((run) => (
               <tr key={run.id}>
-                <Td><a href={`/settings/imports/${run.id}`} className="text-blue-600 underline underline-offset-4">{run.fileName}</a></Td>
+                <Td><a href={`/settings/imports/${run.id}`} className="text-blue-600 underline underline-offset-4">{run.fileName}</a>{run.sheetName ? <span className="block text-xs text-ink-500">Sheet: {run.sheetName}</span> : null}</Td>
                 <Td>{rules.KIND_LABEL[run.kind].label}</Td>
                 <Td>{formatIn(run.createdAt, zone)}</Td>
                 <Td><Chip tone={STATUS_TONE[run.status]}>{STATUS_WORDS[run.status]}</Chip></Td>

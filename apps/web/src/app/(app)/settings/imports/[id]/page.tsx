@@ -54,7 +54,7 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
         <PageHeader title={run.fileName} action={<Chip tone={STATUS_TONE[run.status]}>{STATUS_WORDS[run.status]}</Chip>} />
       </div>
       <p className="mt-1 text-sm text-ink-700">
-        {rules.KIND_LABEL[run.kind].label}. {run.rows.toLocaleString("en-US")} rows
+        {rules.KIND_LABEL[run.kind].label}.{run.sheetName ? ` Sheet: ${run.sheetName}.` : ""} {run.rows.toLocaleString("en-US")} rows
         {run.mappingName ? `, matched with your saved columns "${run.mappingName}"` : ""}.
       </p>
 

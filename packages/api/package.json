@@ -46,6 +46,7 @@
     "@opentradesos/trade-packs": "workspace:*",
     "drizzle-orm": "^0.36.4",
     "nodemailer": "^10.0.13",
+    "read-excel-file": "9.3.12",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
   },

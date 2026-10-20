@@ -8,6 +8,7 @@ import {
 } from "./context";
 import { remember, replayed } from "./once";
 import { byExternal } from "./provenance";
+import * as workbooks from "../imports/workbook";
 import { dryRun } from "../http/dry-run";
 import * as customers from "./customers";
 import * as contacts from "./contacts";
@@ -123,6 +124,7 @@ function summary(run: Run, counts: Record<Outcome, number>) {
     id: run.id,
     kind: kindOf(run),
     fileName: run.fileName,
+    sheetName: run.sheetName,
     source: run.source,
     holdAutomations: run.holdAutomations,
     status: run.status as "mapping" | "checking" | "checked" | "loading" | "finished",
@@ -361,15 +363,75 @@ function readTogether(
 
 /* --------------------------------------------------------------- upload, map */
 
+/** The most base64 text a five megabyte file can come to, with room for line breaks nobody sent. */
+const MAX_BASE64 = Math.ceil((rules.MAX_BYTES * 4) / 3) + 16;
+
+/**
+ * THE FILE, AS A HEADER AND ROWS OF TEXT, WHICHEVER WAY IT CAME.
+ *
+ * A CSV is text. A workbook is bytes (sent as base64, because the API answers
+ * in JSON) and one of its sheets is read into the same rows, so everything
+ * after this point, the mapping, the checks, the loads, is one code path for
+ * both. A row of a workbook keeps the row number it has in the spreadsheet.
+ */
+async function upload(input: {
+  csv?: string | undefined; workbook?: string | undefined; sheet?: string | undefined;
+}): Promise<{ header: string[]; rows: string[][]; numbers: number[] | null; sheet: string | null }> {
+  if (input.csv !== undefined && input.workbook !== undefined) {
+    throw new ConflictError("Send the file as a CSV or as a workbook, not both.");
+  }
+  if (input.workbook !== undefined) {
+    if (input.workbook.length > MAX_BASE64) {
+      throw new ConflictError(rules.tooBigMessage(Math.floor((input.workbook.length * 3) / 4)));
+    }
+    try {
+      const read = await workbooks.readSheet(Buffer.from(input.workbook, "base64"), input.sheet);
+      return { header: read.header, rows: read.rows, numbers: read.numbers, sheet: read.sheet };
+    } catch (error) {
+      if (error instanceof workbooks.WorkbookRefused) throw new ConflictError(error.message);
+      throw error;
+    }
+  }
+  if (input.csv === undefined) throw new ConflictError("Send the file to bring in.");
+  if (input.sheet !== undefined) throw new ConflictError("A CSV file has no sheets. Send a workbook to choose one.");
+  const file = rules.readFile(input.csv, Buffer.byteLength(input.csv, "utf8"));
+  if (!file.ok) throw new ConflictError(file.why);
+  return { header: file.header, rows: file.rows, numbers: null, sheet: null };
+}
+
+/**
+ * THE SHEETS OF A WORKBOOK, for choosing one.
+ *
+ * Each with its rows and the start of its header, and why it cannot be
+ * brought in when it cannot. Nothing is kept: the file is sent again with the
+ * sheet chosen, so there is no half uploaded file to clean up and a workbook
+ * is never stored as a workbook.
+ */
+export async function sheets(ctx: ServiceContext, input: { workbook: string }) {
+  assertCan(ctx.actor, "data:import");
+  if (input.workbook.length > MAX_BASE64) {
+    throw new ConflictError(rules.tooBigMessage(Math.floor((input.workbook.length * 3) / 4)));
+  }
+  try {
+    return { sheets: await workbooks.listSheets(Buffer.from(input.workbook, "base64")) };
+  } catch (error) {
+    if (error instanceof workbooks.WorkbookRefused) throw new ConflictError(error.message);
+    throw error;
+  }
+}
+
 export async function start(
-  ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string; holdAutomations?: boolean | undefined },
+  ctx: ServiceContext,
+  input: {
+    kind: Kind; fileName: string; csv?: string | undefined; workbook?: string | undefined; sheet?: string | undefined;
+    holdAutomations?: boolean | undefined;
+  },
 ) {
   return guardedWrite(ctx, "data:import", async (tx) => {
     const again = await replayed<{ id: string }>(tx, ctx, "import_start");
     if (again) return detail(tx, ctx, await loadRun(tx, again.id));
 
-    const file = rules.readFile(input.csv, Buffer.byteLength(input.csv, "utf8"));
-    if (!file.ok) throw new ConflictError(file.why);
+    const file = await upload(input);
 
     /**
      * A FILE SHAPED LIKE ONE BEFORE MAPS ITSELF. The newest mapping saved for
@@ -386,7 +448,8 @@ export async function start(
     const [run] = await tx.insert(schema.importRun).values({
       organizationId: ctx.actor.organizationId,
       kind: input.kind,
-      fileName: input.fileName.trim().slice(0, 300) || "spreadsheet.csv",
+      fileName: input.fileName.trim().slice(0, 300) || (file.sheet === null ? "spreadsheet.csv" : "workbook.xlsx"),
+      sheetName: file.sheet,
       source: saved?.source ?? "spreadsheet",
       dayFirst: saved?.dayFirst ?? false,
       /** On unless the owner said otherwise: a file of history is not news to text anybody about. */
@@ -403,13 +466,13 @@ export async function start(
       await tx.insert(schema.importRow).values(file.rows.slice(i, i + 1000).map((cells, j) => ({
         organizationId: ctx.actor.organizationId,
         runId: run!.id,
-        rowNumber: i + j + 2,
+        rowNumber: file.numbers?.[i + j] ?? i + j + 2,
         cells,
       })));
     }
     await reread(tx, ctx, run!);
     await audit(tx, ctx, "import.started", "import_run", run!.id, null, {
-      kind: input.kind, fileName: run!.fileName, rows: file.rows.length, mapping: saved?.name ?? null,
+      kind: input.kind, fileName: run!.fileName, sheet: file.sheet, rows: file.rows.length, mapping: saved?.name ?? null,
       holdAutomations: run!.holdAutomations,
     });
     await remember(tx, ctx, "import_start", run!.id, { id: run!.id });
@@ -1259,8 +1322,9 @@ export async function refusedFile(ctx: ServiceContext, input: { id: string }) {
       .where(and(eq(schema.importRow.runId, run.id), eq(schema.importRow.outcome, "refused")))
       .orderBy(asc(schema.importRow.rowNumber));
     const base = run.fileName.replace(/\.[a-z0-9]+$/i, "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "spreadsheet";
+    const sheet = (run.sheetName ?? "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
     return {
-      fileName: `${base}-refused.csv`,
+      fileName: `${base}${sheet ? `-${sheet}` : ""}-refused.csv`,
       rows: rows.length,
       csv: rules.refusedCsv(run.header, rows.map((r) => ({ row: r.row, cells: r.cells, reason: r.reason ?? "" }))),
     };
@@ -1293,8 +1357,14 @@ export async function removeMapping(ctx: ServiceContext, input: { id: string }) 
 
 export const handlers = {
   listImports: (ctx: ServiceContext) => list(ctx),
-  startImport: (ctx: ServiceContext, input: { kind: Kind; fileName: string; csv: string; holdAutomations?: boolean | undefined }) =>
-    start(ctx, input),
+  startImport: (
+    ctx: ServiceContext,
+    input: {
+      kind: Kind; fileName: string; csv?: string | undefined; workbook?: string | undefined; sheet?: string | undefined;
+      holdAutomations?: boolean | undefined;
+    },
+  ) => start(ctx, input),
+  listImportSheets: (ctx: ServiceContext, input: { workbook: string }) => sheets(ctx, input),
   getImport: (ctx: ServiceContext, input: { id: string }) => get(ctx, input),
   mapImport: (
     ctx: ServiceContext,

@@ -179,6 +179,8 @@ export const importRun = pgTable("import_run", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(),
   fileName: text("file_name").notNull(),
+  /** The sheet of a workbook the rows were read from, or null for a CSV. */
+  sheetName: text("sheet_name"),
   /** What the rows' `externalRef` source is: the same name across files is how a job finds its customer. */
   source: text("source").notNull(),
   dayFirst: boolean("day_first").notNull().default(false),
