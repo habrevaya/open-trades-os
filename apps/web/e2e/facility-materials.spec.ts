@@ -73,27 +73,34 @@ test("Containers: the board says what is in a can, and a can collected empty is 
   expect(hire.materialType).toBe("Yard waste");
 
   await owner.goto("/fleet/containers");
-  let row = owner.getByRole("table", { name: "Out on hire" }).getByRole("row").filter({ hasText: identifier });
+  /**
+   * The hire's row, found by the can in its first cell: another hire's "Empty
+   * can" list names every can in the yard, so a row that merely mentions the
+   * number can be somebody else's.
+   */
+  const hireOf = () => owner.getByRole("table", { name: "Out on hire" }).getByRole("row")
+    .filter({ has: owner.locator("td:first-child .font-mono", { hasText: new RegExp(`^${identifier}$`) }) });
+  let row = hireOf();
   await expect(row).toContainText("Yard waste");
   await row.getByLabel(`What is in ${identifier}`).fill("Concrete");
   await row.getByRole("button", { name: "Save what is in it" }).click();
-  row = owner.getByRole("table", { name: "Out on hire" }).getByRole("row").filter({ hasText: identifier });
+  row = hireOf();
   await expect(row).toContainText("Concrete");
 
   /** Collected today with nothing in it. */
   await api(owner, "post", `/v1/rentals/${hire.id}/pickup`, {});
   await owner.reload();
-  row = owner.getByRole("table", { name: "Out on hire" }).getByRole("row").filter({ hasText: identifier });
+  row = hireOf();
   await expect(row).toContainText("No ticket");
   await row.getByLabel(`Collected empty at, on ${companyToday()}`).fill("00:01");
   await row.getByRole("button", { name: "Came back empty" }).click();
-  row = owner.getByRole("table", { name: "Out on hire" }).getByRole("row").filter({ hasText: identifier });
+  row = hireOf();
   await expect(row).toContainText("Came back empty");
   await expect(row.getByRole("button", { name: "Save time emptied" })).toHaveCount(0);
 
   /** A mistake is taken back, and the row asks for the time emptied again. */
   await row.getByRole("button", { name: "It was not empty" }).click();
-  row = owner.getByRole("table", { name: "Out on hire" }).getByRole("row").filter({ hasText: identifier });
+  row = hireOf();
   await expect(row).toContainText("No ticket");
   await expect(row.getByRole("button", { name: "Save time emptied" })).toBeVisible();
 });
