@@ -8,7 +8,7 @@ import { Fact, Facts } from "@/components/Detail";
 import { Empty, Table, Td, Th } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import {
-  addContact, saveOwnContact, logCeHours, removeContact, saveNoticeSwitches, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
+  addContact, saveOwnContact, logCeHours, removeContact, saveNoticeSwitches, setNoticeDigest, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
 } from "./actions";
 import { SignDocument } from "./SignDocument";
 import { OwnContactChanges } from "@/components/OwnContactChanges";
@@ -284,6 +284,13 @@ export default async function MyRecordPage() {
   );
 }
 
+/** An hour of the day as a person says it: "8 in the morning", "1 in the afternoon". */
+function hourWords(hour: number): string {
+  if (hour === 0) return "midnight";
+  if (hour === 12) return "noon";
+  return hour < 12 ? `${hour} in the morning` : `${hour - 12} in the ${hour < 18 ? "afternoon" : "evening"}`;
+}
+
 /**
  * WHAT YOU ARE TOLD, AND WHERE
  *
@@ -320,6 +327,21 @@ function NoticeSettings({ told, zone }: { told: Awaited<ReturnType<typeof staffN
           ))}
         </Table>
       </ActionForm>
+
+      <h3 className="mt-6 text-sm font-semibold">A daily email of what you have not read</h3>
+      <div className="mt-1 space-y-2 text-sm">
+        <p className="text-ink-700">
+          {told.digest.on
+            ? `On. Each morning at ${hourWords(told.digest.hour)}, an email to the address you sign in with lists the notices you have not read. Nothing comes on a day you have read them all.`
+            : `Off. Turn it on to get one email each morning at ${hourWords(told.digest.hour)} listing the notices you have not read.`}
+        </p>
+        {told.digest.on && told.digest.lastOutcome && told.digest.lastOn
+          ? <p className="text-ink-500">Last morning ({told.digest.lastOn}): {told.digest.lastOutcome}</p>
+          : null}
+        <ActionForm action={setNoticeDigest} submit={told.digest.on ? "Turn the daily email off" : "Turn the daily email on"}
+                    tone={told.digest.on ? "quiet" : "primary"} hidden={{ on: told.digest.on ? "false" : "true" }}
+                    className="inline-flex" />
+      </div>
 
       <h3 className="mt-6 text-sm font-semibold">Texts to your mobile</h3>
       {told.texts.on ? (

@@ -279,6 +279,24 @@ change with `dryRun`, and raises the server's own refusal with its field issues.
 `verifyWebhook` checks a delivery's signature and timestamp with Web Crypto, and
 accepts either secret during a rotation. Its README says how.
 
+`events(operation, input, options)` reads an answer as it is written, for the two
+operations that stream (`askFieldAssistant`, `sayInChat`; the generated
+`StreamingOperationId` names them, and any other is refused). It is an async
+iterator: each `writing` event, then the `answer`, after which it ends; a `problem`
+is thrown as the same `OpenTradesOSError` a refusal is. A dropped connection, a
+stream that ends before its answer, a 429 or a 5xx is asked again after a pause
+(half a second, doubling, capped at ten seconds, or the server's `Retry-After` or
+`retry`), with the same idempotency key and `Last-Event-ID` set to the last id the
+server sent, up to `maxReconnects` (5) times in a row. It asks again only for an
+operation that takes an idempotency key, so the website chat's message, which takes
+none, is never sent twice: a drop there is thrown. An abort `signal` stops it at
+once, mid stream or mid pause, and closes the connection, as leaving the loop early
+does. `lastEventId` with your own `idempotencyKey` resumes a stream another process
+was reading. A server that answers JSON instead is read as one `answer`. The parser
+follows the event stream format itself (any line ending, comments, several data
+lines, ids that outlast their event), and is tested against a fake server writing
+with the API's own `eventText`.
+
 ### Talk to it as an agent
 
 `/api/mcp` offers every signed in, non internal route as a tool, filtered by what the
@@ -339,9 +357,14 @@ to retry.
 ## What is not built
 
 Only the field assistant and the website chat's messages answer as they are
-written; every other route answers whole. The SDK has no method that reads events:
-its calls answer JSON, and a caller that wants the sentences as they come reads the stream with
-`fetch`. A sentence is sent only once it is finished, so a long first sentence
+written; every other route answers whole. The server's answer streams carry no
+event ids and the server does not read `Last-Event-ID`, so the SDK's `events()`
+sends one only once a server has given it one; today a resume is the same request
+with the same idempotency key, which the field assistant answers from its record as
+one `answer` event when the first answer was finished. A resume that arrives while the
+first answer is still being written asks the model again, because nothing marks a
+question as in progress. The chat takes no idempotency key, so `events()` never
+resumes it. A sentence is sent only once it is finished, so a long first sentence
 arrives late, and on a model connection that does not stream (see M27) the stream
 holds only the `answer` event.
 

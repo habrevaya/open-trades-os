@@ -602,7 +602,10 @@ deployment's `PUBLIC_URL` followed by `/settings/integrations/oauth`.
 The grant that comes back is kept sealed: AES-256-GCM under
 `CREDENTIAL_SEALING_KEY`, which lives in the deployment's environment and never
 in the database. Without the key the button is refused before anybody leaves
-for the platform, with the reason. An operator who keeps tokens in their own
+for the platform, with the reason. The key can be changed without anybody
+signing in again: the old one is kept in `CREDENTIAL_SEALING_KEY_PREVIOUS` while
+`pnpm --filter @opentradesos/api credentials:reseal` moves every grant onto the new one (M25,
+`docs/self-hosting/secrets.md`). An operator who keeps tokens in their own
 vault names a refresh token (or a Meta system user token) as the connection's
 credential instead and never uses the button. Google's grant lasts until it is
 revoked; Meta's lasts about sixty days and the screen counts down to it. A

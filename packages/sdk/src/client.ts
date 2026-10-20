@@ -1,7 +1,9 @@
 import {
-  GeneratedOperations, OPERATIONS,
+  GeneratedOperations, OPERATIONS, STREAMING_OPERATIONS,
   type CallOptions, type DryRunOperationId, type OperationId, type OperationTypes, type PaginatedOperationId,
+  type StreamingOperationId,
 } from "./generated";
+import { EventStreamParser, type RawEvent } from "./events";
 
 /**
  * THE CLIENT
@@ -68,6 +70,32 @@ export class OpenTradesOSError extends Error {
     super(message);
     this.name = "OpenTradesOSError";
   }
+}
+
+/**
+ * One event of an answer being written. `writing` is the answer so far, the
+ * whole of it each time, so showing the latest one is always right; `answer`
+ * is exactly what the operation answers as JSON, replaces what was shown, and
+ * is the last event. A refusal after the stream opened is thrown as an
+ * `OpenTradesOSError`, as it is for every other call.
+ */
+export type StreamEvent<K extends StreamingOperationId> =
+  | { event: "writing"; data: { text: string }; id: string | null }
+  | { event: "answer"; data: OperationTypes[K]["output"]; id: string | null };
+
+export interface EventsOptions extends CallOptions {
+  /**
+   * How many times in a row a dropped stream is asked for again before
+   * giving up. A connection that delivered an event starts the count over.
+   * Only operations that take an idempotency key are asked again: the same
+   * key makes the second request the same question, not a second one.
+   * Defaults to 5.
+   */
+  maxReconnects?: number;
+  /** Where a stream that was read before left off, to resume it after a restart. Needs the same `idempotencyKey`. */
+  lastEventId?: string;
+  /** Called before each reconnect, for logging. */
+  onReconnect?: (attempt: number, reason: string) => void;
 }
 
 /** What a dry run answers: what the operation would have returned and what it would have written. */
@@ -164,9 +192,124 @@ export class OpenTradesOS extends GeneratedOperations {
     } while (cursor);
   }
 
-  private async send(
+  /**
+   * An operation's answer as it is written, one event at a time, for the
+   * operations that stream (`StreamingOperationId`).
+   *
+   *   for await (const e of ots.events("askFieldAssistant", { question })) {
+   *     if (e.event === "writing") show(e.data.text);
+   *     else done(e.data);
+   *   }
+   *
+   * A dropped connection is asked again after a pause (half a second,
+   * doubling, capped at ten, or what the server said with `retry` or
+   * `Retry-After`), with the same idempotency key and `Last-Event-ID` set to
+   * the last id the server sent, so the server answers the same question
+   * rather than a new one. A 429 or a 5xx is asked again the same way. An
+   * abort `signal` stops the wait and closes the connection, and so does
+   * leaving the loop early. A server that answers JSON instead of events is
+   * read as one `answer`.
+   */
+  async *events<K extends StreamingOperationId>(
+    operation: K, input: OperationTypes[K]["input"], options: EventsOptions = {},
+  ): AsyncGenerator<StreamEvent<K>, void, undefined> {
+    if (!(STREAMING_OPERATIONS as readonly string[]).includes(operation)) {
+      throw new Error(`${operation} does not answer as events.`);
+    }
+    const { spec, url, headers, body } = this.prepare(operation, input as unknown as Record<string, unknown>, options, false);
+    headers["accept"] = "text/event-stream";
+    const signal = options.signal;
+    const maxReconnects = options.maxReconnects ?? 5;
+    let lastEventId: string | null = options.lastEventId ?? null;
+    let retryBase: number | null = null;
+    let failures = 0;
+
+    /** Wait and go round again, or say why not. */
+    const again = async (reason: string, retryAfter: string | null): Promise<void> => {
+      if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
+      if (!spec.idempotent) {
+        throw new OpenTradesOSError(0, `${operation} stopped before it finished (${reason}), and it cannot be asked again safely.`, operation);
+      }
+      if (failures >= maxReconnects) {
+        throw new OpenTradesOSError(0, `${operation} stopped before it finished (${reason}), ${failures} times in a row.`, operation);
+      }
+      failures += 1;
+      options.onReconnect?.(failures, reason);
+      await sleep(backoff(failures - 1, retryAfter, retryBase), signal);
+    };
+
+    for (;;) {
+      if (lastEventId !== null) headers["last-event-id"] = lastEventId;
+      let response: Response;
+      try {
+        response = await this.fetcher(url, {
+          method: spec.method, headers, ...(body !== undefined ? { body } : {}),
+          ...(signal ? { signal } : {}),
+        });
+      } catch (error) {
+        await again((error as Error).message, null);
+        continue;
+      }
+
+      if (!response.ok) {
+        if (RETRYABLE(response.status)) {
+          await response.body?.cancel().catch(() => undefined);
+          await again(`HTTP ${response.status}`, response.headers.get("retry-after"));
+          continue;
+        }
+        throw await refusal(response, operation);
+      }
+
+      if (!(response.headers.get("content-type") ?? "").includes("text/event-stream") || !response.body) {
+        /** A server that answered whole, as one written before streams would. */
+        const text = await response.text();
+        yield { event: "answer", data: (text === "" ? null : JSON.parse(text)) as OperationTypes[K]["output"], id: null };
+        return;
+      }
+
+      const parser = new EventStreamParser(lastEventId);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let dropped: string | null = null;
+      try {
+        for (;;) {
+          let chunk: ReadableStreamReadResult<Uint8Array>;
+          try {
+            chunk = await reader.read();
+          } catch (error) {
+            if (signal?.aborted) throw signal.reason ?? error;
+            dropped = (error as Error).message || "the connection dropped";
+            break;
+          }
+          if (chunk.done) {
+            parser.feed(decoder.decode());
+            parser.end();
+            dropped = "the stream ended before the answer";
+            break;
+          }
+          for (const raw of parser.feed(decoder.decode(chunk.value, { stream: true }))) {
+            lastEventId = parser.lastEventId;
+            if (parser.retry !== null) retryBase = parser.retry;
+            failures = 0;
+            const event = read<K>(raw, operation);
+            if (!event) continue;
+            yield event;
+            if (event.event === "answer") return;
+          }
+          lastEventId = parser.lastEventId;
+          if (parser.retry !== null) retryBase = parser.retry;
+        }
+      } finally {
+        /** Left early, aborted, or done: the connection is not held open either way. */
+        await reader.cancel().catch(() => undefined);
+      }
+      await again(dropped ?? "the connection dropped", null);
+    }
+  }
+
+  private prepare(
     operation: OperationId, input: Record<string, unknown>, options: CallOptions, dryRun: boolean,
-  ): Promise<unknown> {
+  ): { spec: (typeof OPERATIONS)[OperationId]; url: URL; headers: Record<string, string>; body: string | undefined } {
     const spec = OPERATIONS[operation];
     if (!spec) throw new Error(`No operation named ${operation}.`);
 
@@ -208,7 +351,13 @@ export class OpenTradesOS extends GeneratedOperations {
       if (!spec.dryRun) throw new Error(`${operation} has no dry run.`);
       headers["x-otos-dry-run"] = "true";
     }
+    return { spec, url, headers, body };
+  }
 
+  private async send(
+    operation: OperationId, input: Record<string, unknown>, options: CallOptions, dryRun: boolean,
+  ): Promise<unknown> {
+    const { spec, url, headers, body } = this.prepare(operation, input, options, dryRun);
     const repeatable = spec.method === "GET" || spec.idempotent || dryRun;
     for (let attempt = 0; ; attempt += 1) {
       let response: Response;
@@ -236,24 +385,58 @@ export class OpenTradesOS extends GeneratedOperations {
         continue;
       }
 
-      let parsed: unknown = null;
-      const text = await response.text();
-      try { parsed = JSON.parse(text); } catch { parsed = text; }
-      const problem = (parsed ?? {}) as { error?: unknown; issues?: Array<{ path: string; message: string }> };
-      throw new OpenTradesOSError(
-        response.status,
-        typeof problem.error === "string" ? problem.error : `HTTP ${response.status}`,
-        operation,
-        Array.isArray(problem.issues) ? problem.issues : [],
-        parsed,
-      );
+      throw await refusal(response, operation);
     }
   }
 }
 
-/** Half a second, doubling, capped at ten, or what the server asked for when it said. */
-function backoff(attempt: number, retryAfter: string | null): number {
+/** A refusal, in the server's own words. */
+async function refusal(response: Response, operation: string): Promise<OpenTradesOSError> {
+  let parsed: unknown = null;
+  const text = await response.text();
+  try { parsed = JSON.parse(text); } catch { parsed = text; }
+  const problem = (parsed ?? {}) as { error?: unknown; issues?: Array<{ path: string; message: string }> };
+  return new OpenTradesOSError(
+    response.status,
+    typeof problem.error === "string" ? problem.error : `HTTP ${response.status}`,
+    operation,
+    Array.isArray(problem.issues) ? problem.issues : [],
+    parsed,
+  );
+}
+
+/**
+ * One raw event as the caller sees it. A `problem` is thrown, as a refusal is
+ * from every other call; an event this version does not know is passed
+ * over, so a server that adds one does not break a client already running.
+ */
+function read<K extends StreamingOperationId>(raw: RawEvent, operation: string): StreamEvent<K> | null {
+  if (raw.event !== "writing" && raw.event !== "answer" && raw.event !== "problem") return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw.data);
+  } catch {
+    throw new OpenTradesOSError(0, `${operation} sent a ${raw.event} event that is not JSON.`, operation, [], raw.data);
+  }
+  if (raw.event === "problem") {
+    const problem = (data ?? {}) as { error?: unknown; status?: unknown };
+    throw new OpenTradesOSError(
+      typeof problem.status === "number" ? problem.status : 500,
+      typeof problem.error === "string" ? problem.error : "The answer stopped with an error.",
+      operation, [], data,
+    );
+  }
+  if (raw.event === "writing") return { event: "writing", data: data as { text: string }, id: raw.id };
+  return { event: "answer", data: data as OperationTypes[K]["output"], id: raw.id };
+}
+
+/**
+ * Half a second, doubling, capped at ten, or what the server asked for when
+ * it said: `Retry-After` in seconds, or an event stream's `retry` in
+ * milliseconds as the starting delay.
+ */
+function backoff(attempt: number, retryAfter: string | null, base: number | null = null): number {
   const asked = retryAfter !== null ? Number(retryAfter) : Number.NaN;
   if (Number.isFinite(asked) && asked >= 0) return Math.min(asked * 1000, 60_000);
-  return Math.min(500 * 2 ** attempt, 10_000);
+  return Math.min((base ?? 500) * 2 ** attempt, Math.max(10_000, base ?? 0));
 }

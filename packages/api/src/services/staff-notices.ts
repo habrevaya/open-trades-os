@@ -282,7 +282,7 @@ function mustBePerson(ctx: ServiceContext): void {
  * Rows the person may still open, with the page asked again for each. One
  * question per record, however many notices name it.
  */
-async function stillOpen(
+export async function stillOpen(
   tx: Database, actor: Actor, rows: (typeof schema.staffNotice.$inferSelect)[],
 ): Promise<NoticeView[]> {
   const asked = new Map<string, string | null>();
@@ -402,6 +402,15 @@ export interface NoticeSettingsView {
   phones: number;
   /** Whether the company has a registered number that can send texts at all. */
   companyCanText: boolean;
+  /** The daily email of unread notices: off until the person turns it on. */
+  digest: {
+    on: boolean;
+    /** The company's morning hour, when it goes: the end of its quiet hours, or 8. */
+    hour: number;
+    /** The company day it was last decided on, and what happened, in words. */
+    lastOn: string | null;
+    lastOutcome: string | null;
+  };
 }
 
 async function consentWithin(tx: Database, userId: string) {
@@ -425,6 +434,9 @@ async function settingsWithin(tx: Database, ctx: ServiceContext): Promise<Notice
       ))
     : [{ n: 0 }];
   const sender = await senderFor(tx, ctx.actor.organizationId, { smsRequired: true });
+  const [digest] = await tx.select().from(schema.staffNoticeDigest)
+    .where(eq(schema.staffNoticeDigest.userId, ctx.actor.userId)).limit(1);
+  const quiet = await quietHoursFor(tx, ctx.actor.organizationId, new Date());
   return {
     kinds: rules.NOTICE_KINDS.map((kind) => ({
       kind, ...rules.NOTICE_KIND_WORDS[kind], ...rules.switchesFor(saved, kind),
@@ -439,6 +451,12 @@ async function settingsWithin(tx: Database, ctx: ServiceContext): Promise<Notice
     },
     phones: Number(phones?.n ?? 0),
     companyCanText: Boolean(sender?.smsRegistered),
+    digest: {
+      on: digest?.enabled ?? false,
+      hour: rules.digestHour(quiet.window),
+      lastOn: digest?.lastOn ?? null,
+      lastOutcome: digest?.lastOutcome ?? null,
+    },
   };
 }
 
@@ -545,6 +563,32 @@ export function setTexts(
     }).onConflictDoNothing();
     await audit(tx, ctx, "staff_texts.on", "user", ctx.actor.userId,
       current ? { address: current.address, state: current.state } : null, { address });
+    return settingsWithin(tx, ctx);
+  });
+}
+
+/**
+ * Turn the person's own daily email of unread notices on or off.
+ *
+ * OFF UNTIL THEY TURN IT ON, and only they can: it is mail to them, about
+ * them, and the office has no say in it. Turning it on on a morning after it
+ * already went does not send a second one that day; the next morning's does.
+ * Audited, like their texts.
+ */
+export function setDigest(ctx: ServiceContext, input: { on: boolean }): Promise<NoticeSettingsView> {
+  return guardedWrite(ctx, "profile:own", async (tx) => {
+    mustBePerson(ctx);
+    const [before] = await tx.select({ enabled: schema.staffNoticeDigest.enabled }).from(schema.staffNoticeDigest)
+      .where(eq(schema.staffNoticeDigest.userId, ctx.actor.userId)).limit(1);
+    if ((before?.enabled ?? false) === input.on) return settingsWithin(tx, ctx);
+    await tx.insert(schema.staffNoticeDigest).values({
+      organizationId: ctx.actor.organizationId, userId: ctx.actor.userId, enabled: input.on,
+    }).onConflictDoUpdate({
+      target: [schema.staffNoticeDigest.organizationId, schema.staffNoticeDigest.userId],
+      set: { enabled: input.on, updatedAt: new Date() },
+    });
+    await audit(tx, ctx, input.on ? "staff_notice_digest.on" : "staff_notice_digest.off", "user", ctx.actor.userId,
+      { on: before?.enabled ?? false }, { on: input.on });
     return settingsWithin(tx, ctx);
   });
 }
@@ -1366,4 +1410,5 @@ export const handlers = {
     setSwitches(ctx, input),
   setMyNoticeTexts: (ctx: ServiceContext, input: { on: boolean; mobilePhone?: string | null | undefined; agreed?: boolean | undefined }) =>
     setTexts(ctx, input),
+  setMyNoticeDigest: (ctx: ServiceContext, input: { on: boolean }) => setDigest(ctx, input),
 } as const;

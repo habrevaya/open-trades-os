@@ -27,6 +27,7 @@ import { talkPass } from "./safety-talks";
 import { deliverOwed, type Transport } from "./webhooks";
 import { pushPass } from "./push";
 import { noticePass } from "./staff-notices";
+import { upkeepPass as noticeUpkeepPass } from "./notice-upkeep";
 import { purgePositions } from "./location";
 import { routeDayPass } from "./route-days";
 import { purgeUnusedClients } from "./oauth";
@@ -791,6 +792,21 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       });
     } catch (error) {
       console.error("[worker] staff notices:", (error as Error).message);
+    }
+  }
+
+  /**
+   * The daily digests and the tidying of read notices, which need no push
+   * service and so are not held back by one being off. Its own try.
+   */
+  if (options.notices !== false) {
+    try {
+      await noticeUpkeepPass(options.db, {
+        ...(stop ? { shouldStop: stop } : {}),
+        ...(options.only ? { only: options.only } : {}),
+      });
+    } catch (error) {
+      console.error("[worker] notice upkeep:", (error as Error).message);
     }
   }
 

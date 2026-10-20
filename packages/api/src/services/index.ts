@@ -237,6 +237,7 @@ export * as peopleRecords from "./people-records";
 export * as staffDocuments from "./staff-documents";
 export * as me from "./me";
 export * as staffNotices from "./staff-notices";
+export * as noticeUpkeep from "./notice-upkeep";
 export * as invites from "./invites";
 export * as documents from "./documents";
 export * as visits from "./visits";

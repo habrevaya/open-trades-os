@@ -4,7 +4,7 @@ import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, jobHolds, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, jobHolds, noticeUpkeep, ConflictError, NotFoundError } from "@opentradesos/api/services";
 import type { branding as brand } from "@opentradesos/core";
 
 /**
@@ -353,6 +353,23 @@ export async function setHoldNudge(_previous: FormState, form: FormData): Promis
       message: saved.days === null
         ? "Saved. Nobody is nudged about a job on hold."
         : `Saved. The office gets a task when a job has been on hold ${saved.days} ${saved.days === 1 ? "day" : "days"}.`,
+    };
+  });
+  revalidatePath("/settings");
+  return result;
+}
+
+/** How long read notices are kept: whole days, or empty for good. */
+export async function setNoticeKeeping(_previous: FormState, form: FormData): Promise<FormState> {
+  const said = field(form, "days");
+  const keepDays = said === undefined ? null : Number(said);
+  if (keepDays !== null && !Number.isInteger(keepDays)) return refused(form, "Give the days as a whole number, or leave it empty.");
+  const result = await attempt(form, async () => {
+    const saved = await noticeUpkeep.setKeeping(await ctx(), { keepDays });
+    return {
+      message: saved.keepDays === null
+        ? "Saved. Read notices are kept for good."
+        : `Saved. Read notices are removed ${saved.keepDays} days after they were read.`,
     };
   });
   revalidatePath("/settings");

@@ -122,6 +122,47 @@ the connections already hold keep working: paste the value under the same
 name with `PUT /v1/secrets/{name}`, or paste it in the connect form, which
 stores it under `<PROVIDER>_CREDENTIAL` and points the connection there.
 
+## Rotating the sealing key
+
+An ad platform's sign in (Google, Meta, Microsoft) is the one credential the
+product keeps itself, sealed under `CREDENTIAL_SEALING_KEY` rather than in a
+secret store. That key is rotated the same way, with its own command:
+
+1. Generate a new key (`openssl rand -base64 32`). Set it as
+   `CREDENTIAL_SEALING_KEY`, and move the old one to
+   `CREDENTIAL_SEALING_KEY_PREVIOUS` (comma separated, newest first). Restart
+   the web app AND the worker. Both keys now open a sign in; only the new one
+   seals.
+2. Optionally check first, which changes nothing:
+   `pnpm --filter @opentradesos/api credentials:reseal -- --check`
+3. Run `pnpm --filter @opentradesos/api credentials:reseal` with the same
+   environment (and `WORKER_DATABASE_URL` pointing at the `background` role,
+   or a `DATABASE_URL` that can call `app.sealed_credential_keys`). It opens
+   each sign in and seals it again under the new key, a hundred at a time
+   (`--batch-size=` to change that), each batch in its own transaction.
+4. When it reports `nothing left`, remove the old key from
+   `CREDENTIAL_SEALING_KEY_PREVIOUS` and restart.
+
+It refuses to start, and changes nothing, when:
+
+- the new key cannot open a test value it has just sealed;
+- a sign in already under the new key's fingerprint does not open with it,
+  which means the app and the command were given different keys;
+- a sign in is sealed under a key it was not given at all, which is usually a
+  wrong or missing `CREDENTIAL_SEALING_KEY_PREVIOUS`. If that key is truly
+  lost, `--skip-unknown` leaves those sign ins as they are; somebody then has
+  to sign in to those connections again.
+
+Every sign in stays readable the whole time: each one is either under the old
+key or the new, and the app opens both until you remove the old one. Stopping
+it halfway is safe, and running it again carries on with what is left. A sign
+in the app rewrites while it runs (the platform handed back a new token) is
+not overwritten. One altered in the database fails its integrity check, is
+left alone, counted, and makes the command exit with an error; that
+connection needs a new sign in. `--company=<id>` (repeatable) limits a run to
+some companies, for a careful first pass. It prints counts and key
+fingerprints only, never a token, a key or a company's name.
+
 ## Provider addresses are fixed
 
 Every adapter talks to its provider's own address. The `baseUrl` and

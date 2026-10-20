@@ -372,9 +372,42 @@ skipped as old news. Turning texts off stops every text still waiting.
 
 Every send is a row (`staff_notice_delivery`): which phone or number, whether
 it went, and why not. `GET /v1/me/notices`, `POST /v1/me/notices/read`,
-`GET /v1/me/notice-settings`, `POST /v1/me/notice-settings` and
-`POST /v1/me/notice-texts`, all `profile:own` and all the signed in person's
-own, taking no person.
+`GET /v1/me/notice-settings`, `POST /v1/me/notice-settings`,
+`POST /v1/me/notice-texts` and `POST /v1/me/notice-digest`, all `profile:own`
+and all the signed in person's own, taking no person.
+
+A DAILY EMAIL OF WHAT IS UNREAD, only for a person who turns it on, on `/me`
+under "What you are told, and where" (`POST /v1/me/notice-digest`); it is off
+for everybody until then, and nobody else can turn it on for them. Once a day,
+at the company's morning hour, the worker emails the address they sign in with,
+through the company's own email outbox, a list of the notices on their bell they
+have not read: up to twenty, each with its kind, its words and its link, then a
+count of the rest, a link to `/notices` and one to switch it off. The list is
+asked the way the bell asks, with the person's own permissions now, so it never
+names a record they can no longer open, and leaves out a kind they keep off the
+bell. Nothing is sent on a day nothing is unread. The morning hour is when the
+company's quiet hours end (eight without them), the hour the company already
+starts texting people, and it is not sent inside quiet hours; a worker that was
+down at the hour sends it later that day, and a day it never came back on is not
+sent late. It is decided once per company day (`staff_notice_digest.last_on`),
+claimed in the transaction that queues the email, so two workers send one. What
+happened is on `/me` in words: how many it listed, nothing unread, or why it
+could not go (no email connected, an address on the do-not-email list). Turning
+it on or off is audited.
+
+HOW LONG READ NOTICES ARE KEPT is the company's, on Settings under "Read notices"
+(`GET /v1/notice-keeping` with `settings:read`, `PATCH /v1/notice-keeping` with
+`settings:write`, audited): a number of days from seven to ten years, or empty
+to keep them for good, which is where every company starts and what always
+happened. The worker then removes notices read longer ago than that, with their
+sends, and ones a person keeps off their bell raised longer ago, since nobody
+was going to read those. Never an unread one on the bell. A licence or skill
+notice stays at least a year and eight days after it was raised, and a toolbox
+talk nudge at least nine, whatever the setting says, because the notice row is
+how the worker remembers it told somebody, and removing it while the card or the
+talk could still raise it would tell them again. One audit line per sweep says
+how many went. A longer number later does not bring back what a shorter one
+removed.
 
 ### Deadlines
 
@@ -427,6 +460,9 @@ them use the task permissions, because an obligation is work in the same queue.
 | `GET /v1/me/notice-settings` | `profile:own` |
 | `POST /v1/me/notice-settings` | `profile:own` |
 | `POST /v1/me/notice-texts` | `profile:own` |
+| `POST /v1/me/notice-digest` | `profile:own` |
+| `GET /v1/notice-keeping` | `settings:read` |
+| `PATCH /v1/notice-keeping` | `settings:write` |
 
 Claiming, ticking your own task's checklist and marking your own task done need only
 `task:read`, and they are the writes in the module guarded by a read. Each is acting
@@ -495,14 +531,21 @@ request, a failed payment and the rest of what the queue holds reach people as
 tasks, as before. A text goes from whichever registered number the company
 sends customer texts from, in the company's quiet hours (not the person's own), and a reply to it
 lands in the inbox like any text from a number nobody recognises; a STOP is
-honoured. There is no daily digest, no notice by email beyond a licence or skill running
+honoured. There is no notice by email one at a time beyond a licence or skill running
 out and the emails the escalation, the approval and the app request already
-send, and no per company
+send; the daily digest is the other way to get them by email, and it lists, it does
+not send each. The digest's hour is the end of the company's quiet hours, not a
+setting of its own or the person's, deliberately; it is plain text, and it goes
+only to the address the person signs in with. There is no per company
 setting for which kinds exist or what a new person starts with: the defaults
-(in the app and on the phone, never a text) are fixed. A licence notice goes to
+(in the app and on the phone, never a text, no digest) are fixed. A licence notice goes to
 the holder, to whoever they report to and to the people named to keep the
 renewals list, not to everybody who can read it, deliberately; a talk is nudged once, an hour after it was held,
-and not again. Notices are kept with no end date and nothing removes them.
+and not again. Read notices are kept for good unless the company chooses a number
+of days on Settings; there is no per person choice, and nothing archives a
+removed notice anywhere: it is gone. A notice whose record had its date moved
+after the notice was removed can be raised again for the new date, which is the
+right notice to get.
 
 Recurring tasks have no fifth given weekday of the month (most months have
 none; the last one is offered instead), no gap of more than fifty two weeks,

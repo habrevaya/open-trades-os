@@ -1390,6 +1390,32 @@ revoke all on function app.secret_organizations(text) from public;
 grant execute on function app.secret_organizations(text) to background;
 
 -- =========================================================================
+-- WHICH COMPANIES HAVE SIGN INS SEALED UNDER WHICH KEY
+--
+-- Rotating CREDENTIAL_SEALING_KEY reseals every company's ad platform grants,
+-- cross tenant for the same reason as the function above. It returns each
+-- company's id, the fingerprint of a key its grants are under and how many,
+-- never a sealed value, and the request path's role cannot call it. The
+-- command refuses to start on a fingerprint it holds no key for, and tries
+-- the current key on a grant already under it, so it has to see every
+-- fingerprint before it touches anything; the resealing itself runs per
+-- company, inside that company's tenant context.
+-- =========================================================================
+
+create or replace function app.sealed_credential_keys()
+returns table (organization_id uuid, key_fingerprint text, sealed int)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select c.organization_id, c.key_fingerprint, count(*)::int
+      from public.sealed_credential c
+     group by c.organization_id, c.key_fingerprint
+     order by c.organization_id, c.key_fingerprint
+  $$;
+
+revoke all on function app.sealed_credential_keys() from public;
+grant execute on function app.sealed_credential_keys() to background;
+
+-- =========================================================================
 -- WHAT IS DUE ON A CLOCK
 --
 -- The same shape as `pending_event_organizations` and for the same reason:
@@ -3522,6 +3548,32 @@ returns table (organization_id uuid)
 
 revoke all on function app.staff_notice_organizations(int) from public;
 grant execute on function app.staff_notice_organizations(int) to background;
+
+-- =========================================================================
+-- WHICH COMPANIES HAVE A DIGEST TO SEND OR READ NOTICES TO TIDY
+--
+-- The same shape as the function above: ids and nothing else, cross tenant,
+-- not callable by the request path. A company is here when somebody in it
+-- turned the daily digest on, or it chose how long read notices are kept;
+-- whether a digest is due this morning, and which notices may go, is the
+-- service's question, asked inside the company's own tenant.
+-- =========================================================================
+
+create or replace function app.staff_notice_upkeep_organizations(p_limit int default 1000)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id
+      from public.organization o
+     where o.suspended_at is null
+       and (exists (select 1 from public.staff_notice_digest d where d.organization_id = o.id and d.enabled)
+            or o.settings -> 'readNotices' ->> 'keepDays' is not null)
+     order by o.id
+     limit p_limit
+  $$;
+
+revoke all on function app.staff_notice_upkeep_organizations(int) from public;
+grant execute on function app.staff_notice_upkeep_organizations(int) to background;
 
 -- =========================================================================
 -- THE AD PLATFORMS, ANALYTICS AND REVIEW LISTINGS THE WORKER VISITS

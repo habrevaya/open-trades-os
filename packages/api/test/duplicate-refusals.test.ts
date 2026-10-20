@@ -245,6 +245,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One notice per thing that raised it per person. Raising inserts with on conflict do nothing (and looks first), so an escalation, a retry or a worker looking at a licence on every pass tells a person once.",
   staff_notice_delivery_target_idx:
     "One send per notice per phone or number. Raising inserts with on conflict do nothing, so a notice raised twice is not sent twice.",
+  staff_notice_digest_person_idx:
+    "One digest switch per person, written with on conflict do update: turning it on twice is the same switch.",
   staff_notice_setting_kind_idx:
     "One row of switches per person per kind, written with on conflict do update: saving a person's switches again replaces them.",
   certification_renewals_keeper_person_idx:

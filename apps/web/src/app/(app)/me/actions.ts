@@ -274,6 +274,17 @@ export async function turnOnTexts(_previous: FormState, form: FormData): Promise
   return state;
 }
 
+/** The person's own daily email of unread notices, on or off. */
+export async function setNoticeDigest(_previous: FormState, form: FormData): Promise<FormState> {
+  const on = form.get("on") === "true";
+  const state = await attempt(form, async () => {
+    await staffNotices.setDigest(await ctx(), { on });
+    return { message: on ? "The daily email is on. It comes each morning when something is unread." : "The daily email is off." };
+  });
+  if (state?.done) revalidatePath("/me");
+  return state;
+}
+
 export async function turnOffTexts(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {
     await staffNotices.setTexts(await ctx(), { on: false, ipAddress: (await origin()).ipAddress });

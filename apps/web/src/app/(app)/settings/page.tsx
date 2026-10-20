@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService, acquisition,
-  people as peopleService, setup as setupService, documents, visitCancellations, jobHolds,
+  people as peopleService, setup as setupService, documents, visitCancellations, jobHolds, noticeUpkeep,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
@@ -18,7 +18,7 @@ import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
 import { ActionForm, TextField } from "@/components/ActionForm";
-import { setCancelNotice, setHoldNudge } from "./actions";
+import { setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +79,7 @@ export default async function SettingsPage() {
   const recordingPolicies = writes ? await telephonyService.listPolicies(ctx) : [];
   const cancelNotice = writes ? await visitCancellations.notice(ctx) : null;
   const holdNudge = writes ? await jobHolds.nudgeSetting(ctx) : null;
+  const keeping = writes ? await noticeUpkeep.keeping(ctx) : null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -144,6 +145,25 @@ export default async function SettingsPage() {
           <ActionForm action={setHoldNudge} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
             <TextField label="Days on hold before a nudge" name="days" type="number" min={1} max={90} step={1}
                        defaultValue={holdNudge.days === null ? "" : String(holdNudge.days)} className="block w-40" />
+          </ActionForm>
+        </section>
+      )}
+
+      {/*
+        How long the bell keeps what people have read. Kept for good until
+        the company picks a number, which is what has always happened.
+      */}
+      {keeping && (
+        <section aria-label="Read notices" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="font-medium text-ink-900">Read notices</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            How many days to keep a notice after the person has read it. After that it is removed from their bell for
+            good. Unread notices are never removed. A licence or toolbox talk notice stays a little longer, so nobody is
+            told about the same thing twice. Leave the box empty to keep every notice.
+          </p>
+          <ActionForm action={setNoticeKeeping} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Days to keep read notices" name="days" type="number" min={7} max={3650} step={1}
+                       defaultValue={keeping.keepDays === null ? "" : String(keeping.keepDays)} className="block w-48" />
           </ActionForm>
         </section>
       )}

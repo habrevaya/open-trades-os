@@ -10446,6 +10446,12 @@ export interface GetMyNoticeSettingsOutput {
   };
   phones: number;
   companyCanText: boolean;
+  digest: {
+    on: boolean;
+    hour: number;
+    lastOn: string | null;
+    lastOutcome: string | null;
+  };
 }
 
 export interface GetMyPayStatementsOutput {
@@ -11796,6 +11802,10 @@ export interface GetRatingOutput {
     share: number | null;
     caveat: string;
   };
+}
+
+export interface GetReadNoticeKeepingOutput {
+  keepDays: number | null;
 }
 
 export interface GetRebalanceOutput {
@@ -25064,6 +25074,36 @@ export interface SetMyContactOutput {
   }>;
 }
 
+export interface SetMyNoticeDigestInput {
+  on: boolean;
+}
+
+export interface SetMyNoticeDigestOutput {
+  kinds: Array<{
+    inApp: boolean;
+    push: boolean;
+    text: boolean;
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    label: string;
+    description: string;
+    email: boolean | null;
+  }>;
+  texts: {
+    on: boolean;
+    mobile: string | null;
+    since: string | null;
+    agreement: string;
+  };
+  phones: number;
+  companyCanText: boolean;
+  digest: {
+    on: boolean;
+    hour: number;
+    lastOn: string | null;
+    lastOutcome: string | null;
+  };
+}
+
 export interface SetMyNoticeSettingsInput {
   kinds: Array<{
     inApp: boolean;
@@ -25092,6 +25132,12 @@ export interface SetMyNoticeSettingsOutput {
   };
   phones: number;
   companyCanText: boolean;
+  digest: {
+    on: boolean;
+    hour: number;
+    lastOn: string | null;
+    lastOutcome: string | null;
+  };
 }
 
 export interface SetMyNoticeTextsInput {
@@ -25118,6 +25164,12 @@ export interface SetMyNoticeTextsOutput {
   };
   phones: number;
   companyCanText: boolean;
+  digest: {
+    on: boolean;
+    hour: number;
+    lastOn: string | null;
+    lastOutcome: string | null;
+  };
 }
 
 export interface SetMyOnboardingLineInput {
@@ -25552,6 +25604,14 @@ export interface SetRateCardTermsOutput {
   standardStartMinute: number;
   standardEndMinute: number;
   holidays: string[];
+}
+
+export interface SetReadNoticeKeepingInput {
+  keepDays: number | null;
+}
+
+export interface SetReadNoticeKeepingOutput {
+  keepDays: number | null;
 }
 
 export interface SetRecordingPolicyInput {
@@ -31282,6 +31342,8 @@ export interface GetRatingInput {
 
 export type GetRatingByTechnicianInput = Record<string, never>;
 
+export type GetReadNoticeKeepingInput = Record<string, never>;
+
 export interface GetRebalanceInput {
   date: string;
 }
@@ -34298,6 +34360,7 @@ export interface OperationTypes {
   getRateCardTerms: { input: GetRateCardTermsInput; output: GetRateCardTermsOutput };
   getRating: { input: GetRatingInput; output: GetRatingOutput };
   getRatingByTechnician: { input: GetRatingByTechnicianInput; output: GetRatingByTechnicianOutput };
+  getReadNoticeKeeping: { input: GetReadNoticeKeepingInput; output: GetReadNoticeKeepingOutput };
   getRebalance: { input: GetRebalanceInput; output: GetRebalanceOutput };
   getRecordHistory: { input: GetRecordHistoryInput; output: GetRecordHistoryOutput };
   getReferrals: { input: GetReferralsInput; output: GetReferralsOutput };
@@ -34914,6 +34977,7 @@ export interface OperationTypes {
   setMessagingBrandStatus: { input: SetMessagingBrandStatusParams & SetMessagingBrandStatusInput; output: SetMessagingBrandStatusOutput };
   setMessagingCampaignStatus: { input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput; output: SetMessagingCampaignStatusOutput };
   setMyContact: { input: SetMyContactInput; output: SetMyContactOutput };
+  setMyNoticeDigest: { input: SetMyNoticeDigestInput; output: SetMyNoticeDigestOutput };
   setMyNoticeSettings: { input: SetMyNoticeSettingsInput; output: SetMyNoticeSettingsOutput };
   setMyNoticeTexts: { input: SetMyNoticeTextsInput; output: SetMyNoticeTextsOutput };
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
@@ -34936,6 +35000,7 @@ export interface OperationTypes {
   setPurchasingSettings: { input: SetPurchasingSettingsInput; output: SetPurchasingSettingsOutput };
   setRateCardLines: { input: SetRateCardLinesParams & SetRateCardLinesInput; output: SetRateCardLinesOutput };
   setRateCardTerms: { input: SetRateCardTermsParams & SetRateCardTermsInput; output: SetRateCardTermsOutput };
+  setReadNoticeKeeping: { input: SetReadNoticeKeepingInput; output: SetReadNoticeKeepingOutput };
   setRecordingPolicy: { input: SetRecordingPolicyInput; output: SetRecordingPolicyOutput };
   setRecurringScheduleActive: { input: SetRecurringScheduleActiveParams & SetRecurringScheduleActiveInput; output: SetRecurringScheduleActiveOutput };
   setReferralSettings: { input: SetReferralSettingsInput; output: SetReferralSettingsOutput };
@@ -35502,6 +35567,7 @@ export const OPERATIONS = {
   getRateCardTerms: { method: "GET", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getRating: { method: "GET", path: "/v1/reviews/rating", pathParams: [], queryParams: ["platform"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getRatingByTechnician: { method: "GET", path: "/v1/reviews/by-technician", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
+  getReadNoticeKeeping: { method: "GET", path: "/v1/notice-keeping", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getRebalance: { method: "GET", path: "/v1/dispatch/rebalance", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getRecordHistory: { method: "GET", path: "/v1/audit/history", pathParams: [], queryParams: ["entityType","entityId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["audit:read"] },
   getReferrals: { method: "GET", path: "/v1/marketing/referrals", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -36118,6 +36184,7 @@ export const OPERATIONS = {
   setMessagingBrandStatus: { method: "POST", path: "/v1/messaging/brands/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMessagingCampaignStatus: { method: "POST", path: "/v1/messaging/campaigns/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMyContact: { method: "POST", path: "/v1/me/contact", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  setMyNoticeDigest: { method: "POST", path: "/v1/me/notice-digest", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeSettings: { method: "POST", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeTexts: { method: "POST", path: "/v1/me/notice-texts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -36140,6 +36207,7 @@ export const OPERATIONS = {
   setPurchasingSettings: { method: "POST", path: "/v1/purchasing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   setRateCardLines: { method: "PUT", path: "/v1/rate-cards/{rateCardId}/lines", pathParams: ["rateCardId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setRateCardTerms: { method: "PUT", path: "/v1/rate-cards/{rateCardId}/terms", pathParams: ["rateCardId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  setReadNoticeKeeping: { method: "PATCH", path: "/v1/notice-keeping", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setRecordingPolicy: { method: "POST", path: "/v1/recording-policies", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setRecurringScheduleActive: { method: "POST", path: "/v1/recurring-schedules/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setReferralSettings: { method: "PUT", path: "/v1/marketing/referral-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -36309,6 +36377,11 @@ export type PaginatedOperationId = "listBookingRequests" | "listConflicts" | "li
 
 /** Bulk operations that can be asked what they would change, for `dryRun`. */
 export type DryRunOperationId = "applyPriceChange" | "applyVendorCatalogue" | "assignJobsToBranch" | "copyBackFromSandbox" | "createWorkflow" | "defineCustomField" | "defineCustomObject" | "deleteCustomField" | "deleteCustomObject" | "deleteWorkflow" | "importCustomRecords" | "mergeCustomerTags" | "publishWorkflow" | "renameCustomerTag" | "setItemTax" | "updateCustomField" | "updateCustomObject";
+
+/** Operations that can answer as Server-Sent Events, for `events`. */
+export type StreamingOperationId = "askFieldAssistant" | "sayInChat";
+
+export const STREAMING_OPERATIONS: readonly StreamingOperationId[] = ["askFieldAssistant", "sayInChat"];
 
 export interface CallOptions {
   /**
@@ -39908,6 +39981,15 @@ export abstract class GeneratedOperations {
    */
   getRatingByTechnician(input: GetRatingByTechnicianInput = {} as GetRatingByTechnicianInput, options?: CallOptions): Promise<GetRatingByTechnicianOutput> {
     return this.call("getRatingByTechnician", input, options);
+  }
+
+  /**
+   * How long the company keeps notices people have read.
+   *
+   * GET /v1/notice-keeping. Needs settings:read.
+   */
+  getReadNoticeKeeping(input: GetReadNoticeKeepingInput = {} as GetReadNoticeKeepingInput, options?: CallOptions): Promise<GetReadNoticeKeepingOutput> {
+    return this.call("getReadNoticeKeeping", input, options);
   }
 
   /**
@@ -45455,6 +45537,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Turn your daily email of unread notices on or off.
+   *
+   * POST /v1/me/notice-digest. Needs profile:own.
+   */
+  setMyNoticeDigest(input: SetMyNoticeDigestInput, options?: CallOptions): Promise<SetMyNoticeDigestOutput> {
+    return this.call("setMyNoticeDigest", input, options);
+  }
+
+  /**
    * Choose where each kind of notice reaches you.
    *
    * POST /v1/me/notice-settings. Needs profile:own.
@@ -45650,6 +45741,15 @@ export abstract class GeneratedOperations {
    */
   setRateCardTerms(input: SetRateCardTermsParams & SetRateCardTermsInput, options?: CallOptions): Promise<SetRateCardTermsOutput> {
     return this.call("setRateCardTerms", input, options);
+  }
+
+  /**
+   * Set how long the company keeps notices people have read.
+   *
+   * PATCH /v1/notice-keeping. Needs settings:write.
+   */
+  setReadNoticeKeeping(input: SetReadNoticeKeepingInput, options?: CallOptions): Promise<SetReadNoticeKeepingOutput> {
+    return this.call("setReadNoticeKeeping", input, options);
   }
 
   /**

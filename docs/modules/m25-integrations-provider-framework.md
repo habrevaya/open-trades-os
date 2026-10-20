@@ -58,6 +58,20 @@ database never sees, bound to its connection so it cannot be moved onto another
 one. An operator who would rather keep it in their own store names a token as
 the connection's credential and never presses the button.
 
+**The sealing key rotates without anybody signing in again.** The new key goes
+in `CREDENTIAL_SEALING_KEY` and the old one in `CREDENTIAL_SEALING_KEY_PREVIOUS`;
+the app opens a grant with whichever of them sealed it and seals only with the
+new one. `pnpm --filter @opentradesos/api credentials:reseal` then opens every
+grant and seals it again under the new key, in batches of its own transactions,
+so each grant is under one key or the other at every moment and a stopped run
+carries on where it stopped. It refuses to start when the new key cannot open a
+test value it has just sealed, when a grant already under the new key does not
+open with it, or when a grant is under a key it was not given, and it prints
+counts and fingerprints, never a token. A grant altered in the database is left
+alone and counted rather than sealed again. The steps are in
+`docs/self-hosting/secrets.md`; the cross tenant read is
+`app.sealed_credential_keys`, which returns ids, fingerprints and counts only.
+
 **One connection per provider per company.** A company with two is a company whose
 customers hear from two different From addresses at random, so where it matters the
 oldest connected one wins deterministically.
@@ -254,5 +268,8 @@ runtime and no per connector health dashboard beyond each one's state on the set
 screen. Secrets are read from the environment or a secret store by name, so a company
 that wants them managed in the product does not get that, deliberately; the one
 exception is an ad platform's sign in, which is sealed as described above.
-Rotating `CREDENTIAL_SEALING_KEY` has no path but signing in to every platform
-again.
+Rotating `CREDENTIAL_SEALING_KEY` is a command the operator runs, not a screen:
+there is no page that says a rotation is half done, only the command's own
+`--check`. A sign in sealed under a key that is lost for good still needs
+somebody to sign in again; the command can leave those alone but cannot recover
+them.

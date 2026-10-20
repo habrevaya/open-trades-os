@@ -36,6 +36,7 @@ interface Operation {
   "x-authorization": "session" | "grant" | "public";
   "x-permissions": string[];
   "x-dry-run"?: boolean;
+  "x-streams"?: boolean;
 }
 
 export interface OpenApiDocument {
@@ -134,6 +135,7 @@ interface Rendered {
   idempotent: boolean;
   dryRun: boolean;
   paginated: boolean;
+  streams: boolean;
   authorization: string;
   permissions: string[];
   summary: string;
@@ -200,6 +202,7 @@ function render(path: string, method: string, op: Operation, schemas: Record<str
     idempotent: parameters.some((p) => p.in === "header" && p.name === "idempotency-key"),
     dryRun: op["x-dry-run"] === true,
     paginated,
+    streams: op["x-streams"] === true,
     authorization: op["x-authorization"],
     permissions: op["x-permissions"],
     summary: op.summary,
@@ -275,6 +278,11 @@ export function generate(document: OpenApiDocument): string {
   out += `export type PaginatedOperationId = ${ids((op) => op.paginated)};\n\n`;
   out += comment("Bulk operations that can be asked what they would change, for `dryRun`.", "");
   out += `export type DryRunOperationId = ${ids((op) => op.dryRun)};\n\n`;
+  out += comment("Operations that can answer as Server-Sent Events, for `events`.", "");
+  out += `export type StreamingOperationId = ${ids((op) => op.streams)};\n\n`;
+  out += `export const STREAMING_OPERATIONS: readonly StreamingOperationId[] = [${
+    operations.filter((op) => op.streams).map((op) => JSON.stringify(op.id)).join(", ")
+  }];\n\n`;
 
   out += "export interface CallOptions {\n";
   out += comment(
