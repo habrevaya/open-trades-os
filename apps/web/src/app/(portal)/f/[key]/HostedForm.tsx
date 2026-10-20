@@ -50,6 +50,12 @@ function visitorId(): string | undefined {
  * the server checks the whole form again. A refusal from the server on an
  * earlier page takes the person back to that page.
  *
+ * A PAGE CAN WAIT FOR AN ANSWER. A page the office set to show only for some
+ * answers to an earlier question is skipped by Next and Back, left out of
+ * "Page 1 of 3", and nothing typed on it is sent. The server holds the same
+ * rule (`shownPages` in core), so a post that includes a skipped page's
+ * answers has them dropped there too.
+ *
  * FILES go in the same post. A photograph is made smaller first, the way the
  * technician's camera does it, and the size is checked here before anything
  * is sent, because a post too large for the server would fail with nothing
@@ -64,11 +70,17 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
   const arrival = useRef<{ visitorId?: string | undefined; landingQuery?: string | undefined; referrer?: string | undefined }>({});
   const top = useRef<HTMLFormElement>(null);
   const [page, setPage] = useState(0);
+  /** Which pages the answers so far lead to, kept live as the person answers. */
+  const [shown, setShown] = useState<boolean[]>(() => mk.shownPages(definition, {}));
   const [refusals, setRefusals] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string | null>(null);
   const [thanks, setThanks] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const last = page === layout.length - 1;
+  const after = shown.findIndex((on, i) => on && i > page);
+  const before = shown.reduce((found, on, i) => (on && i < page ? i : found), -1);
+  const last = after === -1;
+  const total = shown.filter(Boolean).length;
+  const position = shown.slice(0, page + 1).filter(Boolean).length;
 
   useEffect(() => {
     arrival.current = {
@@ -117,12 +129,12 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
   }
 
   /** The files, made ready to post, or the sentence that says why they cannot go. */
-  async function filesOf(form: HTMLFormElement): Promise<{ files: { field: string; fileName: string; contentType: string; bytes: string }[] } | { refused: Record<string, string> }> {
+  async function filesOf(form: HTMLFormElement, skipped: Set<string>): Promise<{ files: { field: string; fileName: string; contentType: string; bytes: string }[] } | { refused: Record<string, string> }> {
     const data = new FormData(form);
     const out: { field: string; fileName: string; contentType: string; bytes: string }[] = [];
     const refused: Record<string, string> = {};
     let total = 0;
-    for (const field of fields.filter((f) => f.type === "file")) {
+    for (const field of fields.filter((f) => f.type === "file" && !skipped.has(f.key))) {
       for (const file of picked(data, field.key)) {
         if (out.length >= uploads.maxFiles) {
           refused[field.key] = `You can send up to ${uploads.maxFiles} files with this form.`;
@@ -218,14 +230,18 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
       ref={top}
       noValidate
       className="space-y-4 rounded-md border border-steel-200 bg-canvas p-6"
+      onChange={(event) => setShown(mk.shownPages(definition, valuesOf(event.currentTarget)))}
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
         if (!checkHere(form)) return;
-        if (!last) { show(page + 1, {}, null); return; }
+        if (!last) { show(after, {}, null); return; }
         const values = valuesOf(form);
+        /** What was typed on a page these answers do not lead to is not sent. */
+        const skipped = mk.hiddenFieldKeys(definition, values);
+        for (const key of skipped) delete values[key];
         start(async () => {
-          const ready = await filesOf(form);
+          const ready = await filesOf(form, skipped);
           if ("refused" in ready) {
             const at = mk.firstPageWith(definition, Object.keys(ready.refused)) ?? page;
             show(at, ready.refused, "Please check the files marked below.");
@@ -248,7 +264,7 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
       }}
     >
       {layout.length > 1 ? (
-        <p className="text-xs text-ink-500">Page {page + 1} of {layout.length}</p>
+        <p className="text-xs text-ink-500">Page {position} of {total}</p>
       ) : null}
       {fields.filter((f) => f.type === "honeypot").map((field) => (
         <div key={field.key} aria-hidden="true" style={{ position: "absolute", left: "-10000px", width: 1, height: 1, overflow: "hidden" }}>
@@ -264,8 +280,8 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
       ))}
       {general ? <p role="alert" className="text-sm text-red-600">{general}</p> : null}
       <div className="flex gap-2">
-        {page > 0 ? (
-          <button type="button" onClick={() => show(page - 1, refusals, null)} disabled={pending}
+        {before !== -1 ? (
+          <button type="button" onClick={() => show(before, refusals, null)} disabled={pending}
                   className={`${BUTTON} border border-steel-300 hover:bg-steel-100`}>
             Back
           </button>

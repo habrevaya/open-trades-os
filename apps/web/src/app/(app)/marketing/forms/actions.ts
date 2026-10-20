@@ -78,6 +78,7 @@ export async function saveForm(_previous: FormState, form: FormData): Promise<Fo
         confirmationText: field(form, "confirmationText") ?? undefined,
         confirmationEmailSubject: field(form, "confirmationEmailSubject") ?? undefined,
         confirmationEmailBody: field(form, "confirmationEmailBody") ?? undefined,
+        firstNameFallback: field(form, "firstNameFallback") ?? undefined,
       },
     });
     await forms.save(await ctx(), { ...input, fields: input.fields as Parameters<typeof forms.save>[1]["fields"] });

@@ -268,6 +268,27 @@ going Back keeps what they typed. Nothing is posted until the last page, and
 the server checks the whole form again: a page skipped in a browser is still
 refused, and a refusal on an earlier page takes the person back to it.
 
+**Pages that wait for an answer.** From the second page on, the builder's "Who
+sees page 2" can be set to "Only some answers": the page waits for a pick one or
+pick several question on an earlier page and is shown only when the answer is
+one of the options ticked there (`showWhen` on a page of `PUT
+/v1/marketing/forms/{slug}`: the question's key and `oneOf`, its option values).
+On the hosted page Next and Back skip a page the answers so far do not lead to,
+"Page 1 of 3" counts only the pages that will be shown, and nothing typed on a
+skipped page is posted. The server holds the same rule (`marketing.shownPages`
+in core), because a post can be made by anything: a question on a page the
+answers do not lead to is not asked, so it is never required, what was sent for
+it is dropped before the submission is stored (the stored copy of what arrived
+too, and a file picked for it is not read, counted or kept), and a skipped
+page's answer opens no other page. A rule is refused when the form is saved if
+it waits for a question that is not on an earlier page, that is not a pick one
+or pick several question, or for an option the question does not offer, or if
+the first page is given one. A form needs a required phone or email on a page
+everybody sees, so a lead cannot reach the office with no way to be rung back
+because the only phone question was on a page they were never sent to. A form
+saved on one page keeps no rule. A pick several question shows the page when
+any one of the ticked options is among its options.
+
 **Their answers in the confirmation.** The sentence the page shows, the text
 and the email may repeat an answer by its question's key, as `{{ name }}` or
 `{{ system }}`, filled by the one renderer the product has. Only the short
@@ -276,7 +297,17 @@ number, date and address; a choice reads as its label, a phone as "(512)
 555-0134"); a long answer, a tick box, a hidden value, the spam trap and the
 files cannot, and a name that is not a usable question on the form is refused
 when the form is saved, including a confirmation kept from before when only
-the questions changed. The renderer makes one pass, so an answer that itself
+the questions changed. `{{ firstName }}` is also there on a form that asks a name (the question keyed
+`name`, else a short answer whose key or wording says name, the same answer the
+lead's customer is named from): the first word of that answer, made safe for
+where it is going like every other answer. A lead with no name, or whose first
+word is a web address (which a text or an email never repeats), reads as the
+words the builder's "When they gave no name" box holds (`firstNameFallback` in
+the form's settings, at most 40 characters, no braces), and as "there" when the
+company set none. `{{ name }}` is still the whole answer; the first word is only
+the first word, so "Dr. Ada Lovelace" reads as "Dr." and "Lovelace, Ada" as
+"Lovelace,", and a company whose customers write names that way is better served
+by asking for first and last name as two questions. The renderer makes one pass, so an answer that itself
 says `{{ phone }}` is never filled, and braces are taken out of answers anyway.
 Because the text and the email go to whatever number or address was typed, a
 stranger could aim them at somebody else, so in a message an answer is one
@@ -1394,11 +1425,14 @@ sample and therefore not a test of anything.
   check and the per address ceilings are what there is). Files arrive only in
   the one post at the end, so a form takes at most five files and four
   megabytes in all, and a PDF is not made smaller; a person whose files are
-  refused picks them again rather than resuming. A page cannot be skipped or
-  shown only for some answers: every page is shown, in order. A confirmation
+  refused picks them again rather than resuming. A page waits only for
+  one earlier pick one or pick several question and the options that show it:
+  there is no rule over several questions, over a typed answer or a number, or
+  that hides a single question rather than a page. A confirmation
   repeats answers only from the closed list of short kinds, cut short and with
-  links left out in a text or an email; there is no first name of its own
-  (`{{ name }}` is the whole answer). Files sent with a form are matched to a
+  links left out in a text or an email; `{{ firstName }}` is the first word of
+  the name answer as it was typed, with no attempt to tell a title or a
+  surname written first from a first name. Files sent with a form are matched to a
   customer only by the phone or email typed, the same as the lead itself, and
   cannot be moved onto a job from the customer page.
 - **Referral rewards' limits.** One reward per referred customer, on their

@@ -71,6 +71,11 @@ export interface FormSettings {
   confirmationText?: string | undefined;
   confirmationEmailSubject?: string | undefined;
   confirmationEmailBody?: string | undefined;
+  /**
+   * The words `{{ firstName }}` reads as for a lead who gave no name, like
+   * "neighbour": "Thanks, neighbour." Left empty it reads as "there".
+   */
+  firstNameFallback?: string | undefined;
 }
 
 export interface FormInput {
@@ -99,6 +104,8 @@ function cleanSettings(input: FormSettings | undefined): Record<string, string> 
   if ((out["confirmationEmailSubject"] === undefined) !== (out["confirmationEmailBody"] === undefined)) {
     throw new ConflictError("A confirmation email needs both a subject and the words. Fill in both or neither.");
   }
+  const fallback = mk.firstNameFallbackProblem(out["firstNameFallback"] ?? "");
+  if (fallback) throw new ConflictError(fallback);
   return out;
 }
 
@@ -113,7 +120,10 @@ function cleanSettings(input: FormSettings | undefined): Record<string, string> 
 export async function save(ctx: ServiceContext, input: FormInput) {
   return guardedWrite(ctx, "adspend:write", async (tx) => {
     /** One page is no split at all, and is stored as none so the hosted page draws no heading for it. */
-    const pages = (input.pages ?? []).map((p) => ({ title: p.title.trim() }));
+    const pages = (input.pages ?? []).map((p) => ({
+      title: p.title.trim(),
+      ...(p.showWhen ? { showWhen: { field: p.showWhen.field, oneOf: [...p.showWhen.oneOf] } } : {}),
+    }));
     const definition: mk.FormDefinition = {
       key: input.slug,
       title: input.title,
@@ -226,8 +236,7 @@ function contactOf(form: mk.FormDefinition, values: Record<string, mk.CleanValue
   const phoneField = byType("phone");
   const emailField = byType("email");
   const addressField = byType("service_address");
-  const nameField = form.fields.find((f) => f.key === "name" && values[f.key] !== undefined)
-    ?? form.fields.find((f) => f.type === "text" && /name/i.test(`${f.key} ${f.label}`) && values[f.key] !== undefined);
+  const nameField = mk.nameFieldOf(form, values);
   return {
     name: nameField ? String(values[nameField.key]).trim() : null,
     phone: phoneField ? String(values[phoneField.key]) : null,
@@ -426,9 +435,19 @@ export async function submit(
     const fileFields = new Set(definition.fields.filter((f) => f.type === "file").map((f) => f.key));
     const values: Record<string, unknown> = { ...input.values };
     for (const key of fileFields) delete values[key];
+    /**
+     * A PAGE THESE ANSWERS DO NOT LEAD TO IS NOT ASKED. What was sent for its
+     * questions is dropped here, before anything is stored, so the submission
+     * row never holds an answer the person's own route made irrelevant (a
+     * stale answer from a page they went Back from), and a file picked for it
+     * is not read, counted or kept.
+     */
+    const notAsked = mk.hiddenFieldKeys(definition, input.values);
+    for (const key of notAsked) delete values[key];
     const fileRefusals: { field: string; reason: string; message: string }[] = [];
     const planned: FormFileInput[] = [];
     posted.forEach((file, i) => {
+      if (notAsked.has(file.field)) return;
       if (!fileFields.has(file.field)) {
         fileRefusals.push({
           field: file.field, reason: "unknown_field",
@@ -640,7 +659,10 @@ export async function submit(
      * (`confirmationScope`): it goes to whatever number or address was typed.
      */
     const settings = (form.settings ?? {}) as FormSettings;
-    const scope = mk.confirmationScope(definition, decision.values, "message");
+    const scope = {
+      ...mk.confirmationScope(definition, decision.values, "message"),
+      ...mk.firstNameScope(definition, decision.values, "message", settings.firstNameFallback),
+    };
     const caller = mk.callerKey(contact.phone);
     if (settings.confirmationText && caller) {
       await sendTransactional(tx, {
@@ -690,7 +712,10 @@ function thankYouOf(
 ): string {
   const written = ((form.settings ?? {}) as FormSettings).thankYou;
   if (!written) return "Thank you. We have your details and will be in touch shortly.";
-  return render(written, mk.confirmationScope(definition, values, "page"));
+  return render(written, {
+    ...mk.confirmationScope(definition, values, "page"),
+    ...mk.firstNameScope(definition, values, "page", ((form.settings ?? {}) as FormSettings).firstNameFallback),
+  });
 }
 
 function formatValue(value: mk.CleanValue): string {
