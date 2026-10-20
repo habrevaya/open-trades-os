@@ -48,6 +48,15 @@ const Settings = z.object({
   }),
   phones: z.number().int(),
   companyCanText: z.boolean(),
+  digest: z.object({
+    on: z.boolean(),
+    /** The company's morning hour, 0 to 23, when the digest goes: when its quiet hours end, or 8. */
+    hour: z.number().int(),
+    /** The company day it was last decided on. */
+    lastOn: z.string().nullable(),
+    /** What happened then, in words: how many it listed, nothing unread, or why it could not go. */
+    lastOutcome: z.string().nullable(),
+  }),
 });
 
 export const listMyNotices = defineRoute({
@@ -135,6 +144,54 @@ export const setMyNoticeTexts = defineRoute({
   output: Settings,
 });
 
+export const setMyNoticeDigest = defineRoute({
+  method: "post",
+  path: "/v1/me/notice-digest",
+  summary: "Turn your daily email of unread notices on or off",
+  description:
+    "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8), an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. "
+    + "It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on.",
+  module: "M34",
+  permissions: ["profile:own"],
+  /** Setting a state: on twice is on. */
+  idempotent: true,
+  input: z.object({ on: z.boolean() }),
+  output: Settings,
+});
+
+const Keeping = z.object({
+  /** Days a read notice is kept before the worker removes it. Null keeps them for good, the default. */
+  keepDays: z.number().int().min(notices.KEEP_READ_MIN_DAYS).max(notices.KEEP_READ_MAX_DAYS).nullable(),
+});
+
+export const getReadNoticeKeeping = defineRoute({
+  method: "get",
+  path: "/v1/notice-keeping",
+  summary: "How long the company keeps notices people have read",
+  module: "M34",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: Keeping,
+});
+
+export const setReadNoticeKeeping = defineRoute({
+  method: "patch",
+  path: "/v1/notice-keeping",
+  summary: "Set how long the company keeps notices people have read",
+  description:
+    `Whole days from ${notices.KEEP_READ_MIN_DAYS} to ${notices.KEEP_READ_MAX_DAYS}, or null to keep them for good, which is where every company starts. `
+    + "The worker then removes notices read longer ago than that, and ones a person keeps off their bell raised longer ago, with their sends. Never an unread one. "
+    + "A licence or skill notice stays for a year and eight days after it was raised, and a toolbox talk nudge for nine days, whatever this says, because the worker would otherwise raise it again. "
+    + "Removed notices do not come back if the number is made longer. Audited.",
+  module: "M34",
+  permissions: ["settings:write"],
+  /** Setting a state. */
+  idempotent: true,
+  input: Keeping,
+  output: Keeping,
+});
+
 export const staffNoticeRoutes = {
-  listMyNotices, readMyNotices, getMyNoticeSettings, setMyNoticeSettings, setMyNoticeTexts,
+  listMyNotices, readMyNotices, getMyNoticeSettings, setMyNoticeSettings, setMyNoticeTexts, setMyNoticeDigest,
+  getReadNoticeKeeping, setReadNoticeKeeping,
 } as const;

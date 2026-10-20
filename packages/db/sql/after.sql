@@ -3550,6 +3550,32 @@ revoke all on function app.staff_notice_organizations(int) from public;
 grant execute on function app.staff_notice_organizations(int) to background;
 
 -- =========================================================================
+-- WHICH COMPANIES HAVE A DIGEST TO SEND OR READ NOTICES TO TIDY
+--
+-- The same shape as the function above: ids and nothing else, cross tenant,
+-- not callable by the request path. A company is here when somebody in it
+-- turned the daily digest on, or it chose how long read notices are kept;
+-- whether a digest is due this morning, and which notices may go, is the
+-- service's question, asked inside the company's own tenant.
+-- =========================================================================
+
+create or replace function app.staff_notice_upkeep_organizations(p_limit int default 1000)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id
+      from public.organization o
+     where o.suspended_at is null
+       and (exists (select 1 from public.staff_notice_digest d where d.organization_id = o.id and d.enabled)
+            or o.settings -> 'readNotices' ->> 'keepDays' is not null)
+     order by o.id
+     limit p_limit
+  $$;
+
+revoke all on function app.staff_notice_upkeep_organizations(int) from public;
+grant execute on function app.staff_notice_upkeep_organizations(int) to background;
+
+-- =========================================================================
 -- THE AD PLATFORMS, ANALYTICS AND REVIEW LISTINGS THE WORKER VISITS
 --
 -- The same shape as the others: which companies have a connected Google Ads,

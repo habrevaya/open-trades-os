@@ -173,6 +173,25 @@ Finding the companies with something to do is a cross tenant read, through
 `app.push_work_organizations`, granted to the `background` role like the
 others.
 
+## Notices: the daily digest and read ones tidied
+
+Every five minutes, per worker, each company where somebody turned on the daily
+email of unread notices, or that chose how long read notices are kept, is
+visited (`app.staff_notice_upkeep_organizations`, which only the `background`
+role may call). At the company's morning hour, the end of its quiet hours, each
+person who asked gets one email listing what is unread on their bell, through
+the company's own email, decided once per company day so a second worker sends
+nothing more. Then read notices older than the company's number of days are
+removed in batches of a thousand. Nothing to configure; turn both off with
+`notices: false` on the pass, which also stops notices being sent.
+
+| What happens | What is left |
+|---|---|
+| Nothing unread | No email; "Nothing was unread" on the person's page |
+| No email connected, or the address is on the do-not-email list | No email; the reason in words on the person's page |
+| The email cannot be queued for another reason | Nothing claimed; tried again on the next visit |
+| A company that keeps read notices for good | Nothing removed |
+
 ## Waiting for something not to happen
 
 The third trigger kind, and the one the other two cannot express. An event

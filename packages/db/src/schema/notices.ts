@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, integer, boolean, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, boolean, date, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -86,6 +86,32 @@ export const staffNoticeSetting = pgTable("staff_notice_setting", {
   ...timestamps,
 }, (t) => ({
   kindIdx: uniqueIndex("staff_notice_setting_kind_idx").on(t.organizationId, t.userId, t.kind),
+}));
+
+/**
+ * A PERSON'S DAILY EMAIL OF WHAT THEY HAVE NOT READ.
+ *
+ * Off unless they turn it on, on `/me`: one email a morning listing their
+ * unread notices, to the address they sign in with, through the company's own
+ * email. A row only once they chose. `last_on` is the company day the worker
+ * last decided on (sent, nothing unread, or could not send), claimed in the
+ * transaction that queues the email, so two workers or a pass run twice send
+ * one email a day.
+ */
+export const staffNoticeDigest = pgTable("staff_notice_digest", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  /** The company day the last digest was decided on. */
+  lastOn: date("last_on"),
+  /** When the last one was put in the company's email outbox. */
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  /** What happened on `last_on`, in words: how many it listed, nothing unread, or why it could not go. */
+  lastOutcome: text("last_outcome"),
+  ...timestamps,
+}, (t) => ({
+  personIdx: uniqueIndex("staff_notice_digest_person_idx").on(t.organizationId, t.userId),
 }));
 
 export const staffTextConsentState = pgEnum("staff_text_consent_state", ["granted", "revoked"]);

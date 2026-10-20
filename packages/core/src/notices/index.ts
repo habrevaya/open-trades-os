@@ -342,3 +342,127 @@ export function talkNudgeDue(heldAt: Date, now: Date): boolean {
   const age = now.getTime() - heldAt.getTime();
   return age >= TALK_NUDGE_AFTER_MINUTES * 60_000 && age <= TALK_NUDGE_WITHIN_DAYS * 86_400_000;
 }
+
+/* ------------------------------------------------------- the daily digest */
+
+/**
+ * The hour a company's day starts, for a digest: when its quiet hours end,
+ * which is when the company already starts texting customers, or eight in
+ * the morning for a company that switched quiet hours off. Not a setting of
+ * its own: a second "morning" that disagreed with the quiet hours would be
+ * one more thing to get wrong.
+ */
+export const DIGEST_DEFAULT_HOUR = 8;
+
+/** The most notices one digest lists; the rest are a count and the link to the bell. */
+export const DIGEST_MOST = 20;
+
+export function digestHour(quiet: { startHour: number; endHour: number } | null): number {
+  return quiet ? quiet.endHour : DIGEST_DEFAULT_HOUR;
+}
+
+/**
+ * Whether a person's digest is due now: not yet sent on the company's today,
+ * the company's morning has come, and it is not inside its quiet hours. A
+ * worker that was down at eight sends it when it is back the same day; a day
+ * it never came back on is not sent late, the next morning's covers it.
+ */
+export function digestDue(input: {
+  /** The company's today and hour now. */
+  today: string;
+  localHour: number;
+  /** The company day the last digest was decided on, sent or not. */
+  lastOn: string | null;
+  quiet: { startHour: number; endHour: number } | null;
+}): boolean {
+  if (input.lastOn !== null && compareDates(input.lastOn, input.today) >= 0) return false;
+  if (input.localHour < digestHour(input.quiet)) return false;
+  return !(input.quiet && inQuietHours(input.localHour, input.quiet));
+}
+
+/**
+ * The digest email: how many are waiting, then each notice as the bell shows
+ * it (its kind, its title, its sentence and its page), then how to stop it.
+ * Plain text, like a single notice's email, and nothing the bell does not show.
+ */
+export function digestEmail(input: {
+  companyName: string;
+  /** Every unread notice the person can still open, newest first. */
+  notices: readonly { kindLabel: string; title: string; body: string | null; link: string | null }[];
+  /** Where the bell is, and where the digest is switched off. */
+  allLink: string | null;
+  settingsLink: string | null;
+}): { subject: string; text: string } {
+  const count = input.notices.length;
+  const listed = input.notices.slice(0, DIGEST_MOST);
+  const subject = `${count} unread ${count === 1 ? "notice" : "notices"} at ${input.companyName}`.slice(0, 200);
+  const blocks = listed.map((n) => [
+    `${n.kindLabel}: ${n.title.trim()}`,
+    n.body?.trim() ?? "",
+    n.link ? `Open it: ${n.link}` : "",
+  ].filter((line) => line !== "").join("\n"));
+  const more = count > listed.length ? `And ${count - listed.length} more.` : "";
+  const footer = [
+    input.allLink ? `All your notices: ${input.allLink}` : "",
+    `You get this each morning because you asked for it.${input.settingsLink ? ` Turn it off at ${input.settingsLink}` : " Turn it off on your own page."}`,
+    `Sent by ${input.companyName}.`,
+  ].filter((line) => line !== "").join("\n");
+  return {
+    subject,
+    text: [`You have ${count} unread ${count === 1 ? "notice" : "notices"}.`, ...blocks, more, footer]
+      .filter((part) => part !== "").join("\n\n"),
+  };
+}
+
+/* ---------------------------------------------- how long read notices stay */
+
+/** The shortest and longest a company can keep read notices, in days. Null keeps them for good. */
+export const KEEP_READ_MIN_DAYS = 7;
+export const KEEP_READ_MAX_DAYS = 3650;
+
+/** What a company saved, as a number of days or null for "for good". Anything else reads as for good. */
+export function keepReadDays(saved: unknown): number | null {
+  return Number.isInteger(saved) && (saved as number) >= KEEP_READ_MIN_DAYS && (saved as number) <= KEEP_READ_MAX_DAYS
+    ? saved as number
+    : null;
+}
+
+export function keepReadProblem(days: number | null): string | null {
+  if (days === null) return null;
+  if (!Number.isInteger(days) || days < KEEP_READ_MIN_DAYS || days > KEEP_READ_MAX_DAYS) {
+    return `Keep read notices from ${KEEP_READ_MIN_DAYS} to ${KEEP_READ_MAX_DAYS} days, or leave it empty to keep them for good.`;
+  }
+  return null;
+}
+
+/**
+ * How long after it was raised a notice of this kind must stay, whatever the
+ * company chose, because the row is also how the worker remembers it told
+ * somebody. A licence notice is looked for again on every pass until its
+ * card is a few days past its date, which can be a year and a few days after
+ * the notice; a talk's nudge for a week. Removing either sooner would raise
+ * it again. Every other kind is raised by something that happened once, and
+ * goes on the company's own clock.
+ */
+export function raisedAgainWithinDays(kind: string): number {
+  if (kind === "qualification_expiry") return MAX_EXPIRY_NOTICE_DAYS + EXPIRY_LATE_DAYS + 2;
+  if (kind === "talk_unsigned") return TALK_NUDGE_WITHIN_DAYS + 2;
+  return 0;
+}
+
+/**
+ * Whether a notice may be removed now under a company keeping read ones
+ * `keepDays`. Never an unread one on the bell. One the person switched off in
+ * the app was never going to be read there, so it counts as read from the
+ * moment it was raised.
+ */
+export function sweepable(
+  notice: { kind: string; createdAt: Date; readAt: Date | null; inApp?: boolean | undefined },
+  keepDays: number | null, now: Date,
+): boolean {
+  const readAt = notice.readAt ?? (notice.inApp === false ? notice.createdAt : null);
+  if (keepDays === null || readAt === null) return false;
+  const day = 86_400_000;
+  if (now.getTime() - readAt.getTime() < keepDays * day) return false;
+  return now.getTime() - notice.createdAt.getTime() >= raisedAgainWithinDays(notice.kind) * day;
+}
