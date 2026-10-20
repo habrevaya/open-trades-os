@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, uuid, text, integer, jsonb, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, money } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -78,4 +79,48 @@ export const mailPiece = pgTable("mail_piece", {
   /** The code is the whole of a personal address, found before anybody knows whose it is. */
   codeIdx: uniqueIndex("mail_piece_code_idx").on(t.code),
   pendingIdx: index("mail_piece_pending_idx").on(t.mailCampaignId, t.status),
+}));
+
+/**
+ * THE DO NOT MAIL LIST
+ *
+ * A customer who asked to stop getting mail, or an address nobody there wants
+ * it at. Every mailing checks the list when it freezes who it goes to and again
+ * as each piece is handed to the printer, and a piece it stops is skipped with
+ * the entry's own words. See `core/direct-mail` for how addresses are compared.
+ *
+ * An entry for a customer holds the customer wherever they move, and the
+ * address they were listed at as well (null when they had none that could be
+ * posted to). An entry typed as an address alone holds whoever lives there.
+ * Taken off the list by soft delete, so the page can say who removed it and
+ * when, and a name taken off and put back is one live entry again.
+ */
+export const doNotMail = pgTable("do_not_mail", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").references(() => customer.id, { onDelete: "cascade" }),
+  /** Who it is for, as written when it was added: the customer's name, or what the person typed. */
+  name: text("name"),
+  /** The address as written, for the list to read back. */
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  /** The building as core compares addresses (`addressKeys`), or null when there is no address that can be posted to. */
+  building: text("building"),
+  /** The unit inside it, "" for the whole building. */
+  unit: text("unit").notNull().default(""),
+  /** Why, in the words of whoever added it ("asked on the phone, 3 June"). */
+  reason: text("reason"),
+  addedByUserId: uuid("added_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  removedByUserId: uuid("removed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  /** One live entry for one customer; a name that was taken off can be put back. */
+  customerIdx: uniqueIndex("do_not_mail_customer_idx").on(t.organizationId, t.customerId)
+    .where(sql`${t.deletedAt} is null and ${t.customerId} is not null`),
+  /** One live entry for one door typed in: the building and the flat inside it. */
+  addressIdx: uniqueIndex("do_not_mail_address_idx").on(t.organizationId, t.building, t.unit)
+    .where(sql`${t.deletedAt} is null and ${t.customerId} is null and ${t.building} is not null`),
 }));

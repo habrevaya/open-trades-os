@@ -13,6 +13,7 @@ export async function saveReferralSettings(_previous: FormState, form: FormData)
     await referrals.setSettings(await ctx(), {
       reward: field(form, "reward") ?? "none",
       amount: field(form, "amount"),
+      applyToNextInvoice: form.get("applyToNextInvoice") === "on",
     });
     return { message: "Saved. Rewards already given are not changed." };
   });

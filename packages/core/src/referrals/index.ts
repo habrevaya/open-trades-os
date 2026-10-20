@@ -55,7 +55,7 @@ export type RewardKind = (typeof REWARD_KINDS)[number];
 export const REWARD_KIND: Record<RewardKind, { label: string; meaning: string }> = {
   credit_note: {
     label: "A credit on their account",
-    meaning: "A credit note is issued to the referrer and comes off their next invoice.",
+    meaning: "A credit note is issued to the referrer. It comes off their next invoice when somebody applies it from the invoice, or by itself if you turn that on.",
   },
   owed: {
     label: "An amount we pay them",
@@ -71,6 +71,14 @@ export interface ReferralSettings {
   reward: RewardKind;
   /** A decimal string in the company's currency. Ignored when the reward is none. */
   amount: string;
+  /**
+   * Put a credit note reward on the referrer's next invoice by itself. Only
+   * ever present when it is on, and only for a credit note reward: off is the
+   * default, because taking money off a customer's bill is the company's
+   * decision to make once, out loud, and not something a new setting does to
+   * invoices already being written.
+   */
+  applyToNextInvoice?: true | undefined;
 }
 
 export const DEFAULT_REFERRAL_SETTINGS: ReferralSettings = { reward: "none", amount: "0" };
@@ -85,10 +93,16 @@ export type ReferralSettingsCheck = { ok: true; settings: ReferralSettings } | {
  * them nothing. A ceiling, because a slipped digit in a reward is paid to
  * every referrer until somebody notices.
  */
-export function checkReferralSettings(input: { reward?: unknown; amount?: unknown }): ReferralSettingsCheck {
+export function checkReferralSettings(
+  input: { reward?: unknown; amount?: unknown; applyToNextInvoice?: unknown },
+): ReferralSettingsCheck {
   const reward = String(input.reward ?? "none");
   if (!(REWARD_KINDS as readonly string[]).includes(reward)) {
     return { ok: false, reason: `"${reward}" is not a kind of reward. One of: ${REWARD_KINDS.join(", ")}.` };
+  }
+  const automatic = input.applyToNextInvoice === true;
+  if (automatic && reward !== "credit_note") {
+    return { ok: false, reason: "Only a credit on their account can come off their next invoice by itself. Choose that reward, or turn this off." };
   }
   if (reward === "none") return { ok: true, settings: { reward: "none", amount: "0" } };
   const amount = String(input.amount ?? "").trim();
@@ -98,7 +112,38 @@ export function checkReferralSettings(input: { reward?: unknown; amount?: unknow
   if (Number(amount) > 10_000) {
     return { ok: false, reason: "A referral reward over ten thousand dollars is almost certainly a typing slip." };
   }
-  return { ok: true, settings: { reward: reward as RewardKind, amount } };
+  return { ok: true, settings: { reward: reward as RewardKind, amount, ...(automatic ? { applyToNextInvoice: true as const } : {}) } };
+}
+
+/**
+ * THE INVOICE A REWARD'S CREDIT GOES ON, by itself: the referrer's oldest
+ * invoice that is still owed and came after the reward. "Next" means after the
+ * reward existed, so a bill already sent is not changed by a thank you given
+ * later: an invoice issued on a later company day qualifies, and one issued on
+ * the day the reward was granted qualifies only if it was raised after the
+ * reward was (the day alone cannot tell which came first). Dates are company
+ * days, so strings compare; instants are ISO strings, which compare too.
+ */
+export function nextInvoiceFor(
+  invoices: ReadonlyArray<{ id: string; issuedOn: string | null; balance: string; createdAt: string }>,
+  grant: { on: string; at: string },
+): string | null {
+  const open = invoices
+    .filter((i) => i.issuedOn !== null && Number(i.balance) > 0
+      && (i.issuedOn > grant.on || (i.issuedOn === grant.on && i.createdAt >= grant.at)))
+    .sort((a, b) => (a.issuedOn! < b.issuedOn! ? -1 : a.issuedOn! > b.issuedOn! ? 1
+      : a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1));
+  return open[0]?.id ?? null;
+}
+
+/**
+ * How much of a credit goes on an invoice: the smaller of what is left on the
+ * credit and what the invoice still owes, to the cent. Zero when either is
+ * nothing, which is a refusal to apply and not an application of nought.
+ */
+export function creditToApply(creditLeft: string, invoiceBalance: string): string {
+  const cents = Math.min(Math.round(Number(creditLeft) * 100), Math.round(Number(invoiceBalance) * 100));
+  return cents > 0 ? (cents / 100).toFixed(2) : "0.00";
 }
 
 export type RewardDecision =

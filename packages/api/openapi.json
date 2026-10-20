@@ -62710,6 +62710,115 @@
         ]
       }
     },
+    "/v1/invoices/{id}/referral-credit": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getInvoiceReferralCredit",
+        "summary": "Referral reward credit that could come off this invoice",
+        "description": "The credit note referral rewards the invoice's customer (or the customer who pays it) has not used yet, with how much of each would come off this invoice. Empty for an invoice that is not owed. Applying one is `POST /v1/credit-notes/{id}/apply`, the same application a person makes from the credit note.\n\nRequires a session holding: invoice:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Referral reward credit that could come off this invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetInvoiceReferralCreditOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:read"
+        ]
+      }
+    },
     "/v1/invoices/{id}/tip-offer": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -73797,6 +73906,377 @@
         ]
       }
     },
+    "/v1/marketing/do-not-mail": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "addDoNotMail",
+        "summary": "Put a customer or an address on the do not mail list",
+        "description": "Give a customer, who is then never mailed wherever they move to (the address they are listed at is held as well, since a household is so often two customer records), or an address typed in, which holds whoever lives there. An address with no unit is the whole building. Every mailing checks the list when it freezes who it goes to and again before each piece is handed to the printer; a piece it stops is skipped with the reason in words. Listing something already listed is refused. Needs `customer:write`, so whoever takes the call can record it; taking a name off is `campaign:write`.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddDoNotMailInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put a customer or an address on the do not mail list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddDoNotMailOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      },
+      "get": {
+        "operationId": "listDoNotMail",
+        "summary": "The do not mail list",
+        "description": "Every customer and address that every mailing leaves out, newest first. With `customerId`, only what stops that customer: an entry for them, or for the address they would be mailed at.\n\nRequires a session holding: campaign:read.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The do not mail list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDoNotMailOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "campaign:read"
+        ]
+      }
+    },
+    "/v1/marketing/do-not-mail/{id}/remove": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "removeDoNotMail",
+        "summary": "Take a name or an address off the do not mail list",
+        "description": "The entry is kept, with who took it off and when. A mailing that has not posted a piece yet no longer skips them; a piece already skipped stays skipped, and the next mailing can include them.\n\nRequires a session holding: campaign:write.",
+        "tags": [
+          "M19"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveDoNotMailInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Take a name or an address off the do not mail list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveDoNotMailOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "campaign:write"
+        ]
+      }
+    },
     "/v1/marketing/forms": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -76396,7 +76876,7 @@
       "put": {
         "operationId": "setReferralSettings",
         "summary": "What a referral earns",
-        "description": "A credit note on the referrer's account, or a fixed amount recorded as owed, granted once when the referred customer's first job is paid in full. Or nothing.\n\nRequires a session holding: settings:write.",
+        "description": "A credit note on the referrer's account, or a fixed amount recorded as owed, granted once when the referred customer's first job is paid in full. Or nothing. `applyToNextInvoice` (off unless sent) puts a credit note reward on the referrer's next invoice by itself, through the credit note application a person would make; it is refused for any other reward.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M19"
         ],
@@ -148647,6 +149127,123 @@
           "externalRef"
         ]
       },
+      "AddDoNotMailInput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "line1": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "line2": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "city": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "state": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 2
+              },
+              "postalCode": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 10
+              }
+            },
+            "required": [
+              "line1",
+              "city",
+              "state",
+              "postalCode"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "AddDoNotMailOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "address"
+            ]
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "customerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addedOn": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "customerId",
+          "customerName",
+          "name",
+          "address",
+          "unit",
+          "reason",
+          "addedOn"
+        ]
+      },
       "AddEmergencyContactInput": {
         "type": "object",
         "properties": {
@@ -194504,6 +195101,10 @@
               "confirmationEmailBody": {
                 "type": "string",
                 "maxLength": 4000
+              },
+              "firstNameFallback": {
+                "type": "string",
+                "maxLength": 40
               }
             }
           },
@@ -194515,6 +195116,29 @@
                 "title": {
                   "type": "string",
                   "maxLength": 120
+                },
+                "showWhen": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    },
+                    "oneOf": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "maxItems": 20
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "oneOf"
+                  ]
                 }
               },
               "required": [
@@ -194852,6 +195476,29 @@
                 "title": {
                   "type": "string",
                   "maxLength": 120
+                },
+                "showWhen": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    },
+                    "oneOf": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "maxItems": 20
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "oneOf"
+                  ]
                 }
               },
               "required": [
@@ -196422,6 +197069,57 @@
           "offer",
           "applicable",
           "applications"
+        ]
+      },
+      "GetInvoiceReferralCreditOutput": {
+        "type": "object",
+        "properties": {
+          "invoiceBalance": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "credits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rewardId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "creditNoteId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "creditNoteNumber": {
+                  "type": "integer"
+                },
+                "referredName": {
+                  "type": "string"
+                },
+                "balance": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "apply": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "rewardId",
+                "creditNoteId",
+                "creditNoteNumber",
+                "referredName",
+                "balance",
+                "apply"
+              ]
+            }
+          }
+        },
+        "required": [
+          "invoiceBalance",
+          "credits"
         ]
       },
       "GetInvoiceTipOfferOutput": {
@@ -209613,11 +210311,15 @@
               },
               "amount": {
                 "type": "string"
+              },
+              "applyToNextInvoice": {
+                "type": "boolean"
               }
             },
             "required": [
               "reward",
-              "amount"
+              "amount",
+              "applyToNextInvoice"
             ]
           },
           "referrers": {
@@ -209707,6 +210409,19 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "creditLeft": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "autoAppliedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -209715,7 +210430,9 @@
                     "amount",
                     "state",
                     "creditNoteId",
-                    "paidAt"
+                    "paidAt",
+                    "creditLeft",
+                    "autoAppliedAt"
                   ]
                 }
               },
@@ -226283,6 +227000,82 @@
         },
         "required": [
           "facilities"
+        ]
+      },
+      "ListDoNotMailOutput": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "customer",
+                    "address"
+                  ]
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "addedOn": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "customerId",
+                "customerName",
+                "name",
+                "address",
+                "unit",
+                "reason",
+                "addedOn"
+              ]
+            }
+          }
+        },
+        "required": [
+          "entries"
         ]
       },
       "ListDueRequestsOutput": {
@@ -250982,6 +251775,9 @@
           "postable": {
             "type": "integer"
           },
+          "doNotMail": {
+            "type": "integer"
+          },
           "noAddress": {
             "type": "integer"
           },
@@ -251049,13 +251845,17 @@
                 },
                 "postable": {
                   "type": "boolean"
+                },
+                "doNotMail": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "customerId",
                 "name",
                 "address",
-                "postable"
+                "postable",
+                "doNotMail"
               ]
             }
           },
@@ -251075,6 +251875,7 @@
           "selected",
           "overflow",
           "postable",
+          "doNotMail",
           "noAddress",
           "estimatedCost",
           "trackingPhone",
@@ -261356,6 +262157,29 @@
           "reason"
         ]
       },
+      "RemoveDoNotMailInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveDoNotMailOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
       "RemoveEmergencyContactInput": {
         "type": "object",
         "properties": {}
@@ -269321,6 +270145,10 @@
               "confirmationEmailBody": {
                 "type": "string",
                 "maxLength": 4000
+              },
+              "firstNameFallback": {
+                "type": "string",
+                "maxLength": 40
               }
             }
           },
@@ -269332,6 +270160,29 @@
                 "title": {
                   "type": "string",
                   "maxLength": 120
+                },
+                "showWhen": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    },
+                    "oneOf": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "maxItems": 20
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "oneOf"
+                  ]
                 }
               },
               "required": [
@@ -278341,6 +279192,9 @@
           "amount": {
             "type": "string",
             "maxLength": 12
+          },
+          "applyToNextInvoice": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -278360,11 +279214,15 @@
           },
           "amount": {
             "type": "string"
+          },
+          "applyToNextInvoice": {
+            "type": "boolean"
           }
         },
         "required": [
           "reward",
-          "amount"
+          "amount",
+          "applyToNextInvoice"
         ]
       },
       "SetRenewalsKeeperInput": {

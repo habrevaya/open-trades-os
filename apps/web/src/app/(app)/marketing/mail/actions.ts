@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { directMail, ConflictError } from "@opentradesos/api/services";
-import { createMailCampaign } from "@opentradesos/api/contracts";
+import { directMail, doNotMail, ConflictError } from "@opentradesos/api/services";
+import { createMailCampaign, addDoNotMail } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { sourceFrom } from "@/lib/lead-source";
 import { audienceFrom } from "../campaigns/rules";
@@ -66,5 +66,35 @@ export async function cancelMailing(_previous: FormState, form: FormData): Promi
     return { message: "Stopped." };
   });
   revalidatePath(`/marketing/mail/${id}`);
+  return result;
+}
+
+/** An address typed onto the do not mail list. A customer is added from their own page. */
+export async function addToDoNotMail(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const input = parsed(addDoNotMail.input, {
+      address: {
+        ...(field(form, "dnmName") ? { name: field(form, "dnmName") } : {}),
+        line1: field(form, "dnmLine1") ?? "",
+        ...(field(form, "dnmLine2") ? { line2: field(form, "dnmLine2") } : {}),
+        city: field(form, "dnmCity") ?? "",
+        state: field(form, "dnmState") ?? "",
+        postalCode: field(form, "dnmPostalCode") ?? "",
+      },
+      ...(field(form, "dnmReason") ? { reason: field(form, "dnmReason") } : {}),
+    });
+    await doNotMail.add(await ctx(), input);
+    return { message: "Added. No mailing will post to that address." };
+  });
+  revalidatePath("/marketing/mail");
+  return result;
+}
+
+export async function takeOffDoNotMail(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    await doNotMail.remove(await ctx(), { id: field(form, "id") ?? "" });
+    return { message: "Taken off the list." };
+  });
+  revalidatePath("/marketing/mail");
   return result;
 }

@@ -152,6 +152,7 @@ async function marketingUpkeep(db: Database, organizationId: string): Promise<vo
   await voice.sweepRecordings(db, organizationId);
   await voice.sweepCallbacks(db, organizationId);
   await referrals.grantDue(db, organizationId);
+  await referrals.applyDue(db, organizationId);
 }
 
 /**

@@ -116,6 +116,10 @@ const REFUSED: Record<string, Refused> = {
   proposal_template_default_idx: { file: "proposal-templates.ts", how: "catch" },
 
   /* ---- selected first and refused in the service's own words ---- */
+  /** A customer put on the do not mail list twice: "is already on your do not mail list". */
+  do_not_mail_customer_idx: { file: "do-not-mail.ts", how: "check", says: "is already on your do not mail list" },
+  /** An address put on the do not mail list twice: the same sentence, with the address. */
+  do_not_mail_address_idx: { file: "do-not-mail.ts", how: "check", says: "is already on your do not mail list" },
   /** A second open hold on a job: "already on hold", with the reason it is on hold for. */
   job_hold_open_idx: { file: "job-holds.ts", how: "check", says: "This job is already on hold" },
   certification_type_code_idx: {

@@ -151,6 +151,12 @@ const HISTORY: Ref[] = [
     why: "The record kept was sent a piece in the same mailing.",
   },
   { table: "ad_conversion_send", column: "customer_id", label: "ad conversions sent" },
+  {
+    table: "do_not_mail", column: "customer_id", label: "do not mail entries",
+    unless: (keepId) => sql`t.deleted_at is null and exists (select 1 from public.do_not_mail x
+      where x.organization_id = t.organization_id and x.customer_id = ${keepId} and x.deleted_at is null)`,
+    why: "The record kept is already on the do not mail list.",
+  },
   { table: "form_submission", column: "customer_id", label: "form submissions" },
   { table: "lead_offer", column: "customer_id", label: "lead offers" },
   { table: "portal_grant", column: "customer_id", label: "portal links" },

@@ -21,6 +21,7 @@ import { TextCustomer } from "./Messages";
 import { ThreadList } from "../../inbox/ThreadList";
 import { Payments } from "./Payments";
 import { Referral } from "./Referral";
+import { DoNotMail } from "./DoNotMail";
 import { PortalSignIns } from "./PortalSignIns";
 import { CardAgreements } from "./CardAgreements";
 import { AdData } from "./AdData";
@@ -262,6 +263,7 @@ export default async function CustomerPage({
       />
 
       <Referral ctx={ctx} customerId={id} />
+      {can(user.actor, "campaign:read") || can(user.actor, "customer:write") ? <DoNotMail ctx={ctx} customerId={id} /> : null}
       <FormFiles ctx={ctx} customerId={id} timezone={user.organizationTimezone} />
       <AdData ctx={ctx} customerId={id} zone={user.organizationTimezone} />
 
