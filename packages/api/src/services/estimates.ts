@@ -15,7 +15,7 @@ import { estimateScopeFilter, estimateBranchFilter } from "./scope";
 import { closeMatching, textFilter } from "./text-search";
 import { claimNumber, nextNumber } from "./jobs";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
-import { inForceAt } from "./pricebook";
+import { costPerUseUnit, inForceAt } from "./pricebook";
 import { exclusionTestWithin, memberPricingWithin } from "./agreements";
 import { emit } from "./events";
 import * as marketing from "./marketing";
@@ -134,7 +134,7 @@ export async function createIn(
           versionId: schema.priceBookItemVersion.id,
           name: schema.priceBookItemVersion.name,
           price: schema.priceBookItemVersion.price,
-          cost: schema.priceBookItemVersion.cost,
+          cost: costPerUseUnit,
           taxable: schema.priceBookItemVersion.taxable,
           kind: schema.priceBookItem.kind,
           feeRole: schema.priceBookItem.feeRole,
@@ -162,7 +162,7 @@ export async function createIn(
           versionId: schema.priceBookItemVersion.id,
           name: schema.priceBookItemVersion.name,
           price: schema.priceBookItemVersion.price,
-          cost: schema.priceBookItemVersion.cost,
+          cost: costPerUseUnit,
           taxable: schema.priceBookItemVersion.taxable,
           kind: schema.priceBookItem.kind,
           feeRole: schema.priceBookItem.feeRole,

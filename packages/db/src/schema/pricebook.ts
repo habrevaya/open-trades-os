@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, numeric } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps, sourceRef, sourceRefIndex, money, rate } from "./_shared";
 import { organization, user } from "./tenancy";
@@ -139,6 +139,18 @@ export const priceBookItemVersion = pgTable("price_book_item_version", {
   warrantyRegistrationDays: integer("warranty_registration_days"),
   /** Kits: child items included in this one, with quantities. */
   components: jsonb("components").$type<Array<{ itemId: string; quantity: number }>>().notNull().default([]),
+  /**
+   * BOUGHT IN ONE UNIT, USED IN ANOTHER. A gallon drum applied by the ounce:
+   * `buyUnit` "gal", `useUnit` "oz", `usePerBuy` 128. Set, the version's
+   * `cost` is what one buy unit costs (the figure on the supplier's bill), and
+   * its price and every line's quantity are in the use unit, so a line's cost
+   * is the cost over `usePerBuy` (`core/pricebook.costPerUse`). All three or
+   * none; null on every version written before this, which behaves exactly as
+   * it always did: its cost is per the one unit its lines count.
+   */
+  buyUnit: text("buy_unit"),
+  useUnit: text("use_unit"),
+  usePerBuy: numeric("use_per_buy", { precision: 14, scale: 6 }),
   effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
   effectiveTo: timestamp("effective_to", { withTimezone: true }),
   ...timestamps,

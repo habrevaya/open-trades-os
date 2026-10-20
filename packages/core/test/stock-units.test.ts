@@ -254,3 +254,23 @@ describe("filling the trucks", () => {
     expect(s!.why).toContain("5 short");
   });
 });
+
+describe("an item bought in one unit and used in another", () => {
+  it("costs one use unit as the buy unit's cost over how many it holds, at four places", async () => {
+    const { catalogue } = await import("../src/index.js");
+    expect(catalogue.costPerUse("40.00", { usePerBuy: "128" })).toBe("0.3125");
+    expect(catalogue.costPerUse("39.99", { usePerBuy: "128" })).toBe("0.3124");
+    expect(catalogue.costPerUse("12.50", null)).toBe("12.5000");
+    expect(catalogue.costPerBuy("0.3125", { usePerBuy: "128" })).toBe("40.0000");
+  });
+
+  it("takes all three or none, refused in words", async () => {
+    const { catalogue } = await import("../src/index.js");
+    expect(catalogue.unitsProblem({})).toBeNull();
+    expect(catalogue.unitsProblem({ buy: "gal", use: "oz", usePerBuy: "128" })).toBeNull();
+    expect(catalogue.unitsProblem({ buy: "gal", use: "oz" })).toMatch(/all three/);
+    expect(catalogue.unitsProblem({ buy: "gal", use: "Gal", usePerBuy: "1" })).toMatch(/nothing to convert/);
+    expect(catalogue.unitsProblem({ buy: "gal", use: "oz", usePerBuy: "lots" })).toMatch(/not how many oz are in a gal/);
+    expect(catalogue.unitsProblem({ buy: "gal", use: "oz", usePerBuy: "0" })).toMatch(/not how many/);
+  });
+});

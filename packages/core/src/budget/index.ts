@@ -257,7 +257,7 @@ export function parseBudgetCsv(text: string): ParsedBudget {
  * would make every forecast read worst on the first of the month. It is a
  * month still to come, taken like the rest.
  *
- * THE MONTHS TO COME are taken one of two ways, and the company chooses:
+ * THE MONTHS TO COME are taken one of three ways, and the company chooses:
  *
  *   budget     each month at its own budget. The default, because it is the
  *              figure the company already wrote down for that month, and a
@@ -265,17 +265,48 @@ export function parseBudgetCsv(text: string): ParsedBudget {
  *   run_rate   each month at the average of the closed months. Better for a
  *              company whose budget has stopped describing the year, and wrong
  *              for a seasonal one, which the screen says.
+ *   seasonal   shaped like last year: the closed months are the share of the
+ *              year they were last year, so the year is what they came to
+ *              over that share, and the months to come are the rest. A
+ *              company that does a third of its year by May, as it did last
+ *              year, is forecast to do three times May's year to date.
  *
  * With no month closed yet (January, or a year not begun) there is no run
- * rate, so the budget is used and the result says it fell back.
+ * rate and nothing to scale last year by, so the budget is used and the
+ * result says it fell back. A seasonal line whose last year came to nothing,
+ * or whose closed months came to nothing or less of it, has no shape to
+ * follow, and is taken at its budget the same way (`fellBack`). Choosing it at
+ * all needs a whole year in the books, which the service checks.
  */
-export const FORECAST_METHODS = ["budget", "run_rate"] as const;
+export const FORECAST_METHODS = ["budget", "run_rate", "seasonal"] as const;
 export type ForecastMethod = (typeof FORECAST_METHODS)[number];
 
 export const FORECAST_LABEL: Record<ForecastMethod, string> = {
   budget: "The months to come at their budget",
   run_rate: "The months to come at the run rate so far",
+  seasonal: "The months to come shaped like last year",
 };
+
+/**
+ * What the months to come of one line come to when they are shaped like last
+ * year, or null when last year gives no shape: the closed months' actual
+ * times the rest of last year over the closed months of last year, worked in
+ * whole hundredths of a cent and rounded once, half up.
+ */
+export function seasonalToCome(closedActual: m.Money, lastYear: readonly m.Money[], closed: number): m.Money | null {
+  const total = lastYear.reduce((sum, month) => sum + month.amount, 0n);
+  const before = lastYear.slice(0, closed).reduce((sum, month) => sum + month.amount, 0n);
+  /** Nothing last year, or nothing or less by this point: no share to scale by, and a sign that flips is no shape. */
+  if (total === 0n || before === 0n || (total > 0n) !== (before > 0n)) return null;
+  const rest = total - before;
+  const numerator = closedActual.amount * rest;
+  const negative = (numerator < 0n) !== (before < 0n);
+  const absNum = numerator < 0n ? -numerator : numerator;
+  const absDen = before < 0n ? -before : before;
+  let units = absNum / absDen;
+  if ((absNum % absDen) * 2n >= absDen) units += 1n;
+  return m.round({ amount: negative ? -units : units, currency: closedActual.currency });
+}
 
 /**
  * How many months of a year are over on a day in the company's calendar: none
@@ -297,7 +328,7 @@ export interface Forecast {
   /** What the months to come are taken at. */
   toCome: m.Money;
   closed: number;
-  /** The way the months to come were taken: the one asked for, or the budget when there was no run rate yet. */
+  /** The way the months to come were taken: the one asked for, or the budget when there was no run rate or no shape yet. */
   method: ForecastMethod;
   fellBack: boolean;
   /** Months to come with no budget, counted as nothing. Only when they were taken at the budget. */
@@ -316,6 +347,8 @@ export function forecastLine(input: {
   months: readonly { month: number; budget: m.Money | null; actual: m.Money }[];
   closed: number;
   method: ForecastMethod;
+  /** Last year's actual, January to December, for `seasonal`. Without it a seasonal line falls back to its budget. */
+  lastYear?: readonly m.Money[] | undefined;
   currency?: string;
 }): Forecast {
   const currency = input.currency ?? "USD";
@@ -327,12 +360,17 @@ export function forecastLine(input: {
     if (month.month <= closed) closedActual = m.add(closedActual, month.actual);
   }
 
-  const fellBack = input.method === "run_rate" && closed === 0;
+  const shaped = input.method === "seasonal" && closed > 0 && closed < 12 && input.lastYear?.length === 12
+    ? seasonalToCome(closedActual, input.lastYear, closed)
+    : null;
+  const fellBack = (input.method === "run_rate" && closed === 0) || (input.method === "seasonal" && closed < 12 && shaped === null);
   const method: ForecastMethod = fellBack ? "budget" : input.method;
   const remaining = input.months.filter((month) => month.month > closed);
   let toCome = m.zero(currency);
   let unbudgetedMonths = 0;
-  if (method === "run_rate") {
+  if (method === "seasonal") {
+    toCome = shaped ?? m.zero(currency);
+  } else if (method === "run_rate") {
     /** Multiplied before it is divided, so the average is not rounded on its way in. */
     toCome = m.divide(m.multiply(closedActual, String(remaining.length)), String(closed));
   } else {

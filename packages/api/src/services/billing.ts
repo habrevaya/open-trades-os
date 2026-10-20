@@ -12,7 +12,7 @@ import { enforceWithin, listFilter } from "./custom-fields";
 import { admitDate, admitInstant, requireImport } from "./history";
 import { invoiceScopeFilter, invoiceBranchFilter } from "./scope";
 import { closeMatching, textFilter } from "./text-search";
-import { inForceAt } from "./pricebook";
+import { costPerUseUnit, inForceAt } from "./pricebook";
 import { writePosting } from "./ledger";
 import { emit } from "./events";
 import * as rateCards from "./rate-cards";
@@ -841,7 +841,7 @@ async function priceInvoice(
         versionId: schema.priceBookItemVersion.id,
         name: schema.priceBookItemVersion.name,
         price: schema.priceBookItemVersion.price,
-        cost: schema.priceBookItemVersion.cost,
+        cost: costPerUseUnit,
         taxable: schema.priceBookItemVersion.taxable,
         kind: schema.priceBookItem.kind,
         feeRole: schema.priceBookItem.feeRole,

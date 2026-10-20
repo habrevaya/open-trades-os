@@ -111,7 +111,10 @@ export async function chooseForecast(_previous: FormState, form: FormData): Prom
   const result = await attempt(form, async () => {
     const input = parsed(setBudgetForecastMethod.input, { year: field(form, "year"), method: field(form, "method") });
     await budgets.setForecastMethod(await ctx(), input);
-    return { message: input.method === "run_rate" ? "The forecast now uses the run rate." : "The forecast now uses the budget." };
+    return {
+      message: input.method === "run_rate" ? "The forecast now uses the run rate."
+        : input.method === "seasonal" ? "The forecast is now shaped like last year." : "The forecast now uses the budget.",
+    };
   });
   revalidatePath("/books/budget");
   return result;

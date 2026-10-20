@@ -8,7 +8,7 @@ import { ConflictError, priceBook, vendorCatalogue } from "@opentradesos/api/ser
 import {
   createPriceBookItem, revisePriceBookItem, updatePriceBookItem, setPriceBookItemActive, setVendorItem,
 } from "@opentradesos/api/contracts";
-import { time } from "@opentradesos/core";
+import { catalogue, time } from "@opentradesos/core";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { shareOf } from "@/lib/commission-rate";
 
@@ -19,6 +19,20 @@ const session = async () => {
 
 const amount = (value: string | undefined) => value?.replace(/[$,\s]/g, "");
 const whole = (value: string | undefined) => (value === undefined ? undefined : Number(value));
+
+/**
+ * The units it is bought and used in, from the three boxes: all three, or
+ * null when all are empty. Part of them is refused in the service's words
+ * before anything is sent, rather than as a schema's.
+ */
+function unitsFrom(form: FormData): { buy: string; use: string; usePerBuy: string } | null {
+  const buy = field(form, "buyUnit") ?? "";
+  const use = field(form, "useUnit") ?? "";
+  const usePerBuy = (field(form, "usePerBuy") ?? "").replace(/[,\s]/g, "");
+  const problem = catalogue.unitsProblem({ buy, use, usePerBuy });
+  if (problem) throw new ConflictError(problem);
+  return buy === "" ? null : { buy, use, usePerBuy };
+}
 
 /** `POST /v1/pricebook/items`, then the item's own screen. */
 export async function createItem(_previous: FormState, form: FormData): Promise<FormState> {
@@ -33,6 +47,7 @@ export async function createItem(_previous: FormState, form: FormData): Promise<
       laborMinutes: whole(field(form, "laborMinutes")), warrantyMonths: whole(field(form, "warrantyMonths")),
       warrantyRegistrationDays: whole(field(form, "warrantyRegistrationDays")),
       feeRole: field(form, "feeRole"),
+      ...(form.has("buyUnit") ? { units: unitsFrom(form) ?? undefined } : {}),
     });
     id = (await priceBook.create(ctx, input)).id;
   });
@@ -91,6 +106,7 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
           ...(form.has("warrantyRegistrationDays")
             ? { warrantyRegistrationDays: field(form, "warrantyRegistrationDays") === undefined ? null : Number(field(form, "warrantyRegistrationDays")) }
             : {}),
+          ...(form.has("buyUnit") ? { units: unitsFrom(form) } : {}),
           ...(from && start ? { effectiveFrom: start.toISOString() } : {}),
         }));
         return { message: from ? `Saved as a new version, in force from ${from}.` : "Saved as a new version, in force now." };

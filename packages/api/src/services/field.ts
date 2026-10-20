@@ -8,7 +8,7 @@ import {
 import * as billing from "./billing";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
-import { chemicalAt } from "./pricebook";
+import { applicationUnitFor, chemicalAt } from "./pricebook";
 import { bindToken } from "./field-devices";
 import * as inspections from "./inspections";
 import * as location from "./location";
@@ -1082,7 +1082,8 @@ async function effect(
         productName: chosen ? chosen.name : (op.payload["productName"] as string) ?? null,
         epaRegistrationNumber: chosen ? chosen.epaRegistrationNumber : (op.payload["epaRegistrationNumber"] as string) ?? null,
         quantityApplied: (op.payload["quantityApplied"] as string) ?? null,
-        applicationUnit: chosen ? chosen.unit : (op.payload["applicationUnit"] as string) ?? null,
+        /** The book's unit; the buy or the use unit when the person said one and the version has both. */
+        applicationUnit: chosen ? applicationUnitFor(chosen, op.payload["applicationUnit"]) : (op.payload["applicationUnit"] as string) ?? null,
         applicatorLicense: (op.payload["applicatorLicense"] as string) ?? null,
         targetPest: (op.payload["targetPest"] as string) ?? null,
         priceBookItemId: chosen?.itemId ?? null,

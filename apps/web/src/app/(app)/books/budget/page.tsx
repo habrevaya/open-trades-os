@@ -66,18 +66,21 @@ export default async function BudgetPage(
   const pickedType = typeof query["type"] === "string" ? query["type"] : "";
   const chosenBranch = options.some((b) => b.id === picked) ? picked : "";
   const chosenType = types.some((t) => t.id === pickedType) ? pickedType : "";
-  /** A line is a branch's or a job type's, never both: asked for both, the page says so and shows the company. */
-  const both = chosenBranch !== "" && chosenType !== "";
-  const businessUnitId = both ? "" : chosenBranch;
-  const jobTypeId = both ? "" : chosenType;
+  /** A branch and a job type together are that job type's budget in that branch, a line of its own. */
+  const businessUnitId = chosenBranch;
+  const jobTypeId = chosenType;
   const report = await budgets.report(ctx, {
     year, ...(businessUnitId ? { businessUnitId } : {}), ...(jobTypeId ? { jobTypeId } : {}),
   });
   const writes = can(user.actor, "finance:configure");
-  const branchHidden: Record<string, string> = businessUnitId ? { businessUnitId } : jobTypeId ? { jobTypeId } : {};
+  const branchHidden: Record<string, string> = {
+    ...(businessUnitId ? { businessUnitId } : {}), ...(jobTypeId ? { jobTypeId } : {}),
+  };
   const here = (y: number) =>
     `/books/budget?year=${y}${businessUnitId ? `&branch=${businessUnitId}` : ""}${jobTypeId ? `&type=${jobTypeId}` : ""}`;
-  const scopeName = report.branch?.name ?? report.jobType?.name ?? null;
+  const scopeName = report.branch && report.jobType
+    ? `${report.jobType.name} in ${report.branch.name}`
+    : report.branch?.name ?? report.jobType?.name ?? null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -113,14 +116,17 @@ export default async function BudgetPage(
           </button>
         </form>
       ) : null}
-      {both ? (
-        <p role="alert" className="mt-2 max-w-3xl text-sm text-red-600">
-          A budget is the whole company&apos;s, one branch&apos;s or one job type&apos;s. Pick a branch or a job type, not
-          both. This is the whole company&apos;s.
-        </p>
-      ) : null}
       <p className="mt-2 max-w-3xl text-sm text-ink-700">{report.caveat}</p>
-      {report.jobType ? (
+      {report.jobType && report.branch ? (
+        <p className="mt-2 max-w-3xl text-sm text-ink-700" data-testid="budget-branch-job-type-coverage">
+          This is the {report.jobType.name} budget in {report.branch.name} against what the books put on{" "}
+          {report.jobType.name} jobs in {report.branch.name}. It is its own budget: {report.branch.name}&apos;s lines and the{" "}
+          {report.jobType.name} lines are not added in, and it is not added into them. In {year},{" "}
+          {report.jobType.entriesWithoutJob} ledger {report.jobType.entriesWithoutJob === 1 ? "entry is" : "entries are"} on no
+          job and {report.branch.entriesWithoutBranch} {report.branch.entriesWithoutBranch === 1 ? "carries" : "carry"} no branch.
+          None of that is in these figures.
+        </p>
+      ) : report.jobType ? (
         <p className="mt-2 max-w-3xl text-sm text-ink-700" data-testid="budget-job-type-coverage">
           This is the {report.jobType.name} budget against what the books put on {report.jobType.name} jobs: their
           invoices, discounts, card fees and anything journalled to one of them. In {year},{" "}
@@ -199,6 +205,9 @@ export default async function BudgetPage(
                         {line.forecast.unbudgetedMonths} {line.forecast.unbudgetedMonths === 1 ? "month" : "months"} with no budget counted as nothing
                       </span>
                     ) : null}
+                    {line.forecast.noShape ? (
+                      <span className="block text-xs text-ink-500">Nothing last year to follow, so at its budget</span>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -219,13 +228,16 @@ export default async function BudgetPage(
             <p className="mt-1 text-sm text-ink-700">
               The months already over are what the books say. Choose how this month and the rest of {year} are
               counted. The budget is the safer choice. The run rate is the average month so far, which suits a
-              year that has stopped looking like its budget and misleads in a seasonal business. This choice is
-              for the whole of {year}, and every branch and job type uses it too.
+              year that has stopped looking like its budget and misleads in a seasonal business. Shaped like last
+              year takes the months already over as the same share of the year they were in {year - 1}, so a busy
+              summer is still a busy summer; it needs all of {year - 1} in your books. This choice is for the whole
+              of {year}, and every branch and job type uses it too, each by its own {year - 1}.
             </p>
             <ActionForm action={chooseForecast} submit="Use this" hidden={{ year: String(year) }} className="mt-3 flex flex-wrap items-end gap-3">
               <Select label="The months to come" name="method" defaultValue={report.forecast.chosen} options={[
                 { value: "budget", label: "At their budget" },
                 { value: "run_rate", label: "At the run rate so far" },
+                { value: "seasonal", label: "Shaped like last year" },
               ]} />
             </ActionForm>
           </section>

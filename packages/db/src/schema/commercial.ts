@@ -358,8 +358,10 @@ export const contractBillingFee = pgTable("contract_billing_fee", {
   amount: money("amount").notNull(),
   /** What it was the day before, as the rise was shown. */
   previousAmount: money("previous_amount").notNull(),
-  /** The rise it took, a fraction. */
+  /** The rise it took, a fraction. "0" when it rose by a fixed amount instead. */
   rate: rate("rate").notNull(),
+  /** The fixed amount it rose by a period, when the contract's rise for the fee is an amount. */
+  riseAmount: money("rise_amount"),
   ...timestamps,
 }, (t) => ({
   scheduleIdx: uniqueIndex("contract_billing_fee_schedule_idx").on(t.scheduleId, t.effectiveFrom),
@@ -401,6 +403,41 @@ export const contractBillingPeriod = pgTable("contract_billing_period", {
 }, (t) => ({
   periodIdx: uniqueIndex("contract_billing_period_idx").on(t.contractId, t.periodStart),
   scheduleIdx: index("contract_billing_period_schedule_idx").on(t.scheduleId, t.periodStart),
+}));
+
+export const contractBillingDifferenceStatus = pgEnum("contract_billing_difference_status", ["drafted", "waived"]);
+
+/**
+ * WHAT A LATE RISE LEFT UNBILLED ON ONE PERIOD, AND WHAT A PERSON DID ABOUT IT.
+ *
+ * A rise of the fixed fee applied after the anniversary reaches the periods
+ * not yet billed; a period from the anniversary that was already billed at the
+ * old fee keeps its invoice. The contract's page offers the difference, period
+ * by period, and nothing bills it by itself. This row is the decision: billed
+ * on a draft invoice, or waived. The unique index on the period is the claim,
+ * written in the same transaction as the draft, so a period is never offered
+ * on two drafts. Deleting the draft deletes this row with it (the invoice
+ * cascades), which puts the period back on offer: a draft deleted is a
+ * decision not yet made.
+ */
+export const contractBillingDifference = pgTable("contract_billing_difference", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").notNull().references(() => serviceContract.id, { onDelete: "cascade" }),
+  periodId: uuid("period_id").notNull().references(() => contractBillingPeriod.id, { onDelete: "cascade" }),
+  /** The risen fee that made the difference. Typing a new fee removes the rise, and its differences go with it. */
+  feeId: uuid("fee_id").notNull().references(() => contractBillingFee.id, { onDelete: "cascade" }),
+  status: contractBillingDifferenceStatus("status").notNull(),
+  /** The draft it was billed on. Null when it was waived. */
+  invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "cascade" }),
+  /** What the period was billed, what it would be billed at the risen fee, and the difference, all before tax. */
+  billedAmount: money("billed_amount").notNull(),
+  risenAmount: money("risen_amount").notNull(),
+  amount: money("amount").notNull(),
+  ...timestamps,
+}, (t) => ({
+  periodIdx: uniqueIndex("contract_billing_difference_period_idx").on(t.periodId),
+  contractIdx: index("contract_billing_difference_contract_idx").on(t.contractId),
 }));
 
 /**
@@ -535,8 +572,16 @@ export const contractEscalationRise = pgTable("contract_escalation_rise", {
   rateCardId: uuid("rate_card_id").references(() => rateCard.id, { onDelete: "cascade" }),
   /** The trade whose hourly rates it applies to, or null for every price. */
   jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "cascade" }),
-  /** A fraction, 0.04 for four per cent. Nothing is allowed: a card fixed for the term. */
+  /** A fraction, 0.04 for four per cent. Nothing is allowed: a card fixed for the term. "0" on a rise by an amount. */
   rate: rate("rate").notNull(),
+  /**
+   * A fixed amount added to each price the row covers instead of a per cent:
+   * "2.00" an hour on an hourly rate, each on a listed price, a period on the
+   * fixed fee. Null for a per cent.
+   */
+  amount: money("amount"),
+  /** True for a rise of the contract's fixed fee alone, which names no card and no trade. */
+  fee: boolean("fee").notNull().default(false),
   ...timestamps,
 }, (t) => ({
   contractIdx: index("contract_escalation_rise_contract_idx").on(t.contractId),

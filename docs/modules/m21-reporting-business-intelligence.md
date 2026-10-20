@@ -743,8 +743,17 @@ the item's name, EPA number and unit carried onto the regulated record.
 - An **application** is the latest answer to one of its reports' chemical
   questions that says how much was applied. It is **valued** at the cost per
   unit of the item it was chosen from, in the price book version in force when
-  the stop was completed (a price change dated the 15th values a stop on the
+    the stop was completed (a price change dated the 15th values a stop on the
   20th at the new cost), in the unit that cost is per.
+- **Bought in one unit, used in another.** When that version says the item is
+  bought by the gallon and used by the ounce, with how many ounces are in a
+  gallon (M06), its cost is per gallon, and an application recorded in either is
+  valued: in gallons at the cost, in ounces at the cost over the ratio ("Concentrate,
+  16 oz at $0.3125"). One recorded in a third unit is left out, as below. A version
+  that says nothing about units is valued exactly as it was, in the chemical's own
+  unit only. The technician's or the office's unit is kept on the record when it is
+  the version's buy or use unit, spelt as the book spells it, and otherwise the
+  chemical's own unit is written, as it always was.
 - **Devices are never applications**: only a material can be marked as a
   chemical, and a station, a trap or a monitor is the book's equipment. A
   marked item cannot be changed to another kind until the mark is taken off.
@@ -764,6 +773,8 @@ stops. It is what product cost, so like install margin it needs
 `kpi-chemical-cost.integration.test.ts` checks a month worked out by hand, puts
 the same stops through both, records products from the phone and the office,
 and checks a phone's typed name and number are replaced by the book's.
+`price-book-units.integration.test.ts` values a stop with an application in
+ounces and one in gallons of a product bought by the gallon, by hand.
 
 ### The four that waited on a coded cancellation reason
 
@@ -1372,8 +1383,13 @@ amount under two questions of one report has it counted twice (the higher
 cost, never a hidden one). A product is valued at the version in force when
 the stop was completed, not at the moment it was recorded, and at the item's
 cost, not at what a particular drum was bought for: purchasing's own costs are
-not read. Changing the unit an item's cost is per leaves its earlier
-applications out as not valued rather than converting them.
+not read. Changing the chemical's own unit leaves its earlier applications out as
+not valued rather than converting them; an item that says it is bought in one unit
+and used in another values both, but only those two, and only from the version
+that says so: an application under an earlier version with no units is valued as
+it was, in the chemical's own unit. The phone still records a product chosen from
+the book in the chemical's own unit, because it has no place to pick the other; the
+office's visit page can record either.
 
 Drain call conversion reads the drain call and the upsell items the company's
 trade pack marks, by code: a camera inspection sold under an item the company

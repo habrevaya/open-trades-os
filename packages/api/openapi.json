@@ -16573,7 +16573,7 @@
       "get": {
         "operationId": "getBudgetReport",
         "summary": "The year's budget against the ledger, by line and month, with variance",
-        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over; `forecast.assumption` says which, and it is an estimate, never a promise.\n\nRequires a session holding: report.financial:read.",
+        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold; with both, that job type's lines in that branch against the entries that carry the branch and are on the type's jobs, with both counts. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it, nor a branch's job type's into either. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over, or shaped like last year (the months already over taken as the share of the year they were last year in the same branch and job type, the rest in proportion; a line with nothing last year to follow is at its budget and says `noShape`); `forecast.assumption` says which, and it is an estimate, never a promise.\n\nRequires a session holding: report.financial:read.",
         "tags": [
           "M15"
         ],
@@ -16701,7 +16701,7 @@
       "put": {
         "operationId": "setBudgetForecastMethod",
         "summary": "Choose how the year end forecast takes the months to come",
-        "description": "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over. One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.\n\nRequires a session holding: finance:configure.",
+        "description": "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `seasonal` is refused, in words, unless the books hold the whole of last year (their first entry is in its January or earlier). One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -16970,7 +16970,7 @@
       "put": {
         "operationId": "setBudgetLine",
         "summary": "Set one budget line's twelve months",
-        "description": "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's; not both.\n\nRequires a session holding: finance:configure.",
+        "description": "`line` is Revenue, Materials, Labour, Overhead or an account code. `amounts` is January to December; null or empty is no budget that month. With `businessUnitId` the line is that branch's, with `jobTypeId` that job type's, and with both that job type's in that branch, a line of its own apart from the branch's and the job type's.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -32892,7 +32892,7 @@
       "get": {
         "operationId": "getContractBilling",
         "summary": "A contract's fixed fee schedule, and every period it has billed",
-        "description": "The schedule (the fee, how often, the billing day, in advance or in arrears, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.\n\nRequires a session holding: contract:read.",
+        "description": "The schedule (the fee, how often, the billing day, in advance or in arrears, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `differences` lists each period billed at the old fee before a rise from its first day was applied, with what it was billed, what the risen fee makes it and the difference, offered until somebody bills it on a draft invoice or waives it. `schedule` is null on a contract that is not billed on a schedule.\n\nRequires a session holding: contract:read.",
         "tags": [
           "M31"
         ],
@@ -33122,6 +33122,282 @@
         "x-authorization": "session",
         "x-permissions": [
           "contract:write"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/billing/differences": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "draftContractFeeDifference",
+        "summary": "Bill what a late rise of the fee left short, on a draft invoice",
+        "description": "For the periods picked, each one offered in `differences` on `GET /v1/contracts/{contractId}/billing`: one draft invoice to the contract's customer, with its PO number, one line per period saying the period, what it was billed and on which invoice, and what the risen fee makes it, taxed as the fee is. A draft: nothing is posted or owed until it is issued, which is the ordinary issue on the invoice. Nothing ever raises this by itself. Refused, in words, for a period not offered, or already on a draft or waived. Deleting the draft offers its periods again.\n\nRequires a session holding: invoice:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftContractFeeDifferenceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Bill what a late rise of the fee left short, on a draft invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftContractFeeDifferenceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/billing/differences/waive": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "waiveContractFeeDifference",
+        "summary": "Decide not to bill what a late rise of the fee left short",
+        "description": "The periods picked, each one offered in `differences`, written down as waived, so they are not offered again; who decided is on the audit line. Refused, in words, for a period not offered, or already decided.\n\nRequires a session holding: invoice:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaiveContractFeeDifferenceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Decide not to bill what a late rise of the fee left short",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaiveContractFeeDifferenceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write"
         ]
       }
     },
@@ -33686,7 +33962,7 @@
       "post": {
         "operationId": "applyContractEscalation",
         "summary": "Apply the annual escalation the preview showed",
-        "description": "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. When the preview shows the fixed fee rising, the fee as risen becomes the fee for every period starting on or after the anniversary; a period already billed keeps its invoice. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate and whose fee does not rise, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards and the fee it made.\n\nRequires a session holding: pricebook:write.",
+        "description": "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. When the preview shows the fixed fee rising, the fee as risen becomes the fee for every period starting on or after the anniversary; a period already billed keeps its invoice, and `billedAtOldFee` counts those from the anniversary, whose difference `GET /v1/contracts/{contractId}/billing` then offers. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate and whose fee does not rise, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards and the fee it made.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M31"
         ],
@@ -33818,7 +34094,7 @@
       "get": {
         "operationId": "previewContractEscalation",
         "summary": "What the contract's next annual escalation would do to its cards",
-        "description": "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. `fee` is the contract's fixed fee before and after, when its billing schedule rises with the escalation (off unless the schedule says so): the fee in force the day before the anniversary, risen by the year's rise for every card and every trade or the contract's yearly rate, never by a rise naming one card or trade. A contract whose fee rises needs no card in force. `feeDraft` is the fee as the worker's draft prepared it. Nothing is written.\n\nRequires a session holding: pricebook:read.",
+        "description": "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate (or the fixed `amount`, for a rise by an amount) and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. `fee` is the contract's fixed fee before and after, when its billing schedule rises with the escalation (off unless the schedule says so): the fee in force the day before the anniversary, risen by the fee's own rise (a per cent, or an amount a period) or failing that the year's per cent for every card and every trade or the contract's yearly rate, never by a rise naming one card or trade and never by an amount written for every price. A contract whose fee rises needs no card in force. `feeDraft` is the fee as the worker's draft prepared it. Nothing is written.\n\nRequires a session holding: pricebook:read.",
         "tags": [
           "M31"
         ],
@@ -33928,7 +34204,7 @@
       "get": {
         "operationId": "listContractRises",
         "summary": "The contract's rises that differ by year, by card or by trade",
-        "description": "Each rise beyond the contract's own yearly rate: the year of the contract it opens (or every year), the card it applies to (or every card) and the trade whose hourly rates it applies to (or every price), with the rate. A rise naming a card follows the card to each new version written when a rise is applied.\n\nRequires a session holding: contract:read.",
+        "description": "Each rise beyond the contract's own yearly rate: the year of the contract it opens (or every year), the card it applies to (or every card) and the trade whose hourly rates it applies to (or every price), or the fixed fee alone, with the rate or the fixed amount. A rise naming a card follows the card to each new version written when a rise is applied.\n\nRequires a session holding: contract:read.",
         "tags": [
           "M31"
         ],
@@ -34031,7 +34307,7 @@
       "put": {
         "operationId": "setContractRises",
         "summary": "Say how the contract's rises differ by year, by card or by trade",
-        "description": "Replaces the contract's rises with these. Each is a rate (0.04 for four per cent; nothing is allowed, for a card fixed for the term), for a year of the contract from 2 or every year, for one of the contract's cards or every card, and for one trade's hourly rates or every price. Two rows saying the same year, card and trade are refused in words, as is a card that is not this contract's. Nothing rises because of this: the preview shows the change and a person applies it, and drafts the worker already prepared are prepared again.\n\nRequires a session holding: contract:write.",
+        "description": "Replaces the contract's rises with these. Each is a rate (0.04 for four per cent; nothing is allowed, for a card fixed for the term) or a fixed `amount` added to each price it covers (2.00 an hour on an hourly rate, each on a listed price, a visit on a trip charge), never both, for a year of the contract from 2 or every year, for one of the contract's cards or every card, and for one trade's hourly rates or every price. With `fee` it is a rise of the contract's fixed fee alone (by a per cent, or an amount a period), and names no card or trade. Two rows saying the same year, card and trade are refused in words, as is a card that is not this contract's. Nothing rises because of this: the preview shows the change and a person applies it, and drafts the worker already prepared are prepared again.\n\nRequires a session holding: contract:write.",
         "tags": [
           "M31"
         ],
@@ -100270,7 +100546,7 @@
       "post": {
         "operationId": "revisePriceBookItem",
         "summary": "Revise a price book item",
-        "description": "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate and a kit's parts, each carried forward when left off. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
+        "description": "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate, a kit's parts and the units it is bought and used in, each carried forward when left off. With `units`, the cost is per the buy unit and a line is costed per the use unit. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.\n\nRequires a session holding: pricebook:write.",
         "tags": [
           "M06"
         ],
@@ -145212,7 +145488,7 @@
       "post": {
         "operationId": "recordVisitProduct",
         "summary": "Record a product applied on a visit, chosen from the price book",
-        "description": "For an application the technician did not record. Written to the visit's report (created as the phone would create it) as the latest answer to one of its product questions, with the item's name, EPA number and unit carried from the book. Refused for a published report, a report that asks about no product, an item that is not a chemical, and an amount that is not a positive number. On the audit log.\n\nRequires a session holding: servicereport:write.",
+        "description": "For an application the technician did not record. Written to the visit's report (created as the phone would create it) as the latest answer to one of its product questions, with the item's name, EPA number and unit carried from the book: `unit` when it is the buy or the use unit of an item bought in one and used in another, otherwise the chemical's own. Refused for a published report, a report that asks about no product, an item that is not a chemical, and an amount that is not a positive number. On the audit log.\n\nRequires a session holding: servicereport:write.",
         "tags": [
           "M11"
         ],
@@ -152816,6 +153092,10 @@
               "rate": {
                 "type": "string",
                 "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "riseAmount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               }
             },
             "required": [
@@ -152824,6 +153104,9 @@
               "previousAmount",
               "rate"
             ]
+          },
+          "billedAtOldFee": {
+            "type": "integer"
           }
         },
         "required": [
@@ -152831,7 +153114,8 @@
           "anniversary",
           "rate",
           "cards",
-          "fee"
+          "fee",
+          "billedAtOldFee"
         ]
       },
       "ApplyCreditNoteInput": {
@@ -170686,6 +170970,30 @@
             "minimum": 1,
             "maximum": 365
           },
+          "units": {
+            "type": "object",
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "feeRole": {
             "type": "string",
             "enum": [
@@ -170854,6 +171162,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -170862,6 +171197,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -170927,6 +171266,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",
@@ -180107,6 +180447,53 @@
           "status"
         ]
       },
+      "DraftContractFeeDifferenceInput": {
+        "type": "object",
+        "properties": {
+          "periodIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 60
+          }
+        },
+        "required": [
+          "periodIds"
+        ]
+      },
+      "DraftContractFeeDifferenceOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "periods": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contractId",
+          "invoiceId",
+          "invoiceNumber",
+          "total",
+          "periods"
+        ]
+      },
       "DrillMarketingFunnelOutput": {
         "type": "object",
         "properties": {
@@ -181561,6 +181948,10 @@
                     "rate": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "riseAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     }
                   },
                   "required": [
@@ -181718,6 +182109,90 @@
               "string",
               "null"
             ]
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "feeFrom": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "risen": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "difference": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "drafted",
+                    "waived"
+                  ]
+                },
+                "draftInvoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "draftInvoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "periodId",
+                "start",
+                "end",
+                "invoiceId",
+                "invoiceNumber",
+                "feeFrom",
+                "billed",
+                "risen",
+                "difference",
+                "status",
+                "draftInvoiceId",
+                "draftInvoiceNumber"
+              ]
+            }
           }
         },
         "required": [
@@ -181726,7 +182201,8 @@
           "next",
           "due",
           "periods",
-          "standing"
+          "standing",
+          "differences"
         ]
       },
       "EndCustomerPortalSessionsInput": {
@@ -185034,6 +185510,12 @@
                     },
                     "unbudgetedMonths": {
                       "type": "integer"
+                    },
+                    "noShape": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
                     }
                   },
                   "required": [
@@ -185143,14 +185625,16 @@
                 "type": "string",
                 "enum": [
                   "budget",
-                  "run_rate"
+                  "run_rate",
+                  "seasonal"
                 ]
               },
               "method": {
                 "type": "string",
                 "enum": [
                   "budget",
-                  "run_rate"
+                  "run_rate",
+                  "seasonal"
                 ]
               },
               "closed": {
@@ -185158,6 +185642,9 @@
               },
               "fellBack": {
                 "type": "boolean"
+              },
+              "linesWithoutShape": {
+                "type": "integer"
               },
               "assumption": {
                 "type": "string"
@@ -187740,6 +188227,10 @@
                     "rate": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "riseAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     }
                   },
                   "required": [
@@ -187897,6 +188388,90 @@
               "string",
               "null"
             ]
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "feeFrom": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "risen": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "difference": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "drafted",
+                    "waived"
+                  ]
+                },
+                "draftInvoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "draftInvoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "periodId",
+                "start",
+                "end",
+                "invoiceId",
+                "invoiceNumber",
+                "feeFrom",
+                "billed",
+                "risen",
+                "difference",
+                "status",
+                "draftInvoiceId",
+                "draftInvoiceNumber"
+              ]
+            }
           }
         },
         "required": [
@@ -187905,7 +188480,8 @@
           "next",
           "due",
           "periods",
-          "standing"
+          "standing",
+          "differences"
         ]
       },
       "GetConversationOutput": {
@@ -206967,6 +207543,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -206975,6 +207578,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -207100,6 +207707,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",
@@ -215036,13 +215644,32 @@
                     "string",
                     "null"
                   ]
+                },
+                "units": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "buy": {
+                      "type": "string"
+                    },
+                    "use": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "buy",
+                    "use"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "name",
                 "unit",
-                "epaRegistrationNumber"
+                "epaRegistrationNumber",
+                "units"
               ]
             }
           },
@@ -223928,6 +224555,16 @@
             "rate": {
               "type": "string",
               "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+            },
+            "amount": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+            },
+            "fee": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -223937,7 +224574,9 @@
             "rateCardName",
             "jobTypeId",
             "jobTypeName",
-            "rate"
+            "rate",
+            "amount",
+            "fee"
           ]
         }
       },
@@ -236292,6 +236931,33 @@
                     ]
                   }
                 },
+                "units": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "buy": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 20
+                    },
+                    "use": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 20
+                    },
+                    "usePerBuy": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,6})?$"
+                    }
+                  },
+                  "required": [
+                    "buy",
+                    "use",
+                    "usePerBuy"
+                  ]
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -236300,6 +236966,10 @@
                     "string",
                     "null"
                   ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "costPerUse": {
+                  "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
                 "margin": {
@@ -236365,6 +237035,7 @@
                 "warrantyMonths",
                 "warrantyRegistrationDays",
                 "components",
+                "units",
                 "active",
                 "externalRef",
                 "createdAt",
@@ -249121,6 +249792,10 @@
                     "rate": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "riseAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     }
                   },
                   "required": [
@@ -249278,6 +249953,90 @@
               "string",
               "null"
             ]
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "feeFrom": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "risen": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "difference": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "drafted",
+                    "waived"
+                  ]
+                },
+                "draftInvoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "draftInvoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "periodId",
+                "start",
+                "end",
+                "invoiceId",
+                "invoiceNumber",
+                "feeFrom",
+                "billed",
+                "risen",
+                "difference",
+                "status",
+                "draftInvoiceId",
+                "draftInvoiceNumber"
+              ]
+            }
           }
         },
         "required": [
@@ -249286,7 +250045,8 @@
           "next",
           "due",
           "periods",
-          "standing"
+          "standing",
+          "differences"
         ]
       },
       "PayCommissionsInput": {
@@ -251525,6 +252285,10 @@
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,6})?$"
                       },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
                       "because": {
                         "type": "string"
                       },
@@ -251562,6 +252326,10 @@
                       "rate": {
                         "type": "string",
                         "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                       },
                       "because": {
                         "type": "string"
@@ -251608,6 +252376,10 @@
                     "rate": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     },
                     "because": {
                       "type": "string"
@@ -251694,6 +252466,10 @@
                 "type": "string",
                 "pattern": "^-?\\d+(\\.\\d{1,6})?$"
               },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
               "because": {
                 "type": "string"
               },
@@ -251753,6 +252529,16 @@
                 "rate": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "amount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "fee": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -251762,7 +252548,9 @@
                 "rateCardName",
                 "jobTypeId",
                 "jobTypeName",
-                "rate"
+                "rate",
+                "amount",
+                "fee"
               ]
             }
           },
@@ -259989,6 +260777,10 @@
           "targetPest": {
             "type": "string",
             "maxLength": 120
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20
           }
         },
         "required": [
@@ -260052,13 +260844,32 @@
                     "string",
                     "null"
                   ]
+                },
+                "units": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "buy": {
+                      "type": "string"
+                    },
+                    "use": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "buy",
+                    "use"
+                  ]
                 }
               },
               "required": [
                 "id",
                 "name",
                 "unit",
-                "epaRegistrationNumber"
+                "epaRegistrationNumber",
+                "units"
               ]
             }
           },
@@ -266430,6 +267241,10 @@
                     "rate": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "riseAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     }
                   },
                   "required": [
@@ -266587,6 +267402,90 @@
               "string",
               "null"
             ]
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "feeFrom": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "risen": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "difference": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "drafted",
+                    "waived"
+                  ]
+                },
+                "draftInvoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "draftInvoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "periodId",
+                "start",
+                "end",
+                "invoiceId",
+                "invoiceNumber",
+                "feeFrom",
+                "billed",
+                "risen",
+                "difference",
+                "status",
+                "draftInvoiceId",
+                "draftInvoiceNumber"
+              ]
+            }
           }
         },
         "required": [
@@ -266595,7 +267494,8 @@
           "next",
           "due",
           "periods",
-          "standing"
+          "standing",
+          "differences"
         ]
       },
       "RetireAgreementPlanInput": {
@@ -268838,6 +269738,33 @@
             "minimum": 1,
             "maximum": 365
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "components": {
             "type": "array",
             "items": {
@@ -269017,6 +269944,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -269025,6 +269979,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -269090,6 +270048,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",
@@ -273871,7 +274830,8 @@
             "type": "string",
             "enum": [
               "budget",
-              "run_rate"
+              "run_rate",
+              "seasonal"
             ]
           }
         },
@@ -273889,7 +274849,8 @@
             "type": "string",
             "enum": [
               "budget",
-              "run_rate"
+              "run_rate",
+              "seasonal"
             ]
           }
         },
@@ -274601,6 +275562,10 @@
                     "rate": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "riseAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     }
                   },
                   "required": [
@@ -274758,6 +275723,90 @@
               "string",
               "null"
             ]
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "feeFrom": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "risen": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "difference": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "drafted",
+                    "waived"
+                  ]
+                },
+                "draftInvoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "draftInvoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "periodId",
+                "start",
+                "end",
+                "invoiceId",
+                "invoiceNumber",
+                "feeFrom",
+                "billed",
+                "risen",
+                "difference",
+                "status",
+                "draftInvoiceId",
+                "draftInvoiceNumber"
+              ]
+            }
           }
         },
         "required": [
@@ -274766,7 +275815,8 @@
           "next",
           "due",
           "periods",
-          "standing"
+          "standing",
+          "differences"
         ]
       },
       "SetContractRisesInput": {
@@ -274802,11 +275852,18 @@
                 "rate": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                },
+                "amount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "fee": {
+                  "type": "boolean"
                 }
-              },
-              "required": [
-                "rate"
-              ]
+              }
             },
             "maxItems": 50
           }
@@ -274859,6 +275916,16 @@
             "rate": {
               "type": "string",
               "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+            },
+            "amount": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+            },
+            "fee": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -274868,7 +275935,9 @@
             "rateCardName",
             "jobTypeId",
             "jobTypeName",
-            "rate"
+            "rate",
+            "amount",
+            "fee"
           ]
         }
       },
@@ -295038,6 +296107,33 @@
               ]
             }
           },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
           "active": {
             "type": "boolean"
           },
@@ -295046,6 +296142,10 @@
               "string",
               "null"
             ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
           "margin": {
@@ -295111,6 +296211,7 @@
           "warrantyMonths",
           "warrantyRegistrationDays",
           "components",
+          "units",
           "active",
           "externalRef",
           "createdAt",
@@ -301957,6 +303058,388 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "WaiveContractFeeDifferenceInput": {
+        "type": "object",
+        "properties": {
+          "periodIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 60
+          }
+        },
+        "required": [
+          "periodIds"
+        ]
+      },
+      "WaiveContractFeeDifferenceOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "quarterly",
+                  "yearly"
+                ]
+              },
+              "billingDay": {
+                "type": "integer"
+              },
+              "timing": {
+                "type": "string",
+                "enum": [
+                  "advance",
+                  "arrears"
+                ]
+              },
+              "startsOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "prorate": {
+                "type": "boolean"
+              },
+              "taxable": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "risesWithEscalation": {
+                "type": "boolean"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "paused",
+                  "ended"
+                ]
+              },
+              "pausedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "endedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "lastDay": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "feeNow": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "fees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "previousAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "rate": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "riseAmount": {
+                      "type": "string",
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "amount",
+                    "previousAmount",
+                    "rate"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "amount",
+              "frequency",
+              "billingDay",
+              "timing",
+              "startsOn",
+              "prorate",
+              "taxable",
+              "description",
+              "risesWithEscalation",
+              "state",
+              "pausedOn",
+              "endedOn",
+              "lastDay",
+              "feeNow",
+              "fees"
+            ]
+          },
+          "next": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date"
+              },
+              "end": {
+                "type": "string",
+                "format": "date"
+              },
+              "billOn": {
+                "type": "string",
+                "format": "date"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "prorated": {
+                "type": "boolean"
+              },
+              "days": {
+                "type": "integer"
+              },
+              "fullDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "billOn",
+              "amount",
+              "prorated",
+              "days",
+              "fullDays"
+            ]
+          },
+          "due": {
+            "type": "integer"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "prorated": {
+                  "type": "boolean"
+                },
+                "days": {
+                  "type": "integer"
+                },
+                "fullDays": {
+                  "type": "integer"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invoiced",
+                    "skipped"
+                  ]
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "billOn",
+                "amount",
+                "prorated",
+                "days",
+                "fullDays",
+                "id",
+                "status",
+                "invoiceId",
+                "invoiceNumber",
+                "note"
+              ]
+            }
+          },
+          "standing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "periodId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "invoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "invoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "feeFrom": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "billed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "risen": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "difference": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "drafted",
+                    "waived"
+                  ]
+                },
+                "draftInvoiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "draftInvoiceNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "periodId",
+                "start",
+                "end",
+                "invoiceId",
+                "invoiceNumber",
+                "feeFrom",
+                "billed",
+                "risen",
+                "difference",
+                "status",
+                "draftInvoiceId",
+                "draftInvoiceNumber"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contractId",
+          "schedule",
+          "next",
+          "due",
+          "periods",
+          "standing",
+          "differences"
         ]
       },
       "WaiveObligationInput": {

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Actor } from "@opentradesos/core";
 import * as budgets from "../src/services/budgets";
 import * as company from "../src/services/company";
-import { NotFoundError, UnprocessableError, type ServiceContext } from "../src/services/context";
+import { NotFoundError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId, companyToday } from "./helpers";
 
 /**
@@ -146,10 +146,12 @@ run("a job type's budget", () => {
 
   it("refuses a branch and a job type at once, another company's job type, and one switched off for anything new", async () => {
     const branch = (await company.createBusinessUnit(as(["owner"]), { name: "Houston" })).id;
-    await expect(budgets.setLine(finance(), { year: 2026, line: "Revenue", amounts: all("1"), businessUnitId: branch, jobTypeId: installs }))
-      .rejects.toThrow(UnprocessableError);
-    await expect(budgets.report(finance(), { year: 2026, businessUnitId: branch, jobTypeId: installs }))
-      .rejects.toThrow(UnprocessableError);
+    /** A branch's job type is a line of its own now (it used to be refused): kept apart from the branch's and the job type's. */
+    await budgets.setLine(finance(), { year: 2026, line: "Revenue", amounts: all("1"), businessUnitId: branch, jobTypeId: installs });
+    const both = await budgets.report(finance(), { year: 2026, businessUnitId: branch, jobTypeId: installs });
+    expect([both.lines.length, both.branch?.id, both.jobType?.id]).toEqual([1, branch, installs]);
+    expect((await budgets.report(finance(), { year: 2026, businessUnitId: branch })).lines).toEqual([]);
+    expect((await budgets.report(finance(), { year: 2026, jobTypeId: installs })).lines).toEqual([]);
     await expect(budgets.setLine(finance(), { year: 2026, line: "Revenue", amounts: all("1"), jobTypeId: elsewhere }))
       .rejects.toThrow(NotFoundError);
     await expect(budgets.report(finance(), { year: 2026, jobTypeId: elsewhere })).rejects.toThrow(NotFoundError);
@@ -157,10 +159,12 @@ run("a job type's budget", () => {
       .rejects.toThrow(/switched off/);
     /** Its year can still be read. */
     expect((await budgets.report(finance(), { year: 2026, jobTypeId: retired })).jobType?.name).toBe("Duct cleaning");
-    /** And the database holds the rule too. */
+    /** And the database holds one figure per month for a branch's job type, as for the others. */
     const [b] = await raw`insert into public.budget (organization_id, year) values (${ORG}, 2031) returning id`;
+    await raw`insert into public.budget_line (organization_id, budget_id, business_unit_id, job_type_id, line, month, amount)
+      values (${ORG}, ${(b as { id: string }).id}, ${branch}, ${installs}, 'category:revenue', 1, 1)`;
     await expect(raw`insert into public.budget_line (organization_id, budget_id, business_unit_id, job_type_id, line, month, amount)
-      values (${ORG}, ${(b as { id: string }).id}, ${branch}, ${installs}, 'category:revenue', 1, 1)`).rejects.toThrow(/budget_line_one_scope/);
+      values (${ORG}, ${(b as { id: string }).id}, ${branch}, ${installs}, 'category:revenue', 1, 2)`).rejects.toThrow(/budget_line_branch_job_type_cell_idx/);
   });
 });
 

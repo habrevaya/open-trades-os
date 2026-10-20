@@ -8,7 +8,7 @@ import {
 } from "./context";
 import * as contracts from "./contracts";
 import * as email from "./email";
-import { inForceAt } from "./pricebook";
+import { costPerUseUnit, inForceAt } from "./pricebook";
 import { consume, inGrant, mintGrant, peek, requireScope } from "./portal";
 import { identityOf, transportContext } from "./estimate-delivery";
 import {
@@ -401,7 +401,7 @@ export async function addLine(ctx: ServiceContext, input: LineInput): Promise<Ch
         name: schema.priceBookItemVersion.name,
         description: schema.priceBookItemVersion.description,
         price: schema.priceBookItemVersion.price,
-        cost: schema.priceBookItemVersion.cost,
+        cost: costPerUseUnit,
       }).from(schema.priceBookItemVersion)
         .where(and(eq(schema.priceBookItemVersion.itemId, input.priceBookItemId), inForceAt()))
         .limit(1);

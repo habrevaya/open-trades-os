@@ -911,3 +911,59 @@ export function choosePack(packs: readonly Pack[], quantity: string, wanted?: st
     });
   return { ok: true, pack: ranked[0]!.pack, packs: ranked[0]!.whole.packs };
 }
+
+/* ------------------------------------------- bought in one unit, used in another */
+
+/**
+ * A PRICE BOOK ITEM BOUGHT BY THE GALLON AND USED BY THE OUNCE.
+ *
+ * A version can say the unit it is bought in, the unit it is used in, and how
+ * many use units one buy unit holds: "gal", "oz", 128. Its cost is then what
+ * one buy unit costs, the figure on the supplier's bill, and everything that
+ * counts it on a job (a line's quantity, its price, an application) is in the
+ * use unit. A version without the three is exactly what it always was: its
+ * cost is per the one unit its lines count.
+ */
+export interface Units {
+  buy: string;
+  use: string;
+  /** How many use units are in one buy unit: 128 ounces in a gallon. */
+  usePerBuy: string;
+}
+
+/** A unit as two spellings of it are compared: "Gal " is "gal". */
+export const sameUnit = (a: string | null | undefined, b: string | null | undefined): boolean =>
+  a !== null && a !== undefined && b !== null && b !== undefined && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Whether a version's units can be saved, in words, or null. All three, or none. */
+export function unitsProblem(units: { buy?: string | null; use?: string | null; usePerBuy?: string | null }): string | null {
+  const buy = units.buy?.trim() ?? "";
+  const use = units.use?.trim() ?? "";
+  const ratio = units.usePerBuy?.trim() ?? "";
+  if (buy === "" && use === "" && ratio === "") return null;
+  if (buy === "" || use === "" || ratio === "") {
+    return "Say all three: the unit it is bought in, the unit it is used in, and how many of one are in the other. Or leave all three empty.";
+  }
+  if (buy.length > 20 || use.length > 20) return "A unit is a short word, like gal or oz.";
+  if (sameUnit(buy, use)) return `It is bought and used by the ${buy}, so there is nothing to convert. Leave the units empty.`;
+  if (!/^\d+(\.\d{1,6})?$/.test(ratio) || Number(ratio) <= 0) {
+    return `"${ratio}" is not how many ${use} are in a ${buy}. Write a number, like 128.`;
+  }
+  return null;
+}
+
+/**
+ * What one use unit costs: the cost of a buy unit over how many use units it
+ * holds, at four places, the precision every cost here is kept at. A version
+ * with no units costs what it says.
+ */
+export function costPerUse(cost: string, units: Pick<Units, "usePerBuy"> | null | undefined): string {
+  if (!units) return toString(money(cost));
+  return toString(divide(money(cost), units.usePerBuy));
+}
+
+/** The other way: a cost per use unit, as the cost of a buy unit, for a version that counts in both. */
+export function costPerBuy(costPerUseUnit: string, units: Pick<Units, "usePerBuy"> | null | undefined): string {
+  if (!units) return toString(money(costPerUseUnit));
+  return toString(multiply(money(costPerUseUnit), units.usePerBuy));
+}

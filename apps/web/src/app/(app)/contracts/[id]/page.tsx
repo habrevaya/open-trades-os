@@ -8,11 +8,11 @@ import { Crumb } from "@/components/Detail";
 import { Table, Th, Td } from "@/components/Table";
 import { formatIn } from "@/lib/dates";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
-import { LABOUR_ROWS, MARKUP_ROWS, RISE_ROWS, clockOf, percentOf } from "@/lib/contract-forms";
+import { FEE_CHOICE, LABOUR_ROWS, MARKUP_ROWS, RISE_ROWS, clockOf, percentOf, rowsToShow } from "@/lib/contract-forms";
 import { ContractTermFields } from "../ContractTerms";
 import {
-  addSite, applyEscalation, changeContractBilling, createCard, issuePayerLink, setCardLines, setCardTerms, setContractBilling,
-  setContractRises, updateContractTerms,
+  addSite, applyEscalation, changeContractBilling, createCard, draftFeeDifference, issuePayerLink, setCardLines, setCardTerms,
+  setContractBilling, setContractRises, updateContractTerms, waiveFeeDifference,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,10 @@ const billingDayFor = (startsOn: string | null) => {
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "3%" or "2.00 more": what a price rises by, as the preview and the rises say it. */
+const riseLabel = (rise: { rate: string; amount?: string | null }) =>
+  rise.amount ? `${Number(rise.amount).toFixed(2)} more` : `${percentOf(rise.rate)}%`;
 const AUTHORITY_OPTIONS = [
   { value: "contract", label: "Client contract" },
   { value: "warranty_network", label: "Warranty network schedule" },
@@ -75,9 +79,12 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
   const riseCardOptions = [{ value: "", label: "Every card" }, ...contract.cards
     .filter((c) => c.inForce || !c.effectiveTo || rise?.rises.some((r) => r.rateCardId === c.id))
     .map((c) => ({ value: c.id, label: c.name }))];
-  const riseTradeOptions = [{ value: "", label: "Every price" }, ...types.map((t) => ({ value: t.id, label: `${t.name} hourly rates` }))];
+  const riseTradeOptions = [{ value: "", label: "Every price" }, ...types.map((t) => ({ value: t.id, label: `${t.name} hourly rates` })),
+    { value: FEE_CHOICE, label: "The fixed fee" }];
+  const riseRows = rise ? rowsToShow(RISE_ROWS, rise.rises.length) : RISE_ROWS;
   const fee = await contractBilling.view(ctx, { contractId: id });
   const raises = can(user.actor, "invoice:write");
+  const short = fee.differences.filter((d) => d.status === "offered");
   const open = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 100, customerId: contract.customerId, status: ["open", "partially_paid"] })).data
     : [];
@@ -137,7 +144,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
             </p>
             {fee.schedule.fees.map((risen) => (
               <p key={risen.from} className="text-ink-700">
-                From {risen.from} the fee is <Money value={risen.amount} />, up from <Money value={risen.previousAmount} /> by {percentOf(risen.rate)}%.
+                From {risen.from} the fee is <Money value={risen.amount} />, up from <Money value={risen.previousAmount} /> by {riseLabel({ rate: risen.rate, amount: risen.riseAmount ?? null }).replace(" more", "")}.
               </p>
             ))}
             {fee.standing ? <p className="text-ink-700">{fee.standing}</p> : null}
@@ -237,6 +244,66 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
             ))}
           </Table>
         )}
+        {fee.differences.length > 0 && (
+          <div className="mt-6" role="region" aria-label="Billed before the rise">
+            <h3 className="text-sm font-semibold">Billed before the rise was applied</h3>
+            <p className="mt-1 max-w-2xl text-sm text-ink-700">
+              The fee rose from {fee.differences[0]!.feeFrom}, but these periods were billed at the old fee before
+              anybody applied the rise. Their invoices stay as they are. You can bill what each one is short on a
+              draft invoice, or decide not to. Nothing is billed for it unless you ask.
+            </p>
+            <Table label="Short by the rise"
+                   head={<><Th>Period</Th><Th className="text-right">Billed</Th><Th className="text-right">At the new fee</Th><Th className="text-right">Short by</Th><Th>What happened</Th></>}>
+              {fee.differences.map((d) => (
+                <tr key={d.periodId}>
+                  <Td>
+                    {cb.periodWords(d.start, d.end)}
+                    {d.invoiceId ? <a href={`/invoices/${d.invoiceId}`} className="block text-xs text-ink-500 hover:underline">Invoice {d.invoiceNumber}</a> : null}
+                  </Td>
+                  <Td className="text-right"><Money value={d.billed} /></Td>
+                  <Td className="text-right"><Money value={d.risen} /></Td>
+                  <Td className="text-right"><Money value={d.difference} /></Td>
+                  <Td>
+                    {d.status === "drafted" && d.draftInvoiceId
+                      ? <a href={`/invoices/${d.draftInvoiceId}`} className="hover:underline">On draft invoice {d.draftInvoiceNumber}</a>
+                      : d.status === "waived" ? <span className="text-ink-500">Not billed, by choice</span>
+                        : <span className="text-ink-500">Not billed yet</span>}
+                  </Td>
+                </tr>
+              ))}
+            </Table>
+            {raises && short.length > 0 && (
+              <>
+                <ActionForm action={draftFeeDifference} submit="Make a draft invoice for the ticked periods" hidden={{ contractId: id }}
+                            className="mt-3 space-y-2">
+                  <fieldset>
+                    <legend className="text-sm font-medium text-ink-700">Bill the difference for</legend>
+                    <div className="mt-1 space-y-1">
+                      {short.map((d) => (
+                        <label key={d.periodId} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" name="periodId" value={d.periodId} defaultChecked className="h-4 w-4" />
+                          {cb.periodWords(d.start, d.end)}, short by <Money value={d.difference} />
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </ActionForm>
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm font-medium">Do not bill the difference</summary>
+                  <p className="mt-1 max-w-2xl text-xs text-ink-500">
+                    Written down as not billed, with your name on it, and not offered again.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {short.map((d) => (
+                      <ActionForm key={d.periodId} action={waiveFeeDifference} tone="quiet" className="space-y-2"
+                                  submit={`Do not bill ${cb.periodWords(d.start, d.end)}`} hidden={{ contractId: id, periodId: d.periodId }} />
+                    ))}
+                  </div>
+                </details>
+              </>
+            )}
+          </div>
+        )}
       </section>
 
       {rise && (rise.rate || rise.rises.length > 0 || writes) && (
@@ -276,7 +343,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                 <Td>Billed {rise.fee.per}. A period already billed keeps its invoice; a period that starts before {rise.anniversary} is billed at the fee now.</Td>
                 <Td className="text-right"><Money value={rise.fee.before} /></Td>
                 <Td className="text-right"><Money value={rise.fee.after} /></Td>
-                <Td>{percentOf(rise.fee.rate)}%, {rise.fee.because}</Td>
+                <Td>{riseLabel(rise.fee)}, {rise.fee.because}</Td>
               </tr>
             </Table>
           )}
@@ -288,7 +355,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                   <Td>{line.description}</Td>
                   <Td className="text-right"><Money value={line.before} /></Td>
                   <Td className="text-right"><Money value={line.after} /></Td>
-                  <Td>{percentOf(line.rate)}%, {line.because}</Td>
+                  <Td>{riseLabel(line)}, {line.because}</Td>
                 </tr>
               ))}
               {card.labourRates.map((rate) => (
@@ -296,7 +363,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                   <Td>{rates.BAND_LABEL[rate.band as rates.LabourBand] ?? rate.band} labour{rate.jobTypeName ? `, ${rate.jobTypeName}` : ""}, per hour</Td>
                   <Td className="text-right"><Money value={rate.before} /></Td>
                   <Td className="text-right"><Money value={rate.after} /></Td>
-                  <Td>{percentOf(rate.rate)}%, {rate.because}</Td>
+                  <Td>{riseLabel(rate)}, {rate.because}</Td>
                 </tr>
               ))}
               {card.tripCharge && (
@@ -304,7 +371,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                   <Td>Trip charge</Td>
                   <Td className="text-right"><Money value={card.tripCharge.before} /></Td>
                   <Td className="text-right"><Money value={card.tripCharge.after} /></Td>
-                  <Td>{percentOf(card.tripCharge.rate)}%, {card.tripCharge.because}</Td>
+                  <Td>{riseLabel(card.tripCharge)}, {card.tripCharge.because}</Td>
                 </tr>
               )}
             </Table>
@@ -323,15 +390,25 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                 trade, then the card, then the year. Anything none of these covers rises by the yearly rate in the terms above.
                 A trade&rsquo;s rise is for its hourly rates only. A rise of 0 keeps those prices as they are.
               </p>
-              <ActionForm action={setContractRises} submit="Save the rises" hidden={{ contractId: id }} className="mt-3 space-y-2">
-                {Array.from({ length: Math.max(RISE_ROWS, rise.rises.length) }, (_, i) => {
+              <p className="mt-2 max-w-2xl text-sm text-ink-700">
+                A rise can be a fixed amount instead of a per cent: 2.00 adds two dollars to each hourly rate, listed price
+                and trip charge it covers. Pick The fixed fee for a rise of the fee alone, by a per cent or by an amount
+                each time it is billed. An amount written for every price never reaches the fee. Save adds two more empty rows.
+              </p>
+              <ActionForm action={setContractRises} submit="Save the rises" hidden={{ contractId: id, riseRows: String(riseRows) }}
+                          className="mt-3 space-y-2">
+                {Array.from({ length: riseRows }, (_, i) => {
                   const row = rise.rises[i];
                   return (
-                    <div key={i} className="grid gap-2 sm:grid-cols-4">
+                    <div key={i} className="grid gap-2 sm:grid-cols-5">
                       <Select label="Year" name={`riseYear${i}`} options={riseYearOptions} defaultValue={row?.contractYear ? String(row.contractYear) : ""} />
                       <Select label="Card" name={`riseCard${i}`} options={riseCardOptions} defaultValue={row?.rateCardId ?? ""} />
-                      <Select label="Prices" name={`riseTrade${i}`} options={riseTradeOptions} defaultValue={row?.jobTypeId ?? ""} />
-                      <TextField label="Rise, per cent" name={`riseRate${i}`} inputMode="decimal" defaultValue={row ? percentOf(row.rate) : ""} />
+                      <Select label="Prices" name={`riseTrade${i}`} options={riseTradeOptions}
+                              defaultValue={row?.fee ? FEE_CHOICE : row?.jobTypeId ?? ""} />
+                      <TextField label="Rise, per cent" name={`riseRate${i}`} inputMode="decimal"
+                                 defaultValue={row && !row.amount ? percentOf(row.rate) : ""} />
+                      <TextField label="Or an amount, $" name={`riseAmount${i}`} inputMode="decimal"
+                                 defaultValue={row?.amount ? Number(row.amount).toFixed(2) : ""} />
                     </div>
                   );
                 })}
@@ -412,11 +489,16 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
 
                 <details className="mt-3" open={card.terms.labourRates.length === 0}>
                   <summary className="cursor-pointer text-sm font-medium">Labour rates, markup and hours</summary>
-                  <ActionForm action={setCardTerms} submit="Save the card's rules" hidden={{ contractId: id, rateCardId: card.id }}>
+                  <ActionForm action={setCardTerms} submit="Save the card's rules"
+                              hidden={{
+                                contractId: id, rateCardId: card.id,
+                                labourRows: String(rowsToShow(LABOUR_ROWS, card.terms.labourRates.length)),
+                                markupRows: String(rowsToShow(MARKUP_ROWS, card.terms.materialMarkup.length)),
+                              }}>
                     <fieldset>
                       <legend className="text-sm font-medium text-ink-700">Hourly rates</legend>
                       <div className="mt-2 space-y-2">
-                        {Array.from({ length: LABOUR_ROWS }, (_, i) => {
+                        {Array.from({ length: rowsToShow(LABOUR_ROWS, card.terms.labourRates.length) }, (_, i) => {
                           const rate = card.terms.labourRates[i];
                           return (
                             <div key={i} className="grid gap-2 sm:grid-cols-5">
@@ -433,7 +515,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
                     <fieldset>
                       <legend className="text-sm font-medium text-ink-700">Markup on materials, by what the part cost us</legend>
                       <div className="mt-2 grid gap-2 sm:grid-cols-4">
-                        {Array.from({ length: MARKUP_ROWS }, (_, i) => {
+                        {Array.from({ length: rowsToShow(MARKUP_ROWS, card.terms.materialMarkup.length) }, (_, i) => {
                           const tier = card.terms.materialMarkup[i];
                           return (
                             <div key={i} className="space-y-1">

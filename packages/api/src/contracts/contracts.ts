@@ -259,8 +259,10 @@ export const getPropertyCeiling = defineRoute({
 const EscalatedPrice = z.object({
   before: MoneyString,
   after: MoneyString,
-  /** The rate it rises by, "0" for a price kept as it is. */
+  /** The rate it rises by, "0" for a price kept as it is or one risen by an amount. */
   rate: RateString,
+  /** The fixed amount it rises by, present only when the rise is one. */
+  amount: MoneyString.optional(),
   /** Which rise that is, in words: "Year 3", "Every year, Plumbing hourly rates", "The contract's yearly rate". */
   because: z.string(),
 });
@@ -275,7 +277,12 @@ const ContractRise = z.object({
   /** The trade whose hourly rates it applies to, or null for every price. */
   jobTypeId: Uuid.nullable(),
   jobTypeName: z.string().nullable(),
+  /** A fraction; "0" on a rise by an amount. */
   rate: RateString,
+  /** A fixed amount added to each price it covers, when the rise is one; null for a per cent. */
+  amount: MoneyString.nullable(),
+  /** True for a rise of the contract's fixed fee alone, by the period it is billed for. */
+  fee: z.boolean(),
 });
 
 export const previewContractEscalation = defineRoute({
@@ -283,7 +290,7 @@ export const previewContractEscalation = defineRoute({
   path: "/v1/contracts/{contractId}/escalation",
   summary: "What the contract's next annual escalation would do to its cards",
   description:
-    "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. `fee` is the contract's fixed fee before and after, when its billing schedule rises with the escalation (off unless the schedule says so): the fee in force the day before the anniversary, risen by the year's rise for every card and every trade or the contract's yearly rate, never by a rise naming one card or trade. A contract whose fee rises needs no card in force. `feeDraft` is the fee as the worker's draft prepared it. Nothing is written.",
+    "The next anniversary of the contract's start (a year after the last one applied) on which anything rises, the year of the contract it opens, and every price on every card in force the day before it, before and after rising, to the cent, half up, with the rate (or the fixed `amount`, for a rise by an amount) and which rise it is in words. Each price rises by the most specific of the contract's rises that applies to it (the trade on that card, then the trade, then the card, then the year, a rise for that year before one for every year) and failing those by the contract's yearly rate; a price nothing applies to is kept. `rises` lists every rise the contract carries, and `key` is what applying has to be told. `ready` says whether it can be applied today: from sixty days before the anniversary, and any time after. `problem` says why not in words: no rate, no start date, the contract ending first, no card in force, or a card already loaded from that day. `drafts` are the cards the worker prepared for the anniversary thirty days ahead, when it has: never in force, and replaced by the cards applying writes. `fee` is the contract's fixed fee before and after, when its billing schedule rises with the escalation (off unless the schedule says so): the fee in force the day before the anniversary, risen by the fee's own rise (a per cent, or an amount a period) or failing that the year's per cent for every card and every trade or the contract's yearly rate, never by a rise naming one card or trade and never by an amount written for every price. A contract whose fee rises needs no card in force. `feeDraft` is the fee as the worker's draft prepared it. Nothing is written.",
   module: "M31",
   permissions: ["pricebook:read"],
   input: z.object({ contractId: Uuid }),
@@ -323,7 +330,7 @@ export const applyContractEscalation = defineRoute({
   path: "/v1/contracts/{contractId}/escalation",
   summary: "Apply the annual escalation the preview showed",
   description:
-    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. When the preview shows the fixed fee rising, the fee as risen becomes the fee for every period starting on or after the anniversary; a period already billed keeps its invoice. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate and whose fee does not rise, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards and the fee it made.",
+    "Writes a new version of every card in force the day before the anniversary, each price, hourly rate and trip charge risen as the preview shows (markups are fractions of cost and are kept), in force from the anniversary, and ends the old card the day before, so work before the anniversary keeps last year's prices. A rise naming a card moves to the new version. Any draft cards the worker prepared for the anniversary are removed, and the office task it raised is closed. When the preview shows the fixed fee rising, the fee as risen becomes the fee for every period starting on or after the anniversary; a period already billed keeps its invoice, and `billedAtOldFee` counts those from the anniversary, whose difference `GET /v1/contracts/{contractId}/billing` then offers. Refused unless `anniversary` and `key` are the ones the preview shows now (on a contract whose rise is its one yearly rate and whose fee does not rise, `rate` does instead), and before the preview says it is ready. A retry for an anniversary already applied answers with the cards and the fee it made.",
   module: "M31",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -344,7 +351,13 @@ export const applyContractEscalation = defineRoute({
       fromRateCardId: Uuid, rateCardId: Uuid, name: z.string(), effectiveFrom: z.string().date(),
     })),
     /** The fixed fee from the anniversary, when it rose with the cards. */
-    fee: z.object({ from: z.string().date(), amount: MoneyString, previousAmount: MoneyString, rate: RateString }).nullable(),
+    fee: z.object({
+      from: z.string().date(), amount: MoneyString, previousAmount: MoneyString, rate: RateString,
+      /** The amount it rose by a period, present only when its rise was an amount; the rate is then "0". */
+      riseAmount: MoneyString.optional(),
+    }).nullable(),
+    /** Periods from the anniversary already billed at the old fee: the contract's billing offers each one's difference. */
+    billedAtOldFee: z.number().int(),
   }),
 });
 
@@ -353,7 +366,7 @@ export const listContractRises = defineRoute({
   path: "/v1/contracts/{contractId}/escalation/rises",
   summary: "The contract's rises that differ by year, by card or by trade",
   description:
-    "Each rise beyond the contract's own yearly rate: the year of the contract it opens (or every year), the card it applies to (or every card) and the trade whose hourly rates it applies to (or every price), with the rate. A rise naming a card follows the card to each new version written when a rise is applied.",
+    "Each rise beyond the contract's own yearly rate: the year of the contract it opens (or every year), the card it applies to (or every card) and the trade whose hourly rates it applies to (or every price), or the fixed fee alone, with the rate or the fixed amount. A rise naming a card follows the card to each new version written when a rise is applied.",
   module: "M31",
   permissions: ["contract:read"],
   input: z.object({ contractId: Uuid }),
@@ -365,7 +378,7 @@ export const setContractRises = defineRoute({
   path: "/v1/contracts/{contractId}/escalation/rises",
   summary: "Say how the contract's rises differ by year, by card or by trade",
   description:
-    "Replaces the contract's rises with these. Each is a rate (0.04 for four per cent; nothing is allowed, for a card fixed for the term), for a year of the contract from 2 or every year, for one of the contract's cards or every card, and for one trade's hourly rates or every price. Two rows saying the same year, card and trade are refused in words, as is a card that is not this contract's. Nothing rises because of this: the preview shows the change and a person applies it, and drafts the worker already prepared are prepared again.",
+    "Replaces the contract's rises with these. Each is a rate (0.04 for four per cent; nothing is allowed, for a card fixed for the term) or a fixed `amount` added to each price it covers (2.00 an hour on an hourly rate, each on a listed price, a visit on a trip charge), never both, for a year of the contract from 2 or every year, for one of the contract's cards or every card, and for one trade's hourly rates or every price. With `fee` it is a rise of the contract's fixed fee alone (by a per cent, or an amount a period), and names no card or trade. Two rows saying the same year, card and trade are refused in words, as is a card that is not this contract's. Nothing rises because of this: the preview shows the change and a person applies it, and drafts the worker already prepared are prepared again.",
   module: "M31",
   permissions: ["contract:write"],
   input: z.object({
@@ -374,7 +387,12 @@ export const setContractRises = defineRoute({
       contractYear: z.number().int().min(2).max(99).nullable().optional(),
       rateCardId: Uuid.nullable().optional(),
       jobTypeId: Uuid.nullable().optional(),
-      rate: RateString,
+      /** A fraction. Left off (or "0") on a rise by an amount. */
+      rate: RateString.optional(),
+      /** A fixed amount added to each price it covers, instead of a per cent. */
+      amount: MoneyString.nullable().optional(),
+      /** A rise of the contract's fixed fee alone. */
+      fee: z.boolean().optional(),
     })).max(50),
   }),
   output: z.array(ContractRise),
@@ -425,7 +443,11 @@ export const ContractBilling = z.object({
     /** The fee for a period starting today, after any rise that has taken effect. */
     feeNow: MoneyString,
     /** Each rise of the fee, oldest first: the fee for every period starting on or after `from`. */
-    fees: z.array(z.object({ from: z.string().date(), amount: MoneyString, previousAmount: MoneyString, rate: RateString })),
+    fees: z.array(z.object({
+      from: z.string().date(), amount: MoneyString, previousAmount: MoneyString, rate: RateString,
+      /** The amount it rose by a period, present only when its rise was an amount. */
+      riseAmount: MoneyString.optional(),
+    })),
   }).nullable(),
   /** The next period still to come. */
   next: BillingPeriod.nullable(),
@@ -442,6 +464,25 @@ export const ContractBilling = z.object({
   })),
   /** Why nothing is being billed, in words, when nothing is. */
   standing: z.string().nullable(),
+  /**
+   * Periods billed at the old fee before a rise from their first day was
+   * applied: what each is short, offered until somebody bills it on a draft
+   * or waives it, and what they decided.
+   */
+  differences: z.array(z.object({
+    periodId: Uuid,
+    start: z.string().date(),
+    end: z.string().date(),
+    invoiceId: Uuid.nullable(),
+    invoiceNumber: z.number().int().nullable(),
+    feeFrom: z.string().date(),
+    billed: MoneyString,
+    risen: MoneyString,
+    difference: MoneyString,
+    status: z.enum(["offered", "drafted", "waived"]),
+    draftInvoiceId: Uuid.nullable(),
+    draftInvoiceNumber: z.number().int().nullable(),
+  })),
 });
 
 export const getContractBilling = defineRoute({
@@ -449,7 +490,7 @@ export const getContractBilling = defineRoute({
   path: "/v1/contracts/{contractId}/billing",
   summary: "A contract's fixed fee schedule, and every period it has billed",
   description:
-    "The schedule (the fee, how often, the billing day, in advance or in arrears, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `schedule` is null on a contract that is not billed on a schedule.",
+    "The schedule (the fee, how often, the billing day, in advance or in arrears, the first day billed, whether a part period is prorated by day and whether the fee is taxed), the next period with what it will be billed, how many periods are owed and not yet raised, and every period billed or skipped, newest first, with its invoice. `differences` lists each period billed at the old fee before a rise from its first day was applied, with what it was billed, what the risen fee makes it and the difference, offered until somebody bills it on a draft invoice or waives it. `schedule` is null on a contract that is not billed on a schedule.",
   module: "M31",
   permissions: ["contract:read"],
   input: z.object({ contractId: Uuid }),
@@ -545,11 +586,45 @@ export const raiseContractBilling = defineRoute({
   }),
 });
 
+const PeriodsPicked = z.object({ contractId: Uuid, periodIds: z.array(Uuid).min(1).max(60) });
+
+export const draftContractFeeDifference = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/billing/differences",
+  summary: "Bill what a late rise of the fee left short, on a draft invoice",
+  description:
+    "For the periods picked, each one offered in `differences` on `GET /v1/contracts/{contractId}/billing`: one draft invoice to the contract's customer, with its PO number, one line per period saying the period, what it was billed and on which invoice, and what the risen fee makes it, taxed as the fee is. A draft: nothing is posted or owed until it is issued, which is the ordinary issue on the invoice. Nothing ever raises this by itself. Refused, in words, for a period not offered, or already on a draft or waived. Deleting the draft offers its periods again.",
+  module: "M31",
+  permissions: ["invoice:write"],
+  idempotent: true,
+  input: PeriodsPicked,
+  output: z.object({
+    contractId: Uuid,
+    invoiceId: Uuid,
+    invoiceNumber: z.number().int(),
+    total: MoneyString,
+    periods: z.number().int(),
+  }),
+});
+
+export const waiveContractFeeDifference = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/billing/differences/waive",
+  summary: "Decide not to bill what a late rise of the fee left short",
+  description:
+    "The periods picked, each one offered in `differences`, written down as waived, so they are not offered again; who decided is on the audit line. Refused, in words, for a period not offered, or already decided.",
+  module: "M31",
+  permissions: ["invoice:write"],
+  idempotent: true,
+  input: PeriodsPicked,
+  output: ContractBilling,
+});
+
 export const contractRoutes = {
   listContracts, createContract, updateContract, addContractSite,
   createRateCard, setRateCardLines, listRateCardLines,
   resolveContractPrice, getPropertyCeiling,
   previewContractEscalation, applyContractEscalation, listContractRises, setContractRises,
   getContractBilling, setContractBilling, pauseContractBilling, resumeContractBilling,
-  endContractBilling, raiseContractBilling,
+  endContractBilling, raiseContractBilling, draftContractFeeDifference, waiveContractFeeDifference,
 } as const;

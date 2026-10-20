@@ -32,15 +32,22 @@ import {
  *
  * BY JOB TYPE, THE SAME WAY. A line can be one job type's instead, read
  * against the ledger entries made from that type's jobs (every posting from a
- * job or its invoice carries the job). A line is a branch's or a job type's,
- * never both, and neither is added into the company's. What a job type's
- * figures cannot hold is everything not booked to a job: rent, the trucks,
- * payroll journals, and the report counts it.
+ * job or its invoice carries the job). What a job type's figures cannot hold
+ * is everything not booked to a job: rent, the trucks, payroll journals, and
+ * the report counts it.
+ *
+ * AND BY BOTH: one job type in one branch ("service in the north shop"), read
+ * against the entries that carry that branch and are on that type's jobs, with
+ * both counts of what it cannot hold. None of the four is added into another:
+ * the company's, a branch's, a job type's and a branch's job type's lines are
+ * each their own statement.
  *
  * AND A FORECAST. Each line has a year end figure: the months already over at
  * their actual, and the months to come at their budget or, when the company
- * chose it, at the run rate of the months already over (`budget.forecastLine`
- * in core). It is an estimate, stated as one with the assumption beside it on
+ * chose it, at the run rate of the months already over, or shaped like last
+ * year, each line by its own last year in the same branch and job type
+ * (`budget.forecastLine` in core). Shaping like last year is refused, in
+ * words, until a whole year is in the books. It is an estimate, stated as one with the assumption beside it on
  * the screen, and nothing is posted.
  */
 
@@ -69,31 +76,37 @@ async function budgetFor(tx: Database, organizationId: string, year: number): Pr
   return row!.id;
 }
 
-/** Whose lines: the company's own, one branch's or one job type's. */
+/** Whose lines: the company's own, one branch's, one job type's, or one job type's in one branch. */
 type Scope =
   | { kind: "company" }
   | { kind: "branch"; id: string; name: string }
-  | { kind: "jobType"; id: string; name: string };
+  | { kind: "jobType"; id: string; name: string }
+  | { kind: "both"; branch: { id: string; name: string }; jobType: { id: string; name: string } };
 
-const ofScope = (scope: Scope) => scope.kind === "branch"
-  ? eq(schema.budgetLine.businessUnitId, scope.id)
-  : scope.kind === "jobType"
-    ? eq(schema.budgetLine.jobTypeId, scope.id)
-    : and(isNull(schema.budgetLine.businessUnitId), isNull(schema.budgetLine.jobTypeId));
+const branchIdOf = (scope: Scope): string | null =>
+  scope.kind === "branch" ? scope.id : scope.kind === "both" ? scope.branch.id : null;
+const jobTypeIdOf = (scope: Scope): string | null =>
+  scope.kind === "jobType" ? scope.id : scope.kind === "both" ? scope.jobType.id : null;
 
-/** The scope a call asks for, refused in words when it names a branch and a job type at once. */
+/** Exactly this scope's lines: a branch's own lines are not its job types' lines, and the other way round. */
+const ofScope = (scope: Scope) => {
+  const branchId = branchIdOf(scope);
+  const typeId = jobTypeIdOf(scope);
+  return and(
+    branchId ? eq(schema.budgetLine.businessUnitId, branchId) : isNull(schema.budgetLine.businessUnitId),
+    typeId ? eq(schema.budgetLine.jobTypeId, typeId) : isNull(schema.budgetLine.jobTypeId),
+  );
+};
+
+/** The scope a call asks for: a branch and a job type together are one job type's in that branch. */
 async function scopeFor(
   tx: Database, organizationId: string,
   input: { businessUnitId?: string | undefined; jobTypeId?: string | undefined }, writing: boolean,
 ): Promise<Scope> {
-  if (input.businessUnitId && input.jobTypeId) {
-    throw new UnprocessableError("A branch or a job type", [{
-      path: "jobTypeId", message: "A budget line is the company's, one branch's or one job type's. Pick a branch or a job type, not both.",
-    }]);
-  }
   const branch = await branchFor(tx, organizationId, input.businessUnitId, writing);
-  if (branch) return { kind: "branch", ...branch };
   const type = await jobTypeFor(tx, organizationId, input.jobTypeId, writing);
+  if (branch && type) return { kind: "both", branch, jobType: type };
+  if (branch) return { kind: "branch", ...branch };
   if (type) return { kind: "jobType", ...type };
   return { kind: "company" };
 }
@@ -121,8 +134,8 @@ async function jobTypeFor(
 }
 
 const scopeIds = (scope: Scope) => ({
-  ...(scope.kind === "branch" ? { businessUnitId: scope.id } : {}),
-  ...(scope.kind === "jobType" ? { jobTypeId: scope.id } : {}),
+  ...(branchIdOf(scope) ? { businessUnitId: branchIdOf(scope)! } : {}),
+  ...(jobTypeIdOf(scope) ? { jobTypeId: jobTypeIdOf(scope)! } : {}),
 });
 
 /**
@@ -155,8 +168,8 @@ async function branchFor(
 async function writeLine(
   tx: Database, organizationId: string, budgetId: string, scope: Scope, line: b.LineKey, amounts: (string | null)[],
 ) {
-  const businessUnitId = scope.kind === "branch" ? scope.id : null;
-  const jobTypeId = scope.kind === "jobType" ? scope.id : null;
+  const businessUnitId = branchIdOf(scope);
+  const jobTypeId = jobTypeIdOf(scope);
   for (let month = 1; month <= 12; month += 1) {
     const raw = amounts[month - 1]?.trim() ?? "";
     if (raw === "") {
@@ -168,17 +181,23 @@ async function writeLine(
     }
     const amount = m.toString(m.money(raw.replace(/[$,\s]/g, "")));
     const insert = tx.insert(schema.budgetLine).values({ organizationId, budgetId, businessUnitId, jobTypeId, line, month, amount });
-    /** One index each for the company's cells, a branch's and a job type's, so the conflict names whichever this is. */
-    await (scope.kind === "branch"
+    /** One index each for the company's cells, a branch's, a job type's and a branch's job type's, so the conflict names whichever this is. */
+    await (scope.kind === "both"
+      ? insert.onConflictDoUpdate({
+        target: [schema.budgetLine.budgetId, schema.budgetLine.businessUnitId, schema.budgetLine.jobTypeId, schema.budgetLine.line, schema.budgetLine.month],
+        targetWhere: sql`${schema.budgetLine.businessUnitId} is not null and ${schema.budgetLine.jobTypeId} is not null`,
+        set: { amount, updatedAt: new Date() },
+      })
+      : scope.kind === "branch"
       ? insert.onConflictDoUpdate({
         target: [schema.budgetLine.budgetId, schema.budgetLine.businessUnitId, schema.budgetLine.line, schema.budgetLine.month],
-        targetWhere: sql`${schema.budgetLine.businessUnitId} is not null`,
+        targetWhere: sql`${schema.budgetLine.businessUnitId} is not null and ${schema.budgetLine.jobTypeId} is null`,
         set: { amount, updatedAt: new Date() },
       })
       : scope.kind === "jobType"
         ? insert.onConflictDoUpdate({
           target: [schema.budgetLine.budgetId, schema.budgetLine.jobTypeId, schema.budgetLine.line, schema.budgetLine.month],
-          targetWhere: sql`${schema.budgetLine.jobTypeId} is not null`,
+          targetWhere: sql`${schema.budgetLine.jobTypeId} is not null and ${schema.budgetLine.businessUnitId} is null`,
           set: { amount, updatedAt: new Date() },
         })
         : insert.onConflictDoUpdate({
@@ -217,8 +236,8 @@ export async function setLine(
     });
     return {
       year, line, months: input.amounts.filter((a) => a !== null && a.trim() !== "").length,
-      businessUnitId: scope.kind === "branch" ? scope.id : null,
-      jobTypeId: scope.kind === "jobType" ? scope.id : null,
+      businessUnitId: branchIdOf(scope),
+      jobTypeId: jobTypeIdOf(scope),
     };
   });
 }
@@ -285,6 +304,8 @@ export interface BudgetReportLine {
     variance: string; percent: number | null; favourable: boolean | null;
     /** Months to come with no budget, counted as nothing. */
     unbudgetedMonths: number;
+    /** True only on a line shaped like last year that had nothing last year to follow, so it is at its budget. */
+    noShape?: true;
   };
 }
 
@@ -315,8 +336,10 @@ export interface BudgetReport {
   forecast: {
     /** What the company chose for the year. */
     chosen: b.ForecastMethod;
-    /** What was used: the budget when the run rate was chosen and no month is over yet. */
+    /** What was used: the budget when the run rate or last year's shape was chosen and no month is over yet. */
     method: b.ForecastMethod;
+    /** With last year's shape chosen, how many lines had none and were taken at their budget. */
+    linesWithoutShape?: number;
     /** Months of the year already over, read at their actual. */
     closed: number;
     fellBack: boolean;
@@ -333,13 +356,17 @@ const CAVEAT =
   + "is unbooked, not under budget. Job costing reads labour and materials from the timeclock and the job lines instead.";
 
 /** The sentence beside the forecast: what it assumed, so nobody reads it as a promise. */
-function assumption(method: b.ForecastMethod, chosen: b.ForecastMethod, closed: number, year: number, future: boolean): string {
+function assumption(
+  method: b.ForecastMethod, chosen: b.ForecastMethod, closed: number, year: number, future: boolean, unshaped = 0,
+): string {
   const estimate = "This is an estimate, not a promise.";
   if (closed >= 12) return `${year} is over, so the forecast is what the books say happened. ${estimate}`;
   if (future) {
     const how = chosen === "run_rate"
       ? "You chose the run rate, and there is none until a month is over, so every month is taken at its budget for now"
-      : "Every month is taken at its budget";
+      : chosen === "seasonal"
+        ? `You chose to shape the year like ${year - 1}, and there is nothing to shape until a month is over, so every month is taken at its budget for now`
+        : "Every month is taken at its budget";
     return `${year} has not started. ${how}, and a month with no budget counts as nothing. ${estimate}`;
   }
   const over = closed === 0
@@ -347,10 +374,20 @@ function assumption(method: b.ForecastMethod, chosen: b.ForecastMethod, closed: 
     : `${closed === 1 ? "January is" : `January to ${MONTH_NAMES[closed - 1]} are`} read at what the books say happened.`;
   const fell = chosen === "run_rate" && method === "budget"
     ? " You chose the run rate, and there is none until a month is over, so the budget is used for now."
-    : "";
+    : chosen === "seasonal" && method === "budget"
+      ? closed === 0
+        ? ` You chose to shape the year like ${year - 1}, and there is nothing to shape until a month is over, so the budget is used for now.`
+        : ` You chose to shape the year like ${year - 1}, and no line had anything in ${year - 1} to follow, so the budget is used.`
+      : "";
   const rest = method === "run_rate"
     ? " This month and the months after it are each taken at the average of the months already over, which reads a seasonal year wrongly."
-    : " This month and the months after it are taken at their budget, and a month with no budget counts as nothing.";
+    : method === "seasonal"
+      ? ` This month and the months after it are shaped like ${year - 1}: the months already over are taken as the same share of the year`
+        + ` they were in ${year - 1}, and the rest of the year follows in proportion.`
+        + (unshaped > 0
+          ? ` ${unshaped === 1 ? "One line had" : `${unshaped} lines had`} nothing in ${year - 1} to follow and ${unshaped === 1 ? "is" : "are"} taken at ${unshaped === 1 ? "its" : "their"} budget.`
+          : "")
+      : " This month and the months after it are taken at their budget, and a month with no budget counts as nothing.";
   return `${over}${fell}${rest} ${estimate}`;
 }
 
@@ -358,6 +395,41 @@ const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+
+/**
+ * Each account's two sides per month of a year, in the company's calendar,
+ * for a scope. A job type's are the entries on its jobs, joined through the
+ * job the entry carries; a job moved to another type later moves with it,
+ * because the question is about the kind of work the job is. A branch's are
+ * the entries that carry it; both, the entries that carry the branch and are
+ * on that type's jobs.
+ */
+async function sumsByMonth(
+  tx: Database, organizationId: string, tz: string, scope: Scope, year: number,
+): Promise<Map<number, Map<string, b.AccountSums>>> {
+  const branchId = branchIdOf(scope);
+  const typeId = jobTypeIdOf(scope);
+  const sums = await tx.execute<{ account_code: string; month: number; debit: string; credit: string }>(sql`
+    select le.account_code,
+           extract(month from le.occurred_at at time zone ${tz})::int as month,
+           coalesce(sum(case when le.direction = 'debit' then le.amount end), 0)::numeric(14,4)::text as debit,
+           coalesce(sum(case when le.direction = 'credit' then le.amount end), 0)::numeric(14,4)::text as credit
+    from public.ledger_entry le
+    ${typeId ? sql`join public.job j on j.id = le.job_id and j.job_type_id = ${typeId}` : sql``}
+    where le.organization_id = ${organizationId}
+      and extract(year from le.occurred_at at time zone ${tz}) = ${year}
+      ${branchId ? sql`and le.business_unit_id = ${branchId}` : sql``}
+    group by le.account_code, 2
+  `);
+  const byMonth = new Map<number, Map<string, b.AccountSums>>();
+  for (const row of sums) {
+    const month = Number(row.month);
+    const bucket = byMonth.get(month) ?? new Map<string, b.AccountSums>();
+    bucket.set(row.account_code, { debit: m.money(row.debit), credit: m.money(row.credit) });
+    byMonth.set(month, bucket);
+  }
+  return byMonth;
+}
 
 /**
  * Budget against actual for a year, every line, every month.
@@ -380,42 +452,21 @@ export async function report(
         .orderBy(asc(schema.budgetLine.line), asc(schema.budgetLine.month))
       : [];
 
-    /**
-     * Each account's two sides per month of the year, in the company's
-     * calendar. A job type's are the entries on its jobs, joined through the
-     * job the entry carries; a job moved to another type later moves with it,
-     * because the question is about the kind of work the job is.
-     */
-    const sums = await tx.execute<{ account_code: string; month: number; debit: string; credit: string }>(sql`
-      select le.account_code,
-             extract(month from le.occurred_at at time zone ${tz})::int as month,
-             coalesce(sum(case when le.direction = 'debit' then le.amount end), 0)::numeric(14,4)::text as debit,
-             coalesce(sum(case when le.direction = 'credit' then le.amount end), 0)::numeric(14,4)::text as credit
-      from public.ledger_entry le
-      ${scope.kind === "jobType" ? sql`join public.job j on j.id = le.job_id and j.job_type_id = ${scope.id}` : sql``}
-      where le.organization_id = ${ctx.actor.organizationId}
-        and extract(year from le.occurred_at at time zone ${tz}) = ${year}
-        ${scope.kind === "branch" ? sql`and le.business_unit_id = ${scope.id}` : sql``}
-      group by le.account_code, 2
-    `);
+    const byMonth = await sumsByMonth(tx, ctx.actor.organizationId, tz, scope, year);
     /** What a branch's or a job type's actuals cannot hold: the year's entries with no branch, or on no job. */
-    const [uncovered] = scope.kind === "company"
-      ? []
-      : await tx.execute<{ entries: number; debits: string }>(sql`
+    const uncovered = async (what: "branch" | "job") => {
+      const [row] = await tx.execute<{ entries: number; debits: string }>(sql`
         select count(*)::int as entries,
                coalesce(sum(case when le.direction = 'debit' then le.amount end), 0)::numeric(14,4)::text as debits
         from public.ledger_entry le
         where le.organization_id = ${ctx.actor.organizationId}
           and extract(year from le.occurred_at at time zone ${tz}) = ${year}
-          and ${scope.kind === "branch" ? sql`le.business_unit_id is null` : sql`le.job_id is null`}
+          and ${what === "branch" ? sql`le.business_unit_id is null` : sql`le.job_id is null`}
       `);
-    const byMonth = new Map<number, Map<string, b.AccountSums>>();
-    for (const row of sums) {
-      const month = Number(row.month);
-      const bucket = byMonth.get(month) ?? new Map<string, b.AccountSums>();
-      bucket.set(row.account_code, { debit: m.money(row.debit), credit: m.money(row.credit) });
-      byMonth.set(month, bucket);
-    }
+      return row;
+    };
+    const noBranch = branchIdOf(scope) ? await uncovered("branch") : undefined;
+    const noJob = jobTypeIdOf(scope) ? await uncovered("job") : undefined;
 
     const today = time.dateIn(new Date(), tz);
     const [thisYear, thisMonth] = today.split("-").map(Number) as [number, number];
@@ -428,7 +479,12 @@ export async function report(
       .filter((key): key is b.LineKey => key !== null)
       .sort((x, y) => order(x) - order(y) || (x < y ? -1 : 1));
 
-    let used: b.ForecastMethod = chosen === "run_rate" && closed === 0 ? "budget" : chosen;
+    let used: b.ForecastMethod = chosen !== "budget" && closed === 0 ? "budget" : chosen;
+    /** Last year's months in the same branch and job type, for a forecast shaped like it. */
+    const lastYear = chosen === "seasonal" && closed > 0 && closed < 12
+      ? await sumsByMonth(tx, ctx.actor.organizationId, tz, scope, year - 1)
+      : null;
+    let unshaped = 0;
     const lines: BudgetReportLine[] = keys.map((key) => {
       let budgetToDate = m.zero();
       let actualToDate = m.zero();
@@ -455,8 +511,13 @@ export async function report(
         };
       });
       const v = b.variance(key, budgetToDate, actualToDate);
-      const f = b.forecastLine({ key, months: raw, closed, method: chosen });
-      used = f.method;
+      const f = b.forecastLine({
+        key, months: raw, closed, method: chosen,
+        lastYear: lastYear ? Array.from({ length: 12 }, (_, i) => b.actualFor(key, lastYear.get(i + 1) ?? new Map())) : undefined,
+      });
+      /** A line with no shape in last year is taken at its budget; the report still says it was shaped where it could be. */
+      if (chosen === "seasonal" && closed > 0 && closed < 12 && f.fellBack) unshaped += 1;
+      else used = f.method;
       return {
         line: key,
         label: b.lineLabel(key),
@@ -470,9 +531,13 @@ export async function report(
           closedActual: m.toString(f.closedActual), toCome: m.toString(f.toCome), forecast: m.toString(f.forecast),
           variance: m.toString(f.variance.variance), percent: f.variance.percent, favourable: f.variance.favourable,
           unbudgetedMonths: f.unbudgetedMonths,
+          /** Present and true only for a line taken at its budget because last year gave it no shape. */
+          ...(chosen === "seasonal" && closed > 0 && closed < 12 && f.fellBack ? { noShape: true as const } : {}),
         },
       };
     });
+    /** Every line without a shape: the year is at its budget, so say that rather than "shaped". */
+    if (chosen === "seasonal" && closed > 0 && closed < 12 && unshaped === lines.length && lines.length > 0) used = "budget";
 
     const categories = lines.filter((l) => l.line.startsWith("category:"));
     const hasRevenue = categories.some((l) => l.line === "category:revenue");
@@ -487,21 +552,22 @@ export async function report(
 
     return {
       year, through, lines, net, caveat: CAVEAT,
-      branch: scope.kind === "branch"
+      branch: scope.kind === "branch" || scope.kind === "both"
         ? {
-          id: scope.id, name: scope.name,
-          entriesWithoutBranch: Number(uncovered?.entries ?? 0), withoutBranchDebits: uncovered?.debits ?? "0.0000",
+          ...(scope.kind === "both" ? scope.branch : { id: scope.id, name: scope.name }),
+          entriesWithoutBranch: Number(noBranch?.entries ?? 0), withoutBranchDebits: noBranch?.debits ?? "0.0000",
         }
         : null,
-      jobType: scope.kind === "jobType"
+      jobType: scope.kind === "jobType" || scope.kind === "both"
         ? {
-          id: scope.id, name: scope.name,
-          entriesWithoutJob: Number(uncovered?.entries ?? 0), withoutJobDebits: uncovered?.debits ?? "0.0000",
+          ...(scope.kind === "both" ? scope.jobType : { id: scope.id, name: scope.name }),
+          entriesWithoutJob: Number(noJob?.entries ?? 0), withoutJobDebits: noJob?.debits ?? "0.0000",
         }
         : null,
       forecast: {
         chosen, method: used, closed, fellBack: chosen !== used,
-        assumption: assumption(used, chosen, closed, year, year > thisYear),
+        ...(chosen === "seasonal" ? { linesWithoutShape: unshaped } : {}),
+        assumption: assumption(used, chosen, closed, year, year > thisYear, unshaped),
         net: hasRevenue
           ? { forecast: m.toString(netOf((l) => l.forecast.forecast)), budget: m.toString(netOf((l) => l.year.budget)) }
           : null,
@@ -511,10 +577,16 @@ export async function report(
 }
 
 /**
- * How the year's forecast takes the months to come: at their budget, or at
- * the run rate of the months already over. One choice per year, for every
- * reader and every branch's and job type's report, made by whoever sets the
- * budget. Setting the one already chosen is a no op, so a retry is harmless.
+ * How the year's forecast takes the months to come: at their budget, at the
+ * run rate of the months already over, or shaped like last year. One choice
+ * per year, for every reader and every branch's and job type's report, made
+ * by whoever sets the budget. Setting the one already chosen is a no op, so a
+ * retry is harmless.
+ *
+ * SHAPED LIKE LAST YEAR NEEDS LAST YEAR. Refused, in words, unless the books
+ * hold the whole of the year before: their first entry is in its January or
+ * earlier. A company four months old has no shape of a year to follow, and a
+ * forecast drawn from part of one would read its first months as its year.
  */
 export async function setForecastMethod(
   ctx: ServiceContext, input: { year: number; method: b.ForecastMethod },
@@ -522,7 +594,23 @@ export async function setForecastMethod(
   return guardedWrite(ctx, "finance:configure", async (tx) => {
     const year = YEAR(input.year);
     if (!(b.FORECAST_METHODS as readonly string[]).includes(input.method)) {
-      throw new UnprocessableError("Not a way to forecast", [{ path: "method", message: "The months to come are taken at their budget or at the run rate." }]);
+      throw new UnprocessableError("Not a way to forecast", [{ path: "method", message: "The months to come are taken at their budget, at the run rate, or shaped like last year." }]);
+    }
+    if (input.method === "seasonal") {
+      const tz = await timezoneOf(tx, ctx.actor.organizationId);
+      const [first] = await tx.execute<{ day: string | null }>(sql`
+        select to_char(min(le.occurred_at) at time zone ${tz}, 'YYYY-MM-DD') as day
+        from public.ledger_entry le where le.organization_id = ${ctx.actor.organizationId}
+      `);
+      const day = first?.day ?? null;
+      if (day === null || day > `${year - 1}-01-31`) {
+        throw new UnprocessableError("Not a year of history", [{
+          path: "method",
+          message: `Shaping ${year} like ${year - 1} needs all of ${year - 1} in your books, and `
+            + (day === null ? "there is nothing in them yet." : `the first entry in them is on ${day}, so ${year - 1} is not whole.`)
+            + " Take the months to come at their budget or at the run rate until it is.",
+        }]);
+      }
     }
     const budgetId = await budgetFor(tx, ctx.actor.organizationId, year);
     const [before] = await tx.select({ method: schema.budget.forecastMethod }).from(schema.budget)

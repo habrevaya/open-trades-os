@@ -64,6 +64,17 @@ import { feesOf, termsOf } from "./contract-billing";
  * cent, as the fee for every period that starts on or after the anniversary
  * (`contract_billing_fee`). Off by default, because a fixed fee that says
  * nothing about rising does not.
+ *
+ * A PER CENT OR A FIXED AMOUNT. A rise can add an amount instead ("labour
+ * goes up 2.00 an hour a year"), and the fee can have a rise of its own,
+ * by a per cent or by an amount a period ("50.00 more a month"). Which
+ * applies is `core/rates.riseFor`; the arithmetic is `core/rates.riseBy`.
+ *
+ * APPLIED LATE. A rise of the fee applied after periods from the anniversary
+ * were billed reaches only the periods not yet billed. What the billed ones
+ * are short is offered on the contract's page, period by period, as a draft
+ * invoice a person asks for (`contract-billing.draftDifference`); nothing
+ * bills it by itself.
  */
 
 const usd = (value: string) => m.money(value, "USD");
@@ -85,18 +96,36 @@ export interface RiseView {
   jobTypeId: string | null;
   jobTypeName: string | null;
   rate: string;
+  /** The fixed amount it adds, when it is one; null for a per cent. */
+  amount: string | null;
+  /** True for a rise of the contract's fixed fee alone. */
+  fee: boolean;
 }
 
-/** What one price rises by on the preview: the rate, and where it came from in words. */
+/** What one price rises by: the rate or the amount, and where it came from in words. */
 interface PriceRise {
-  /** The rate, or "0" for a price kept as it is. */
+  /** The rate, or "0" for a price kept as it is or one risen by an amount. */
   rate: string;
+  /** The fixed amount added, when the rise is one; null for a per cent. */
+  amount: string | null;
+  /** "Year 3", "Plumbing hourly rates", "Emergency card", "The contract's yearly rate", or "Nothing rises it". */
+  because: string;
+}
+
+/**
+ * A rise as the preview shows it: the amount only when it is one, so a
+ * contract whose rises are all per cents reads exactly as it always did.
+ */
+interface ShownRise {
+  rate: string;
+  /** The fixed amount added, present only when the rise is one. */
+  amount?: string;
   /** "Year 3", "Plumbing hourly rates", "Emergency card", "The contract's yearly rate", or "Nothing rises it". */
   because: string;
 }
 
 /** The contract's fixed fee on the preview, when its schedule rises with the escalation. */
-export interface FeeRise extends PriceRise {
+export interface FeeRise extends ShownRise {
   before: string;
   after: string;
   /** "a month", "every three months", "a year". */
@@ -131,9 +160,9 @@ export interface EscalationPreview {
     name: string;
     effectiveFrom: string | null;
     effectiveTo: string | null;
-    lines: Array<{ id: string; description: string; before: string; after: string } & PriceRise>;
-    labourRates: Array<{ id: string; band: string; jobTypeName: string | null; before: string; after: string } & PriceRise>;
-    tripCharge: ({ before: string; after: string } & PriceRise) | null;
+    lines: Array<{ id: string; description: string; before: string; after: string } & ShownRise>;
+    labourRates: Array<{ id: string; band: string; jobTypeName: string | null; before: string; after: string } & ShownRise>;
+    tripCharge: ({ before: string; after: string } & ShownRise) | null;
   }>;
   /** Every rise the contract carries beyond its own rate, whichever year it is for. */
   rises: RiseView[];
@@ -173,7 +202,26 @@ async function risesOf(tx: Database, contractId: string): Promise<RiseRow[]> {
 
 const asRise = (row: RiseRow): rates.Rise => ({
   contractYear: row.contractYear, rateCardId: row.rateCardId, jobTypeId: row.jobTypeId, rate: row.rate,
+  amount: row.amount, fee: row.fee,
 });
+
+/** The amount of a rise, when it is one. */
+const amountIn = (r: { amount?: string | null | undefined }): string | null => r.amount ?? null;
+
+/** Whether a rise found moves the price at all: a per cent above nothing, or an amount. */
+const moves = (r: { rate: string; amount?: string | null | undefined }): boolean => amountIn(r) !== null || Number(r.rate) > 0;
+
+/** "3%" or "2.00 more", the rise in the words the page and the task use. */
+export function riseText(r: { rate: string; amount?: string | null | undefined }): string {
+  const amount = amountIn(r);
+  return amount !== null ? `${m.edit(m.round(usd(amount), 2))} more` : percent(r.rate);
+}
+
+/** A rise as the preview shows it, with the amount only when there is one. */
+function shownOf(r: PriceRise): ShownRise {
+  const { amount, ...rest } = r;
+  return amount === null ? rest : { ...rest, amount };
+}
 
 /** The contract's own rate when it is one a price can rise by, otherwise null. */
 const baseOf = (contract: ContractRow): string | null =>
@@ -202,17 +250,19 @@ function keyOf(
 ): string {
   const applying = rises
     .filter((r) => r.contractYear === null || r.contractYear === year)
-    .map((r) => `${r.contractYear ?? "*"}|${r.rateCardId ?? "*"}|${r.jobTypeId ?? "*"}|${normRate(r.rate)}`)
+    /** An amount and a fee's own row only when they are there, so a contract with neither keeps the key it always had. */
+    .map((r) => `${r.contractYear ?? "*"}|${r.rateCardId ?? "*"}|${r.jobTypeId ?? "*"}|${normRate(r.rate)}`
+      + `${r.amount !== null ? `|+${m.toString(usd(r.amount))}` : ""}${r.fee ? "|fee" : ""}`)
     .sort();
   /** The fee only when it rises with the escalation, so a contract without one keeps the key it always had. */
   const body = JSON.stringify([
     anniversary, base === null ? null : normRate(base), applying,
-    ...(fee ? [["fee", m.toString(usd(fee.before)), normRate(fee.rate)]] : []),
+    ...(fee ? [["fee", m.toString(usd(fee.before)), normRate(fee.rate), ...(fee.amount !== undefined ? [m.toString(usd(fee.amount))] : [])]] : []),
   ]);
   return createHash("sha256").update(body).digest("hex").slice(0, 24);
 }
 
-/** No rise names this, so the fee takes only the year's rise for every card, or the contract's rate. */
+/** No card is called this; the fee's rise is looked up with `fee` set, which never reads the card. */
 const FEE = "fixed-fee";
 
 /**
@@ -222,7 +272,7 @@ const FEE = "fixed-fee";
  */
 async function feeRiseOf(
   tx: Database, contract: ContractRow, anniversary: string, year: number,
-  riseOf: (rateCardId: string, jobTypeId: string | null) => PriceRise,
+  riseOf: (rateCardId: string, jobTypeId: string | null, fee?: boolean) => PriceRise,
 ): Promise<{ fee: FeeRise; scheduleId: string } | null> {
   const [schedule] = await tx.select().from(schema.contractBillingSchedule)
     .where(eq(schema.contractBillingSchedule.contractId, contract.id)).limit(1);
@@ -230,11 +280,11 @@ async function feeRiseOf(
   const terms = termsOf(schedule, contract, [], await feesOf(tx, schedule.id));
   if (terms.endsOn && terms.endsOn < anniversary) return null;
   const before = m.toString(cb.feeOn(terms, time.addDays(anniversary, -1)));
-  const found = riseOf(FEE, null);
+  const found = riseOf(FEE, null, true);
   return {
     scheduleId: schedule.id,
     fee: {
-      before, after: risen(before, found.rate), ...found,
+      before, after: risen(before, found), ...shownOf(found),
       per: ({ monthly: "a month", quarterly: "every three months", yearly: "a year" } as const)[schedule.frequency],
     },
   };
@@ -308,7 +358,7 @@ async function previewIn(
   const feeRise = await feeRiseOf(tx, contract, anniversary, year, riseOf);
   const cards = await cardsAt(tx, contract.id, anniversary);
   /** A contract whose only price is its fixed fee still rises, when the fee does. */
-  if (cards.length === 0 && !(feeRise && Number(feeRise.fee.rate) > 0)) {
+  if (cards.length === 0 && !(feeRise && moves(feeRise.fee))) {
     return { ...base, problem: `No card of this contract is in force on ${time.addDays(anniversary, -1)}, so there are no prices to rise.` };
   }
   const ids = cards.map((c) => c.id);
@@ -323,7 +373,7 @@ async function previewIn(
   ]);
   const priced = (price: string, card: CardRow, jobTypeId: string | null) => {
     const found = riseOf(card.id, jobTypeId);
-    return { before: price, after: risen(price, found.rate), ...found };
+    return { before: price, after: risen(price, found), ...shownOf(found) };
   };
 
   return {
@@ -349,9 +399,9 @@ async function previewIn(
   };
 }
 
-/** A price risen by a rate to the cent, or kept exactly as it is when nothing rises it. */
-function risen(price: string, rate: string): string {
-  return Number(rate) === 0 ? price : m.toString(rates.escalate(usd(price), rate));
+/** A price risen by a rate or an amount to the cent, or kept exactly as it is when nothing rises it. */
+function risen(price: string, rise: { rate: string; amount?: string | null | undefined }): string {
+  return moves(rise) ? m.toString(rates.riseBy(usd(price), { rate: rise.rate, amount: amountIn(rise) })) : price;
 }
 
 /**
@@ -361,17 +411,18 @@ function risen(price: string, rate: string): string {
 function pricer(contract: ContractRow, rises: readonly RiseRow[], named: readonly RiseView[], year: number) {
   const base = baseOf(contract);
   const list = rises.map(asRise);
-  return (rateCardId: string, jobTypeId: string | null): PriceRise => {
-    const found = rates.riseFor({ rises: list, baseRate: base, year, rateCardId, jobTypeId });
-    if (!found) return { rate: "0", because: "Nothing rises it" };
-    if (!found.rise) return { rate: found.rate, because: "The contract's yearly rate" };
-    return { rate: found.rate, because: riseWords(named[list.indexOf(found.rise)]) };
+  return (rateCardId: string, jobTypeId: string | null, fee = false): PriceRise => {
+    const found = rates.riseFor({ rises: list, baseRate: base, year, rateCardId, jobTypeId, fee });
+    if (!found) return { rate: "0", amount: null, because: "Nothing rises it" };
+    if (!found.rise) return { rate: found.rate, amount: null, because: "The contract's yearly rate" };
+    return { rate: found.rate, amount: found.amount, because: riseWords(named[list.indexOf(found.rise)]) };
   };
 }
 
 /** "Year 3, plumbing hourly rates on the Emergency card", in the words the page uses. */
 function riseWords(rise: RiseView | undefined): string {
   if (!rise) return "A rise on the contract";
+  if (rise.fee) return `${rise.contractYear === null ? "Every year" : `Year ${rise.contractYear}`}, the fixed fee`;
   const what = [
     rise.jobTypeName ? `${rise.jobTypeName} hourly rates` : null,
     rise.rateCardName ? `${rise.jobTypeName ? "on " : ""}${rise.rateCardName}` : null,
@@ -404,6 +455,8 @@ async function nameRises(tx: Database, contractId: string, rows: readonly RiseRo
     jobTypeId: r.jobTypeId,
     jobTypeName: r.jobTypeId ? typeName.get(r.jobTypeId) ?? null : null,
     rate: r.rate,
+    amount: r.amount,
+    fee: r.fee,
   }));
 }
 
@@ -438,7 +491,13 @@ export interface EscalationResult {
   rate: string | null;
   cards: Array<{ fromRateCardId: string; rateCardId: string; name: string; effectiveFrom: string }>;
   /** The fixed fee from the anniversary, when it rose with the cards. */
-  fee: { from: string; amount: string; previousAmount: string; rate: string } | null;
+  fee: { from: string; amount: string; previousAmount: string; rate: string; riseAmount?: string } | null;
+  /**
+   * Periods from the anniversary already billed at the old fee, when the rise
+   * was applied late. The contract's page offers the difference as a draft;
+   * nothing bills it by itself.
+   */
+  billedAtOldFee: number;
 }
 
 /** Two rates as the same decimal, whatever trailing noughts each was written with. */
@@ -480,7 +539,8 @@ export function apply(
         cards: made.filter((c) => c.escalatedFromId).map((c) => ({
           fromRateCardId: c.escalatedFromId!, rateCardId: c.id, name: c.name, effectiveFrom: c.effectiveFrom!,
         })),
-        fee: fee ? { from: fee.effectiveFrom, amount: fee.amount, previousAmount: fee.previousAmount, rate: fee.rate } : null,
+        fee: fee ? feeResult(fee) : null,
+        billedAtOldFee: fee ? await billedBefore(tx, locked.id, fee) : 0,
       };
     }
 
@@ -503,7 +563,7 @@ export function apply(
       throw new ConflictError(
         `Year ${year}'s rise differs by year, card or trade, so one rate does not say what was shown. Apply it from the preview, which names each rise.`,
       );
-    } else if (shown.fee && Number(shown.fee.rate) > 0) {
+    } else if (shown.fee && moves(shown.fee)) {
       throw new ConflictError(
         `The fixed fee rises with year ${year}'s prices, so one rate does not say what was shown. Apply it from the preview, which shows the fee.`,
       );
@@ -527,7 +587,7 @@ export function apply(
     const made: EscalationResult["cards"] = [];
     for (const card of await cardsAt(tx, locked.id, anniversary)) {
       const next = await writeRisen(tx, ctx.actor.organizationId, card, {
-        anniversary, year, riseOf: (jobTypeId) => riseOf(card.id, jobTypeId).rate, draft: false,
+        anniversary, year, riseOf: (jobTypeId) => riseOf(card.id, jobTypeId), draft: false,
       });
       /** The old card ends the day before, so exactly one is in force on any day. */
       await tx.update(schema.rateCard).set({ effectiveTo: time.addDays(anniversary, -1), updatedAt: new Date() })
@@ -545,12 +605,15 @@ export function apply(
      */
     const feeRise = await feeRiseOf(tx, locked, anniversary, year, riseOf);
     let fee: EscalationResult["fee"] = null;
-    if (feeRise && Number(feeRise.fee.rate) > 0) {
+    let billedAtOldFee = 0;
+    if (feeRise && moves(feeRise.fee)) {
       const [row] = await tx.insert(schema.contractBillingFee).values({
         organizationId: ctx.actor.organizationId, contractId: locked.id, scheduleId: feeRise.scheduleId,
         effectiveFrom: anniversary, amount: feeRise.fee.after, previousAmount: feeRise.fee.before, rate: feeRise.fee.rate,
+        riseAmount: feeRise.fee.amount ?? null,
       }).returning();
-      fee = { from: row!.effectiveFrom, amount: row!.amount, previousAmount: row!.previousAmount, rate: row!.rate };
+      fee = feeResult(row!);
+      billedAtOldFee = await billedBefore(tx, locked.id, row!);
     }
 
     await tx.update(schema.serviceContract).set({ escalatedThrough: anniversary, updatedAt: new Date() })
@@ -559,11 +622,33 @@ export function apply(
     await audit(tx, ctx, "contract.escalated", "service_contract", locked.id,
       { escalatedThrough: locked.escalatedThrough },
       {
-        escalatedThrough: anniversary, rate, cards: made, fee,
+        escalatedThrough: anniversary, rate, cards: made, fee, billedAtOldFee,
         rises: shown.rises.filter((r) => r.contractYear === null || r.contractYear === year),
       });
-    return { contractId: locked.id, anniversary, rate, cards: made, fee };
+    return { contractId: locked.id, anniversary, rate, cards: made, fee, billedAtOldFee };
   });
+}
+
+/** A fee risen from an anniversary as the API says it, with the amount it rose by only when it rose by one. */
+function feeResult(row: typeof schema.contractBillingFee.$inferSelect): NonNullable<EscalationResult["fee"]> {
+  return {
+    from: row.effectiveFrom, amount: row.amount, previousAmount: row.previousAmount, rate: row.rate,
+    ...(row.riseAmount !== null ? { riseAmount: row.riseAmount } : {}),
+  };
+}
+
+/**
+ * How many periods from a risen fee's day were billed before it was written:
+ * the ones the rise reached too late, whose difference the page offers.
+ */
+async function billedBefore(tx: Database, contractId: string, fee: { effectiveFrom: string; createdAt: Date }): Promise<number> {
+  const rows = await tx.select({ id: schema.contractBillingPeriod.id }).from(schema.contractBillingPeriod).where(and(
+    eq(schema.contractBillingPeriod.contractId, contractId),
+    eq(schema.contractBillingPeriod.status, "invoiced"),
+    gte(schema.contractBillingPeriod.periodStart, fee.effectiveFrom),
+    lte(schema.contractBillingPeriod.createdAt, fee.createdAt),
+  ));
+  return rows.length;
 }
 
 /**
@@ -574,10 +659,10 @@ export function apply(
  */
 async function writeRisen(
   tx: Database, organizationId: string, card: CardRow,
-  input: { anniversary: string; year: number; riseOf: (jobTypeId: string | null) => string; draft: boolean },
+  input: { anniversary: string; year: number; riseOf: (jobTypeId: string | null) => PriceRise; draft: boolean },
 ): Promise<CardRow> {
-  const cardRate = input.riseOf(null);
-  const up = (price: string) => risen(price, cardRate);
+  const cardRise = input.riseOf(null);
+  const up = (price: string) => risen(price, cardRise);
   const [next] = await tx.insert(schema.rateCard).values({
     organizationId,
     name: nameFor(card.name, input.year),
@@ -594,8 +679,12 @@ async function writeRisen(
     standardEndMinute: card.standardEndMinute,
     holidays: card.holidays,
     escalatedFromId: card.id,
-    /** The card's own rise, what its listed prices rose by; a trade's rise on its hourly rates is on the audit line. */
-    escalationRate: cardRate,
+    /**
+     * The card's own rise, what its listed prices rose by, when it is a per
+     * cent; a rise by an amount, and a trade's rise on its hourly rates, are
+     * on the audit line.
+     */
+    escalationRate: cardRise.amount === null ? cardRise.rate : null,
   }).returning();
 
   const lines = await tx.select().from(schema.rateCardLine).where(eq(schema.rateCardLine.rateCardId, card.id));
@@ -732,13 +821,13 @@ async function noticeOne(
     await removeDrafts(tx, contract.id, anniversary);
     for (const card of await cardsAt(tx, contract.id, anniversary)) {
       await writeRisen(tx, ctx.actor.organizationId, card, {
-        anniversary, year, riseOf: (jobTypeId) => riseOf(card.id, jobTypeId).rate, draft: true,
+        anniversary, year, riseOf: (jobTypeId) => riseOf(card.id, jobTypeId), draft: true,
       });
     }
   };
 
   /** The fixed fee as the draft prepares it, when it rises; for looking at, as the draft cards are. */
-  const feeDraft = shown.fee && Number(shown.fee.rate) > 0 ? shown.fee.after : null;
+  const feeDraft = shown.fee && moves(shown.fee) ? shown.fee.after : null;
   const [claimed] = await tx.insert(schema.contractEscalationNotice).values({
     organizationId: ctx.actor.organizationId, contractId: contract.id, anniversary, rate, preparedFrom: key, feeDraft,
   }).onConflictDoNothing().returning();
@@ -793,10 +882,10 @@ function taskBody(shown: EscalationPreview, year: number, anniversary: string): 
   const says = applying.length === 0
     ? `rates rise by ${percent(base ?? "0")} on ${anniversary}`
     : `rates rise on ${anniversary}: ${[
-      ...applying.map((r) => `${riseWords(r).toLowerCase()} by ${percent(r.rate)}`),
+      ...applying.map((r) => `${riseWords(r).toLowerCase()} by ${riseText(r)}`),
       ...(base ? [`everything else by ${percent(base)}`] : []),
     ].join(", ")}`;
-  const fee = shown.fee && Number(shown.fee.rate) > 0
+  const fee = shown.fee && moves(shown.fee)
     ? ` The fixed fee rises with them, from ${m.edit(m.round(usd(shown.fee.before), 2))} to ${m.edit(m.round(usd(shown.fee.after), 2))} ${shown.fee.per}.`
     : "";
   return `The contract says ${says}.${fee} Year ${year}'s ${shown.cards.length > 0 ? "cards are" : "fee is"} prepared as a draft `
@@ -832,7 +921,12 @@ export interface RiseInput {
   contractYear?: number | null | undefined;
   rateCardId?: string | null | undefined;
   jobTypeId?: string | null | undefined;
-  rate: string;
+  /** A per cent as a fraction; left off for a rise by an amount. */
+  rate?: string | null | undefined;
+  /** A fixed amount added to each price instead, "2.00"; left off for a per cent. */
+  amount?: string | null | undefined;
+  /** For the contract's fixed fee alone, by the period it is billed for. */
+  fee?: boolean | undefined;
 }
 
 /** The contract's rises, with the card and trade each names. */
@@ -855,12 +949,23 @@ export function listRises(ctx: ServiceContext, input: { contractId: string }): P
 export function setRises(ctx: ServiceContext, input: { contractId: string; rises: RiseInput[] }): Promise<RiseView[]> {
   return guardedWrite(ctx, "contract:write", async (tx) => {
     const contract = await loadContract(tx, input.contractId);
-    const rows: rates.Rise[] = input.rises.map((r) => ({
-      contractYear: r.contractYear ?? null,
-      rateCardId: r.rateCardId ?? null,
-      jobTypeId: r.jobTypeId ?? null,
-      rate: r.rate.trim(),
-    }));
+    const rows: rates.Rise[] = [];
+    for (const [i, r] of input.rises.entries()) {
+      const amount = r.amount === null || r.amount === undefined || r.amount.trim() === "" ? null : r.amount.trim();
+      const rate = r.rate === null || r.rate === undefined || r.rate.trim() === "" ? null : r.rate.trim();
+      if (amount !== null && rate !== null && Number(rate) !== 0) {
+        throw new ConflictError(`Row ${i + 1} says both a per cent and an amount. Keep one.`);
+      }
+      if (amount === null && rate === null) throw new ConflictError(`Row ${i + 1} says neither a per cent nor an amount.`);
+      rows.push({
+        contractYear: r.contractYear ?? null,
+        rateCardId: r.rateCardId ?? null,
+        jobTypeId: r.jobTypeId ?? null,
+        rate: amount !== null ? "0" : rate!,
+        amount,
+        fee: r.fee === true,
+      });
+    }
     const problem = rates.risesProblem(rows);
     if (problem) throw new ConflictError(problem);
     const cardIds = [...new Set(rows.map((r) => r.rateCardId).filter((id): id is string => id !== null))];
@@ -886,6 +991,8 @@ export function setRises(ctx: ServiceContext, input: { contractId: string; rises
         rateCardId: r.rateCardId,
         jobTypeId: r.jobTypeId,
         rate: r.rate,
+        amount: r.amount ?? null,
+        fee: r.fee === true,
       })));
     }
     const after = await risesOf(tx, contract.id);

@@ -133,7 +133,7 @@ export const costingRate = pgTable("costing_rate", {
 /* -------------------------------------------------------------- budget */
 
 /** Mirrors `budget.FORECAST_METHODS` in core, which says what each does. */
-export const budgetForecastMethod = pgEnum("budget_forecast_method", ["budget", "run_rate"]);
+export const budgetForecastMethod = pgEnum("budget_forecast_method", ["budget", "run_rate", "seasonal"]);
 
 /** A company's budget for one calendar year. */
 export const budget = pgTable("budget", {
@@ -143,7 +143,8 @@ export const budget = pgTable("budget", {
   note: text("note"),
   /**
    * How the year end forecast takes the months still to come: at their
-   * budget, the default, or at the run rate of the months already over. One
+   * budget, the default, at the run rate of the months already over, or
+   * shaped like last year, month by month (`seasonal`). One
    * choice for the year, so everybody reading the report reads the same
    * forecast, and it applies to a branch's and a job type's report too.
    */
@@ -178,9 +179,10 @@ export const budgetLine = pgTable("budget_line", {
   businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
   /**
    * The job type this figure is for, or null. A line is the company's, one
-   * branch's or one job type's, never a branch's and a job type's at once,
-   * for the reason the branch's are kept apart from the company's: each is its
-   * own statement, and nothing adds them together.
+   * branch's, one job type's, or one job type's in one branch ("service in the
+   * north shop"), for the reason the branch's are kept apart from the
+   * company's: each is its own statement, and nothing adds them together, so
+   * a branch's own line and that branch's line for one job type are two.
    */
   jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "cascade" }),
   line: text("line").notNull(),
@@ -194,13 +196,15 @@ export const budgetLine = pgTable("budget_line", {
     .where(sql`${t.businessUnitId} is null and ${t.jobTypeId} is null`),
   /** ...one per line per month for each branch. Separate indexes, because a null branch is not equal to itself... */
   branchCellIdx: uniqueIndex("budget_line_branch_cell_idx").on(t.budgetId, t.businessUnitId, t.line, t.month)
-    .where(sql`${t.businessUnitId} is not null`),
-  /** ...and one per line per month for each job type. */
+    .where(sql`${t.businessUnitId} is not null and ${t.jobTypeId} is null`),
+  /** ...one per line per month for each job type... */
   jobTypeCellIdx: uniqueIndex("budget_line_job_type_cell_idx").on(t.budgetId, t.jobTypeId, t.line, t.month)
-    .where(sql`${t.jobTypeId} is not null`),
+    .where(sql`${t.jobTypeId} is not null and ${t.businessUnitId} is null`),
+  /** ...and one per line per month for each job type in each branch. */
+  branchJobTypeCellIdx: uniqueIndex("budget_line_branch_job_type_cell_idx")
+    .on(t.budgetId, t.businessUnitId, t.jobTypeId, t.line, t.month)
+    .where(sql`${t.businessUnitId} is not null and ${t.jobTypeId} is not null`),
   monthCheck: check("budget_line_month", sql`${t.month} between 1 and 12`),
-  /** A branch's line or a job type's, not both. */
-  oneScopeCheck: check("budget_line_one_scope", sql`${t.businessUnitId} is null or ${t.jobTypeId} is null`),
 }));
 
 /* ------------------------------------------------------------ journals */

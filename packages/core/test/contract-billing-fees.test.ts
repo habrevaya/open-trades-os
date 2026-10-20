@@ -36,3 +36,17 @@ describe("a fee that rose", () => {
     expect(m.toString(cb.feeOn(twice, "2028-03-15"))).toBe("1273.0800");
   });
 });
+
+describe("a rise applied after periods at the new fee were billed", () => {
+  it("reprices a billed period exactly as it was billed, by the fee in force on its first day", () => {
+    /** Billed before the rise was applied: the whole of March at 1,200.00, and the part period at the end by the day. */
+    const billedThen = cb.periodsThrough({ ...schedule, fees: [] }, "2027-06-30");
+    const march = billedThen.find((p) => p.start === "2027-03-15")!;
+    const may = billedThen.find((p) => p.start === "2027-05-15")!;
+    expect(m.toString(cb.repriced(schedule, march))).toBe("1236.0000");
+    expect(m.toString(cb.repriced(schedule, may))).toBe(m.toString(cb.prorate(usd("1236.00"), 17, 31)));
+    /** The period that straddles the rise started before it, so nothing about it changes. */
+    const feb = billedThen.find((p) => p.start === "2027-02-15")!;
+    expect(m.toString(cb.repriced(schedule, feb))).toBe(m.toString(feb.amount));
+  });
+});

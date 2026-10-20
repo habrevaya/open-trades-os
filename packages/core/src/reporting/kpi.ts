@@ -1188,7 +1188,15 @@ export interface ChemicalApplication {
   itemUnit: string | null;
   /** The item's cost per unit in the version in force on the stop's day, or null when none was recorded. */
   costPerUnit: number | null;
+  /**
+   * That version's units, when it says it is bought in one and used in
+   * another: its cost is then per the buy unit. Null or left off for a version
+   * that does not, which is valued exactly as before.
+   */
+  units?: { buy: string; use: string; usePerBuy: number } | null;
 }
+
+const sameUnitName = (a: string | null, b: string) => a !== null && a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /**
  * "Cost of product applied, valued from the product register, divided by
@@ -1209,11 +1217,30 @@ export interface ChemicalApplication {
  * would make the stop read cheaper than it was, so it is counted beside the
  * figure instead. A stop where nothing was applied is a stop at no cost, and
  * counts.
+ *
+ * BOUGHT IN ONE UNIT, USED IN ANOTHER. When the version in force says so
+ * ("gal" bought, "oz" used, 128 to the gallon), its cost is per the buy unit,
+ * and an application recorded in either is valued: in the buy unit at the
+ * cost, in the use unit at the cost over the ratio. Recorded in a third unit
+ * it is left out like any other. A version that says nothing about units is
+ * valued exactly as it was.
  */
 export function chemicalCostOf(applications: readonly ChemicalApplication[]): { counted: true; cost: number } | { counted: false } {
   let cost = 0;
   for (const application of applications) {
     if (application.quantity === null) continue;
+    const units = application.units ?? null;
+    if (application.itemId !== null && application.costPerUnit !== null && units) {
+      if (sameUnitName(application.unit, units.buy)) {
+        cost += application.quantity * application.costPerUnit;
+        continue;
+      }
+      if (sameUnitName(application.unit, units.use) && units.usePerBuy > 0) {
+        cost += (application.quantity * application.costPerUnit) / units.usePerBuy;
+        continue;
+      }
+      return { counted: false };
+    }
     if (application.itemId === null || application.costPerUnit === null
       || application.itemUnit === null || application.unit !== application.itemUnit) {
       return { counted: false };

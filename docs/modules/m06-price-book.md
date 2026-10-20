@@ -127,6 +127,24 @@ is equipment placed at a site, which that figure leaves out, so marking one is
 refused, and so is changing a marked item to another kind. Marking changes no
 price and writes no version.
 
+**Bought in one unit, used in another**, in the same "Change the price or wording"
+form and on `/pricebook/items/new`: the unit it is bought in ("gal"), the unit it
+is used in ("oz") and how many of one are in the other (128), all three or none
+(`units` on `POST /v1/pricebook/items` and on the revise call; null takes them
+off, left off they carry forward, and part of them is refused in words). Then the
+version's cost is what one buy unit costs, the figure on the supplier's bill, and
+its price, every line's quantity and every application are in the use unit. A
+line takes its cost from the book per use unit (`costPerUse` on the item, the
+cost over the ratio at four places), so a job line, an invoice line and an
+estimate line for 16 ounces of a 40.00 gallon are costed at 0.3125 an ounce, and
+job costing and the margin read that (M15). Pest control's chemical cost per stop
+values an application recorded in either unit (M21), and the office's visit page
+can record one in either. A supplier's file brought in with `updateItemCost`
+gives the cost per our unit, the ounce, and the version keeps it per gallon. A
+version with no units, which is every version written before this, is costed
+exactly as before. Changing the units is a revision like a price, so a document
+already written keeps the version it was priced from.
+
 **What is in the kit**, on the same screen, lists a kit's parts by code with how
 many of each, and saves a changed list as a new version, now or from a day ahead,
 exactly like a price change (`components` on the revise call): an estimate already
@@ -299,5 +317,11 @@ its own and is not worked out from its parts. Whether an item is taxed is a yes 
 a no: an item taxed at a reduced rate has that rate chosen on the line by the office. A revision dated ahead is staged from the start of that day
 in the company's calendar; a time of day is an API call. A chemical's cost is
 the item's own cost on its version: the price paid for a particular drum on a
-purchase order is not read, and an item's unit is one unit, so a product bought
-by the gallon and applied by the ounce needs its cost per ounce on the item.
+purchase order is not read. An item bought in one unit and used in another
+converts between those two only, at the ratio its version states: a third unit
+(a quart of a gallon product) is not converted, and a line's quantity is always
+in the use unit, so ordering by the gallon is still purchasing's pack, not the
+version's units (M16). The cost per use unit is kept to four decimal places on a
+line, so a cost that does not divide evenly is a hundredth of a cent out per
+unit. The phone records a chosen product in the chemical's own unit and cannot
+pick the other.

@@ -34,6 +34,18 @@ export const ChemicalMark = z.object({
   epaRegistrationNumber: z.string().trim().max(40).nullable(),
 });
 
+/**
+ * Bought in one unit and used in another: a gallon drum applied by the ounce
+ * is `{ buy: "gal", use: "oz", usePerBuy: "128" }`. The version's cost is
+ * then what one buy unit costs, and its price, every line's quantity and an
+ * application are in the use unit, costed at the cost over `usePerBuy`.
+ */
+export const ItemUnits = z.object({
+  buy: z.string().trim().min(1).max(20),
+  use: z.string().trim().min(1).max(20),
+  usePerBuy: z.string().regex(/^\d+(\.\d{1,6})?$/, "How many use units are in one buy unit, like 128"),
+});
+
 export const PriceBookItem = z.object({
   id: Uuid,
   versionId: Uuid,
@@ -56,9 +68,13 @@ export const PriceBookItem = z.object({
   warrantyRegistrationDays: z.number().int().nullable(),
   /** A kit's parts: other items included in it, each with how many. Empty for an item that is not a kit. */
   components: z.array(KitComponent),
+  /** Bought in one unit and used in another; null for an item that is not, whose cost is per the one unit its lines count. */
+  units: ItemUnits.nullable(),
   active: z.boolean(),
-  /** Redacted unless the caller holds pricebook.cost:read. */
+  /** Redacted unless the caller holds pricebook.cost:read. Per the buy unit when `units` says one. */
   cost: MoneyString.nullable().optional(),
+  /** What one use unit costs, when `units` says one: the cost over `usePerBuy`. What a line is costed at and the margin is of. Redacted with cost. */
+  costPerUse: MoneyString.optional(),
   margin: RateString.nullable().optional(),
   commissionRate: RateString.nullable().optional(),
   externalRef: ExternalRef.nullable(),
@@ -107,6 +123,8 @@ export const createPriceBookItem = defineRoute({
     warrantyMonths: z.number().int().min(0).max(600).optional(),
     /** Days after the install the maker allows to register the unit. Left out, the maker does not ask. */
     warrantyRegistrationDays: z.number().int().min(1).max(365).optional(),
+    /** Bought in one unit and used in another, with `cost` per the buy unit. Left out, it is not. */
+    units: ItemUnits.optional(),
     feeRole: FeeRole.optional(),
     /** Where this came from in another system. See `ExternalRef`. */
     externalRef: ExternalRef.optional(),
@@ -123,7 +141,7 @@ export const revisePriceBookItem = defineRoute({
   method: "post",
   path: "/v1/pricebook/items/{id}/revise",
   summary: "Revise a price book item",
-  description: "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate and a kit's parts, each carried forward when left off. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.",
+  description: "Creates a new version, from now or from `effectiveFrom`: the name, description, picture, price, cost, labour minutes, tax, warranty, commission rate, a kit's parts and the units it is bought and used in, each carried forward when left off. With `units`, the cost is per the buy unit and a line is costed per the use unit. A commission rate also needs `commission:configure`. Existing documents keep the version they were priced against.",
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -139,6 +157,8 @@ export const revisePriceBookItem = defineRoute({
     warrantyMonths: z.number().int().min(0).max(600).nullable().optional(),
     /** Days after the install the maker allows to register the unit. Null takes it off; left out, the current one carries forward. */
     warrantyRegistrationDays: z.number().int().min(1).max(365).nullable().optional(),
+    /** Bought in one unit and used in another, with `cost` per the buy unit. Null takes them off; left out, they carry forward. */
+    units: ItemUnits.nullable().optional(),
     /**
      * The kit's parts, replacing the whole list, written into the new version
      * like any other field. An empty list makes it an item that is not a kit.

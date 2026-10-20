@@ -5,7 +5,7 @@ import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
-import { inForceAt, load, reviseWithin } from "./pricebook";
+import { costPerUseUnit, inForceAt, load, reviseWithin, unitsOf } from "./pricebook";
 import * as once from "./once";
 
 /**
@@ -346,7 +346,7 @@ async function stateFor(tx: Database, rows: readonly catalogue.CatalogueRow[]): 
     id: schema.priceBookItem.id,
     code: schema.priceBookItem.code,
     name: schema.priceBookItemVersion.name,
-    cost: schema.priceBookItemVersion.cost,
+    cost: costPerUseUnit,
   })
     .from(schema.priceBookItem)
     .innerJoin(schema.priceBookItemVersion, and(
@@ -527,7 +527,12 @@ export async function apply(
     const reviseCost = async (itemId: string, cost: string) => {
       const current = await load(tx, itemId);
       if (!current) return;
-      await reviseWithin(tx, ctx, current, { cost }, now);
+      /**
+       * The file's cost is per one of OUR units, which an item bought by the
+       * gallon and used by the ounce counts in ounces; its version keeps the
+       * cost per gallon, so the each cost goes back up by the ratio.
+       */
+      await reviseWithin(tx, ctx, current, { cost: catalogue.costPerBuy(cost, unitsOf(current.version)) }, now);
       itemCostsRevised += 1;
     };
 

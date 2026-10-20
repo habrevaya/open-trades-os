@@ -46,6 +46,28 @@ export const clockOf = (minutes: number): string =>
 export const LABOUR_ROWS = 6;
 export const MARKUP_ROWS = 4;
 export const SLA_ROWS = 4;
+/** The most rows any of these forms reads, which is the most the services take. */
+export const MOST_ROWS = 50;
+
+/**
+ * HOW MANY ROWS A FORM SHOWS, AND HOW MANY IT READS.
+ *
+ * A form shows at least its usual number of rows, and always every row
+ * already saved plus two empty ones, so a card with nine hourly rates is
+ * edited nine at a time and a tenth can be added; saved, the page comes back
+ * with two more empty rows. The form says how many it showed (`<name>Rows`),
+ * and the reader reads that many, so a row past the usual number is never
+ * dropped on save the way a fixed count would drop it.
+ */
+export function rowsToShow(usual: number, saved: number): number {
+  return Math.min(MOST_ROWS, Math.max(usual, saved + 2));
+}
+
+/** How many rows the form said it showed, or the usual number from a form that did not say. */
+export function rowsShown(read: Read, name: string, usual: number): number {
+  const said = Number(text(read, `${name}Rows`));
+  return Number.isInteger(said) && said > 0 ? Math.min(MOST_ROWS, said) : usual;
+}
 
 /**
  * The rules form, as the card terms service takes them.
@@ -56,7 +78,7 @@ export const SLA_ROWS = 4;
  */
 export function cardTermsFromForm(read: Read) {
   const labourRates = [];
-  for (let i = 0; i < LABOUR_ROWS; i += 1) {
+  for (let i = 0; i < rowsShown(read, "labour", LABOUR_ROWS); i += 1) {
     const rate = text(read, `rate${i}`);
     if (rate === "") continue;
     const minimum = text(read, `minimum${i}`);
@@ -70,7 +92,7 @@ export function cardTermsFromForm(read: Read) {
     });
   }
   const materialMarkup = [];
-  for (let i = 0; i < MARKUP_ROWS; i += 1) {
+  for (let i = 0; i < rowsShown(read, "markup", MARKUP_ROWS); i += 1) {
     const percent = fractionOf(text(read, `markup${i}`));
     if (percent === null) continue;
     const upTo = text(read, `upTo${i}`);
@@ -132,25 +154,36 @@ export function cardLinesFromText(
 
 export const RISE_ROWS = 6;
 
+/** The "Prices" choice on a rise that means the contract's fixed fee rather than a trade. */
+export const FEE_CHOICE = "fee";
+
 /**
  * The rises that differ by year, card or trade, as the escalation service
  * takes them. A row with no rise typed is skipped; a blank year, card or
  * trade means every one. The rise is typed as a per cent, like the yearly
  * rate beside it, and "0" is kept, because a card fixed for the term is a
- * rise of nothing somebody chose.
+ * rise of nothing somebody chose. Or as a fixed amount in dollars instead,
+ * which the service refuses beside a per cent. "The fixed fee" as the prices
+ * makes it a rise of the fee alone.
  */
 export function risesFromForm(read: Read) {
-  const rises: Array<{ contractYear: number | null; rateCardId: string | null; jobTypeId: string | null; rate: string }> = [];
-  for (let i = 0; i < RISE_ROWS; i += 1) {
+  const rises: Array<{
+    contractYear: number | null; rateCardId: string | null; jobTypeId: string | null; rate?: string;
+    amount?: string; fee?: boolean;
+  }> = [];
+  for (let i = 0; i < rowsShown(read, "rise", RISE_ROWS); i += 1) {
     const typed = text(read, `riseRate${i}`);
-    if (typed === "") continue;
-    const rate = fractionOf(typed) ?? "0";
+    const amount = text(read, `riseAmount${i}`).replace(/[$,\s]/g, "");
+    if (typed === "" && amount === "") continue;
     const year = text(read, `riseYear${i}`);
+    const prices = text(read, `riseTrade${i}`);
     rises.push({
       contractYear: year === "" ? null : Number(year),
       rateCardId: text(read, `riseCard${i}`) || null,
-      jobTypeId: text(read, `riseTrade${i}`) || null,
-      rate,
+      jobTypeId: prices === FEE_CHOICE ? null : prices || null,
+      ...(typed !== "" ? { rate: fractionOf(typed) ?? "0" } : {}),
+      ...(amount !== "" ? { amount } : {}),
+      ...(prices === FEE_CHOICE ? { fee: true } : {}),
     });
   }
   return rises;

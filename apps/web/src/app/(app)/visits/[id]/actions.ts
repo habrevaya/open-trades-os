@@ -87,6 +87,7 @@ export async function recordProductAction(_previous: FormState, form: FormData):
       quantity: field(form, "quantity") ?? "",
       ...(field(form, "applicatorLicense") ? { applicatorLicense: field(form, "applicatorLicense") } : {}),
       ...(field(form, "targetPest") ? { targetPest: field(form, "targetPest") } : {}),
+      ...(field(form, "unit") ? { unit: field(form, "unit") } : {}),
     });
     await productsApplied.record({ actor: (await requireSetupUser()).actor, db: getDb() }, input);
     return { message: "Recorded on the visit's report, with the product's EPA number from the price book." };

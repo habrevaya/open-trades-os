@@ -1164,9 +1164,11 @@ const applicationRecords = (pick: "numerator" | "denominator" | "excluded" | "un
  * APPLICATION is the latest answer to one of its reports' chemical fields that
  * says how much was applied, and it is VALUED at the cost per unit of the price
  * book item it was chosen from, in the version in force when the stop was
- * completed, when it was recorded in the unit that cost is per. A stop with an
- * application that cannot be valued so (typed by name, no cost that day,
- * another unit) is left out of both halves and counted beside. The rule is
+ * completed, when it was recorded in the unit that cost is per. A version
+ * bought in one unit and used in another has its cost per the buy unit, and an
+ * application in either is valued: in the use unit at the cost over the ratio.
+ * A stop with an application that cannot be valued so (typed by name, no cost
+ * that day, another unit) is left out of both halves and counted beside. The rule is
  * core's `reporting.chemicalCostOf`, and
  * `kpi-chemical-cost.integration.test.ts` puts the same stops through both.
  */
@@ -1190,21 +1192,39 @@ const chemicalStops = (from: string, to: string, zone: string) => sql`
     order by f.report_id, f.key, f.recorded_at desc, f.created_at desc
   ),
   applied as (
-    select a.*, i.chemical_unit,
-           (select ver.cost from public.price_book_item_version ver
-            where ver.item_id = a.price_book_item_id
-              and ver.effective_from <= s.completed_at
-              and (ver.effective_to is null or ver.effective_to > s.completed_at)
-            order by ver.effective_from desc limit 1) as cost_per_unit
+    select a.*, i.chemical_unit, ver.cost as cost_per_unit, ver.buy_unit, ver.use_unit, ver.use_per_buy
     from answers a
     join stops s on s.id = a.visit_id
     left join public.price_book_item i on i.id = a.price_book_item_id
+    left join lateral (
+      select v.cost, v.buy_unit, v.use_unit, v.use_per_buy from public.price_book_item_version v
+      where v.item_id = a.price_book_item_id
+        and v.effective_from <= s.completed_at
+        and (v.effective_to is null or v.effective_to > s.completed_at)
+      order by v.effective_from desc limit 1
+    ) ver on true
     where a.quantity_applied is not null
   ),
-  valued as (
-    select applied.*, (price_book_item_id is not null and cost_per_unit is not null
-      and chemical_unit is not null and application_unit = chemical_unit) as valued
+  priced as (
+    /**
+     * What the cost is divided by for the unit it was recorded in. A version
+     * bought in one unit and used in another has its cost per the buy unit:
+     * recorded in that, by one; in the use unit, by how many are in a buy
+     * unit; in anything else, not valued. A version with neither is valued as
+     * it always was, in the chemical's own unit only.
+     */
+    select applied.*, case
+      when use_per_buy > 0 and buy_unit is not null and use_unit is not null then case
+        when lower(btrim(application_unit)) = lower(btrim(buy_unit)) then 1::numeric
+        when lower(btrim(application_unit)) = lower(btrim(use_unit)) then use_per_buy
+      end
+      when chemical_unit is not null and application_unit = chemical_unit then 1::numeric
+    end as per_unit
     from applied
+  ),
+  valued as (
+    select priced.*, (price_book_item_id is not null and cost_per_unit is not null and per_unit is not null) as valued
+    from priced
   ),
   stop_verdicts as (
     select s.*, coalesce((select bool_and(x.valued) from valued x where x.visit_id = s.id), true) as counted,
@@ -1220,11 +1240,12 @@ const chemicalCost = (pick: "numerator" | "denominator" | "unknown"): Records =>
     select 'visit'::text as kind, x.id::text as id,
            concat(coalesce(x.product_name, 'A product'), ', ', trim_scale(x.quantity_applied)::text, ' ',
                   coalesce(x.application_unit, ''), ' at $',
-                  case when scale(trim_scale(x.cost_per_unit)) <= 2 then to_char(x.cost_per_unit, 'FM999999990.00')
-                       else trim_scale(x.cost_per_unit)::text end,
+                  case when scale(trim_scale(round(x.cost_per_unit / x.per_unit, 4))) <= 2
+                       then to_char(round(x.cost_per_unit / x.per_unit, 4), 'FM999999990.00')
+                       else trim_scale(round(x.cost_per_unit / x.per_unit, 4))::text end,
                   ', ', ${sql.raw(stopLabel)}) as label,
            to_char(s.completed_at at time zone ${zone}, 'YYYY-MM-DD') as on_day,
-           round(x.quantity_applied * x.cost_per_unit, 4)::numeric as value,
+           round(x.quantity_applied * x.cost_per_unit / x.per_unit, 4)::numeric as value,
            '/visits/' || s.id as href
     from valued x join stop_verdicts s on s.id = x.visit_id
     where s.counted`
