@@ -181,10 +181,12 @@ export async function recordExpense(_previous: FormState, form: FormData): Promi
     const receipt = await fileAsBase64(form.get("receipt"));
     const amount = field(form, "amount");
     const miles = field(form, "miles");
+    const vehicleId = field(form, "vehicleId");
     await expenses.record(await ctx(), {
-      /** Miles are worked out by the server at the company's rate, so only what was typed is sent. */
+      /** Miles are worked out by the server at the vehicle's, the person's or the company's rate, so only what was typed is sent. */
       ...(amount ? { amount } : {}),
       ...(miles ? { miles } : {}),
+      ...(miles && vehicleId ? { vehicleId } : {}),
       spentOn: field(form, "spentOn") ?? "",
       description: field(form, "description") ?? "",
       ...(jobNumber ? { jobNumber: Number(jobNumber) } : {}),

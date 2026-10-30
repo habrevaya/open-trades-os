@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { pk, money } from "./_shared";
 import { organization, technician, user } from "./tenancy";
 import { job } from "./work";
+import { companyAsset } from "./assets";
 
 /**
  * WHAT A PERSON SPENT FOR THE COMPANY, AND A DAY AWAY
@@ -46,6 +47,15 @@ export const expense = pgTable("expense", {
    */
   miles: numeric("miles", { precision: 8, scale: 1 }),
   mileageRate: numeric("mileage_rate", { precision: 7, scale: 3 }),
+  /**
+   * Which line the rate came from, for a claim in miles: the company's, the person's own or the vehicle's. Kept
+   * so the claim can say so for as long as it exists. Null on a claim made before there were overrides, which
+   * were all worked out at the company's rate, and the view reads it so.
+   */
+  mileageRateSource: text("mileage_rate_source"),
+  /** The vehicle the person named on a claim in miles, and its name as it was. Neither is read back to price anything. */
+  mileageAssetId: uuid("mileage_asset_id").references(() => companyAsset.id, { onDelete: "set null" }),
+  mileageAssetLabel: text("mileage_asset_label"),
   /** The day it was paid, in the company's calendar. */
   spentOn: date("spent_on").notNull(),
   /** What it was for, in the person's words. */
@@ -73,6 +83,39 @@ export const expense = pgTable("expense", {
   jobIdx: index("expense_job_idx").on(t.organizationId, t.jobId),
   /** Miles and the rate they were worked out at are one fact: a claim has both or neither. */
   milesWithRate: check("expense_miles_with_rate", sql`(${t.miles} is null) = (${t.mileageRate} is null)`),
+  rateSourceKnown: check("expense_rate_source_known", sql`${t.mileageRateSource} is null or ${t.mileageRateSource} in ('company', 'person', 'vehicle')`),
+}));
+
+/**
+ * A MILEAGE RATE OF ONE PERSON'S OR ONE VEHICLE'S OWN, FROM A DAY (M17)
+ *
+ * The company's rate for a mile is a history in its pay settings. A company that pays one driver more
+ * (a heavy truck, a long commute) or one vehicle less keeps that here: a line for one person or one
+ * vehicle, from a day, in the same shape as the company's own. A claim in miles is worked out at the
+ * vehicle's line in force on the day of the drive, else the person's, else the company's, and keeps
+ * the rate and where it came from on the claim (`expense.mileage_rate`, `mileage_rate_source`), so a
+ * line added or taken off here never reprices a claim already made.
+ *
+ * Exactly one of the person and the vehicle is named. A line is taken off, never edited, for the reason
+ * the company's lines are: a list that said something other than what claims were paid at would be wrong.
+ */
+export const mileageRateOverride = pgTable("mileage_rate_override", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  technicianId: uuid("technician_id").references(() => technician.id, { onDelete: "cascade" }),
+  assetId: uuid("asset_id").references(() => companyAsset.id, { onDelete: "cascade" }),
+  /** The first day the rate applies, a company date. */
+  fromDay: date("from_day").notNull(),
+  /** Dollars for one mile, up to three decimals. */
+  perMile: numeric("per_mile", { precision: 7, scale: 3 }).notNull(),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  oneSubject: check("mileage_rate_override_one_subject", sql`(${t.technicianId} is null) <> (${t.assetId} is null)`),
+  personDayIdx: uniqueIndex("mileage_rate_override_person_day_idx").on(t.organizationId, t.technicianId, t.fromDay)
+    .where(sql`technician_id is not null`),
+  assetDayIdx: uniqueIndex("mileage_rate_override_asset_day_idx").on(t.organizationId, t.assetId, t.fromDay)
+    .where(sql`asset_id is not null`),
 }));
 
 /**

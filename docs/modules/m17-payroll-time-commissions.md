@@ -491,7 +491,8 @@ has half cents, at most 3.000) and `POST /v1/payroll/mileage-rates/{from}/remova
 (`payroll:configure`, which the office manager does not hold; the owner and the accountant do).
 `GET /v1/payroll/pay-extras` returns the lines, oldest first, and the rate in force today. A claim
 is worked out by the server, never by the caller, at the rate in force on the day of the drive
-(`spentOn`, not the day it was typed): the latest line that starts on or before it. Miles times
+(`spentOn`, not the day it was typed): the latest line that starts on or before it, narrowest
+first (see "A rate of one person's or one vehicle's own" below). Miles times
 the rate is rounded to the cent, the half cent up (12.5 miles at 0.725 is 9.0625, paid as 9.06). The
 miles, the rate and the amount are kept on the claim (`expense.miles`, `expense.mileage_rate`), so
 adding or taking off a line never reprices a claim already made, and the same claim sent again
@@ -508,6 +509,39 @@ phone app, each only when a rate is in force today (the phone is told it with th
 `expense.record` and shows "18.4 miles" until the server has worked the amount out, so it never
 shows a figure it made up. The phone's rate is as of its last fetch: the server works the claim
 out at the rate on the day whatever the phone showed.
+
+**A rate of one person's or one vehicle's own.** A company that pays one driver more, or one
+vehicle less, keeps a line for that person or vehicle in `mileage_rate_override` (one row per
+person or vehicle per starting day, exactly one of the two named, a vehicle being a fleet asset
+of kind vehicle that is not retired). `POST /v1/payroll/mileage-overrides` adds a line
+(`technicianId` or `assetId`, `from`, `perMile`, with the same checks as the company's rate: up to
+three decimals, at most 3.000, a real day), `POST /v1/payroll/mileage-overrides/{id}/removal` takes
+one off, and `GET /v1/payroll/mileage-overrides` lists them (`timesheet:read`, a person's lines
+narrowed to the people the reader's timesheet scope reaches). Setting and removing are
+`payroll:configure`, like the company's rate: the owner and the accountant, not the office
+manager. A day that already has a line for that person or vehicle is refused in words, not
+replaced; the same line sent again is the first answer back and writes one audit row;
+each add and removal writes an audit row (`mileage_rate_override.added`, `.removed`). When a
+claim in miles is made, the rate is the **vehicle's line in force on the day of the drive** (only if
+the claim names a vehicle with `vehicleId`), else the **person's**, else the **company's**. A
+vehicle or person whose lines have not started by that day is passed over, so a line added from
+next month changes nothing before it. A person with a line of their own can claim miles when the
+company has set none; with no line anywhere in force the claim is refused as before. The claim keeps the rate and
+where it came from (`expense.mileage_rate_source`: `company`, `person` or `vehicle`, with the
+vehicle's name as it was in `mileage_asset_label`), so a line added or taken off afterwards never
+reprices a claim already made, and the same claim sent again keeps its first rate. Claims made
+before this existed read as the company's. The source is shown on the claim: "10.0 miles at $0.800 a
+mile, your own rate" on `/me/expenses`, "Ray Ortiz's rate" or "the rate for Van 14" beside the
+amount on `/timesheets/expenses`, and on the line the payroll bureau gets. The owner sets lines on
+`/payroll/pay-rules` under "A mile for one person or one vehicle" (the vehicle picker needs
+`asset:read`). On `/me/expenses` the person sees their own rate today and a "Which vehicle" pick
+that lists only vehicles that have a rate of their own, each with what it pays today
+(`GET /v1/me/expenses` returns `vehicles`); a vehicle is named with `vehicleId` beside `miles`,
+never with an amount. The phone is told the person's rate today (their line, else the company's)
+so it offers miles to someone who has a rate, but it does not pick a vehicle: a claim from the phone
+or `/my-day` is worked out at the person's or the company's rate, and the office sees which. The
+rate is the company's own choice: nothing here knows or checks the tax authority's rate, and
+the screen says so, as it does for the company's rate.
 
 A per diem is the company's rate for one day away. `POST /v1/payroll/pay-extras`
 (`payroll:configure`) sets it, on `/payroll/pay-rules` under "A day away", and
@@ -774,9 +808,10 @@ the technician, and by the office when they did not or got it wrong, on
 rule for the whole company: there is no rule per job or per technician, and "hours" is
 the hours clocked against the job, not against one visit of it. Reimbursements and per diem
 are recorded, decided and exported, but not posted to the ledger, only for people on
-the board, and a decision on a reimbursement cannot be taken back. A mileage rate is one
-company wide figure from a day: there is no rate per person, per vehicle or per kind of work, no
-odometer or trip log behind the miles (they are what the person types, and the office
+the board, and a decision on a reimbursement cannot be taken back. A mileage rate is the
+company's from a day, or a person's or a vehicle's own from a day: there is no rate per kind of
+work, no vehicle chosen from the phone or `/my-day` (only from `/me/expenses` and the API), no vehicle
+tied to a person by custody so that driving it picks its rate by itself, no odometer or trip log behind the miles (they are what the person types, and the office
 decides), no distance worked out from the addresses, and nothing checks the rate or the miles against the
 tax authority's rate. A claim in miles is not repriced when its rate is wrong: it is refused by the
 office and entered again. A per diem does not vary by meal, and nothing checks a per diem against the tax

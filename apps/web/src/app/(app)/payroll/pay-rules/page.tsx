@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { laborSettings, payExtras } from "@opentradesos/api/services";
+import { assets, laborSettings, mileageOverrides, payExtras } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
@@ -57,11 +57,14 @@ export default async function PayRulesPage() {
     );
   }
 
-  const [policies, scales, people, extras] = await Promise.all([
+  const [policies, scales, people, extras, overrides, fleet] = await Promise.all([
     laborSettings.policies(ctx),
     laborSettings.scales(ctx, {}),
     laborSettings.crewRates(ctx),
     payExtras.get(ctx),
+    mileageOverrides.list(ctx),
+    /** The picker of vehicles needs the fleet register, which not everybody who reads pay rules may read. */
+    can(user.actor, "asset:read") ? assets.listAssets(ctx, { kind: "vehicle" }) : Promise.resolve({ on: "", assets: [] }),
   ]);
   const configures = can(user.actor, "payroll:configure");
   const current = policies.find((p) => p.active) ?? null;
@@ -368,6 +371,59 @@ export default async function PayRulesPage() {
           <ActionForm action={act} submit="Add the rate" hidden={{ op: "mileageAdd" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
             <TextField label="Starting on" name="from" type="date" required defaultValue={today} />
             <TextField label="Dollars for one mile" name="perMile" inputMode="decimal" required placeholder="0.725" />
+          </ActionForm>
+        ) : null}
+      </section>
+
+      <section className="mt-10" aria-labelledby="mileage-own-heading">
+        <h2 id="mileage-own-heading" className="text-base font-semibold">A mile for one person or one vehicle</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          Leave this empty and everybody is paid the company rate above. A line here is for one person or one
+          vehicle, from a day. A claim in miles uses the vehicle&apos;s line first, if the person names that vehicle,
+          then the person&apos;s line, then the company rate, each as it stood on the day they drove. The claim keeps
+          the rate and says whose it was. Adding or taking off a line never changes a claim already made. As with
+          the company rate, keeping it within what the tax authority allows without tax is yours to check.
+        </p>
+        {overrides.lines.length > 0 ? (
+          <Table label="Mileage rates for one person or vehicle"
+                 head={<><Th>For</Th><Th>From</Th><Th className="text-right">A mile</Th><Th>{""}</Th></>}>
+            {overrides.lines.map((line) => (
+              <tr key={line.id}>
+                <Td className="font-medium">
+                  {line.subjectName}
+                  <span className="block text-xs font-normal text-ink-500">{line.kind === "person" ? "Person" : "Vehicle"}</span>
+                </Td>
+                <Td className="whitespace-nowrap">
+                  {formatDay(line.from, zone)}
+                  {line.inForceToday ? <Chip tone="success" className="ml-2">In use today</Chip> : null}
+                </Td>
+                <Td className="text-right tabular-nums">${line.perMile}</Td>
+                <Td>
+                  {configures ? (
+                    <ActionForm action={act} submit={`Take off the rate for ${line.subjectName} from ${formatDay(line.from, zone)}`} tone="danger"
+                                hidden={{ op: "mileageOverrideRemove", id: line.id }} />
+                  ) : null}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        ) : null}
+        {configures && people.length > 0 ? (
+          <ActionForm action={act} submit="Add the rate for this person" hidden={{ op: "mileageOverrideAdd" }}
+                      className="mt-4 grid max-w-xl gap-3 sm:grid-cols-3">
+            <Select label="Person" name="technicianId" required
+                    options={people.map((p) => ({ value: p.id, label: p.displayName }))} />
+            <TextField label="Person's rate starts on" name="from" type="date" required defaultValue={today} />
+            <TextField label="Dollars for one mile, for this person" name="perMile" inputMode="decimal" required placeholder="0.725" />
+          </ActionForm>
+        ) : null}
+        {configures && fleet.assets.length > 0 ? (
+          <ActionForm action={act} submit="Add the rate for this vehicle" hidden={{ op: "mileageOverrideAdd" }}
+                      className="mt-4 grid max-w-xl gap-3 sm:grid-cols-3">
+            <Select label="Vehicle" name="assetId" required
+                    options={fleet.assets.map((v) => ({ value: v.id, label: v.label }))} />
+            <TextField label="Vehicle's rate starts on" name="from" type="date" required defaultValue={today} />
+            <TextField label="Dollars for one mile, for this vehicle" name="perMile" inputMode="decimal" required placeholder="0.500" />
           </ActionForm>
         ) : null}
       </section>

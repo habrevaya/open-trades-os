@@ -269,6 +269,26 @@ export interface AddIncidentPhotoOutput {
   id: string;
 }
 
+export interface AddMileageOverrideInput {
+  technicianId?: string;
+  assetId?: string;
+  from: string;
+  perMile: string;
+}
+
+export interface AddMileageOverrideOutput {
+  lines: Array<{
+    id: string;
+    kind: "person" | "vehicle";
+    technicianId: string | null;
+    assetId: string | null;
+    subjectName: string;
+    from: string;
+    perMile: string;
+    inForceToday: boolean;
+  }>;
+}
+
 export interface AddMileageRateInput {
   from: string;
   perMile: string;
@@ -5341,6 +5361,8 @@ export interface DecideExpenseOutput {
   amount: string;
   miles: string | null;
   mileageRate: string | null;
+  mileageRateSource: "company" | "person" | "vehicle" | null;
+  mileageVehicle: string | null;
   spentOn: string;
   description: string;
   status: "pending" | "approved" | "refused";
@@ -9647,6 +9669,8 @@ export interface GetJobExpensesOutput {
     amount: string;
     miles: string | null;
     mileageRate: string | null;
+    mileageRateSource: "company" | "person" | "vehicle" | null;
+    mileageVehicle: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -15491,6 +15515,8 @@ export interface ListExpensesOutput {
     amount: string;
     miles: string | null;
     mileageRate: string | null;
+    mileageRateSource: "company" | "person" | "vehicle" | null;
+    mileageVehicle: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -16359,6 +16385,19 @@ export interface ListMessagingRegistrationsOutput {
   }>;
 }
 
+export interface ListMileageOverridesOutput {
+  lines: Array<{
+    id: string;
+    kind: "person" | "vehicle";
+    technicianId: string | null;
+    assetId: string | null;
+    subjectName: string;
+    from: string;
+    perMile: string;
+    inForceToday: boolean;
+  }>;
+}
+
 export interface ListMyCashTipsOutput {
   technician: boolean;
   tips: Array<{
@@ -16393,6 +16432,8 @@ export interface ListMyExpensesOutput {
     amount: string;
     miles: string | null;
     mileageRate: string | null;
+    mileageRateSource: "company" | "person" | "vehicle" | null;
+    mileageVehicle: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -16424,6 +16465,11 @@ export interface ListMyExpensesOutput {
     } | null;
   }>;
   mileageRate: string | null;
+  vehicles: Array<{
+    id: string;
+    label: string;
+    rateToday: string | null;
+  }>;
 }
 
 export interface ListMyNoticesOutput {
@@ -21051,6 +21097,7 @@ export interface RecordExpenseInput {
   jobNumber?: number;
   amount?: string;
   miles?: string;
+  vehicleId?: string;
   spentOn: string;
   description: string;
   receipt?: {
@@ -21069,6 +21116,8 @@ export interface RecordExpenseOutput {
   amount: string;
   miles: string | null;
   mileageRate: string | null;
+  mileageRateSource: "company" | "person" | "vehicle" | null;
+  mileageVehicle: string | null;
   spentOn: string;
   description: string;
   status: "pending" | "approved" | "refused";
@@ -22258,6 +22307,21 @@ export type RemoveKnowledgeNoteInput = Record<string, unknown>;
 export interface RemoveKnowledgeNoteOutput {
   id: string;
   removed: boolean;
+}
+
+export type RemoveMileageOverrideInput = Record<string, unknown>;
+
+export interface RemoveMileageOverrideOutput {
+  lines: Array<{
+    id: string;
+    kind: "person" | "vehicle";
+    technicianId: string | null;
+    assetId: string | null;
+    subjectName: string;
+    from: string;
+    perMile: string;
+    inForceToday: boolean;
+  }>;
 }
 
 export type RemoveMileageRateInput = Record<string, unknown>;
@@ -32498,6 +32562,11 @@ export interface ListMessageTemplatesInput {
 
 export type ListMessagingRegistrationsInput = Record<string, never>;
 
+export interface ListMileageOverridesInput {
+  technicianId?: string;
+  assetId?: string;
+}
+
 export type ListMyCashTipsInput = Record<string, never>;
 
 export type ListMyExpensesInput = Record<string, never>;
@@ -33354,6 +33423,10 @@ export interface RemoveHolidayParams {
 }
 
 export interface RemoveKnowledgeNoteParams {
+  id: string;
+}
+
+export interface RemoveMileageOverrideParams {
   id: string;
 }
 
@@ -34349,6 +34422,7 @@ export interface OperationTypes {
   addExpenseReceipt: { input: AddExpenseReceiptParams & AddExpenseReceiptInput; output: AddExpenseReceiptOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
+  addMileageOverride: { input: AddMileageOverrideInput; output: AddMileageOverrideOutput };
   addMileageRate: { input: AddMileageRateInput; output: AddMileageRateOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
   addNumberHoliday: { input: AddNumberHolidayParams & AddNumberHolidayInput; output: AddNumberHolidayOutput };
@@ -34932,6 +35006,7 @@ export interface OperationTypes {
   listMarketingPlatforms: { input: ListMarketingPlatformsInput; output: ListMarketingPlatformsOutput };
   listMessageTemplates: { input: ListMessageTemplatesInput; output: ListMessageTemplatesOutput };
   listMessagingRegistrations: { input: ListMessagingRegistrationsInput; output: ListMessagingRegistrationsOutput };
+  listMileageOverrides: { input: ListMileageOverridesInput; output: ListMileageOverridesOutput };
   listMyCashTips: { input: ListMyCashTipsInput; output: ListMyCashTipsOutput };
   listMyExpenses: { input: ListMyExpensesInput; output: ListMyExpensesOutput };
   listMyNotices: { input: ListMyNoticesInput; output: ListMyNoticesOutput };
@@ -35198,6 +35273,7 @@ export interface OperationTypes {
   removeEstimateOptionPhoto: { input: RemoveEstimateOptionPhotoParams & RemoveEstimateOptionPhotoInput; output: RemoveEstimateOptionPhotoOutput };
   removeHoliday: { input: RemoveHolidayParams & RemoveHolidayInput; output: RemoveHolidayOutput };
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
+  removeMileageOverride: { input: RemoveMileageOverrideParams & RemoveMileageOverrideInput; output: RemoveMileageOverrideOutput };
   removeMileageRate: { input: RemoveMileageRateParams & RemoveMileageRateInput; output: RemoveMileageRateOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeNumberHoliday: { input: RemoveNumberHolidayParams & RemoveNumberHolidayInput; output: RemoveNumberHolidayOutput };
@@ -35564,6 +35640,7 @@ export const OPERATIONS = {
   addExpenseReceipt: { method: "POST", path: "/v1/me/expenses/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
+  addMileageOverride: { method: "POST", path: "/v1/payroll/mileage-overrides", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   addNumberHoliday: { method: "POST", path: "/v1/phone-numbers/{id}/holidays", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -36147,6 +36224,7 @@ export const OPERATIONS = {
   listMarketingPlatforms: { method: "GET", path: "/v1/marketing/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listMessageTemplates: { method: "GET", path: "/v1/message-templates", pathParams: [], queryParams: ["channel"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listMessagingRegistrations: { method: "GET", path: "/v1/messaging/registrations", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listMileageOverrides: { method: "GET", path: "/v1/payroll/mileage-overrides", pathParams: [], queryParams: ["technicianId","assetId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   listMyCashTips: { method: "GET", path: "/v1/me/cash-tips", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
   listMyExpenses: { method: "GET", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   listMyNotices: { method: "GET", path: "/v1/me/notices", pathParams: [], queryParams: ["limit","unread"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -36413,6 +36491,7 @@ export const OPERATIONS = {
   removeEstimateOptionPhoto: { method: "DELETE", path: "/v1/estimate-option-photos/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   removeHoliday: { method: "DELETE", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
+  removeMileageOverride: { method: "POST", path: "/v1/payroll/mileage-overrides/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates/{from}/removal", pathParams: ["from"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeNumberHoliday: { method: "DELETE", path: "/v1/phone-numbers/{id}/holidays/{holidayId}", pathParams: ["id","holidayId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -36906,6 +36985,15 @@ export abstract class GeneratedOperations {
    */
   addIncidentPhoto(input: AddIncidentPhotoParams & AddIncidentPhotoInput, options?: CallOptions): Promise<AddIncidentPhotoOutput> {
     return this.call("addIncidentPhoto", input, options);
+  }
+
+  /**
+   * Set what one person or one vehicle is paid for a mile, from a day.
+   *
+   * POST /v1/payroll/mileage-overrides. Needs payroll:configure.
+   */
+  addMileageOverride(input: AddMileageOverrideInput, options?: CallOptions): Promise<AddMileageOverrideOutput> {
+    return this.call("addMileageOverride", input, options);
   }
 
   /**
@@ -42156,6 +42244,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The mileage rates set for one person or one vehicle.
+   *
+   * GET /v1/payroll/mileage-overrides. Needs timesheet:read.
+   */
+  listMileageOverrides(input: ListMileageOverridesInput = {} as ListMileageOverridesInput, options?: CallOptions): Promise<ListMileageOverridesOutput> {
+    return this.call("listMileageOverrides", input, options);
+  }
+
+  /**
    * Your own cash tips, whoever recorded them, and every change made to each.
    *
    * GET /v1/me/cash-tips. Needs payroll:own.
@@ -44547,6 +44644,15 @@ export abstract class GeneratedOperations {
    */
   removeKnowledgeNote(input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput, options?: CallOptions): Promise<RemoveKnowledgeNoteOutput> {
     return this.call("removeKnowledgeNote", input, options);
+  }
+
+  /**
+   * Take a person's or a vehicle's mileage rate off.
+   *
+   * POST /v1/payroll/mileage-overrides/{id}/removal. Needs payroll:configure.
+   */
+  removeMileageOverride(input: RemoveMileageOverrideParams & RemoveMileageOverrideInput, options?: CallOptions): Promise<RemoveMileageOverrideOutput> {
+    return this.call("removeMileageOverride", input, options);
   }
 
   /**

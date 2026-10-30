@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
-  me, staffDocuments, staffNotices, noticeUpkeep, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
+  me, staffDocuments, staffNotices, noticeUpkeep, expenses, payExtras, mileageOverrides, cashTips, purchaseAcknowledgements, truckFills,
   plugins,
 } from "../services/index";
 
@@ -1157,6 +1157,9 @@ export const handlers = {
   setPayExtras: payExtras.handlers.setPayExtras,
   addMileageRate: payExtras.handlers.addMileageRate,
   removeMileageRate: payExtras.handlers.removeMileageRate,
+  listMileageOverrides: mileageOverrides.handlers.listMileageOverrides,
+  addMileageOverride: mileageOverrides.handlers.addMileageOverride,
+  removeMileageOverride: mileageOverrides.handlers.removeMileageOverride,
   addPerDiemPlace: payExtras.handlers.addPerDiemPlace,
   addPerDiemPlaceRate: payExtras.handlers.addPerDiemPlaceRate,
   removePerDiemPlaceRate: payExtras.handlers.removePerDiemPlaceRate,

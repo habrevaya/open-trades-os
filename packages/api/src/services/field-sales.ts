@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { schema, type Database } from "@opentradesos/db";
-import { can, customerPortal as cp, field, money as m, payExtras as px, tax, time } from "@opentradesos/core";
+import { can, customerPortal as cp, field, money as m, tax, time } from "@opentradesos/core";
 import type { z } from "zod";
 import { audit, guardedRead, timezoneOf, type ServiceContext } from "./context";
 import * as estimates from "./estimates";
@@ -10,7 +10,7 @@ import * as tasks from "./tasks";
 import * as taskChecklist from "./task-checklist";
 import * as tips from "./tips";
 import * as expenses from "./expenses";
-import { settingsWithin as payExtrasWithin } from "./pay-extras";
+import * as mileageOverrides from "./mileage-overrides";
 import * as staffNotices from "./staff-notices";
 import * as financing from "./financing";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
@@ -995,7 +995,7 @@ export async function tasksFor(tx: Database, ctx: ServiceContext) {
  * tips with a payment, whether a lender is connected, and whether the field
  * assistant is on.
  */
-export async function abilitiesFor(tx: Database, ctx: ServiceContext) {
+export async function abilitiesFor(tx: Database, ctx: ServiceContext, technicianId?: string | null) {
   const tipping = (await portalSettingsWithin(tx, ctx.actor.organizationId)).tipping;
   const lender = await financing.connectionWithin(tx, ctx.actor.organizationId);
   const assistant = await agentSettingWithin(tx, ctx.actor.organizationId, "field");
@@ -1009,11 +1009,14 @@ export async function abilitiesFor(tx: Database, ctx: ServiceContext) {
     financing: lender !== null,
     assistant: assistant.enabled,
     expenses: can(ctx.actor, "expense:own"),
-    /** The rate in force today in the company's zone, so the phone offers miles only when there is one. */
-    mileageRate: px.mileageRateOn(
-      (await payExtrasWithin(tx, ctx.actor.organizationId)).mileageRates,
-      time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)),
-    )?.perMile ?? null,
+    /**
+     * The rate in force today in the company's zone for this person (their own line, else the company's), so the
+     * phone offers miles only when there is one. The phone does not name a vehicle: a claim from it is worked
+     * out at the person's rate or the company's, and the office sees which on the claim.
+     */
+    mileageRate: (await mileageOverrides.resolveWithin(tx, ctx.actor.organizationId, {
+      day: time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)), technicianId: technicianId ?? ctx.actor.technicianId ?? null,
+    }))?.rate.perMile ?? null,
   };
 }
 
