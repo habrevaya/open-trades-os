@@ -4,8 +4,10 @@ import {
   SYSTEM_USER_ID, can, comms, field, notices as rules, time, type Actor,
 } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { jobScopeFilter } from "./scope";
+import { sideOf } from "./visit-notices";
 import { memberActor } from "./session";
 import * as scoped from "./people-scope";
 import { quietHoursFor } from "./comms-send";
@@ -70,10 +72,11 @@ export type About =
   | { type: "safety_meeting"; id: string }
   | { type: "expense"; id: string }
   | { type: "person_certification"; id: string }
-  | { type: "technician_skill"; id: string };
+  | { type: "technician_skill"; id: string }
+  | { type: "visit"; id: string };
 
 const ABOUT_TYPES = new Set<About["type"]>([
-  "task", "purchase_order", "connected_app", "safety_meeting", "expense", "person_certification", "technician_skill",
+  "task", "purchase_order", "connected_app", "safety_meeting", "expense", "person_certification", "technician_skill", "visit",
 ]);
 
 /**
@@ -140,6 +143,26 @@ export async function openFor(tx: Database, actor: Actor, about: About): Promise
           scoped.recordPeople({ actor, db: tx }),
         )).limit(1);
       return person ? `/people/${person.membershipId}` : null;
+    }
+    case "visit": {
+      /**
+       * Their own visit, on their own day: in person or through their crew, opened
+       * where they work it. Anybody else who reads visits opens its page, inside
+       * their scope of jobs.
+       */
+      const [visit] = await tx.select({ id: schema.visit.id, jobId: schema.visit.jobId, windowStart: schema.visit.windowStart })
+        .from(schema.visit).where(eq(schema.visit.id, about.id)).limit(1);
+      if (!visit) return null;
+      if (actor.technicianId && can(actor, "field:sync")
+        && ((await sideOf(tx, visit.id))?.technicianIds ?? []).includes(actor.technicianId)) {
+        const zone = await timezoneOf(tx, actor.organizationId);
+        return visit.windowStart ? `/my-day?date=${time.dateIn(visit.windowStart, zone)}` : "/my-day";
+      }
+      if (!can(actor, "visit:read") || !can(actor, "job:read")) return null;
+      const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+        .where(and(eq(schema.job.id, visit.jobId), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf({ actor, db: tx }, "job"), actor)))
+        .limit(1);
+      return job ? `/visits/${visit.id}` : null;
     }
     default: {
       const unhandled: never = about;

@@ -203898,7 +203898,8 @@
                     "app_request",
                     "talk_unsigned",
                     "expense_decided",
-                    "qualification_expiry"
+                    "qualification_expiry",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -279433,7 +279434,8 @@
                     "app_request",
                     "talk_unsigned",
                     "expense_decided",
-                    "qualification_expiry"
+                    "qualification_expiry",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -279560,7 +279562,8 @@
                     "app_request",
                     "talk_unsigned",
                     "expense_decided",
-                    "qualification_expiry"
+                    "qualification_expiry",
+                    "customer_file"
                   ]
                 },
                 "email": {
@@ -279575,7 +279578,7 @@
               ]
             },
             "minItems": 1,
-            "maxItems": 7
+            "maxItems": 8
           }
         },
         "required": [
@@ -279608,7 +279611,8 @@
                     "app_request",
                     "talk_unsigned",
                     "expense_decided",
-                    "qualification_expiry"
+                    "qualification_expiry",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -279756,7 +279760,8 @@
                     "app_request",
                     "talk_unsigned",
                     "expense_decided",
-                    "qualification_expiry"
+                    "qualification_expiry",
+                    "customer_file"
                   ]
                 },
                 "label": {

@@ -235,6 +235,25 @@ export function partRequestBody(input: {
 }
 
 /**
+ * WHAT A CUSTOMER SENT TO A JOB, AS THE OFFICE QUEUE READS IT
+ *
+ * One task a day for each job, however many files the customer sends that day:
+ * the title says how many so far, and the body what to do. Finished on its own
+ * once everything the customer sent has been opened.
+ */
+export function customerFilesTitle(input: { customerName: string; jobLabel: string; files: number }): string {
+  return `${input.customerName} sent ${input.files === 1 ? "a file" : `${input.files} files`} to job ${input.jobLabel}`;
+}
+
+export function customerFilesBody(input: { summary: string; files: number; forVisit: string | null }): string {
+  const them = input.files === 1 ? "it" : "them";
+  return `From their account, for ${input.forVisit ?? "the job"} (${input.summary}). `
+    + `Open the job to look at ${them}: they show as new on the job's page until somebody opens ${them}, `
+    + "and the customer can take a file back until then. "
+    + "This task is finished when everything they sent has been opened.";
+}
+
+/**
  * WHY THE COMPANY CALLED A DAY OFF
  *
  * Cleaning's cancellation rate leaves out the visits the company called off

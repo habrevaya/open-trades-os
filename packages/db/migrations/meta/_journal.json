@@ -1142,6 +1142,13 @@
       "when": 1793331935840,
       "tag": "0162_chemical_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1793335372544,
+      "tag": "0163_military_valkyrie",
+      "breakpoints": true
     }
   ]
 }

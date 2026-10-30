@@ -10565,7 +10565,7 @@ export interface GetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "customer_file";
     label: string;
     description: string;
     email: boolean | null;
@@ -25373,7 +25373,7 @@ export interface SetMyNoticeDigestOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "customer_file";
     label: string;
     description: string;
     email: boolean | null;
@@ -25399,7 +25399,7 @@ export interface SetMyNoticeSettingsInput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "customer_file";
     email?: boolean;
   }>;
 }
@@ -25409,7 +25409,7 @@ export interface SetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "customer_file";
     label: string;
     description: string;
     email: boolean | null;
@@ -25441,7 +25441,7 @@ export interface SetMyNoticeTextsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "customer_file";
     label: string;
     description: string;
     email: boolean | null;

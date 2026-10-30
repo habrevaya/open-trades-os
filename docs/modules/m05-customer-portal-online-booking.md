@@ -468,6 +468,23 @@ of its own kind (`customer_file`) carrying the customer and, when a contact
 signed in as them, the contact; the audit log has `attachment.customer_added`
 under the sign in. The same bytes sent twice to the same place are one file.
 
+**It is noticed.** In the transaction that keeps a new file (the same bytes
+again raise nothing), the office queue gets one task a day for the job, however
+many files the customer sends that day (claimed in `customer_upload_day`,
+unique per job per company day): "Nina Patel sent 3 files to job 1042", about
+the job, in nobody's name, saying what it was sent for and that the customer can
+take a file back until somebody opens it. The people on the visit it was sent
+to, or for a file sent to the job, the people on its visits still to come, are
+told through the staff notice path (M34, "A photo or file from a customer"),
+once a day for each job, each about their own soonest visit, which opens their
+day. The job's page says at the top "The customer sent 2 new files from their
+account", and under **Files**, **From the customer, 2 new**, each unopened file
+marked **New**, until somebody opens it there (`/jobs/{id}/customer-files/{fileId}`)
+or through the API (`POST /v1/attachments/{id}/seen`). When nothing the customer
+sent to the job is left unopened, or the customer took back the only one
+waiting, the day's task is finished on its own and says so; a file sent after
+that raises a new task the same day.
+
 The office sees it on the job's page under **Files**, **From the customer**,
 with whether anybody has opened it yet. The technician sees it on the visit
 on their day (`/my-day`, **From the customer**), and it comes to the phone
@@ -961,7 +978,7 @@ for the phone script and for the form, are the product's and the company
 cannot edit them. A layout is the company's, or a plan's for its
 members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer's choice of plan page is not remembered and the company's own page is not one of the choices, a block's
 settings (which readings a trend shows) are not changed on the screen, and
-there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises no task and sends nobody a notice: the office sees it when it opens the job and the technician on the visit. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, on the web or on the phone (the phone reads a file with its own sign in, which is not opening it from the job's page, so it never marks it seen). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
+there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises one office task a day for the job and tells the job's technicians once a day; nobody in the office is told by name (the task is the queue's), the customer is not told when it was opened, and a technician who is on none of the job's visits still to come (only on one finished) is not told. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, on the web or on the phone (the phone reads a file with its own sign in, which is not opening it from the job's page, so it never marks it seen). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the

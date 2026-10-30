@@ -244,3 +244,4 @@ export * as documents from "./documents";
 export * as visits from "./visits";
 export * as visitCancellations from "./visit-cancellations";
 export * as partRequests from "./part-requests";
+export * as customerUploads from "./customer-uploads";

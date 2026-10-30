@@ -558,7 +558,7 @@ Expo project and set `EXPO_ACCESS_TOKEN` for the worker.
 The same phones get the notices the product sends a person about their own work
 (M34): a task given to them, a late task, an order waiting for their approval, a
 toolbox talk they have not signed, their expense answered, their licence running
-out. The worker sends them through the same push service, to every phone the
+out, a photo or a PDF a customer sent to a job they are on. The worker sends them through the same push service, to every phone the
 person is signed in on, each kind only when they left "Phone app" ticked for it
 on `/me`. Inside the company's quiet hours they go without a sound; none of them
 is work starting that night, so none rings. Each is a row of its own
@@ -574,7 +574,9 @@ kind and id of the record it is about and the page the bell would open
 the words are the title and body the lock screen already shows, and a record is an
 opaque id. A notice about a task opens the Tasks screen with that task first, to
 take, tick and finish; one about a toolbox talk opens the talks to sign, and one about
-the person's expense opens "Money I spent". Any other kind (an order waiting, an app
+the person's expense opens "Money I spent", and one about a customer's photo or PDF
+(`about: { type: "visit" }`) opens that visit, where it is under "From the customer".
+Any other kind (an order waiting, an app
 asking, a licence running out) opens the notice's page in the phone's browser, on the
 company's own server: the phone only ever follows a path on that server, never an
 address a notice carries. A task the phone does not hold yet (given a moment ago) is

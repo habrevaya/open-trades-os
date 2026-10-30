@@ -47,3 +47,4 @@ export * from "./portability";
 export * from "./plugins";
 export * from "./notices";
 export * from "./permit-inspections";
+export * from "./customer-uploads";

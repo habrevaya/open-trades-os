@@ -8,7 +8,7 @@ import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
   NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking, expenses, plugins,
-  jobHolds, inventory, partRequests,
+  jobHolds, inventory, partRequests, customerUploads,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -219,6 +219,8 @@ export default async function JobPage({ params, searchParams }: {
   const holds = (await jobHolds.holdsOf(ctx, { id })).data;
   /** Parts a technician asked for from the field, each with the task it raised and the hold placed for it. */
   const partsAsked = (await partRequests.forJob(ctx, { id })).data;
+  /** Photos and PDFs the customer sent that nobody here has opened yet, said at the top until somebody does. */
+  const unopenedFromCustomer = can(user.actor, "document:read") ? await customerUploads.unopenedOnJob(ctx, { jobId: id }) : 0;
   const mayNameOrder = writes && can(user.actor, "po:read");
   const orderChoices = mayNameOrder
     ? (await inventory.purchaseOrders(ctx))
@@ -246,6 +248,12 @@ export default async function JobPage({ params, searchParams }: {
           {label(JOB_STATUS, job.status)}
         </Chip>
       </div>
+      {unopenedFromCustomer > 0 ? (
+        <p role="status" className="mt-3 rounded-md border border-amber-700 bg-amber-tint px-3 py-2 text-sm text-amber-700">
+          The customer sent {unopenedFromCustomer === 1 ? "a new file" : `${unopenedFromCustomer} new files`} from their account.{" "}
+          <a href="#files" className="font-medium underline underline-offset-4">Open {unopenedFromCustomer === 1 ? "it" : "them"} under Files</a>.
+        </p>
+      ) : null}
       {/*
         The work order as a PDF: the office's copy with prices, and the copy
         for the van without them. Downloads under the job's own permission

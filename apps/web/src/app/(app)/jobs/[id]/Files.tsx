@@ -1,5 +1,6 @@
 import { files, type ServiceContext } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
+import { Chip } from "@opentradesos/ui";
 import { ActionForm } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import { shareJobPhoto, uploadJobFile } from "./actions";
@@ -29,11 +30,13 @@ export async function JobFiles({ ctx, jobId, visitIds, timezone }: {
   const documents = all.filter((f) => f.kind === "document");
   /** What the customer sent from their sign in, opened through a route that records the office has seen it. */
   const fromCustomer = all.filter((f) => f.kind === "customer_file");
+  /** Not opened by anybody here yet: new, until somebody opens it from this page. */
+  const unopened = fromCustomer.filter((f) => !f.seenAt).length;
   const shares = can(ctx.actor, "servicereport:publish");
   const adds = can(ctx.actor, "document:write");
   if (documents.length === 0 && fromCustomer.length === 0 && !adds) return null;
   return (
-    <section aria-label="Files" className="mt-10">
+    <section id="files" aria-label="Files" className="mt-10">
       <h2 className="text-base font-semibold">Files</h2>
       <p className="mt-1 text-sm text-ink-700">
         Only you see a file until you show it to the customer. One you show appears in their account under their
@@ -68,13 +71,16 @@ export async function JobFiles({ ctx, jobId, visitIds, timezone }: {
       )}
       {fromCustomer.length > 0 && (
         <>
-          <h3 className="mt-5 text-sm font-semibold">From the customer</h3>
+          <h3 className="mt-5 text-sm font-semibold">
+            From the customer{unopened > 0 ? `, ${unopened} new` : ""}
+          </h3>
           <p className="mt-1 text-sm text-ink-700">
             Sent from their account. They can take a file back until somebody here opens it.
           </p>
           <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
             {fromCustomer.map((file) => (
               <li key={file.id} className="flex flex-wrap items-center gap-3 bg-canvas p-3 text-sm">
+                {!file.seenAt ? <Chip tone="warning">New</Chip> : null}
                 <span>
                   <a href={`/jobs/${jobId}/customer-files/${file.id}`} className="font-medium underline underline-offset-4">
                     {file.fileName ?? "File"}

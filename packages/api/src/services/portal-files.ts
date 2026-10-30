@@ -5,6 +5,7 @@ import { audit, ConflictError, NotFoundError, TooManyRequestsError, type Request
 import { attach, decode, put, release, sha256 } from "./files";
 import { inGrant } from "./portal";
 import { sessionFor } from "./portal-sign-in";
+import { afterOpened, noticeUpload } from "./customer-uploads";
 
 /**
  * A CUSTOMER ADDING A PHOTOGRAPH OR A PDF TO THEIR OWN JOB
@@ -32,6 +33,10 @@ import { sessionFor } from "./portal-sign-in";
  * file is never shown on the job link or the account's gallery, because
  * the customer already has it and nobody else on the account asked to see
  * it.
+ *
+ * NOTICED. Keeping a new file raises one office task a day for the job and
+ * tells the job's technicians (`customer-uploads.ts`); sending the same bytes
+ * again is the file already kept, and raises nothing.
  *
  * TAKING IT BACK. The customer may remove a file they added until somebody in
  * the company has opened it (`attachment.seen_at`). After that it is the
@@ -278,6 +283,8 @@ export async function add(db: Database, input: AddFileInput, _meta?: RequestMeta
       entityType: entity.type, entityId: entity.id, jobId: job.id, storageKey: file.storageKey,
       contentType: file.contentType, sizeBytes: file.sizeBytes, customerId: session.customerId,
     });
+    /** One office task a day for the job, and the job's technicians told, in the same transaction as the file. */
+    await noticeUpload(tx, ctx, { job, entity, attachmentId: id });
     const view = (await addedBy(tx, session.customerId)).find((v) => v.id === id);
     if (!view) throw new NotFoundError("File");
     return view;
@@ -306,6 +313,8 @@ export async function remove(db: Database, input: { token: string; id: string })
     }
     await release(tx, session.grant.organizationId, row.id);
     await audit(tx, ctx, "attachment.customer_removed", "attachment", row.id, { deletedAt: null }, { removedBy: "customer" });
+    /** A task about a file nobody needs to open any more is finished too. */
+    await afterOpened(tx, ctx, row, "The customer took back what they sent, and nothing else is waiting to be opened.");
     return { id: row.id, removed: true };
   });
 }

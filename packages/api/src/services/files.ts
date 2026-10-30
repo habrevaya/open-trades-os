@@ -6,6 +6,7 @@ import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
 import { fileStorage, FileStorageNotConfiguredError } from "../storage";
+import { afterOpened } from "./customer-uploads";
 
 /**
  * FILES, AND THE QUEUE NOBODY DRAINED
@@ -407,6 +408,8 @@ export async function markSeen(ctx: ServiceContext, input: { attachmentId: strin
       updatedAt: seenAt,
     }).where(and(eq(schema.attachment.id, row.id), isNull(schema.attachment.seenAt)));
     await audit(tx, ctx, "attachment.seen", "attachment", row.id, { seenAt: null }, { seenAt });
+    /** Nothing the customer sent to the job left unopened: the day's task for it is finished. */
+    await afterOpened(tx, ctx, row);
     return { id: row.id, storageKey: row.storageKey, seenAt: seenAt.toISOString() };
   });
 }

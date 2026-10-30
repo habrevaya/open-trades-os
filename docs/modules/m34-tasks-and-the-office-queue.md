@@ -134,6 +134,13 @@ Among the things that put work in the queue without anybody creating it:
   the part in their words and who asked. Its page offers "Put the job on hold
   for this part", naming the purchase order, which places the hold and finishes
   the task.
+- Photos or a PDF a customer sent to a job from their account (M05), linked to
+  the job: one task a day for each job, in the office queue and nobody's name,
+  its title saying how many files so far ("Nina Patel sent 3 files to job
+  1042"). It is finished on its own, as done, when nothing the customer sent to
+  the job is left unopened (opened from the job's page or through the API, or
+  taken back by the customer). A file sent after that day's task was finished
+  raises a new one.
 
 ### A checklist inside a task
 
@@ -325,6 +332,12 @@ What raises one, each in the same transaction as the thing it is about:
   the holder's record, and to each of the people the company names as keeping
   the renewals list, which is nobody until it names somebody (M24). A renewal
   recorded since stops it. It is the one kind that also comes by email.
+- **A photo or file from a customer**, to the people on the visit a customer
+  sent a photo or a PDF to from their account, or for one sent to the job, to
+  the people on its visits still to come, each about their own soonest one
+  (M05). Once a day for each job, however many files. It opens their day on
+  `/my-day` (the visit, on the phone), or the visit's page for somebody who
+  reads visits but is not on it.
 
 NEVER ABOUT A RECORD THEY CANNOT OPEN. Before anything is written, the person
 is resolved the way their own session would be, and the record is opened with
