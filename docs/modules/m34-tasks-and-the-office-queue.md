@@ -620,7 +620,7 @@ again on the tasks it already acted on. The people a rule tells get a task, an
 email, and a notice on the bell, the phone app or a text as each of them chose;
 somebody who cannot open tasks gets the task and the email and no notice.
 
-Notices are raised by the ten things listed under "Notices to the company's
+Notices are raised by the eleven things listed under "Notices to the company's
 own people" and nothing else: the rest of what the queue holds reaches people as
 tasks, as before, and so does a customer taking or turning down a time the office
 offered for their visit, and a failed bank payment. A deadline's notice is raised

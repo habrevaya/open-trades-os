@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { allTools } from "../src/mcp/tools";
 import { routes } from "../src/contracts";
-import { PERMISSIONS, automation, connectors } from "@opentradesos/core";
+import { PERMISSIONS, automation, connectors, notices } from "@opentradesos/core";
 import { CATALOGUE, KEYS } from "../src/services/kpi-catalogue";
 import { ADAPTERS } from "../src/services/retention";
 
@@ -362,6 +362,11 @@ describe("the counts the docs state", () => {
     const offered = Object.values(routes).filter((route) => (route as { dryRun?: boolean }).dryRun === true).length;
     expect(countIn("m28-developer-agent-platform.md",
       `A dry run is offered on ${NUMBER} bulk routes`)).toEqual([offered]);
+  });
+
+  it("M34 counts the kinds of notice the company's own people get", () => {
+    expect(countIn("m34-tasks-and-the-office-queue.md",
+      `Notices are raised by the ${NUMBER} things listed under`)).toEqual([notices.NOTICE_KINDS.length]);
   });
 
   it("M21 counts the KPIs it cannot compute out of those declared", () => {
