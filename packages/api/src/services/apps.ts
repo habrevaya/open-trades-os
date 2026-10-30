@@ -828,7 +828,9 @@ const NOTICE_GRANTS: Permission[] = ["message:send", "message:read"];
  * app's own description, which is words a stranger wrote and has no place in
  * an email from the company's own address.
  */
-async function tellApprovers(tx: Database, organizationId: string, app: AppRow): Promise<void> {
+export async function tellApprovers(
+  tx: Database, organizationId: string, app: AppRow, reminder?: { daysWaiting: number },
+): Promise<void> {
   const people = await tx.execute<{ user_id: string; name: string | null; email: string }>(
     sql`select user_id, name, email from app.organization_people()`,
   );
@@ -850,9 +852,13 @@ async function tellApprovers(tx: Database, organizationId: string, app: AppRow):
      * notice names the app and nothing it asked for; the page says that.
      */
     await raiseWithin(tx, {
-      organizationId, userId: person.user_id, kind: "app_request", key: `app_request:${app.id}`,
-      title: `${app.name} is asking to connect`,
-      body: `It asks for ${asked} ${asked === 1 ? "thing" : "things"}. Nothing is given until somebody says yes.`,
+      organizationId, userId: person.user_id, kind: "app_request",
+      /** A reminder is its own notice, with its own key, so it is told once more and no more. */
+      key: reminder ? `app_request_reminder:${app.id}` : `app_request:${app.id}`,
+      title: reminder ? `${app.name} is still waiting for an answer` : `${app.name} is asking to connect`,
+      body: reminder
+        ? `It asked ${reminder.daysWaiting} ${reminder.daysWaiting === 1 ? "day" : "days"} ago and nobody has answered. Nothing is given until somebody says yes.`
+        : `It asks for ${asked} ${asked === 1 ? "thing" : "things"}. Nothing is given until somebody says yes.`,
       about: { type: "connected_app", id: app.id },
     });
     const address = email.normalizeAddress(person.email ?? "");
@@ -861,8 +867,9 @@ async function tellApprovers(tx: Database, organizationId: string, app: AppRow):
     const lines = [
       `Hello${person.name ? ` ${person.name.split(" ")[0]}` : ""},`,
       "",
-      `${app.name}${app.publisher ? `, made by ${app.publisher},` : ""} is asking to connect to `
-        + `${org?.name ?? "your company"}. It asks for ${asked} ${asked === 1 ? "thing" : "things"}.`,
+      `${app.name}${app.publisher ? `, made by ${app.publisher},` : ""} is ${reminder ? "still waiting to connect" : "asking to connect"} to `
+        + `${org?.name ?? "your company"}. It asks for ${asked} ${asked === 1 ? "thing" : "things"}.`
+        + (reminder ? ` It asked ${reminder.daysWaiting} ${reminder.daysWaiting === 1 ? "day" : "days"} ago and nobody has answered.` : ""),
       "",
       `Nothing is given until somebody says yes. See exactly what it asks for, and approve all of it, part of it or none of it, here:`,
       url,
@@ -872,7 +879,7 @@ async function tellApprovers(tx: Database, organizationId: string, app: AppRow):
     try {
       await email.queue(sender, {
         to: address,
-        subject: `${app.name} is asking to connect`,
+        subject: reminder ? `${app.name} is still waiting for an answer` : `${app.name} is asking to connect`,
         text: lines.join("\n"),
         purpose: "transactional",
       });

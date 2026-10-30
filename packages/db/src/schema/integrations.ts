@@ -876,6 +876,12 @@ export const connectedApp = pgTable("connected_app", {
    */
   requestExpiresAt: timestamp("request_expires_at", { withTimezone: true }),
   /**
+   * When the approvers were reminded that this request is still waiting. Set
+   * once, in the transaction that tells them, against a request that had none,
+   * so a request is chased at most once however many passes run.
+   */
+  remindedAt: timestamp("reminded_at", { withTimezone: true }),
+  /**
    * SHA-256 of the secret the app was handed when it asked, and must present
    * to collect its credential. The app's proof that it is the one that asked:
    * the request id travels through a browser and is not a secret.

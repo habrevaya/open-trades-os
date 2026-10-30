@@ -1,0 +1,1 @@
+ALTER TABLE "connected_app" ADD COLUMN "reminded_at" timestamp with time zone;

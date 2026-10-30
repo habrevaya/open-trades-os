@@ -9124,6 +9124,228 @@
         ]
       }
     },
+    "/v1/app-request-reminder": {
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PATCH"
+      ],
+      "get": {
+        "operationId": "getAppRequestReminder",
+        "summary": "When the approvers are reminded of an app request nobody has answered",
+        "description": "Requires a session holding: settings:read.",
+        "tags": [
+          "M26"
+        ],
+        "responses": {
+          "200": {
+            "description": "When the approvers are reminded of an app request nobody has answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAppRequestReminderOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "patch": {
+        "operationId": "setAppRequestReminder",
+        "summary": "Set when the approvers are reminded of an app request nobody has answered",
+        "description": "Whole days from 1 to 6, counted in the company's own calendar from the day the app asked (a request nobody answers ends after seven days), or null for no reminder. It is three days until a company says otherwise. When a request has waited that long, everybody who could approve it is told once more, by the same notice as the first (the bell, the phone and a text as each of them chose, and an email when the company sends email); a request is reminded at most once, and not at all once it is answered or has ended.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAppRequestReminderInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set when the approvers are reminded of an app request nobody has answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAppRequestReminderOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
+        ]
+      }
+    },
     "/v1/apps": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -35068,6 +35290,144 @@
         ]
       }
     },
+    "/v1/conversations/{id}/closed": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "closeConversation",
+        "summary": "Close a chat from a customer's account",
+        "description": "Ends a chat the customer started from their account, whoever has it (the assistant or a person). The customer's chat page says in words that the company closed it, still shows them what was said, and the next thing they write opens a new conversation. A reply into it is refused from then on. Nothing the office has not read is marked read and no task is closed. A chat from a website visitor, a text or an email cannot be closed here. Closing a chat that is already closed changes nothing.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseConversationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Close a chat from a customer's account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseConversationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
+        ]
+      }
+    },
     "/v1/conversations/{id}/messages": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -53336,7 +53696,7 @@
       "post": {
         "operationId": "extendEstimateExpiry",
         "summary": "Move a sent estimate's good until date later, with a reason",
-        "description": "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, and no event is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made.\n\nRequires a session holding: estimate:write.",
+        "description": "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, unless `restartFollowUp` is true (leave it out and nothing starts, so a program moving many dates texts nobody): then the follow up counts its days from today and chases once more, the company's recommended follow up is started again with its own wait, and `estimate.follow_up_restarted` is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made.\n\nRequires a session holding: estimate:write.",
         "tags": [
           "M07"
         ],
@@ -95569,7 +95929,7 @@
       "patch": {
         "operationId": "setPortalSettings",
         "summary": "Turn tipping, bank payments and chat reply notices on or off, and choose which job photographs customers see",
-        "description": "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail. The chat reply notice is ON until turned off: a customer who chats from their account is told by email or text, once until they read it, that the office answered.\n\nRequires a session holding: settings:write.",
+        "description": "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail. The chat reply notice is ON until turned off: a customer who chats from their account is told by email or text, once until they read it, that the office answered. `chatIdleCloseDays` is off (null) until set: when it is, the worker closes an account chat whose last message is the company's (the assistant's or a person's) and where the customer has not written for that many company days; a chat the customer wrote last in is never closed this way. The customer is told on their chat page.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M05"
         ],
@@ -160676,6 +161036,36 @@
           "closedAt"
         ]
       },
+      "CloseConversationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "CloseConversationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "closedBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "office",
+              "idle"
+            ]
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "closedBy",
+          "closedAt"
+        ]
+      },
       "CloseDisposalFacilityInput": {
         "type": "object",
         "properties": {}
@@ -160800,6 +161190,17 @@
               "open",
               "handed_off",
               "closed"
+            ]
+          },
+          "closedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "office",
+              "idle"
             ]
           },
           "bookingTaken": {
@@ -183365,6 +183766,9 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500
+          },
+          "restartFollowUp": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -184832,6 +185236,22 @@
         },
         "required": [
           "models"
+        ]
+      },
+      "GetAppRequestReminderOutput": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 6
+          }
+        },
+        "required": [
+          "days"
         ]
       },
       "GetAppSelfOutput": {
@@ -189298,6 +189718,30 @@
             ],
             "format": "date-time"
           },
+          "officeClosedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "closedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "office",
+              "idle"
+            ]
+          },
+          "closedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "canReply": {
             "type": "boolean"
           },
@@ -189320,6 +189764,9 @@
           "messages",
           "customerNotice",
           "customerClosedAt",
+          "officeClosedAt",
+          "closedBy",
+          "closedByName",
           "canReply",
           "blockedReason",
           "blockedExplanation"
@@ -207591,6 +208038,17 @@
               "closed"
             ]
           },
+          "closedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "office",
+              "idle"
+            ]
+          },
           "bookingTaken": {
             "type": "boolean"
           },
@@ -207940,6 +208398,14 @@
           "chatReplyNotice": {
             "type": "boolean"
           },
+          "chatIdleCloseDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
           "signInUrl": {
             "type": "string"
           }
@@ -207949,6 +208415,7 @@
           "jobPhotos",
           "bankAccounts",
           "chatReplyNotice",
+          "chatIdleCloseDays",
           "signInUrl"
         ]
       },
@@ -225614,6 +226081,17 @@
                 },
                 "closedByCustomer": {
                   "type": "boolean"
+                },
+                "closedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "customer",
+                    "office",
+                    "idle"
+                  ]
                 }
               },
               "required": [
@@ -225627,7 +226105,8 @@
                 "lastMessagePreview",
                 "awaitingReply",
                 "unread",
-                "closedByCustomer"
+                "closedByCustomer",
+                "closedBy"
               ]
             }
           },
@@ -272799,6 +273278,17 @@
               "closed"
             ]
           },
+          "closedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "office",
+              "idle"
+            ]
+          },
           "bookingTaken": {
             "type": "boolean"
           },
@@ -275500,6 +275990,38 @@
           "name",
           "email",
           "phone"
+        ]
+      },
+      "SetAppRequestReminderInput": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 6
+          }
+        },
+        "required": [
+          "days"
+        ]
+      },
+      "SetAppRequestReminderOutput": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 6
+          }
+        },
+        "required": [
+          "days"
         ]
       },
       "SetArrivalWindowsInput": {
@@ -281193,6 +281715,14 @@
           },
           "chatReplyNotice": {
             "type": "boolean"
+          },
+          "chatIdleCloseDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
           }
         }
       },
@@ -281230,6 +281760,14 @@
           "chatReplyNotice": {
             "type": "boolean"
           },
+          "chatIdleCloseDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
           "signInUrl": {
             "type": "string"
           }
@@ -281239,6 +281777,7 @@
           "jobPhotos",
           "bankAccounts",
           "chatReplyNotice",
+          "chatIdleCloseDays",
           "signInUrl"
         ]
       },

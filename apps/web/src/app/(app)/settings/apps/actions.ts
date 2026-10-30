@@ -1,11 +1,11 @@
 "use server";
 
-import { attempt, field, fields, type FormState } from "@/lib/actions";
+import { attempt, field, fields, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { todayIn } from "@/lib/dates";
 import { getDb } from "@/lib/db";
-import { apps, plugins } from "@opentradesos/api/services";
+import { apps, appRequestReminders, plugins } from "@opentradesos/api/services";
 
 export type AppsState = FormState;
 
@@ -143,4 +143,25 @@ function scopesFrom(form: FormData): Record<string, string> {
     out[key.slice("scope.".length)] = value;
   }
   return out;
+}
+
+/**
+ * When the people who could approve an application are reminded that it is still
+ * waiting. Whole days, or empty for no reminder; the service refuses a number a
+ * request would not live to see.
+ */
+export async function setRequestReminder(_previous: AppsState, form: FormData): Promise<AppsState> {
+  const said = field(form, "days");
+  const days = said === undefined ? null : Number(said);
+  if (days !== null && !Number.isInteger(days)) return refused(form, "Give the days as a whole number, or leave it empty.");
+  const result = await attempt(form, async () => {
+    const saved = await appRequestReminders.setReminder({ actor: (await requireSetupUser()).actor, db: getDb() }, { days });
+    return {
+      message: saved.days === null
+        ? "Saved. Nobody is reminded about a request that is waiting."
+        : `Saved. Whoever can approve is reminded once, ${saved.days} ${saved.days === 1 ? "day" : "days"} after an application asks.`,
+    };
+  });
+  revalidatePath("/settings/apps");
+  return result;
 }

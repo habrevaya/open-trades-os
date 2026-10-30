@@ -20,6 +20,7 @@ import { sendDue } from "./campaigns";
 import { askPass as reviewAskPass } from "./review-asks";
 import { releasePass as chatNoticePass } from "./portal-chat-notice";
 import { idleClosePass as chatIdleClosePass } from "./portal-chat";
+import { reminderPass as appRequestReminderPass } from "./app-request-reminders";
 import { taskPass } from "./task-rules";
 import { expiryPass } from "./estimate-expiry";
 import { nightlyPass as truckFillPass } from "./truck-fills";
@@ -483,6 +484,18 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] quiet chats:", (error as Error).message);
+    }
+    /**
+     * An app request nobody has answered, chased once: the people who could
+     * approve it are told again, by the notice path the first telling used. Its
+     * own try, for the reason every pass here has one.
+     */
+    try {
+      for (const result of await appRequestReminderPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] app request reminders ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] app request reminders:", (error as Error).message);
     }
     /**
      * Estimates past their date, marked expired in each company's own

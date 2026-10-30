@@ -2046,6 +2046,45 @@ returns table (organization_id uuid)
 revoke all on function app.held_chat_notice_organizations(int) from public;
 grant execute on function app.held_chat_notice_organizations(int) to background;
 
+-- ---- Companies with an app request nobody has answered ---------------------
+-- A request from an app to connect is chased once, a number of days after it
+-- asked (settings.appRequests.reminderDays: three when absent, a number, or
+-- null for never). The worker has no tenant until it picks one, so it asks here
+-- which companies have a request still waiting that has not been chased, as ids
+-- and nothing else. Whether it has waited long enough, in the company's own
+-- calendar, is the service's to decide under the request's own claim. A request
+-- is not worth asking about until it has waited a whole day less than the days.
+-- A suspended company is left alone.
+create or replace function app.app_request_reminder_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id from public.organization o
+     cross join lateral (
+       select case
+         when not (coalesce(o.settings -> 'appRequests', '{}'::jsonb) ? 'reminderDays') then 3
+         when jsonb_typeof(o.settings -> 'appRequests' -> 'reminderDays') = 'number'
+           then (o.settings -> 'appRequests' ->> 'reminderDays')::numeric
+         else null
+       end as days
+     ) r
+     where o.suspended_at is null
+       and o.demo_user_id is null
+       and r.days is not null
+       and exists (
+         select 1 from public.connected_app a
+          where a.organization_id = o.id
+            and a.status = 'pending'
+            and a.reminded_at is null
+            and a.request_expires_at > now()
+            and a.created_at <= now() - ((r.days - 1) * interval '1 day')
+       )
+     limit p_limit
+  $$;
+
+revoke all on function app.app_request_reminder_organizations(int) from public;
+grant execute on function app.app_request_reminder_organizations(int) to background;
+
 -- ---- Companies that close account chats gone quiet -------------------------
 -- A company can choose a number of quiet days (settings.portal.chatIdleCloseDays,
 -- off until it does) after which an account chat the company answered last is
