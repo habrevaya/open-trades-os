@@ -94,7 +94,7 @@ test("a customer's photo from their account raises a task, tells the technician 
 
   /** Ray's bell tells him, opening his day. */
   await tech.goto("/notices");
-  await expect(tech.getByText(`${name} sent a photo for job`, { exact: false }).first()).toBeVisible();
+  await expect(tech.getByRole("list", { name: "Your notices" }).getByRole("link", { name: `${name} sent a photo for job` })).toBeVisible();
 
   /** Opening it from the job's page takes the mark away and finishes the task. */
   await owner.goto(jobUrl);
