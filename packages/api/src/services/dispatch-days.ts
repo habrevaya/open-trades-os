@@ -70,9 +70,15 @@ export function daysFor(
   return { dates: [], because: null };
 }
 
-/** The visit's window moved to another day, at the same wall clock times. */
-function windowOn(v: dm.DayVisit, from: dm.Day, date: string, zone: string): { start: Date; end: Date | null } {
-  const minutes = dm.minutesFrom(from.origin, v.windowStart!);
+/**
+ * The visit's window moved to another day, at the same wall clock times. The
+ * clock time is read as the clock shows it, not as minutes since the day's
+ * midnight: on the day the clocks go back eight in the morning is nine hours
+ * after midnight, and copying nine hours onto the next day put the visit at
+ * nine.
+ */
+export function windowOn(v: dm.DayVisit, _from: dm.Day, date: string, zone: string): { start: Date; end: Date | null } {
+  const minutes = time.minutesInDay(v.windowStart!, zone);
   const start = time.instantOfLocal(date, minutes, zone);
   const end = v.windowEnd ? new Date(start.getTime() + (v.windowEnd.getTime() - v.windowStart!.getTime())) : null;
   return { start, end };
