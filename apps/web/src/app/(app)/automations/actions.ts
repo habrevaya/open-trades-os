@@ -97,9 +97,11 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
     }
     case "stop_unless":
       /** The field is kept only for the check that reads one, so a changed check drops it. */
-      return automation.checkNeedsField(text("check"))
-        ? { check: text("check"), field: text("field") }
-        : { check: text("check") };
+      if (!automation.checkNeedsField(text("check"))) return { check: text("check") };
+      /** What the field is compared with: the event's value, or one typed here (kept only then). */
+      return text("compare") === "value"
+        ? { check: text("check"), field: text("field"), compare: "value", value: text("value") }
+        : { check: text("check"), field: text("field") };
     case "send_estimate":
     case "send_review_request": {
       /**

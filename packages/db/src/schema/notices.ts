@@ -89,6 +89,34 @@ export const staffNoticeSetting = pgTable("staff_notice_setting", {
 }));
 
 /**
+ * WHAT THE COMPANY STARTS A NEW PERSON WITH, FOR ONE KIND OF NOTICE.
+ *
+ * A row only for a kind the company changed; every other kind starts a person
+ * on core's `DEFAULT_SWITCHES`. These rows are COPIED onto a person's own
+ * `staff_notice_setting` rows the moment their membership is made (the
+ * `membership_notice_defaults` trigger in sql/after.sql), so they seed and
+ * never overrule: nobody who was here before is changed by editing them, and a
+ * person's own choice on `/me` is never replaced.
+ *
+ * No column for texts. A text goes to somebody's own mobile and only ever
+ * because they turned it on with their own number, so a company cannot start
+ * anybody with it.
+ */
+export const staffNoticeDefault = pgTable("staff_notice_default", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** One of core's `NOTICE_KINDS`. */
+  kind: text("kind").notNull(),
+  inApp: boolean("in_app").notNull(),
+  push: boolean("push").notNull(),
+  /** Whether a kind that is emailed starts a person on email. Null where the kind is never emailed or the company has not chosen. */
+  email: boolean("email"),
+  ...timestamps,
+}, (t) => ({
+  kindIdx: uniqueIndex("staff_notice_default_kind_idx").on(t.organizationId, t.kind),
+}));
+
+/**
  * A PERSON'S DAILY EMAIL OF WHAT THEY HAVE NOT READ.
  *
  * Off unless they turn it on, on `/me`: one email a morning listing their

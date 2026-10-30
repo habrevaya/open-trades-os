@@ -418,14 +418,18 @@ export const CHECKS = {
     entity: "task",
   },
   /**
-   * One field on one of the company's own records still holds the value the
-   * event carried. "Ring the inspector a week after the permit went to
-   * submitted, unless it has moved on": the field is named in the step
-   * (`field`), the value is the event's, never typed into the step, so a
-   * step cannot be pointed at a value the record never had.
+   * One field on one of the company's own records still holds a value. By
+   * default the value the event carried: "ring the inspector a week after the
+   * permit went to submitted, unless it has moved on". The field is named in
+   * the step (`field`). The step may instead name a value of its own
+   * (`compare: "value"` and `value`, typed): "carry on only while the permit's
+   * status is still approved", which is asked of the record whatever the event
+   * said. The typed value is read as the field's own kind (a number for a
+   * number field, a date for a date, one of the options for a choice) when the
+   * step runs, because the kind of record is only known then.
    */
   record_field_unchanged: {
-    label: "A field on the record still says what it did",
+    label: "A field on the record still says what it did, or what you type",
     entity: "custom_object_record",
   },
 } as const;
@@ -461,9 +465,33 @@ export function checkSettingsProblem(config: Record<string, unknown> | undefined
     if (!FIELD_KEY.test(field.trim())) {
       return `"${field}" is not a field's key. A key is lowercase letters, digits and underscores, like status.`;
     }
+    const compare = config?.["compare"];
+    if (compare !== undefined && compare !== "event" && compare !== "value") {
+      return "Compare the field with what the event said, or with a value you type.";
+    }
+    if (compare === "value") {
+      const value = config?.["value"];
+      if (typeof value !== "string" || value.trim() === "") {
+        return `Type the value ${field.trim()} has to still be, or compare it with what the event said.`;
+      }
+      if (value.trim().length > MAX_TYPED_VALUE) {
+        return `The value to compare with is longer than ${MAX_TYPED_VALUE} letters.`;
+      }
+    }
   }
   return null;
 }
+
+/** The longest value a step may be told to compare a field with: a label or a number, not a paragraph. */
+export const MAX_TYPED_VALUE = 200;
+
+/**
+ * What a `record_field_unchanged` step compares the field with: the value the
+ * event carried (the default, and what every step made before this had), or a
+ * value typed into the step.
+ */
+export const fieldComparison = (config: Record<string, unknown> | undefined): "event" | "value" =>
+  config?.["compare"] === "value" ? "value" : "event";
 
 /** Whether a check asks about a field the step names. What the canvas draws a box for. */
 export const checkNeedsField = (check: unknown): boolean =>

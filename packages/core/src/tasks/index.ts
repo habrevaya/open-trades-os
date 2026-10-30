@@ -28,7 +28,10 @@ import { workingMinutesBetween, type WorkingCalendar } from "../holidays/index.j
  * with any gap, so every third Monday is counted the same way and an every
  * other week task is simply the one with a gap of two. `weekdays` is Monday
  * to Friday and nothing else; `chosen_weekdays` is whichever days a company
- * works, Monday, Wednesday and Saturday for a crew that does. The last of the
+ * works, Monday, Wednesday and Saturday for a crew that does. An every other
+ * week or every so many weeks task may name SEVERAL days (every third Monday
+ * and Thursday): then the weeks, Monday to Sunday, are counted from the week of
+ * its first day, and it comes round on each named day of every on week. The last of the
  * month is the last Friday (or whichever day), which is the fourth in some
  * months and the fifth in others, and `nth_weekday_of_month` is the first,
  * second, third or fourth, which every month has.
@@ -41,6 +44,9 @@ export const TASK_FREQUENCIES: readonly TaskFrequency[] = [
   "daily", "weekdays", "weekly", "every_other_week", "monthly", "last_weekday_of_month",
   "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays",
 ];
+
+/** The two that count weeks, and so may name several days of the week they come round on. */
+export const EVERY_SO_MANY_WEEKS: readonly TaskFrequency[] = ["every_other_week", "every_n_weeks"];
 
 /** The frequencies that come round on a named day of the week. */
 export const NEEDS_WEEKDAY: readonly TaskFrequency[] = [
@@ -63,7 +69,12 @@ export interface TaskSchedule {
   monthWeek?: number | null | undefined;
   /** For every so many weeks: 2 to 52. */
   intervalWeeks?: number | null | undefined;
-  /** For chosen weekdays: the days, 0 for Sunday, at least one. */
+  /**
+   * For chosen weekdays: the days, 0 for Sunday, at least one. For every other
+   * week and every so many weeks: the days it comes round on when more than one
+   * (a single day is `weekday`); when it holds two or more it is read in
+   * place of `weekday`.
+   */
   daysOfWeek?: readonly number[] | null | undefined;
   /** No occurrence before this day. */
   startsOn: string;
@@ -92,7 +103,22 @@ export function checkSchedule(schedule: TaskSchedule): ScheduleVerdict {
   } catch {
     return { ok: false, message: "The first day has to be a real date." };
   }
-  if (NEEDS_WEEKDAY.includes(schedule.frequency)) {
+  const counted = EVERY_SO_MANY_WEEKS.includes(schedule.frequency);
+  if (counted && (schedule.daysOfWeek ?? []).some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+    return { ok: false, message: "A day of the week is 0 for Sunday to 6 for Saturday." };
+  }
+  /** A task counted in weeks is happy with ticked days in place of the one weekday. */
+  const ticked = counted ? cleanDays(schedule.daysOfWeek) : [];
+  const hasDays = ticked.length > 0;
+  if (
+    ticked.length === 1 && schedule.weekday !== null && schedule.weekday !== undefined && schedule.weekday !== ticked[0]
+  ) {
+    return {
+      ok: false,
+      message: "Give the day of the week in one place: the one day of the week, or the days you tick, not two different ones.",
+    };
+  }
+  if (NEEDS_WEEKDAY.includes(schedule.frequency) && !hasDays) {
     const day = schedule.weekday;
     if (day === null || day === undefined || !Number.isInteger(day) || day < 0 || day > 6) {
       return {
@@ -191,6 +217,21 @@ function nthWeekdayIn(date: string, weekday: number, week: number): string {
   return addDays(first, ahead + 7 * (week - 1));
 }
 
+/**
+ * The days an every other week or every so many weeks task comes round on:
+ * the ticked days when it has two or more, else its one weekday (or its one
+ * ticked day, for a schedule saved without `weekday`).
+ */
+export function everySoManyWeeksDays(schedule: TaskSchedule): number[] {
+  const ticked = cleanDays(schedule.daysOfWeek);
+  if (ticked.length >= 2) return ticked;
+  if (schedule.weekday !== null && schedule.weekday !== undefined) return [schedule.weekday];
+  return ticked.length === 1 ? ticked : [0];
+}
+
+/** The Monday of the week a date is in. Weeks run Monday to Sunday, as a working week does. */
+const mondayOf = (date: string): string => addDays(date, -((weekdayOf(date) + 6) % 7));
+
 /** The gap in days between two occurrences of a task that comes round every so many weeks. */
 const gapOf = (schedule: TaskSchedule): number =>
   7 * (schedule.frequency === "every_other_week" ? 2 : schedule.intervalWeeks ?? 2);
@@ -202,9 +243,27 @@ const gapOf = (schedule: TaskSchedule): number =>
  * depends on today.
  */
 function firstEveryOtherWeek(schedule: TaskSchedule): string {
-  const ahead = ((schedule.weekday ?? 0) - weekdayOf(schedule.startsOn) + 7) % 7;
+  const days = everySoManyWeeksDays(schedule);
+  const ahead = Math.min(...days.map((d) => (d - weekdayOf(schedule.startsOn) + 7) % 7));
   return addDays(schedule.startsOn, ahead);
 }
+
+/**
+ * Whether a day is an occurrence of an every so many weeks task that names
+ * several days: one of the days, on or after the first, in an on week. The on
+ * weeks (Monday to Sunday) are the week of the first occurrence and every gap
+ * after it, so "Starting" says which week is the on week, as it does for one day.
+ */
+function isOccurrenceOnSeveralDays(schedule: TaskSchedule, date: string): boolean {
+  const first = firstEveryOtherWeek(schedule);
+  if (compareDates(date, first) < 0) return false;
+  if (!everySoManyWeeksDays(schedule).includes(weekdayOf(date))) return false;
+  const weeks = daysBetween(mondayOf(first), mondayOf(date)) / 7;
+  return weeks % (gapOf(schedule) / 7) === 0;
+}
+
+/** Whether an every so many weeks task names more than one day. */
+const namesSeveralDays = (schedule: TaskSchedule): boolean => everySoManyWeeksDays(schedule).length > 1;
 
 /** Whether a day is one of a chosen weekdays schedule's days. */
 const isChosenDay = (schedule: TaskSchedule, date: string): boolean =>
@@ -249,6 +308,14 @@ export function occurrenceOnOrBefore(schedule: TaskSchedule, day: string): strin
       const first = firstEveryOtherWeek(schedule);
       if (compareDates(day, first) < 0) return null;
       const gap = gapOf(schedule);
+      if (namesSeveralDays(schedule)) {
+        /** The latest named day in an on week: at most a gap and a week back. */
+        let back = 0;
+        while (back <= gap + 7 && !isOccurrenceOnSeveralDays(schedule, addDays(day, -back))) back += 1;
+        if (back > gap + 7) return null;
+        found = addDays(day, -back);
+        break;
+      }
       found = addDays(first, Math.floor(daysBetween(first, day) / gap) * gap);
       break;
     }
@@ -307,6 +374,11 @@ export function occurrenceAfter(schedule: TaskSchedule, day: string): string {
       const first = firstEveryOtherWeek(schedule);
       if (compareDates(from, first) < 0) return first;
       const gap = gapOf(schedule);
+      if (namesSeveralDays(schedule)) {
+        let next = addDays(from, 1);
+        for (let i = 0; i <= gap + 7 && !isOccurrenceOnSeveralDays(schedule, next); i += 1) next = addDays(next, 1);
+        return next;
+      }
       return addDays(first, (Math.floor(daysBetween(first, from) / gap) + 1) * gap);
     }
     case "chosen_weekdays": {
@@ -379,13 +451,15 @@ export function describeSchedule(schedule: TaskSchedule): string {
     case "weekly":
       return `Every ${WEEKDAYS[schedule.weekday ?? 0]}`;
     case "every_other_week":
-      return `Every other ${WEEKDAYS[schedule.weekday ?? 0]}`;
+      return namesSeveralDays(schedule)
+        ? `Every other week on ${listDays(everySoManyWeeksDays(schedule))}`
+        : `Every other ${WEEKDAYS[everySoManyWeeksDays(schedule)[0] ?? 0]}`;
     case "last_weekday_of_month":
       return `On the last ${WEEKDAYS[schedule.weekday ?? 0]} of every month`;
     case "nth_weekday_of_month":
       return `On the ${MONTH_WEEKS[(schedule.monthWeek ?? 1) - 1] ?? "first"} ${WEEKDAYS[schedule.weekday ?? 0]} of every month`;
     case "every_n_weeks":
-      return `Every ${schedule.intervalWeeks ?? 2} weeks on ${WEEKDAYS[schedule.weekday ?? 0]}`;
+      return `Every ${schedule.intervalWeeks ?? 2} weeks on ${listDays(everySoManyWeeksDays(schedule))}`;
     case "chosen_weekdays":
       return `Every ${listDays(cleanDays(schedule.daysOfWeek))}`;
     case "monthly":
@@ -553,4 +627,62 @@ export function describeReportingLoop(names: readonly string[]): string {
   steps.push(`${names[names.length - 1]} reports to ${first}`);
   const last = steps.pop();
   return `That would make a loop. ${steps.join(", ")}, and ${last}. Change one of those lines first.`;
+}
+
+/**
+ * EVERY LOOP ALREADY IN THE DATA.
+ *
+ * `reportingLoop` refuses a NEW line that would close a loop. Lines saved before
+ * that check existed, or by a path that did not run it, can already be loops:
+ * Ana reports to Ben and Ben to Ana. This walks the whole company and returns
+ * each loop once, as the people in it in reporting order (each reports to the
+ * next, and the last to the first), starting from whoever comes first in the
+ * order `lines` was given in, so a caller that sorts the people by name gets the
+ * same loop named from the same person every time.
+ *
+ * Every person has at most one manager, so a person is in at most one loop and
+ * a walk up the lines either ends at someone with no manager or closes exactly
+ * one loop. People who only lead INTO a loop (they report to someone in it, and
+ * nobody in the loop reports to them) are not in it and are not returned.
+ * A person recorded as their own manager is a loop of one. It only reads: it
+ * names loops and never changes a line.
+ */
+export function reportingLoopsInData(lines: ReadonlyMap<string, string | null>): string[][] {
+  const state = new Map<string, "walking" | "done">();
+  const order = new Map([...lines.keys()].map((id, i) => [id, i] as const));
+  const loops: string[][] = [];
+  for (const start of lines.keys()) {
+    if (state.has(start)) continue;
+    const walk: string[] = [];
+    let at: string | null = start;
+    while (at && lines.has(at) && !state.has(at)) {
+      state.set(at, "walking");
+      walk.push(at);
+      at = lines.get(at) ?? null;
+    }
+    if (at && state.get(at) === "walking") {
+      const loop = walk.slice(walk.indexOf(at));
+      /** Start from whoever came first, keeping the order people report in. */
+      let first = 0;
+      loop.forEach((id, i) => { if ((order.get(id) ?? 0) < (order.get(loop[first]!) ?? 0)) first = i; });
+      loops.push([...loop.slice(first), ...loop.slice(0, first)]);
+    }
+    for (const id of walk) state.set(id, "done");
+  }
+  return loops.sort((a, b) => (order.get(a[0]!) ?? 0) - (order.get(b[0]!) ?? 0));
+}
+
+/**
+ * A loop already in the data, in words: "Ana reports to Ben, Ben reports to
+ * Cy, and Cy reports to Ana." Names come from the caller in the loop's order.
+ * Nothing in it says how to mend it, because which line is wrong is the
+ * company's to say.
+ */
+export function describeExistingLoop(names: readonly string[]): string {
+  const [first, ...rest] = names;
+  if (first === undefined) return "";
+  if (rest.length === 0) return `${first} is recorded as reporting to themselves.`;
+  const steps = names.map((name, i) => `${name} reports to ${names[(i + 1) % names.length]}`);
+  const last = steps.pop();
+  return steps.length === 0 ? `${last}.` : `${steps.join(", ")}${steps.length > 1 ? "," : ""} and ${last}.`;
 }

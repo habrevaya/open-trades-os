@@ -159,8 +159,9 @@ describe("a pricing rule is one of four shapes", () => {
     expect(refused({ kind: "customer_tag", tag: "", percent: "5" }).join(" ")).toMatch(/tag/);
     expect(refused({ kind: "job_type", jobTypeId: "22222222-2222-2222-2222-222222222222", percent: "5" }).join(" "))
       .toMatch(/not one of the company's/);
-    expect(refused({ kind: "time_window", window: { days: [1], from: "22:00", to: "06:00" }, percent: "5" }).join(" "))
-      .toMatch(/two rules, or use "outside_hours"/);
+    // A window that runs past midnight is accepted now (pricing-window-past-midnight.test.ts); one that starts and ends at the same minute is not.
+    expect(refused({ kind: "time_window", window: { days: [1], from: "06:00", to: "06:00" }, percent: "5" }).join(" "))
+      .toMatch(/start and end at different times/);
     expect(refused({ kind: "minimum_charge", minimum: "150", percent: "5" }).join(" ")).toMatch(/not a percentage/);
     expect(refused({ kind: "markup_by_formula", expression: "price * 2" }).join(" ")).toMatch(/kind is one of/);
   });

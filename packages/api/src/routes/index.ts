@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
-  me, staffDocuments, staffNotices, noticeUpkeep, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
+  me, staffDocuments, staffNotices, noticeUpkeep, noticeDefaults, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
   plugins,
 } from "../services/index";
 
@@ -1039,6 +1039,7 @@ export const handlers = {
   updateTaskEscalationRule: taskRules.handlers.updateTaskEscalationRule,
   listTaskEscalations: taskRules.handlers.listTaskEscalations,
   listReportingLines: taskRules.handlers.listReportingLines,
+  listReportingLoops: taskRules.handlers.listReportingLoops,
   setReportingLine: taskRules.handlers.setReportingLine,
   getTaskChecklist: taskChecklist.handlers.getTaskChecklist,
   addTaskChecklistItem: taskChecklist.handlers.addTaskChecklistItem,
@@ -1258,6 +1259,7 @@ export const handlers = {
   ...me.handlers,
   ...staffNotices.handlers,
   ...noticeUpkeep.handlers,
+  ...noticeDefaults.handlers,
   ...staffDocuments.handlers,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 

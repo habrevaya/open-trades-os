@@ -205,3 +205,32 @@ export function fromForm(
   }
   return out;
 }
+
+/**
+ * A value typed into a box, read as the field's own kind, or why it cannot be.
+ *
+ * What a workflow step that compares a field with a typed value needs: the
+ * same reading a form gives the same words (`fromForm`), then held to the
+ * field's definition (`valueProblem`), so "7" is the number 7 for a number
+ * field, `true` is a yes for a yes or no field, a date has to be a real date
+ * and a choice has to be one of the field's options. A yes or no field is typed
+ * as yes, no, true or false. A list of choices is typed with commas between them. The refusal is a sentence that starts with
+ * the field's label, as every other one does.
+ */
+export function typedValue(
+  definition: FieldDefinition, text: string,
+): { ok: true; value: unknown } | { ok: false; message: string } {
+  let typed = text.trim();
+  /** A yes or no field is typed in the words a person would use. */
+  if (definition.dataType === "boolean") {
+    const word = typed.toLowerCase();
+    if (word === "yes") typed = "true";
+    else if (word === "no") typed = "false";
+    else typed = word;
+  }
+  const posted = definition.dataType === "multiselect" ? typed.split(",") : [typed];
+  const value = fromForm([definition], () => posted)[definition.key];
+  if (isMissing(value)) return { ok: false, message: `${definition.label} needs a value to compare with.` };
+  const problem = valueProblem(definition, value);
+  return problem ? { ok: false, message: `${definition.label} ${problem}.` } : { ok: true, value };
+}

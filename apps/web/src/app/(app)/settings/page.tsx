@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService, acquisition,
-  people as peopleService, setup as setupService, documents, visitCancellations, jobHolds, noticeUpkeep,
+  people as peopleService, setup as setupService, documents, visitCancellations, jobHolds, noticeUpkeep, noticeDefaults,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
@@ -18,7 +18,7 @@ import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
 import { ActionForm, TextField } from "@/components/ActionForm";
-import { setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
+import { saveNoticeDefaults, setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +80,7 @@ export default async function SettingsPage() {
   const cancelNotice = writes ? await visitCancellations.notice(ctx) : null;
   const holdNudge = writes ? await jobHolds.nudgeSetting(ctx) : null;
   const keeping = writes ? await noticeUpkeep.keeping(ctx) : null;
+  const noticeStart = writes ? await noticeDefaults.defaults(ctx) : null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -164,6 +165,38 @@ export default async function SettingsPage() {
           <ActionForm action={setNoticeKeeping} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
             <TextField label="Days to keep read notices" name="days" type="number" min={7} max={3650} step={1}
                        defaultValue={keeping.keepDays === null ? "" : String(keeping.keepDays)} className="block w-48" />
+          </ActionForm>
+        </section>
+      )}
+
+      {/*
+        What a person added from now on starts with on their bell, their phone
+        and (where a kind is emailed) their email. Copied onto each new person;
+        nobody already here is changed, and texts are never started for anyone.
+      */}
+      {noticeStart && (
+        <section id="notice-defaults" aria-label="What new people are told" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="font-medium text-ink-900">What new people are told</h2>
+          <p className="mt-1 max-w-prose text-sm text-ink-500">
+            Where each kind of notice reaches a person you add from now on. They can change their own on their page.
+            People already here keep what they have. Texts are not here: a person turns those on themselves, with
+            their own number.
+          </p>
+          <ActionForm action={saveNoticeDefaults} submit="Save" className="mt-3 space-y-3">
+            <Table head={<><Th>Notice</Th><Th>In the app</Th><Th>Phone app</Th><Th>Email</Th></>}>
+              {noticeStart.kinds.map((k) => (
+                <tr key={k.kind}>
+                  <Td><span className="font-medium">{k.label}</span><span className="block text-xs text-ink-500">{k.description}</span></Td>
+                  <Td><input type="checkbox" name={`${k.kind}.inApp`} defaultChecked={k.inApp} aria-label={`${k.label}: in the app`} className="h-4 w-4 rounded border-steel-300" /></Td>
+                  <Td><input type="checkbox" name={`${k.kind}.push`} defaultChecked={k.push} aria-label={`${k.label}: on the phone app`} className="h-4 w-4 rounded border-steel-300" /></Td>
+                  <Td>
+                    {k.email === null
+                      ? <span className="text-xs text-ink-500">Not emailed</span>
+                      : <input type="checkbox" name={`${k.kind}.email`} defaultChecked={k.email} aria-label={`${k.label}: by email`} className="h-4 w-4 rounded border-steel-300" />}
+                  </Td>
+                </tr>
+              ))}
+            </Table>
           </ActionForm>
         </section>
       )}

@@ -730,7 +730,9 @@ visit and `/c/{token}/change/{visitId}` is one visit on the account.
 
 It is a request, never a move. A visit on the board has a technician and a route
 the customer cannot see, so asking writes a request, raises it in the office
-queue with the customer's reason, and changes nothing about the visit. A move is
+queue with the customer's reason, tells everybody who may answer it (`visit:reschedule`) on
+their bell, phone or text as each chose (a notice that opens the job, M34), and changes
+nothing about the visit. A move is
 chosen from exactly the windows online booking would offer for that kind of
 work, from the same function: the company's notice period, open days, per window
 limit and service area. A window a customer has asked for counts against that

@@ -10558,7 +10558,7 @@ export interface GetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
     label: string;
     description: string;
     email: boolean | null;
@@ -10812,6 +10812,17 @@ export interface GetNetworkRollupOutput {
     organizationId: string;
     name: string;
     sharesThis: boolean;
+  }>;
+}
+
+export interface GetNoticeDefaultsOutput {
+  kinds: Array<{
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
+    label: string;
+    description: string;
+    inApp: boolean;
+    push: boolean;
+    email: boolean | null;
   }>;
 }
 
@@ -17475,6 +17486,17 @@ export interface ListReportingLinesOutput {
     role: string;
     reportsToUserId: string | null;
     reportsToName: string | null;
+  }>;
+}
+
+export interface ListReportingLoopsOutput {
+  loops: Array<{
+    people: Array<{
+      userId: string;
+      name: string;
+      active: boolean;
+    }>;
+    sentence: string;
   }>;
 }
 
@@ -25348,7 +25370,7 @@ export interface SetMyNoticeDigestOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
     label: string;
     description: string;
     email: boolean | null;
@@ -25374,7 +25396,7 @@ export interface SetMyNoticeSettingsInput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
     email?: boolean;
   }>;
 }
@@ -25384,7 +25406,7 @@ export interface SetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
     label: string;
     description: string;
     email: boolean | null;
@@ -25416,7 +25438,7 @@ export interface SetMyNoticeTextsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
     label: string;
     description: string;
     email: boolean | null;
@@ -25463,6 +25485,26 @@ export interface SetMyOnboardingLineOutput {
     complete: boolean;
     sentence: string;
   };
+}
+
+export interface SetNoticeDefaultsInput {
+  kinds: Array<{
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
+    inApp: boolean;
+    push: boolean;
+    email?: boolean;
+  }>;
+}
+
+export interface SetNoticeDefaultsOutput {
+  kinds: Array<{
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed";
+    label: string;
+    description: string;
+    inApp: boolean;
+    push: boolean;
+    email: boolean | null;
+  }>;
 }
 
 export interface SetNumberHoursInput {
@@ -31556,6 +31598,8 @@ export interface GetNetworkRollupInput {
   to: string;
 }
 
+export type GetNoticeDefaultsInput = Record<string, never>;
+
 export interface GetNumberHoursInput {
   id: string;
 }
@@ -32699,6 +32743,8 @@ export interface ListReportDeliveriesInput {
 export type ListReportSchedulesInput = Record<string, never>;
 
 export type ListReportingLinesInput = Record<string, never>;
+
+export type ListReportingLoopsInput = Record<string, never>;
 
 export type ListRestockSuggestionsInput = Record<string, never>;
 
@@ -34702,6 +34748,7 @@ export interface OperationTypes {
   getMyTimeclock: { input: GetMyTimeclockInput; output: GetMyTimeclockOutput };
   getNetworkMembership: { input: GetNetworkMembershipInput; output: GetNetworkMembershipOutput };
   getNetworkRollup: { input: GetNetworkRollupInput; output: GetNetworkRollupOutput };
+  getNoticeDefaults: { input: GetNoticeDefaultsInput; output: GetNoticeDefaultsOutput };
   getNumberHours: { input: GetNumberHoursInput; output: GetNumberHoursOutput };
   getOnCallNow: { input: GetOnCallNowInput; output: GetOnCallNowOutput };
   getPayExtras: { input: GetPayExtrasInput; output: GetPayExtrasOutput };
@@ -34983,6 +35030,7 @@ export interface OperationTypes {
   listReportDeliveries: { input: ListReportDeliveriesInput; output: ListReportDeliveriesOutput };
   listReportSchedules: { input: ListReportSchedulesInput; output: ListReportSchedulesOutput };
   listReportingLines: { input: ListReportingLinesInput; output: ListReportingLinesOutput };
+  listReportingLoops: { input: ListReportingLoopsInput; output: ListReportingLoopsOutput };
   listRestockSuggestions: { input: ListRestockSuggestionsInput; output: ListRestockSuggestionsOutput };
   listRestorableCopies: { input: ListRestorableCopiesInput; output: ListRestorableCopiesOutput };
   listRestores: { input: ListRestoresInput; output: ListRestoresOutput };
@@ -35362,6 +35410,7 @@ export interface OperationTypes {
   setMyNoticeSettings: { input: SetMyNoticeSettingsInput; output: SetMyNoticeSettingsOutput };
   setMyNoticeTexts: { input: SetMyNoticeTextsInput; output: SetMyNoticeTextsOutput };
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
+  setNoticeDefaults: { input: SetNoticeDefaultsInput; output: SetNoticeDefaultsOutput };
   setNumberHours: { input: SetNumberHoursParams & SetNumberHoursInput; output: SetNumberHoursOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
@@ -35917,6 +35966,7 @@ export const OPERATIONS = {
   getMyTimeclock: { method: "GET", path: "/v1/timeclock/me", pathParams: [], queryParams: ["weekOf"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
   getNetworkMembership: { method: "GET", path: "/v1/network", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getNetworkRollup: { method: "GET", path: "/v1/network/rollup", pathParams: [], queryParams: ["aggregate","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getNoticeDefaults: { method: "GET", path: "/v1/notice-defaults", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getNumberHours: { method: "GET", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getOnCallNow: { method: "GET", path: "/v1/on-call", pathParams: [], queryParams: ["at","businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getPayExtras: { method: "GET", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
@@ -36198,6 +36248,7 @@ export const OPERATIONS = {
   listReportDeliveries: { method: "GET", path: "/v1/report-deliveries", pathParams: [], queryParams: ["scheduleId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportSchedules: { method: "GET", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportingLines: { method: "GET", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listReportingLoops: { method: "GET", path: "/v1/reporting-lines/loops", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listRestockSuggestions: { method: "GET", path: "/v1/stock/restock-suggestions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listRestorableCopies: { method: "POST", path: "/v1/restores/available", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listRestores: { method: "GET", path: "/v1/restores", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
@@ -36577,6 +36628,7 @@ export const OPERATIONS = {
   setMyNoticeSettings: { method: "POST", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeTexts: { method: "POST", path: "/v1/me/notice-texts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  setNoticeDefaults: { method: "PATCH", path: "/v1/notice-defaults", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberHours: { method: "PUT", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
@@ -40086,6 +40138,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * What a new person's notices start as.
+   *
+   * GET /v1/notice-defaults. Needs settings:read.
+   */
+  getNoticeDefaults(input: GetNoticeDefaultsInput = {} as GetNoticeDefaultsInput, options?: CallOptions): Promise<GetNoticeDefaultsOutput> {
+    return this.call("getNoticeDefaults", input, options);
+  }
+
+  /**
    * The hours and days off a number's calls are routed by.
    *
    * GET /v1/phone-numbers/{id}/hours. Needs settings:read.
@@ -42612,6 +42673,15 @@ export abstract class GeneratedOperations {
    */
   listReportingLines(input: ListReportingLinesInput = {} as ListReportingLinesInput, options?: CallOptions): Promise<ListReportingLinesOutput> {
     return this.call("listReportingLines", input, options);
+  }
+
+  /**
+   * Loops already in who answers to whom.
+   *
+   * GET /v1/reporting-lines/loops. Needs user:read.
+   */
+  listReportingLoops(input: ListReportingLoopsInput = {} as ListReportingLoopsInput, options?: CallOptions): Promise<ListReportingLoopsOutput> {
+    return this.call("listReportingLoops", input, options);
   }
 
   /**
@@ -46023,6 +46093,15 @@ export abstract class GeneratedOperations {
    */
   setMyOnboardingLine(input: SetMyOnboardingLineParams & SetMyOnboardingLineInput, options?: CallOptions): Promise<SetMyOnboardingLineOutput> {
     return this.call("setMyOnboardingLine", input, options);
+  }
+
+  /**
+   * Set what a new person's notices start as.
+   *
+   * PATCH /v1/notice-defaults. Needs settings:write.
+   */
+  setNoticeDefaults(input: SetNoticeDefaultsInput, options?: CallOptions): Promise<SetNoticeDefaultsOutput> {
+    return this.call("setNoticeDefaults", input, options);
   }
 
   /**

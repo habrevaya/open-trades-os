@@ -10,6 +10,7 @@ import {
 import { customerScopeFilter, invoiceScopeFilter } from "./scope";
 import { rememberKey, seenKey } from "./project-position";
 import * as files from "./files";
+import { raiseToHolders } from "./staff-notices";
 import * as payments from "./payments";
 import * as invoiceDelivery from "./invoice-delivery";
 import { sendTransactional, quietHoursFor } from "./comms-send";
@@ -987,6 +988,17 @@ async function failedWith(
         entityId: row.invoiceId,
         queue: "office",
       }).returning({ id: schema.task.id });
+      /**
+       * And the people who can charge it again or ask for another way to pay are
+       * told, on the bell, the phone or their own mobile as each chose (M34).
+       * Each try is its own charge row, so the second failure tells them again.
+       */
+      await raiseToHolders(tx, {
+        organizationId: ctx.actor.organizationId, kind: "autopay_failed", key: `autopay_failed:${row.id}`,
+        title: `${customer?.name ?? "A customer"}'s automatic payment did not go through`,
+        body: `Invoice #${number}, ${amount}. ${retry ? "It will be tried once more tomorrow." : "It will not be tried again."}`,
+        about: { type: "invoice", id: row.invoiceId },
+      });
       return task!.id;
     })
     : null;
@@ -1240,6 +1252,12 @@ async function reconcile(ctx: ServiceContext): Promise<number> {
           priority: "high", entityType: "invoice", entityId: row.invoiceId, queue: "office",
         }).returning({ id: schema.task.id });
         taskId = task!.id;
+        await raiseToHolders(tx, {
+          organizationId: ctx.actor.organizationId, kind: "autopay_failed", key: `autopay_failed:${row.id}`,
+          title: "An automatic card payment did not go through",
+          body: `${reason} ${told.told === "not_sent" ? "The link to pay could not be sent; send them the invoice." : "They were sent the link to pay."}`,
+          about: { type: "invoice", id: row.invoiceId },
+        });
       }
       await tx.update(schema.cardOnFileCharge).set({
         status: "failed", failureReason: reason, customerTold: told.told, customerToldNote: told.note,

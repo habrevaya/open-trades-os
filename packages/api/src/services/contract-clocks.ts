@@ -1,7 +1,8 @@
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, coverage, deadlines, type Actor } from "@opentradesos/core";
-import { audit, inTenant, type ServiceContext } from "./context";
+import { SYSTEM_USER_ID, coverage, deadlines, notices, type Actor } from "@opentradesos/core";
+import { audit, inTenant, timezoneOf, type ServiceContext } from "./context";
+import { raiseToHolders } from "./staff-notices";
 import * as rateCards from "./rate-cards";
 
 /**
@@ -303,16 +304,18 @@ async function escalate(tx: Database, ctx: ServiceContext, now: Date): Promise<n
   const numbers = new Map(jobIds.length === 0 ? [] : (await tx.select({ id: schema.job.id, number: schema.job.number })
     .from(schema.job).where(inArray(schema.job.id, jobIds))).map((j) => [j.id, j.number] as const));
 
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
   for (const obligation of due) {
     const number = numbers.get(obligation.entityId);
+    const title = number !== undefined
+      ? taskTitle(obligation.kind, number)
+      : obligation.kind === coverage.WARRANTY_REGISTRATION_KIND
+        // "Register the Condenser (24ACC636) with Carrier by 2026-11-12": the deadline's own first sentence, which names the unit.
+        ? coverage.registrationTitle(obligation.consequence)
+        : `${deadlines.deadlineLabel(obligation.kind)}: ${obligation.entityType}`;
     const [task] = await tx.insert(schema.task).values({
       organizationId: ctx.actor.organizationId,
-      title: number !== undefined
-        ? taskTitle(obligation.kind, number)
-        : obligation.kind === coverage.WARRANTY_REGISTRATION_KIND
-          // "Register the Condenser (24ACC636) with Carrier by 2026-11-12": the deadline's own first sentence, which names the unit.
-          ? coverage.registrationTitle(obligation.consequence)
-          : `${deadlines.deadlineLabel(obligation.kind)}: ${obligation.entityType}`,
+      title,
       body: obligation.consequence,
       priority: "high",
       entityType: obligation.entityType,
@@ -320,6 +323,18 @@ async function escalate(tx: Database, ctx: ServiceContext, now: Date): Promise<n
       dueAt: obligation.dueAt,
     }).returning({ id: schema.task.id });
     await audit(tx, ctx, "obligation.escalated", "obligation", obligation.id, null, { taskId: task!.id });
+    /**
+     * And the people who can do something about it are told, on the bell, the
+     * phone or their own mobile as each chose (M34). Beside the task, in this
+     * transaction, keyed on the obligation: it is escalated once, so they are
+     * told once.
+     */
+    await raiseToHolders(tx, {
+      organizationId: ctx.actor.organizationId, kind: "task_deadline", key: `task_deadline:${obligation.id}`,
+      title: `Deadline close: ${title}`,
+      body: `Due ${notices.localWhen(obligation.dueAt, zone)}.${obligation.consequence ? ` ${obligation.consequence}` : ""}`,
+      about: { type: "task", id: task!.id },
+    });
   }
   return due.length;
 }

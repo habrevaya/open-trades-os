@@ -277,7 +277,21 @@ because a sandbox has no applications.
 **A pricing rule** is one of four kinds: a percentage or an amount for customers
 carrying a tag, for a job type, or for work booked in a time window (days and
 hours, or outside the company's own hours, counted from the start of the job's
-first visit window as the after hours rate is), or a minimum charge. Rules are
+first visit window as the after hours rate is), or a minimum charge. A window's
+`days` are the days it STARTS on, and a `to` earlier than its `from` runs past
+midnight into the next day, so `{ days: [1, 2], from: "18:00", to: "06:00" }` is
+one rule: Monday evening until Tuesday at six in the morning, and Tuesday evening
+until Wednesday at six. Work at three on Tuesday morning is inside it because the
+window that holds it started on Monday, a listed day; work at three on Monday
+morning is not, unless Sunday is listed, and a Saturday night runs into Sunday
+morning. "18:00" to "24:00" and to "00:00" are both the evening to midnight. The
+times are the wall clock in the company's zone, so a night with a clock change in
+it is still six in the evening to six in the morning on the clock. A window that
+starts and ends at the same minute is refused, and so is one that starts at "24:00"
+(start it at "00:00"). The sentence on Settings, Applications reads such a rule as
+"50% added for work from 18:00 on Mon, Tue until 06:00 the next day". The rule is
+core's `inWindow`, with unit tests, so the invoice, the estimate and the screens
+cannot count differently. Rules are
 applied when an estimate or an invoice is priced, after member pricing and
 before tax, to the lines priced from the company's own price book, in an order
 core decides and tests: every percentage taken from the price after member
@@ -425,9 +439,12 @@ customer covers (the coverage decides the customer's part), on a job billed in
 parts, or on an estimate or invoice a technician's phone priced, whose figure
 the customer has already seen. Money a rule adds raises the line's unit price
 (revenue) and money it takes off is a discount, the conservative reading until
-an accountant says otherwise. A time window ends on the day it starts (the
-evening and the early morning are two rules, or "outside your hours"), and only
-the largest minimum charge counts. Editing a draft invoice prices it again: a
+an accountant says otherwise. A time window may run past midnight, but no
+further than the next morning (it is a start time and an end time, not a length:
+there is no "for thirty hours"), it is named by the day it starts on, and there
+is no screen to write one: an application registers it with its own token, as it
+registers every rule, and the company reads it back in a sentence under the
+application. Only the largest minimum charge counts. Editing a draft invoice prices it again: a
 line billing work recorded on the job is sent back as the price before the
 rules and priced as typed, so a rule does not touch it a second time. A gate is
 a checklist item or a job field, only one workflow can be in force per job

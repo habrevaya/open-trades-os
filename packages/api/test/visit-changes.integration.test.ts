@@ -535,3 +535,67 @@ run("the office taking an offer back, and offering again", () => {
     expect(await visitChanges.proposalTimes(office(), { id: newer.id })).toEqual([]);
   });
 });
+
+run("the people who can answer a request are told when a customer makes one", () => {
+  const DISPATCHER = fixtureId("vcr:notice-dispatcher");
+  const CSR = fixtureId("vcr:notice-csr");
+  const people = [DISPATCHER, CSR];
+
+  beforeAll(async () => {
+    if (!url) return;
+    for (const [id, role, name] of [[DISPATCHER, "dispatcher", "Dina"], [CSR, "csr", "Cass"]] as const) {
+      await raw`delete from public."user" where id = ${id}`;
+      await raw`insert into public."user" (id, email, name) values (${id}, ${`${name.toLowerCase()}@vcr-notice.test`}, ${name})`;
+      await raw`insert into public.membership (organization_id, user_id, role) values (${ORG}, ${id}, ${role})`;
+    }
+  });
+
+  afterAll(async () => {
+    if (!url) return;
+    await raw`delete from public.staff_notice where organization_id = ${ORG}`;
+    await raw`delete from public.membership where organization_id = ${ORG} and user_id in ${raw(people)}`;
+    await raw`delete from public."user" where id in ${raw(people)}`;
+  });
+
+  const told = (userId: string) => raw<{ title: string; body: string; href: string; entity_type: string }[]>`
+    select title, body, href, entity_type from public.staff_notice
+     where organization_id = ${ORG} and user_id = ${userId} and kind = 'visit_change_requested'`;
+
+  it("tells whoever may move a visit, on the job it opens, and nobody who may not", async () => {
+    await raw`delete from public.staff_notice where organization_id = ${ORG}`;
+    const { token, jobId, day } = await aComingVisit();
+    const asked = await visitChanges.request(db(), {
+      token, kind: "reschedule", requestedDate: dayFromNow(9), arrivalWindowId: windowId, reason: "Away that week",
+    });
+
+    /** The owner and the dispatcher can move a visit. The dispatcher holds no task permission, and is told all the same. */
+    for (const who of [USER, DISPATCHER]) {
+      const rows = await told(who);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ href: `/jobs/${jobId}`, entity_type: "visit_change_request" });
+      expect(rows[0]!.title).toBe("Dana Change asks to move a visit");
+      expect(rows[0]!.body).toContain("Away that week");
+      expect(rows[0]!.body).toContain("Answer before the visit.");
+    }
+    /** A CSR can read the job and cannot move a visit. */
+    expect(await told(CSR)).toHaveLength(0);
+    void day;
+
+    /** The same request again is the first answer, and tells nobody twice. */
+    const again = await visitChanges.request(db(), {
+      token, kind: "reschedule", requestedDate: dayFromNow(9), arrivalWindowId: windowId, reason: "Away that week",
+    });
+    expect(again.id).toBe(asked.id);
+    expect(await told(DISPATCHER)).toHaveLength(1);
+  });
+
+  it("tells them of a cancellation in words about cancelling", async () => {
+    await raw`delete from public.staff_notice where organization_id = ${ORG}`;
+    const { token } = await aComingVisit();
+    await visitChanges.request(db(), { token, kind: "cancel", reason: "Found somebody else" });
+    const rows = await told(DISPATCHER);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.title).toBe("Dana Change asks to cancel a visit");
+    expect(rows[0]!.body).not.toMatch(/They ask for/);
+  });
+});

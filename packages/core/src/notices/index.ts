@@ -1,6 +1,7 @@
 import { addDays, compareDates } from "../recurrence/index.js";
 import { activeSuppression, inQuietHours, type SuppressionRecord } from "../comms/index.js";
 import { dateIn, minutesInDay } from "../time/index.js";
+import type { Permission } from "../access/permissions.js";
 
 /**
  * TELLING THE COMPANY'S OWN PEOPLE
@@ -38,6 +39,9 @@ export const NOTICE_KINDS = [
   "talk_unsigned",
   "expense_decided",
   "qualification_expiry",
+  "task_deadline",
+  "visit_change_requested",
+  "autopay_failed",
 ] as const;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 
@@ -74,6 +78,39 @@ export const NOTICE_KIND_WORDS: Record<NoticeKind, { label: string; description:
     label: "A licence or skill running out",
     description: "When a certification or a skill reaches its renewal period, and again on its last day.",
   },
+  task_deadline: {
+    label: "A deadline about to be missed",
+    description: "A time promised to a client, or a filing, is close and nobody has dealt with it yet.",
+  },
+  visit_change_requested: {
+    label: "A customer asking to change a visit",
+    description: "A customer asked to move or cancel a visit and the office has not answered.",
+  },
+  autopay_failed: {
+    label: "An automatic payment that failed",
+    description: "A customer's saved card was charged for an invoice and the payment did not go through.",
+  },
+};
+
+/**
+ * WHO HANDLES A KIND THE OFFICE QUEUE RAISES.
+ *
+ * Three kinds are not for one named person: a deadline about to be missed, a
+ * customer asking to change a visit and a failed automatic payment land in
+ * the office queue as a task nobody owns yet. Each goes to the people who can
+ * DO something about it, which is whoever holds the permission that answers
+ * it, and who may also open the record the notice is about (the task for a
+ * deadline, the job for a visit change, the invoice for a failed payment).
+ * Somebody who could read the record and not answer it is not told, because a
+ * notice they cannot act on is the kind people switch off.
+ */
+export const QUEUE_KIND_HANDLER: Partial<Record<NoticeKind, Permission>> = {
+  /** Satisfying or waiving a deadline is a task write. */
+  task_deadline: "task:write",
+  /** Approving, declining or offering another time. */
+  visit_change_requested: "visit:reschedule",
+  /** Charging the saved card again, or asking for another way to pay. */
+  autopay_failed: "payment:charge_saved",
 };
 
 export interface NoticeSwitches {
@@ -99,6 +136,53 @@ export function switchesFor(
 ): NoticeSwitches {
   const row = saved.find((s) => s.kind === kind);
   return row ? { inApp: row.inApp, push: row.push, text: row.text } : { ...DEFAULT_SWITCHES };
+}
+
+/* -------------------------------------------------- the company's defaults */
+
+/**
+ * WHAT A NEW PERSON STARTS WITH, AS THE COMPANY SETS IT.
+ *
+ * Until a company says otherwise a new person gets `DEFAULT_SWITCHES` for
+ * every kind. A company can change that per kind (a field crew that lives on
+ * the phone app, an office that wants the bell and nothing else), and what it
+ * sets is COPIED onto each person as they are added, as their own switches.
+ * It is never read later in place of their own: people who were here before
+ * keep exactly what they had, and a change to the company's defaults reaches
+ * only people added afterwards. A person changes theirs on `/me` as always.
+ *
+ * No default for texts, deliberately. A text goes to somebody's own mobile on
+ * their own bill and only ever because they turned it on themselves, so a
+ * company cannot start anybody with it.
+ */
+export interface NoticeDefault {
+  inApp: boolean;
+  push: boolean;
+  /** Only for a kind that is emailed. Null for a kind that is not. */
+  email: boolean | null;
+}
+
+/** The company's saved defaults over the product's, one row per kind it changed. */
+export function defaultsFor(
+  saved: readonly ({ kind: string; inApp: boolean; push: boolean; email: boolean | null })[],
+  kind: NoticeKind,
+): NoticeDefault {
+  const row = saved.find((s) => s.kind === kind);
+  const emailed = isEmailKind(kind);
+  if (row) return { inApp: row.inApp, push: row.push, email: emailed ? row.email ?? true : null };
+  return { inApp: DEFAULT_SWITCHES.inApp, push: DEFAULT_SWITCHES.push, email: emailed ? true : null };
+}
+
+/** Why a set of defaults cannot be saved, in words, or null. */
+export function defaultsProblem(kinds: readonly { kind: string; email?: boolean | null | undefined }[]): string | null {
+  const seen = new Set<string>();
+  for (const k of kinds) {
+    if (!isNoticeKind(k.kind)) return `There is no kind of notice called ${k.kind}.`;
+    if (seen.has(k.kind)) return `${NOTICE_KIND_WORDS[k.kind].label} is listed twice.`;
+    seen.add(k.kind);
+    if (k.email && !isEmailKind(k.kind)) return `${NOTICE_KIND_WORDS[k.kind].label} does not come by email.`;
+  }
+  return null;
 }
 
 /* ----------------------------------------------------------------- email */
