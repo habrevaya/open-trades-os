@@ -890,6 +890,10 @@ run("every operation does something", () => {
     const collection = await makeVisit();
     await raw`update public.visit set rental_id = ${haul!.id}, rental_event = 'pickup' where id = ${collection.visitId}`;
 
+    /** A visit on this person's day today, which a team turned away at the door calls off. */
+    const turnedAway = await makeVisit();
+    await raw`update public.visit set window_start = now(), window_end = now() + interval '2 hours' where id = ${turnedAway.visitId}`;
+
     const cases: Array<{
       kind: (typeof field.OPERATION_KINDS)[number];
       subjectId?: string;
@@ -939,6 +943,7 @@ run("every operation does something", () => {
       { kind: "notice.read", subjectId: bell!.id, payload: {} },
       { kind: "truck.water", subjectId: waterTruck!.id, payload: { field: companyToday(), onDay: companyToday(), gallons: "410" } },
       { kind: "haul.time", subjectId: haul!.id, payload: { field: "tipped", at: new Date(Date.now() - 3_600_000).toISOString() } },
+      { kind: "visit.call_off", subjectId: turnedAway.visitId, payload: { by: "customer" } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 

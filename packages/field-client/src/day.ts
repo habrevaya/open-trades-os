@@ -106,6 +106,7 @@ export function statusAfter(kind: string, current: string | undefined): string |
     case "visit.start": return "working";
     case "visit.pause": return "working";
     case "visit.complete": return "completed";
+    case "visit.call_off": return "cancelled";
     default: return null;
   }
 }

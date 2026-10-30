@@ -4,7 +4,7 @@ import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "
 
 export const OperationKind = z.enum([
   "visit.en_route", "visit.arrive", "visit.start", "visit.complete",
-  "visit.pause", "visit.note",
+  "visit.pause", "visit.note", "visit.call_off",
   "timeclock.punch_in", "timeclock.punch_out",
   "service_report.set_field", "service_report.submit", "visit.checklist_item",
   "visit.add_line", "equipment.record",

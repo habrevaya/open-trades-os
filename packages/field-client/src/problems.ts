@@ -39,6 +39,7 @@ const DID: Record<string, string> = {
   "visit.pause": "You paused work at",
   "visit.complete": "You finished",
   "visit.note": "Your note on",
+  "visit.call_off": "Calling off your visit to",
   "visit.checklist_item": "A checklist tick on",
   "visit.add_line": "A part or charge on",
   "attachment.attach": "A photo for",

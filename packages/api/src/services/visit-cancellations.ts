@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { reporting, work } from "@opentradesos/core";
+import { reporting, time, work, type field } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, UnprocessableError,
+  audit, guardedRead, guardedWrite, scopeOf, timezoneOf, ConflictError, NotFoundError, UnprocessableError,
   type ServiceContext,
 } from "./context";
 import { jobScopeFilter } from "./scope";
@@ -235,21 +235,126 @@ export async function cancel(
     }
 
     const askedAt = askedAtOf(input.askedAt, visit.createdAt);
-    const before = await sideOf(tx, visit.id);
-    await callOff(tx, ctx, visit.id, { by: input.by, askedAt });
-    await noteWhy(tx, visit.id, input.reason);
-    if (before) await announce(tx, ctx, visit.id, before);
-    await supersedeRequests(tx, ctx, visit.id, "Overtaken: the office cancelled the visit");
-
-    const [after] = await tx.select().from(schema.visit).where(eq(schema.visit.id, visit.id)).limit(1);
-    const answer = shape(after!);
-    await audit(tx, ctx, "visit.called_off", "visit", visit.id,
-      { status: visit.status },
-      { status: "cancelled", cancelledBy: answer.cancelledBy, cancelledAt: answer.cancelledAt, cancelNoticeHours: answer.cancelNoticeHours,
-        ...(answer.reason ? { reason: answer.reason.code, reasonNote: answer.reason.note } : {}) });
+    const answer = await callOffWithin(tx, ctx, visit, { by: input.by, askedAt, reason: input.reason, from: "office" });
     await remember(tx, ctx, "visit_cancel", visit.id, answer);
     return answer;
   });
+}
+
+/**
+ * THE ONE WAY A SINGLE VISIT IS CALLED OFF, from the office's page or from the
+ * phone at the door: the row (who, when, the notice window), the reason, the
+ * people on it told not to go, a customer's request waiting on it closed, and
+ * the audit entry. Both callers have already checked who may, which visit, and
+ * that nobody has started it, so the two land exactly the same, and the
+ * cancellation figures cannot tell them apart. The audit entry says which it
+ * was (`from`), and nothing else differs.
+ */
+export async function callOffWithin(
+  tx: Database, ctx: ServiceContext, visit: typeof schema.visit.$inferSelect,
+  input: { by: CancelledBy; askedAt: Date; reason?: CalledOffWhy | undefined; from: "office" | "phone" },
+): Promise<CancelledVisit> {
+  const before = await sideOf(tx, visit.id);
+  const { askedAt } = input;
+  await callOff(tx, ctx, visit.id, { by: input.by, askedAt });
+  await noteWhy(tx, visit.id, input.reason);
+  if (before) await announce(tx, ctx, visit.id, before);
+  await supersedeRequests(tx, ctx, visit.id, input.from === "phone"
+    ? "Overtaken: the visit was called off from the field"
+    : "Overtaken: the office cancelled the visit");
+
+  const [after] = await tx.select().from(schema.visit).where(eq(schema.visit.id, visit.id)).limit(1);
+  const answer = shape(after!);
+  await audit(tx, ctx, "visit.called_off", "visit", visit.id,
+    { status: visit.status },
+    { status: "cancelled", cancelledBy: answer.cancelledBy, cancelledAt: answer.cancelledAt, cancelNoticeHours: answer.cancelNoticeHours,
+      ...(answer.reason ? { reason: answer.reason.code, reasonNote: answer.reason.note } : {}),
+      from: input.from });
+  return answer;
+}
+
+/* ------------------------------------------------ called off from the field */
+
+/** The visit an operation names, with whose day it is on: its people and its crew's members as they are now. */
+async function onWhoseDay(tx: Database, visitId: string): Promise<string[]> {
+  return (await sideOf(tx, visitId))?.technicianIds ?? [];
+}
+
+/**
+ * A TEAM TURNED AWAY AT THE DOOR CALLS THE VISIT OFF FROM THE FIELD
+ * (`visit.call_off`).
+ *
+ * Who asked comes from the phone, never a default: the customer (turned us
+ * away), or the company with one of the office's own reasons. When is the
+ * moment it was pressed, as the phone's clock said it after the sync's own
+ * clamping, and never before the visit was booked. It lands through
+ * `callOffWithin`, the office's own path, so the row, the reason, the audit
+ * entry and the figures are the same.
+ *
+ * Only on the technician's own day: a visit they are on (in person or through
+ * their crew) that falls on the company's date the call off happened on.
+ * `field:sync` is what the sync needs and all this needs, the same class of act
+ * as marking a visit done: the person standing at the door is the one who
+ * knows. A visit on somebody else's day, on another day, or already started,
+ * is the office's, and is refused in words. Words said for a turned away visit
+ * are kept with the technician's notes on it, because a customer's
+ * cancellation is never given a reason.
+ *
+ * Returns the refusal in words, or null once it has landed.
+ */
+export async function callOffOperation(
+  tx: Database, ctx: ServiceContext, op: field.FieldOperation, technicianId: string | null,
+): Promise<string | null> {
+  if (!technicianId) return "This phone is not registered to a technician, so it cannot call a visit off. Ring the office.";
+  if (!op.subjectId) return "That call off names no visit.";
+
+  const by = op.payload["by"];
+  if (by !== "customer" && by !== "company") return "Say who called it off: the customer, or us and why.";
+  const sent = op.payload["reason"];
+  const reason = typeof sent === "object" && sent !== null
+    ? {
+      code: String((sent as Record<string, unknown>)["code"] ?? "") as work.CancelReason,
+      note: typeof (sent as Record<string, unknown>)["note"] === "string"
+        ? ((sent as Record<string, unknown>)["note"] as string).trim().slice(0, 500) : undefined,
+    }
+    : null;
+  /** Every screen asks why the company called a day off, and the phone is a screen. */
+  if (by === "company" && !reason) return "Say why we called it off: rain or weather, crew short, equipment, or something else.";
+  const problem = work.cancelReasonProblem(by, reason);
+  if (problem) return problem;
+
+  const [found] = await tx.select({ visit: schema.visit }).from(schema.visit)
+    .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+    .where(and(eq(schema.visit.id, op.subjectId), isNull(schema.job.deletedAt))).limit(1);
+  if (!found) return "That visit is not here.";
+  const { visit } = found;
+
+  if (!(await onWhoseDay(tx, visit.id)).includes(technicianId)) {
+    return "That visit is not on your day, so it cannot be called off from your phone. Ring the office.";
+  }
+  const zone = await timezoneOf(tx, ctx.actor.organizationId);
+  if (!visit.windowStart || time.dateIn(visit.windowStart, zone) !== time.dateIn(op.occurredAt, zone)) {
+    return "That visit is not on your day today, so it cannot be called off from your phone. Ring the office.";
+  }
+  if (visit.status === "cancelled") return "That visit is already cancelled.";
+  if (!(CALLABLE_OFF as readonly string[]).includes(visit.status)) {
+    return `This visit is ${visit.status.replace(/_/g, " ")}, so it cannot be called off. Ring the office.`;
+  }
+
+  /** A phone whose clock ran behind the booking cannot have been turned away before the visit existed. */
+  const askedAt = op.occurredAt.getTime() < visit.createdAt.getTime() ? visit.createdAt : op.occurredAt;
+  await callOffWithin(tx, ctx, visit, {
+    by, askedAt, reason: by === "company" && reason ? reason : undefined, from: "phone",
+  });
+
+  const words = by === "customer" && typeof op.payload["note"] === "string" ? op.payload["note"].trim().slice(0, 500) : "";
+  if (words !== "") {
+    await tx.update(schema.visit).set({
+      technicianNotes: sql`coalesce(${schema.visit.technicianNotes} || E'\\n', '') || ${`Turned away at the door: ${words}`}`,
+      updatedAt: new Date(),
+    }).where(eq(schema.visit.id, visit.id));
+  }
+  return null;
 }
 
 /* ------------------------------------------------------- the notice window */

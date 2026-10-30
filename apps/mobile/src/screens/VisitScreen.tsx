@@ -8,6 +8,7 @@ import { ChecklistSection, InspectionsSection, PartsSection, PaymentSection, Rea
 import { AskSection, CashTipSection, InvoiceSection, SellSection } from "./VisitSell";
 import { CustomerFilesSection } from "./CustomerFiles";
 import { CustomerNotesSection } from "./CustomerNotes";
+import { CallOffSection } from "./CallOff";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -100,6 +101,8 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
             <Button label={step.label} onPress={move} />
           </View>
         ) : null}
+
+        <CallOffSection visit={visit} zone={zone} />
 
         <CustomerNotesSection visit={visit} zone={zone} />
 

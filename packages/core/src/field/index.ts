@@ -38,6 +38,8 @@ export const OPERATION_KINDS = [
   "visit.complete",
   "visit.pause",
   "visit.note",
+  // Calling a visit off from the doorstep: turned away, or the company's own day off.
+  "visit.call_off",
   // Timeclock. Append only, and the classification is captured at the punch.
   "timeclock.punch_in",
   "timeclock.punch_out",
@@ -111,6 +113,16 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
   "visit.complete": "fact",
   "visit.pause": "fact",
   "visit.note": "append",
+
+  /**
+   * Calling a visit off from the field MOVES it to cancelled, and only makes
+   * sense while nobody has started it: on the way (a team at the door is still
+   * on the way, as far as the visit knows) and before. A visit the office
+   * cancelled meanwhile, or one being worked, refuses it and says so, rather
+   * than a second cancellation being written over the first or a job under way
+   * being called off from a pocket.
+   */
+  "visit.call_off": "transition",
 
   // A punch is a payroll record. It is never dropped, never overwritten, and
   // never reordered: somebody is paid from these.
@@ -464,6 +476,8 @@ export const VISIT_TRANSITIONS: Record<string, readonly VisitState[]> = {
   "visit.start": ["scheduled", "dispatched", "en_route"],
   "visit.complete": ["working", "en_route", "dispatched"],
   "visit.pause": ["working"],
+  /** What the office may call off (`visit-cancellations.ts`), and nothing else. */
+  "visit.call_off": ["unassigned", "scheduled", "dispatched", "en_route"],
 };
 
 /**
@@ -489,6 +503,7 @@ export function stateAfter(
     case "visit.start": return "working";
     case "visit.pause": return "working";
     case "visit.complete": return "completed";
+    case "visit.call_off": return "cancelled";
     default: return null;
   }
 }

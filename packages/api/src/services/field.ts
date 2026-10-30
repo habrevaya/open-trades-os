@@ -16,6 +16,7 @@ import * as fieldSales from "./field-sales";
 import * as safetyTalks from "./safety-talks";
 import * as truckWater from "./truck-water";
 import * as haulTimes from "./haul-times";
+import * as cancellations from "./visit-cancellations";
 import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
@@ -849,6 +850,9 @@ async function effect(
       await customerTimeline(tx, org, op, nextState);
       return null;
     }
+
+    case "visit.call_off":
+      return cancellations.callOffOperation(tx, ctx, op, await technicianForDevice(tx, op.deviceId));
 
     case "visit.note": {
       if (!op.subjectId) return "That operation names nothing to apply it to.";

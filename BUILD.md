@@ -301,6 +301,15 @@ signs for is what is written. A browser drives the whole sale end to end on
 `/my-day`; the phone app's screens for it, like the rest of the app, have not
 been run on a device.
 
+A team turned away at the door calls the visit off from the field, on
+`/my-day` and the phone's visit screen, as a queue operation (`visit.call_off`,
+a transition): who asked is chosen, never assumed (the customer turning them
+away, or the company with the office's four reasons), the moment it was pressed
+is when, and it lands through the office's own call off, so the visit, the
+audit entry and the cancellation rate cannot tell the two apart. Only a visit
+on the person's own day today that nobody has started; anything else is
+refused in words and stays the office's.
+
 Not done, and named so nobody assumes otherwise: running the app on a real
 phone, and a store listing, so a push notice has never been seen on a handset.
 `/my-day` opens with no signal once it has been opened on that phone, through

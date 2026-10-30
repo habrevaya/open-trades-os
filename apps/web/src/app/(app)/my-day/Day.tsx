@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
-  chemicalsIn, clockWords, mobilisationPunch, projectDay, recordApproval, recordCashTip, recordDecline, recordEstimate, recordExpense, recordHaulTime, recordInvoice, recordPayment, recordWater, tipChoices,
+  chemicalsIn, clockWords, mobilisationPunch, projectDay, recordApproval, recordCallOff, recordCashTip, recordDecline, recordEstimate, recordExpense, recordHaulTime, recordInvoice, recordPayment, recordWater, tipChoices,
   type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptReceipt, type KeptSignature, type PriceBookEntry,
   type QueuedOperation, type UploadTransport, checkExpenseDraft,
 } from "@opentradesos/field-client";
@@ -16,6 +16,7 @@ import { Ask, CashTip, InvoicePanel, SellPanel, TasksPanel, type SellHandlers } 
 import { ExpensesPanel } from "./Expenses";
 import { TruckWaterPanel } from "./TruckWater";
 import { HaulsPanel } from "./Hauls";
+import { CallOff } from "./CallOff";
 import { ProductsApplied } from "./ProductsApplied";
 import { InspectionRun, type VisitInspection } from "./InspectionRun";
 import { inspectionPayload, type FieldInspectionProgram } from "@opentradesos/field-client";
@@ -631,6 +632,13 @@ export function Day({
                     <InvoicePanel visit={projectedVisit(v.id)!} priceBook={priceBook} abilities={can} handlers={sellHandlers(v.id)} />
                   </>
                 ) : null}
+                callOff={date === today && CALLABLE_OFF.has(statusOf(v)) ? (
+                  <CallOff onCallOff={async (payload) => {
+                    const failed = await perform((phone) => recordCallOff(phone.queue, { visitId: v.id, payload }));
+                    if (!failed) setLocalStatus((s) => ({ ...s, [v.id]: "cancelled" }));
+                    return failed;
+                  }} />
+                ) : null}
                 cashTip={projectedVisit(v.id) ? (
                   <CashTip visit={projectedVisit(v.id)!} onRecord={async (amount) => {
                     await perform((phone) => recordCashTip(phone, { visitId: v.id, amount, tipId: crypto.randomUUID() }));
@@ -748,6 +756,9 @@ function arrivalWindow(start: string | null, end: string | null, zone: string): 
   return end ? `${from} to ${time(end)}` : from;
 }
 
+/** What can still be called off from the door: nobody has started the work. The server holds the same line. */
+const CALLABLE_OFF = new Set(["unassigned", "scheduled", "dispatched", "en_route"]);
+
 const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete"; label: string } | null> = {
   unassigned: { kind: "visit.en_route", label: "On my way" },
   scheduled: { kind: "visit.en_route", label: "On my way" },
@@ -762,7 +773,7 @@ const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "v
 
 function VisitCard({
   visit, index, status, expanded, onToggle, onRecord, onPhoto, photos, payments, timezone, inspection, products,
-  projected, abilities, onPay, sale, cashTip,
+  projected, abilities, onPay, sale, cashTip, callOff,
 }: {
   visit: Visit;
   index: number;
@@ -790,6 +801,8 @@ function VisitCard({
   /** Selling and closing: the assistant, the estimates and the invoice. */
   sale?: React.ReactNode;
   cashTip?: React.ReactNode;
+  /** Calling the visit off from the door, offered only on today's visits nobody has started. */
+  callOff?: React.ReactNode;
 }) {
   const [note, setNote] = useState("");
   const [sendingEta, setSendingEta] = useState(false);
@@ -1034,6 +1047,8 @@ function VisitCard({
               {next.label}
             </button>
           )}
+
+          {callOff}
         </div>
       )}
     </article>

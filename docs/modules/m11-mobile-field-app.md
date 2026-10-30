@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Thirty operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Thirty one operation kinds and the
+list is closed (`visit.call_off` is a visit called off from the door, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -239,6 +239,25 @@ component; a PDF cannot be, because the phone's PDF reader is another app and
 cannot be handed a header, so it is downloaded with the header into the app's cache and
 offered to the share sheet, and that cache is emptied when the person signs out.
 Both need a signal, and the screen says so under the thumbnails when a photograph will not load.
+
+### Calling a visit off from the door
+
+A team turned away at the door, or sent home by rain, calls the visit off on
+the phone: "Call off this visit" on the visit screen (on `/my-day`, folded
+under the visit's card), offered only for a visit on today's day that nobody
+has started. It asks who called it off with no default: "The customer turned us
+away", with what they said if anything, or "We called it off" with the office's
+reasons (rain or weather, crew short, equipment, something else with words).
+The phone asks once more before it goes. It is `visit.call_off`, a transition:
+allowed from unassigned, scheduled, dispatched and on the way (which is where a
+visit is while the team stands at the door), and refused from anything else,
+so a visit the office already cancelled keeps the office's cancellation and the
+phone says "The office had cancelled it". The visit leaves the day as
+cancelled the moment it is pressed, with no signal. The server lands it as the
+office's call off lands (M09): the same columns, the same audit entry and the
+same figures. The choices and the checks are in `packages/field-client`
+(`CALL_OFF_CHOICES`, `checkCallOff`, `canCallOff`, `recordCallOff`), the four
+company reasons held to core's list by a test.
 
 ### Money on site
 
@@ -773,7 +792,7 @@ regulated.
 
 | Role | Access |
 |---|---|
-| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`) |
+| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`); with `field:sync` alone, calls off a visit on their own day that nobody has started (`visit.call_off`), where the office needs `visit:reschedule` |
 | Crew lead | The same, scoped to the crew |
 | Dispatcher | Reads and resolves conflicts |
 | Office manager | Reads service reports and publishes them |
