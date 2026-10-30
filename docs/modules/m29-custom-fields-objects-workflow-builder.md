@@ -230,7 +230,9 @@ they are on the day it runs, through the same delivery a scheduled report uses
 would see it, the delivery is recorded with each recipient's outcome, and it is keyed
 on the run and the step, so a run resumed after a wait does not send it twice. The
 report and the people are checked against the author at publish, with the step's
-number in the refusal.
+number in the refusal. The step can name a whole dashboard instead (M21): it is
+then sent as one PDF to the people picked, each drawn as they would see it, never to
+a customer and with no dates of its own, checked the way a dashboard schedule is.
 
 **A report can go to the customer the event is about, and is then about them
 only.** The step names "the customer this is about" instead of people, and the

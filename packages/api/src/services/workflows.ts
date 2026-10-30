@@ -671,7 +671,8 @@ const IMPLEMENTED = [
     label: "Run and email a report",
     description:
       "Runs a report as whoever publishes this automation and emails it, with a spreadsheet of every row, "
-      + "to the people picked, or to the customer it is about with only their own records.",
+      + "to the people picked, or to the customer it is about with only their own records. "
+      + "Or sends a whole dashboard as a PDF to the people picked, each drawn as they would see it.",
   },
   {
     kind: "branch",

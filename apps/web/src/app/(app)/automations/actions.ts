@@ -84,7 +84,12 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
        * To the customer the event is about: nobody else in the same step, so the
        * people and addresses are dropped rather than carried along unseen.
        */
-      if (text("to") === "customer") {
+      /**
+       * A whole dashboard goes to people, as it stands: no dates of its own and
+       * never to a customer, the same as a dashboard schedule.
+       */
+      const dashboard = text("report").startsWith("dashboard:") || text("report").startsWith("savedDashboard:");
+      if (text("to") === "customer" && !dashboard) {
         return { report: text("report"), to: "customer", userIds: [], addresses: [], period: text("period") || "all" };
       }
       const ids = Array.isArray(raw["userIds"]) ? raw["userIds"] : [];
@@ -92,7 +97,7 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
         report: text("report"),
         userIds: ids.map((id) => String(id).trim()).filter((id) => id !== ""),
         addresses: text("addresses").split(/[\s,;]+/).filter((a) => a !== ""),
-        period: text("period") || "all",
+        period: dashboard ? "all" : text("period") || "all",
       };
     }
     case "stop_unless":
