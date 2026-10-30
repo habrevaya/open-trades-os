@@ -803,20 +803,28 @@ async function realDay(
     };
   } else {
     const [crew] = route.crewId
-      ? await tx.select({ name: schema.crew.name }).from(schema.crew).where(eq(schema.crew.id, route.crewId)).limit(1) : [];
+      ? await tx.select({ name: schema.crew.name, workday: schema.crew.workday }).from(schema.crew)
+        .where(eq(schema.crew.id, route.crewId)).limit(1) : [];
     const members = route.crewId ? await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
       .from(schema.crewMember).innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
       .where(eq(schema.crewMember.crewId, route.crewId)) : [];
     const away = await leaveOf(members.map((m) => m.id));
-    /** A crew works the company's day; it is off only when every member is off for all of it. */
-    const whole = company ?? { start: 0, end: 1440 };
+    /**
+     * A crew works its own hours where it keeps some, the hours the branch
+     * keeps that date otherwise, as a person does; it is off only when every
+     * member is off for all of them.
+     */
+    const own = crew?.workday ? { start: minuteOf(crew.workday.startsAt), end: minuteOf(crew.workday.endsAt) } : null;
+    const window = own && own.start !== null && own.end !== null && own.end > own.start ? { start: own.start, end: own.end } : company;
+    const whole = window ?? { start: 0, end: 1440 };
     const allOff = members.length > 0 && members.every((m) =>
       routing.coveredMinutes(away.filter((a) => a.technicianId === m.id).map(asSpan), whole) >= whole.end - whole.start);
     servicer = {
-      name: crew?.name ?? "The crew", kind: "crew", hoursFrom: company ? "company" : null,
-      startsAt: company ? hhmm(company.start) : null, endsAt: company ? hhmm(company.end) : null,
+      name: crew?.name ?? "The crew", kind: "crew",
+      hoursFrom: window === null ? null : window === company ? "company" : "own",
+      startsAt: window ? hhmm(window.start) : null, endsAt: window ? hhmm(window.end) : null,
       membersOff: members.filter((m) => away.some((a) => a.technicianId === m.id)).map((m) => m.name).sort(),
-      window: company, leave: allOff ? [whole] : [],
+      window, leave: allOff ? [whole] : [],
     };
   }
   return { visits, unmade, servicer };

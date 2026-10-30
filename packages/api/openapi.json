@@ -38485,8 +38485,8 @@
       ],
       "patch": {
         "operationId": "updateCrew",
-        "summary": "Change a crew's rate, kit or skills",
-        "description": "The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
+        "summary": "Change a crew's rate, kit, skills or hours",
+        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -38522,7 +38522,7 @@
         },
         "responses": {
           "200": {
-            "description": "Change a crew's rate, kit or skills",
+            "description": "Change a crew's rate, kit, skills or hours",
             "content": {
               "application/json": {
                 "schema": {
@@ -169185,6 +169185,26 @@
               "null"
             ],
             "maxLength": 20
+          },
+          "workday": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "endsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt"
+            ]
           }
         },
         "required": [
@@ -230571,6 +230591,26 @@
                     "null"
                   ]
                 },
+                "workday": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "startsAt": {
+                      "type": "string",
+                      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                    },
+                    "endsAt": {
+                      "type": "string",
+                      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                    }
+                  },
+                  "required": [
+                    "startsAt",
+                    "endsAt"
+                  ]
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -230612,6 +230652,7 @@
                 "requiredAssetIds",
                 "skills",
                 "color",
+                "workday",
                 "active",
                 "members"
               ]
@@ -298169,6 +298210,26 @@
               "null"
             ],
             "maxLength": 20
+          },
+          "workday": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "endsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt"
+            ]
           },
           "active": {
             "type": "boolean"

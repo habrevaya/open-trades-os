@@ -233,7 +233,7 @@ overfilled.
 **Crews are rebalanced like people, on one day and across days.** Every
 active crew with work on the day or in the range, or with somebody on it the
 person planning can see, is planned beside the technicians: its day starts where it is based, works
-the company's hours and lunch, and its visits move between crews (and, in the several day
+its own hours where it keeps some (the company's otherwise) and lunch, and its visits move between crews (and, in the several day
 proposal, between days) by the same rules and the same bars. Crew work only
 ever goes to a crew, checked for the crew's kit and its people at the
 visit's hours on the day it would be on (the check a drop onto a crew's lane
@@ -416,7 +416,8 @@ route's stops due that date that have not been made yet (`madeVisits` says how
 many visits it read). Their own day is read too (`servicer`): a technician's
 own working hours when they keep some (their hours on the People screen), the
 hours the branch keeps that date otherwise, less any approved leave inside
-them; a crew works the company's day, and the members on leave that day are
+them; a crew works its own hours when it keeps some ("its hours", `hoursFrom: own`), the hours the branch
+keeps that date otherwise, and the members on leave that day are
 named ("Ana is on leave that day, so the crew is short"). `fits` says whether
 the work and the whole drive fit the hours left, and `refusedBecause` says
 why a day is refused, in words: the servicer on leave all of it ("Dana is on
@@ -579,9 +580,21 @@ the crew, and a person's card dropped on a crew's lane is `POST
 /v1/visits/{id}/crew`, which takes it off the person.
 
 A crew belongs to a branch and is based at a shop. `/schedule/crews` shows each
-crew's branch, and somebody who sees the whole company moves one with
+crew's branch and its hours, and somebody who sees the whole company moves one with
 `PATCH /v1/crews/{id}`; somebody limited to a branch makes crews in their own
 branch only and sees, staffs and sends only its crews, with only its people.
+
+**A crew keeps hours of its own.** A crew can have a working day of its own, a
+start and a finish, local time ("Save hours" on its row on `/schedule/crews`,
+`workday` on `POST /v1/crews` and `PATCH /v1/crews/{id}`, `visit:dispatch`, like
+the rest of a crew, audited as `crew.updated`): a crew that starts at six to
+beat the heat, or one that works a short day. Both times or neither: the finish
+must be after the start, and clearing both goes back to the company's day. The
+rebalance, one day and several, plans the crew's day inside them, as it does a
+person's own hours: the crew leaves at its start and anything past its finish is
+overtime. A route's fit for a date measures the crew against them. With none,
+the crew works the company's day, as before. The list says "Works 06:00 to
+11:00" or "Works the company's day" beside each crew.
 Routes are seen by whoever sees the technician or crew that runs them. Booking,
 assigning, sending a crew or running a route writes the visit's shop: the
 lead's start or membership shop, or the crew's base (`docs/modules/m01-core-tenancy-access.md`).
@@ -697,7 +710,8 @@ fit for a date reads the visits on the servicer's day and their own hours and
 leave, but not the minutes between visits as the board has them (the drive is
 still the route's declared figure, or by road through the visits in the
 route's order), nor a person's own hours on a crew: a crew is measured against
-the company's day, and a member on part day leave is named, not taken off its
+its own hours where it keeps some and the company's day otherwise, never its
+members' own hours, and a member on part day leave is named, not taken off its
 hours. A crew's members are read as they are now. A template with no date is
 the weekday's company or branch week, not anybody's own day. Leave is only
 leave somebody approved. Making a day of a route on a date its branch is closed is not
@@ -717,8 +731,14 @@ its people is not planned that day: another branch's person, or somebody
 whose day starts off the map or carries containers. Each of its people is
 held to its window on their own day; the plan does not make them arrive
 together. The rebalance plans lunch and overtime from company settings and
-each person's own hours, not from the overtime policy's thresholds. A crew
-is planned on the company's working day (crews have no hours of their own).
+each person's and each crew's own hours, not from the overtime policy's
+thresholds. A crew's own hours are one start and one end for every day: there
+are no hours per weekday, no hours a crew keeps on one date only, and a crew on
+a day its branch is closed is still planned in its hours. Lunch and the most
+overtime a plan may use are the company's for a crew, as for a person. The crew
+check (`GET /v1/crews/{id}/availability`) asked about a date alone still reads
+the company's working hours for whether a member's leave covers the day, and
+the crew's lane on the board is not drawn to its hours.
 A technician whose day has no start
 on the map is left out of it, with their work where it is, and so is a
 driver whose day has containers on it, which "Optimise route" orders by

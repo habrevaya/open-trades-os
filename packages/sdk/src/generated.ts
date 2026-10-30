@@ -3350,6 +3350,10 @@ export interface CreateCrewInput {
   requiredAssetIds?: string[];
   skills?: string[];
   color?: string | null;
+  workday?: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
 }
 
 export interface CreateCrewOutput {
@@ -15087,6 +15091,10 @@ export interface ListCrewsOutput {
     requiredAssetIds: string[];
     skills: string[];
     color: string | null;
+    workday: {
+      startsAt: string;
+      endsAt: string;
+    } | null;
     active: boolean;
     members: Array<{
       technicianId: string;
@@ -28534,6 +28542,10 @@ export interface UpdateCrewInput {
   requiredAssetIds?: string[];
   skills?: string[];
   color?: string | null;
+  workday?: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
   active?: boolean;
 }
 
@@ -47983,7 +47995,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Change a crew's rate, kit or skills.
+   * Change a crew's rate, kit, skills or hours.
    *
    * PATCH /v1/crews/{id}. Needs visit:dispatch.
    */

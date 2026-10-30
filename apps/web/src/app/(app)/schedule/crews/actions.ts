@@ -4,7 +4,7 @@ import { attempt, field, fields, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { crews, onCall } from "@opentradesos/api/services";
+import { crews, onCall, ConflictError } from "@opentradesos/api/services";
 
 export type CrewState = FormState;
 
@@ -57,6 +57,16 @@ export async function act(_previous: CrewState, form: FormData): Promise<CrewSta
           })),
         });
         return;
+      case "hours": {
+        /** Both times, or neither for the company's day. One alone is refused, so half a day is never kept. */
+        const startsAt = field(form, "startsAt");
+        const endsAt = field(form, "endsAt");
+        if ((startsAt === undefined) !== (endsAt === undefined)) {
+          throw new ConflictError("Give the time the crew starts and the time it finishes, or leave both empty for the company's day.");
+        }
+        await crews.update(ctx, { id, workday: startsAt && endsAt ? { startsAt, endsAt } : null });
+        return { message: startsAt && endsAt ? `Saved. The crew works ${startsAt} to ${endsAt}.` : "Saved. The crew works the company's day." };
+      }
       case "retire":
         await crews.update(ctx, { id, active: false });
         return;

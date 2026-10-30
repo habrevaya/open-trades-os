@@ -10,6 +10,8 @@ export interface CrewRow {
   productionUnit: string | null;
   skills: string[];
   color: string | null;
+  /** The crew's own working day, or null for the company's. */
+  workday?: { startsAt: string; endsAt: string } | null | undefined;
   active: boolean;
   members: { technicianId: string; displayName: string; isLead: boolean; active: boolean }[];
 }
@@ -99,6 +101,9 @@ export function Crews({
                 </span>
               )
               : <span className="text-ink-500">Not declared</span>}
+            <span className="block text-xs text-ink-500">
+              {crew.workday ? `Works ${crew.workday.startsAt} to ${crew.workday.endsAt}` : "Works the company's day"}
+            </span>
           </Td>
           {controls ? <Td>{controls(crew)}</Td> : null}
         </tr>
