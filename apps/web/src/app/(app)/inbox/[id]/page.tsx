@@ -12,7 +12,7 @@ import { MessageFiles, type MessageFile } from "./MessageFiles";
 import { IntakeDraft } from "../drafts/IntakeDraft";
 import { draftFromThread } from "../drafts/actions";
 import { ActionForm } from "@/components/ActionForm";
-import { closeChat } from "./actions";
+import { closeChat, reopenChat } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -89,8 +89,31 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
           {thread.customerNotice ?? "They are told by email or text when you answer, once until they read it."}
         </p>
       )}
-      {fromAccount && !thread.customerClosedAt && !thread.officeClosedAt && can(user.actor, "message:send") && (
-        <ActionForm action={closeChat} submit="Close this chat" tone="quiet" hidden={{ conversationId: id }} className="mt-2"
+      {/*
+        Any other conversation, closed: who closed it and when, said the way an
+        account chat says it above. A text or an email thread opens again when the
+        customer writes; a website chat has ended until it is reopened.
+      */}
+      {!fromAccount && thread.conversation.status === "closed" && (
+        <p className="mt-2 text-sm font-medium text-ink-900">
+          {thread.closedAt
+            ? `${thread.closedByName ?? "Someone in the office"} closed this ${byChat ? "chat" : "conversation"} on ${formatIn(new Date(thread.closedAt), user.organizationTimezone)}.`
+            : `This ${byChat ? "chat" : "conversation"} is closed.`}
+          {" "}{byChat ? "The visitor cannot write into it until it is reopened." : "It opens again if they write, or you can reopen it now."}
+        </p>
+      )}
+      {thread.reopenedAt && thread.conversation.status !== "closed" && (
+        <p className="mt-2 text-sm text-ink-700">
+          {thread.reopenedByName ?? "Someone in the office"} reopened this {byChat ? "chat" : "conversation"} on {formatIn(new Date(thread.reopenedAt), user.organizationTimezone)}.
+        </p>
+      )}
+      {can(user.actor, "message:send") && thread.conversation.status === "closed" && (
+        <ActionForm action={reopenChat} submit="Reopen this conversation" tone="quiet" hidden={{ conversationId: id }}
+                    className="mt-2" done="Reopened." />
+      )}
+      {can(user.actor, "message:send") && (thread.conversation.status === "open" || thread.conversation.status === "snoozed") && (
+        <ActionForm action={closeChat} submit={fromAccount ? "Close this chat" : "Close this conversation"} tone="quiet"
+                    hidden={{ conversationId: id, kind: fromAccount ? "account" : "other" }} className="mt-2"
                     done="Closed." />
       )}
 

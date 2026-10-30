@@ -36092,8 +36092,8 @@
       ],
       "post": {
         "operationId": "closeConversation",
-        "summary": "Close a chat from a customer's account",
-        "description": "Ends a chat the customer started from their account, whoever has it (the assistant or a person). The customer's chat page says in words that the company closed it, still shows them what was said, and the next thing they write opens a new conversation. A reply into it is refused from then on. Nothing the office has not read is marked read and no task is closed. A chat from a website visitor, a text or an email cannot be closed here. Closing a chat that is already closed changes nothing.\n\nRequires a session holding: message:send.",
+        "summary": "Close a conversation",
+        "description": "Closes any conversation the caller can see: a website visitor's chat, a customer's chat from their account, a text thread or an email thread. Every message is kept and it is the same conversation if it is reopened. A text or email thread leaves the open inbox (a customer writing again, or a reply from the office, opens it again by itself). A chat has ended: a visitor cannot write into it, a reply is refused from then on, and a customer's chat page says in words that the company closed it, still shows them what was said, and the next thing they write opens a new conversation. Who closed it and when are kept and shown in the inbox. Nothing the office has not read is marked read and no task is closed. A conversation marked as spam is not closed. Closing a conversation that is already closed changes nothing.\n\nRequires a session holding: message:send.",
         "tags": [
           "M05"
         ],
@@ -36129,7 +36129,7 @@
         },
         "responses": {
           "201": {
-            "description": "Close a chat from a customer's account",
+            "description": "Close a conversation",
             "content": {
               "application/json": {
                 "schema": {
@@ -36496,6 +36496,144 @@
         "x-authorization": "session",
         "x-permissions": [
           "message:read"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/reopened": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "reopenConversation",
+        "summary": "Reopen a closed conversation",
+        "description": "Puts a closed conversation back in the open inbox as it was, with every message: the same thread, not a new one. A chat is back with a person when a person had it. Whoever closed it (the customer, the office or the quiet chat rule), a person reopening it is choosing to talk to the customer again; the quiet chat rule leaves a reopened chat alone until it has been quiet again. A chat the customer closed from their account shows to them again. Reopening a conversation that is already open changes nothing; one marked as spam is refused.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReopenConversationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reopen a closed conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReopenConversationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
         ]
       }
     },
@@ -163208,6 +163346,12 @@
               "idle"
             ]
           },
+          "closedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "closedAt": {
             "type": "string",
             "format": "date-time"
@@ -163216,6 +163360,7 @@
         "required": [
           "id",
           "closedBy",
+          "closedByName",
           "closedAt"
         ]
       },
@@ -192246,6 +192391,13 @@
             ],
             "format": "date-time"
           },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "closedBy": {
             "type": [
               "string",
@@ -192258,6 +192410,19 @@
             ]
           },
           "closedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reopenedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reopenedByName": {
             "type": [
               "string",
               "null"
@@ -192286,8 +192451,11 @@
           "customerNotice",
           "customerClosedAt",
           "officeClosedAt",
+          "closedAt",
           "closedBy",
           "closedByName",
+          "reopenedAt",
+          "reopenedByName",
           "canReply",
           "blockedReason",
           "blockedExplanation"
@@ -228792,6 +228960,12 @@
                     "office",
                     "idle"
                   ]
+                },
+                "closedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -228806,7 +228980,8 @@
                 "awaitingReply",
                 "unread",
                 "closedByCustomer",
-                "closedBy"
+                "closedBy",
+                "closedByName"
               ]
             }
           },
@@ -269595,6 +269770,49 @@
           "id",
           "periodEnd",
           "reopenedAt"
+        ]
+      },
+      "ReopenConversationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReopenConversationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open"
+            ]
+          },
+          "reopenedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "previouslyClosedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "office",
+              "idle"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "reopenedAt",
+          "previouslyClosedBy"
         ]
       },
       "ReopenPayPeriodInput": {

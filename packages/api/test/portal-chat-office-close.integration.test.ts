@@ -200,7 +200,8 @@ run("a person closes the chat from the inbox", () => {
     const [text] = await raw<{ id: string }[]>`
       insert into public.conversation (organization_id, channel, external_address, internal_address, status, customer_id)
       values (${ORG}, 'sms', '+15125550188', '+15125559968', 'open', ${dana}) returning id`;
-    await expect(portalChat.closeFromOffice(owner(), { id: text!.id })).rejects.toThrow(/account/);
+    // A text thread can be closed from the inbox too now (conversation-close-reopen.integration.test.ts has the rest).
+    await expect(portalChat.closeFromOffice(owner(), { id: text!.id })).resolves.toMatchObject({ id: text!.id, closedBy: "office" });
     expect((await chatRow(id)).status).not.toBe("closed");
   });
 

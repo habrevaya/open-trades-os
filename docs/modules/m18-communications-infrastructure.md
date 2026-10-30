@@ -526,11 +526,49 @@ shows as closed, `GET /v1/conversations` says `closedByCustomer`, the thread giv
 `customerClosedAt` and the inbox says so ("The customer closed this chat on ..."),
 and a reply into it is refused (`chat_closed`, in words) because it would have
 nowhere to go. What the customer wrote stays unread for the office until a person
-opens it. Their next message opens a new conversation. The office can close one too
-(`POST /v1/conversations/{id}/closed`, "Close this chat" in the inbox), and a company can
-choose a number of quiet days after which an account chat it answered last closes itself
-(M05): the list and the thread then say `closedBy` (`customer`, `office` or `idle`), the thread
-gives `officeClosedAt` and `closedByName`, and a reply is refused the same way.
+opens it. Their next message opens a new conversation. A company can choose a number
+of quiet days after which an account chat it answered last closes itself (M05): the list
+and the thread then say `closedBy` (`customer`, `office` or `idle`), the thread gives
+`officeClosedAt` and `closedByName`, and a reply is refused the same way.
+
+### Close and reopen any conversation
+
+The office closes any conversation it can see, and reopens any closed one, from the
+inbox: a website visitor's chat, a customer's chat from their account, a text thread
+or an email thread. `POST /v1/conversations/{id}/closed` and
+`POST /v1/conversations/{id}/reopened`, both `message:send` (the permission that
+replies in the inbox), held to the same conversation scope as reading it, and both
+idempotent: closing a closed conversation and reopening an open one change nothing.
+On the thread's page they are **Close this conversation** (**Close this chat** on a
+chat from an account) and **Reopen this conversation**.
+
+- **It is the same conversation both ways.** Closing keeps every message, unread
+  messages stay unread and no task is closed. Reopening puts the same thread back in
+  the open inbox: no new conversation is made and the customer is not told.
+- **What closed means** depends on the thread. A text or an email thread leaves the
+  open inbox, and opens again by itself, as it always did, when the customer writes or
+  the office replies. A chat has ended: a visitor cannot write into a closed website
+  chat, and a reply from the inbox is refused in words ("This website chat has ended,
+  so a reply has nowhere to go. Reopen it if you want to answer.") until it is
+  reopened. A customer's account chat that the office closed says so on their chat
+  page, as before.
+- **The inbox shows who closed it.** The conversation keeps `closed_at` and
+  `closed_by_user_id` (a chat also keeps them on the chat, as it always did), read
+  only while it is closed. The list gives `closedBy` (`customer`, `office`, `idle`)
+  and `closedByName` for every kind, shown as "Closed by the office" with the
+  person's name beside it; the thread gives `closedAt`, `closedBy`, `closedByName`,
+  and, once reopened, `reopenedAt` and `reopenedByName` ("Dana reopened this
+  conversation on ..."). Closing is audited as `conversation.closed_by_office` (an
+  account chat keeps `portal.chat_closed_by_office`) and reopening as
+  `conversation.reopened`, with who had closed it.
+- **A chat reopens as it was.** With the person who had it when a person had it
+  (handed off), open when the assistant had it. Whoever closed it: the customer, a
+  person or the quiet chat rule. A chat the customer closed from their account shows
+  to them again with everything that was said, and they are not told it was
+  reopened. A reopened chat is left alone by the quiet chat rule until it has been
+  quiet again since it was reopened, so it is not closed again within the minute.
+- **Not for spam.** A conversation marked as spam is neither closed nor reopened here,
+  and the answer says so: closing it would lose the mark.
 
 ### Templates
 

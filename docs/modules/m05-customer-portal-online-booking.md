@@ -1078,9 +1078,7 @@ takes photos (not PDFs, which go through "Send us a photo or a PDF"), and the
 customer cannot clear a chat or take a picture back, and cannot read a chat they
 closed again (the office keeps it; their page starts empty). A chat the office or the quiet
 chat rule closed they can still read, but only the one chat they last had: older ones are not
-listed. The office closes only a chat from a customer's account, not a website visitor's, a
-text thread or an email thread, and closing is not undone: the customer writing again opens a
-new conversation, and the office cannot reopen the old one. The quiet chat rule is one number for the whole
+listed. The quiet chat rule is one number for the whole
 company, applies only to a chat the company wrote last in, and does not tell the customer by
 text or email, so a customer who is not looking at the page learns of it when they next open
 the chat. A chat the customer wrote last in and nobody answered stays open for good until a

@@ -2297,6 +2297,7 @@ export type CloseConversationInput = Record<string, unknown>;
 export interface CloseConversationOutput {
   id: string;
   closedBy: "customer" | "office" | "idle";
+  closedByName: string | null;
   closedAt: string;
 }
 
@@ -7924,8 +7925,11 @@ export interface GetConversationOutput {
   customerNotice: string | null;
   customerClosedAt: string | null;
   officeClosedAt: string | null;
+  closedAt: string | null;
   closedBy: "customer" | "office" | "idle" | null;
   closedByName: string | null;
+  reopenedAt: string | null;
+  reopenedByName: string | null;
   canReply: boolean;
   blockedReason: string | null;
   blockedExplanation: string | null;
@@ -14824,6 +14828,7 @@ export interface ListConversationsOutput {
     unread: number;
     closedByCustomer: boolean;
     closedBy: "customer" | "office" | "idle" | null;
+    closedByName: string | null;
   }>;
   hasMore: boolean;
   nextCursor: string | null;
@@ -22809,6 +22814,15 @@ export interface ReopenAccountingPeriodOutput {
   id: string;
   periodEnd: string;
   reopenedAt: string | null;
+}
+
+export type ReopenConversationInput = Record<string, unknown>;
+
+export interface ReopenConversationOutput {
+  id: string;
+  status: "open";
+  reopenedAt: string | null;
+  previouslyClosedBy: "customer" | "office" | "idle" | null;
 }
 
 export interface ReopenPayPeriodInput {
@@ -33923,6 +33937,10 @@ export interface RenewComplianceDocumentParams {
   id: string;
 }
 
+export interface ReopenConversationParams {
+  id: string;
+}
+
 export interface ReorderServiceRouteStopsParams {
   id: string;
 }
@@ -35721,6 +35739,7 @@ export interface OperationTypes {
   renewAgreement: { input: RenewAgreementParams & RenewAgreementInput; output: RenewAgreementOutput };
   renewComplianceDocument: { input: RenewComplianceDocumentParams & RenewComplianceDocumentInput; output: RenewComplianceDocumentOutput };
   reopenAccountingPeriod: { input: ReopenAccountingPeriodInput; output: ReopenAccountingPeriodOutput };
+  reopenConversation: { input: ReopenConversationParams & ReopenConversationInput; output: ReopenConversationOutput };
   reopenPayPeriod: { input: ReopenPayPeriodInput; output: ReopenPayPeriodOutput };
   reorderRoute: { input: ReorderRouteInput; output: ReorderRouteOutput };
   reorderServiceRouteStops: { input: ReorderServiceRouteStopsParams & ReorderServiceRouteStopsInput; output: ReorderServiceRouteStopsOutput };
@@ -36956,6 +36975,7 @@ export const OPERATIONS = {
   renewAgreement: { method: "POST", path: "/v1/agreements/{id}/renew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   renewComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/renew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
   reopenAccountingPeriod: { method: "POST", path: "/v1/accounting/periods/reopen", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:close"] },
+  reopenConversation: { method: "POST", path: "/v1/conversations/{id}/reopened", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   reopenPayPeriod: { method: "POST", path: "/v1/payroll/periods/reopen", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   reorderRoute: { method: "POST", path: "/v1/dispatch/route", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   reorderServiceRouteStops: { method: "POST", path: "/v1/service-routes/{id}/order", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -38164,7 +38184,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Close a chat from a customer's account.
+   * Close a conversation.
    *
    * POST /v1/conversations/{id}/closed. Needs message:send.
    */
@@ -45406,6 +45426,15 @@ export abstract class GeneratedOperations {
    */
   reopenAccountingPeriod(input: ReopenAccountingPeriodInput, options?: CallOptions): Promise<ReopenAccountingPeriodOutput> {
     return this.call("reopenAccountingPeriod", input, options);
+  }
+
+  /**
+   * Reopen a closed conversation.
+   *
+   * POST /v1/conversations/{id}/reopened. Needs message:send.
+   */
+  reopenConversation(input: ReopenConversationParams & ReopenConversationInput, options?: CallOptions): Promise<ReopenConversationOutput> {
+    return this.call("reopenConversation", input, options);
   }
 
   /**

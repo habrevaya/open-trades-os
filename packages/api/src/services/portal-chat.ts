@@ -2,9 +2,9 @@ import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { customerPortal as cp, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
-  ConflictError, NotFoundError, audit, guardedWrite, inTenant, scopeOf, timezoneOf, type RequestMeta, type ServiceContext,
+  ConflictError, NotFoundError, audit, inTenant, timezoneOf, type RequestMeta, type ServiceContext,
 } from "./context";
-import { conversationScopeFilter } from "./scope";
+import { close as closeAnyConversation } from "./conversation-close";
 import { settingsWithin } from "./portal-settings";
 import * as base from "./agents";
 import { chatReader, chatTranscript, disclosure, handOff, inbound, answerChat } from "./agent-chat";
@@ -432,55 +432,15 @@ export async function close(
 }
 
 /**
- * A person in the office closes a chat from a customer's account.
- *
- * `message:send`, because it is the inbox's own reply box that closes it, held to
- * the same conversation scope as reading it. Only an account chat: a website
- * visitor's chat ends when they leave, and a text or an email thread has no end.
- * The conversation is closed, the chat is marked closed by the office with who
- * and when, and a reply into it is refused from then on. Nothing the office has
- * not read is marked read, no task is closed, and a notice that quiet hours were
- * holding still goes (the link leads to the transcript). Closing a closed chat
- * changes nothing, so a double click and a retry are the same close.
+ * A person in the office closes a conversation: since the inbox could close
+ * any kind, this is `conversation-close.ts`'s close, kept under the name the
+ * account chat's callers have always used. A chat from a customer's account
+ * keeps its audit line (`portal.chat_closed_by_office`), the customer's page
+ * says in words that the company closed it, and nothing the office has not
+ * read is marked read.
  */
 export function closeFromOffice(ctx: ServiceContext, input: { id: string }) {
-  return guardedWrite(ctx, "message:send", async (tx) => {
-    const [row] = await tx.select({ conversation: schema.conversation, chat: schema.aiChatSession })
-      .from(schema.conversation)
-      .leftJoin(schema.aiChatSession, eq(schema.aiChatSession.conversationId, schema.conversation.id))
-      .where(and(
-        eq(schema.conversation.id, input.id),
-        isNull(schema.conversation.deletedAt),
-        conversationScopeFilter(scopeOf(ctx, "conversation"), ctx.actor),
-      ))
-      .limit(1);
-    if (!row) throw new NotFoundError("Conversation");
-    if (!row.chat || row.chat.channel !== "portal") {
-      throw new ConflictError("Only a chat the customer started from their account can be closed here.");
-    }
-    const found = { conversation: row.conversation, chat: row.chat };
-    const answer = (chat: typeof found.chat) => ({
-      id: found.conversation.id,
-      closedBy: chat.customerClosedAt ? "customer" as const : (chat.officeCloseKind ?? "office"),
-      closedAt: (chat.customerClosedAt ?? chat.officeClosedAt ?? chat.updatedAt).toISOString(),
-    });
-    if (found.chat.status === "closed") return answer(found.chat);
-
-    const now = new Date();
-    const [closed] = await tx.update(schema.aiChatSession).set({
-      status: "closed",
-      officeClosedAt: now,
-      officeClosedByUserId: ctx.actor.userId,
-      officeCloseKind: "office",
-      writing: null,
-      updatedAt: now,
-    }).where(eq(schema.aiChatSession.id, found.chat.id)).returning();
-    await tx.update(schema.conversation).set({ status: "closed", updatedAt: now })
-      .where(eq(schema.conversation.id, found.conversation.id));
-    await audit(tx, ctx, "portal.chat_closed_by_office", "conversation", found.conversation.id,
-      { status: found.chat.status }, { status: "closed", closedBy: "office" });
-    return answer(closed!);
-  });
+  return closeAnyConversation(ctx, input);
 }
 
 /* ------------------------------------------------------ chats gone quiet */
@@ -526,6 +486,7 @@ export async function closeIdleIn(tx: Database, ctx: ServiceContext, now = new D
        and c.deleted_at is null
        and last.direction = 'outbound'
        and last.created_at < ${quietBefore.toISOString()}::timestamptz
+       and (c.reopened_at is null or c.reopened_at < ${quietBefore.toISOString()}::timestamptz)
      order by last.created_at
      limit ${IDLE_CLOSES_PER_PASS}`);
   const closed: string[] = [];
