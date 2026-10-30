@@ -67,8 +67,8 @@ revenue every job keeps its margin percentage, by the hour a job that ran long
 is charged twice for the overrun, per job a quick call carries as much as an
 install.
 
-**Overhead can be a mix.** Part per paid hour, part per job and part as a
-share of revenue, all at once. The parts set on one day are the whole of the
+**Overhead can be a mix.** Per paid hour, per job, as a share of revenue, as a
+share of material cost, per visit and per truck day, in any combination. The parts set on one day are the whole of the
 overhead from that day: a mix is replaced whole on a later day rather than
 added to, because the other reading (each basis its own history) would turn
 every change of basis a company already made into a mix it never chose. So a
@@ -76,10 +76,28 @@ company charging $20 an hour from January that sets 3% of revenue and $25 a
 job from July charges those two from July and no longer the hourly part. Each
 part is reported on its own: on the job's statement as `overheadParts`, under
 the overhead figure on `/jobs/{id}`, and as the `overhead_per_hour`,
-`overhead_per_job` and `overhead_revenue_share` measures on the profitability
+`overhead_per_job`, `overhead_revenue_share`, `overhead_material_share`,
+`overhead_per_visit` and `overhead_per_truck` measures on the profitability
 dataset, which add up to `overhead`. The rule is core's `costing.overheadMixOn`
 and `costing.overheadParts`, with unit tests, and an integration test holds the
 SQL to it.
+
+**The three later bases, and what each is charged on.** By material cost is a
+percentage of the job's material cost, the same figure as the materials on its
+statement (its lines at cost and the cost of goods sold posted to it). Per visit
+is an amount for each of the job's visits that was not cancelled and was not
+brought in from an old system. Per truck day is an amount for each company
+vehicle that went out on the job, once for each day it did: a vehicle went out
+on a visit's day when the vehicle register (M22) says it was held that day by
+somebody on the visit, or by the job itself. A visit's day is when they
+arrived, else its window, else when it was finished, in the company's
+calendar. The statement says what the last two were charged on
+(`overheadMeasures`: visits and truck days). **The conservative reading
+taken:** a visit by somebody holding no vehicle that day adds no truck day,
+because the register is the only record of which truck went, and a guess would
+charge a truck that stayed in the yard; so a company that does not keep custody
+in the register charges nothing per truck, and the settings screen says the
+part is read from the register.
 
 **What people spent for a job is a cost of it.** A receipt a person paid for the
 job that the office approved, and the company's rate for each day somebody was away
@@ -284,9 +302,10 @@ is a normal company.
 `/settings/costing` holds the rates with the day each took effect, what an hour
 at a $30 wage costs today with them, the overhead charged today in a sentence
 ("$12.00 per paid hour, $25.00 per job and 3% of revenue"), a form to set
-overhead from a date as a mix (three boxes, any left empty, started from
-today's figures so changing one part does not drop the others), and a form to
-add one rate. `GET /v1/costing/rates` lists them with `overheadNow`,
+overhead from a date as a mix (six boxes: per paid hour, per job, share of
+revenue, share of material cost, per visit and per truck day, any left empty,
+started from today's figures so changing one part does not drop the others),
+and a form to add one rate. `GET /v1/costing/rates` lists them with `overheadNow`,
 `POST /v1/costing/overhead` sets the mix from a date (a day that already has
 overhead is refused unless the same mix is sent again),
 `POST /v1/costing/rates` adds one rate (a second rate for one burden component
@@ -386,9 +405,14 @@ attached to it.
 
 ## What is not built
 
-Overhead can be a mix of per paid hour, per job and a share of revenue, but
-there is no fourth basis (by material cost, by visit, by truck), and a mix is
-replaced whole on a new day rather than one part at a time. The overtime
+Overhead can be a mix of per paid hour, per job, a share of revenue or of
+material cost, per visit and per truck day, and a mix is replaced whole on a new
+day rather than one part at a time. A truck day is only what the vehicle
+register's custody record says: there is no truck chosen on the visit or from
+the phone, so a company that does not record who holds which vehicle charges
+nothing per truck, and a vehicle held by two people on one visit is one truck
+day. Per visit counts every visit that was not cancelled, a callback and a
+visit nobody worked included. The overtime
 premium is still not on a job, for the reason above. Burden and overhead are
 applied in reporting only; nothing posts them to the ledger, which keeps them
 as the company's choice rather than an entry in its books. A job type's actuals, in a branch or not, are only what was booked to its jobs,

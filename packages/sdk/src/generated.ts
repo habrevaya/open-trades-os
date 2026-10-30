@@ -9899,6 +9899,13 @@ export interface GetJobProfitabilityOutput {
     perHour: string;
     perJob: string;
     revenueShare: string;
+    materialShare: string;
+    perVisit: string;
+    perTruck: string;
+  };
+  overheadMeasures: {
+    visits: number;
+    truckDays: number;
   };
   fullyLoadedMargin: string;
   fullyLoadedMarginPercent: number | null;
@@ -14892,7 +14899,7 @@ export interface ListCostingRatesOutput {
     id: string;
     component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
     componentLabel: string;
-    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
     basisLabel: string;
     rate: string;
     effectiveFrom: string;
@@ -14903,7 +14910,7 @@ export interface ListCostingRatesOutput {
   overheadNow: {
     effectiveFrom: string;
     parts: Array<{
-      basis: "per_hour" | "per_job" | "percent_of_revenue";
+      basis: "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
       label: string;
       rate: string;
     }>;
@@ -25195,7 +25202,7 @@ export type SetContractRisesOutput = Array<{
 
 export interface SetCostingRateInput {
   component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
-  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
   rate: string;
   effectiveFrom: string;
   note?: string;
@@ -25205,7 +25212,7 @@ export interface SetCostingRateOutput {
   id: string;
   component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
   componentLabel: string;
-  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
   basisLabel: string;
   rate: string;
   effectiveFrom: string;
@@ -25954,6 +25961,9 @@ export interface SetOverheadMixInput {
   perHour?: string;
   perJob?: string;
   percentOfRevenue?: string;
+  percentOfMaterial?: string;
+  perVisit?: string;
+  perTruck?: string;
   note?: string;
 }
 
@@ -25963,7 +25973,7 @@ export interface SetOverheadMixOutput {
     id: string;
     component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
     componentLabel: string;
-    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
     basisLabel: string;
     rate: string;
     effectiveFrom: string;
@@ -46772,7 +46782,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set overhead from a date as a mix: per paid hour, per job and a share of revenue.
+   * Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day.
    *
    * POST /v1/costing/overhead. Needs finance:configure.
    */

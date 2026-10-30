@@ -15,7 +15,10 @@ export interface CostingData {
   labourBurden?: string;
   overhead?: string;
   /** The overhead part by part, when the company charges it as a mix. */
-  overheadParts?: { perHour: string; perJob: string; revenueShare: string };
+  overheadParts?: {
+    perHour: string; perJob: string; revenueShare: string;
+    materialShare?: string; perVisit?: string; perTruck?: string;
+  };
   fullyLoadedMargin?: string;
   fullyLoadedMarginPercent?: number | null;
   scheduledHours: string;
@@ -68,6 +71,8 @@ function OverheadParts({ parts }: { parts: CostingData["overheadParts"] }) {
   if (!parts) return null;
   const shown = ([
     ["by the hour", parts.perHour], ["for the job", parts.perJob], ["of revenue", parts.revenueShare],
+    ["of material cost", parts.materialShare ?? "0"], ["for the visits", parts.perVisit ?? "0"],
+    ["for the trucks", parts.perTruck ?? "0"],
   ] as const).filter(([, value]) => Number(value) !== 0);
   if (shown.length < 2) return null;
   return (

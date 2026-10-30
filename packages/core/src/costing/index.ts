@@ -41,7 +41,10 @@ export type BurdenComponent = (typeof BURDEN_COMPONENTS)[number];
 export const COMPONENTS = [...BURDEN_COMPONENTS, "overhead"] as const;
 export type Component = (typeof COMPONENTS)[number];
 
-export const BASES = ["percent_of_wages", "per_hour", "per_job", "percent_of_revenue"] as const;
+export const BASES = [
+  "percent_of_wages", "per_hour", "per_job", "percent_of_revenue",
+  "percent_of_material", "per_visit", "per_truck",
+] as const;
 export type Basis = (typeof BASES)[number];
 
 export const COMPONENT_LABEL: Record<Component, string> = {
@@ -56,24 +59,28 @@ export const BASIS_LABEL: Record<Basis, string> = {
   per_hour: "Per paid hour",
   per_job: "Per job",
   percent_of_revenue: "Percent of the job's revenue",
+  percent_of_material: "Percent of the job's material cost",
+  per_visit: "Per visit",
+  per_truck: "Per truck, each day it went out on the job",
 };
 
 /**
  * Which way each component may be charged.
  *
  * A burden follows the hours, so it is a percentage of wages or an amount per
- * hour. Overhead is spread across jobs, by the hour, by the job or by revenue,
- * and the company picks which one; the caveat on the statement says what each
- * choice does.
+ * hour. Overhead is spread across jobs, by the hour, by the job, by revenue,
+ * by material cost, by the visit or by the truck, and the company picks which
+ * (or a mix); the caveat on the statement says what each choice does.
  */
 export const ALLOWED_BASES: Record<Component, readonly Basis[]> = {
   payroll_taxes: ["percent_of_wages", "per_hour"],
   benefits: ["percent_of_wages", "per_hour"],
   workers_comp: ["percent_of_wages", "per_hour"],
-  overhead: ["per_hour", "per_job", "percent_of_revenue"],
+  overhead: ["per_hour", "per_job", "percent_of_revenue", "percent_of_material", "per_visit", "per_truck"],
 };
 
-export const isPercent = (basis: Basis) => basis === "percent_of_wages" || basis === "percent_of_revenue";
+export const isPercent = (basis: Basis) =>
+  basis === "percent_of_wages" || basis === "percent_of_revenue" || basis === "percent_of_material";
 
 export interface CostingRate {
   component: Component;
@@ -158,7 +165,8 @@ export function labourBurden(punches: readonly Punch[], rates: readonly CostingR
 
 /**
  * OVERHEAD AS A MIX. A company can charge overhead on more than one basis at
- * once: part per paid hour, part per job and part as a share of revenue. Each
+ * once: per paid hour, per job, as a share of revenue or of material cost, per
+ * visit and per truck day, in any combination. Each
  * part is an overhead row with its own basis, and the parts set on one day are
  * the mix from that day.
  *
@@ -171,14 +179,47 @@ export function labourBurden(punches: readonly Punch[], rates: readonly CostingR
  * does in one form. The other reading, each basis its own history, would turn
  * every change of basis a company already made into a mix it never chose.
  */
-export const OVERHEAD_BASES = ["per_hour", "per_job", "percent_of_revenue"] as const;
+export const OVERHEAD_BASES = [
+  "per_hour", "per_job", "percent_of_revenue", "percent_of_material", "per_visit", "per_truck",
+] as const;
 export type OverheadBasis = (typeof OVERHEAD_BASES)[number];
 
 export const OVERHEAD_PART_LABEL: Record<OverheadBasis, string> = {
   per_hour: "Per paid hour",
   per_job: "Per job",
   percent_of_revenue: "Share of revenue",
+  percent_of_material: "Share of material cost",
+  per_visit: "Per visit",
+  per_truck: "Per truck day",
 };
+
+/**
+ * THE THREE LATER BASES, and what each one measures on a job.
+ *
+ *   percent_of_material  a percentage of the job's material cost: its lines
+ *                        at cost plus cost of goods sold posted to it, the
+ *                        same figure as the materials on its statement. For a
+ *                        company whose stockroom, buyer and warehouse rent
+ *                        grow with the parts it fits.
+ *   per_visit            an amount for each visit on the job that was not
+ *                        cancelled and was not brought in from the old system.
+ *                        A second trip costs the dispatcher and the drive
+ *                        again, which per job does not see.
+ *   per_truck            an amount for each truck day: each company vehicle
+ *                        that went out on the job, once for each day it did.
+ *                        A truck went out when it was held, on the visit's
+ *                        day, by somebody on that visit (or by the job
+ *                        itself) according to the vehicle register's custody
+ *                        record. A visit by somebody holding no vehicle that
+ *                        day adds nothing: the register is the only record of
+ *                        which truck went, and a guess would charge a truck
+ *                        that stayed in the yard.
+ *
+ * The same caveat holds for these as for the first three: by material cost a
+ * parts heavy job carries more overhead whether or not it used more of the
+ * office, per visit a callback carries a second charge, and per truck a job
+ * nobody recorded a truck for carries none.
+ */
 
 /** The overhead rows in effect on a day: every one on the latest date on or before it. */
 export function overheadMixOn(rates: readonly CostingRate[], date: string): CostingRate[] {
@@ -196,7 +237,24 @@ export interface OverheadParts {
   perHour: m.Money;
   perJob: m.Money;
   revenueShare: m.Money;
+  materialShare: m.Money;
+  perVisit: m.Money;
+  perTruck: m.Money;
   total: m.Money;
+}
+
+/** What overhead is charged on, for one job. The three later measures are zero when left out. */
+export interface OverheadJob {
+  date: string;
+  minutes: number;
+  revenue: m.Money;
+  cancelled?: boolean;
+  /** Material cost at cost, as on the job's statement. */
+  materialCost?: m.Money;
+  /** Visits not cancelled. */
+  visits?: number;
+  /** Truck days: each vehicle that went out on the job, once for each day. */
+  truckDays?: number;
 }
 
 /**
@@ -206,14 +264,14 @@ export interface OverheadParts {
  * A cancelled job carries none: nothing was done, and a per job charge on it
  * would make cancellations look like the most expensive work in the company.
  */
-export function overheadParts(
-  job: { date: string; minutes: number; revenue: m.Money; cancelled?: boolean },
-  rates: readonly CostingRate[],
-): OverheadParts {
+export function overheadParts(job: OverheadJob, rates: readonly CostingRate[]): OverheadParts {
   const currency = job.revenue.currency;
   let perHour = m.zero(currency);
   let perJob = m.zero(currency);
   let revenueShare = m.zero(currency);
+  let materialShare = m.zero(currency);
+  let perVisit = m.zero(currency);
+  let perTruck = m.zero(currency);
   if (!job.cancelled) {
     for (const rate of overheadMixOn(rates, job.date)) {
       switch (rate.basis) {
@@ -224,18 +282,25 @@ export function overheadParts(
         case "percent_of_revenue":
           revenueShare = m.add(revenueShare, m.divide(m.multiply(job.revenue, rate.rate), "100"));
           break;
+        case "percent_of_material":
+          materialShare = m.add(materialShare, m.divide(m.multiply(job.materialCost ?? m.zero(currency), rate.rate), "100"));
+          break;
+        case "per_visit":
+          perVisit = m.add(perVisit, m.multiply(m.money(rate.rate, currency), String(job.visits ?? 0)));
+          break;
+        case "per_truck":
+          perTruck = m.add(perTruck, m.multiply(m.money(rate.rate, currency), String(job.truckDays ?? 0)));
+          break;
         default: break;
       }
     }
   }
-  return { perHour, perJob, revenueShare, total: m.add(m.add(perHour, perJob), revenueShare) };
+  const total = [perJob, revenueShare, materialShare, perVisit, perTruck].reduce((sum, part) => m.add(sum, part), perHour);
+  return { perHour, perJob, revenueShare, materialShare, perVisit, perTruck, total };
 }
 
 /** Overhead charged to one job: the sum of its parts. */
-export function overhead(
-  job: { date: string; minutes: number; revenue: m.Money; cancelled?: boolean },
-  rates: readonly CostingRate[],
-): m.Money {
+export function overhead(job: OverheadJob, rates: readonly CostingRate[]): m.Money {
   return overheadParts(job, rates).total;
 }
 
@@ -249,12 +314,17 @@ export type MixCheck =
  * and is how a company switches overhead off from a day.
  */
 export function checkOverheadMix(input: {
-  perHour?: string | undefined; perJob?: string | undefined; percentOfRevenue?: string | undefined; effectiveFrom: string;
+  perHour?: string | undefined; perJob?: string | undefined; percentOfRevenue?: string | undefined;
+  percentOfMaterial?: string | undefined; perVisit?: string | undefined; perTruck?: string | undefined;
+  effectiveFrom: string;
 }): MixCheck {
   const boxes: [OverheadBasis, string, string | undefined][] = [
     ["per_hour", "perHour", input.perHour],
     ["per_job", "perJob", input.perJob],
     ["percent_of_revenue", "percentOfRevenue", input.percentOfRevenue],
+    ["percent_of_material", "percentOfMaterial", input.percentOfMaterial],
+    ["per_visit", "perVisit", input.perVisit],
+    ["per_truck", "perTruck", input.perTruck],
   ];
   const parts: { basis: OverheadBasis; rate: string }[] = [];
   for (const [basis, field, raw] of boxes) {

@@ -36506,7 +36506,7 @@
       ],
       "post": {
         "operationId": "setOverheadMix",
-        "summary": "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+        "summary": "Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day",
         "description": "Each part is optional and at least one is given; a 0 stops charging overhead from the day. The parts set on a day are the whole of the overhead from that day until a later day, so a mix is replaced whole rather than added to, and jobs before the day keep the overhead of their own day. A day that already has overhead is refused unless the same mix is sent again, which returns it. Each part is reported on its own on a job's costing and in the profitability measures.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
@@ -36534,7 +36534,7 @@
         },
         "responses": {
           "201": {
-            "description": "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+            "description": "Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day",
             "content": {
               "application/json": {
                 "schema": {
@@ -36729,7 +36729,7 @@
       "post": {
         "operationId": "setCostingRate",
         "summary": "Set a burden or overhead rate from a date",
-        "description": "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.\n\nRequires a session holding: finance:configure.",
+        "description": "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, a percent of the job's revenue, a percent of its material cost, an amount per visit, or an amount per truck day (each company vehicle that went out on the job, once for each day, by the vehicle register's custody record). A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -202921,12 +202921,42 @@
               "revenueShare": {
                 "type": "string",
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "materialShare": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "perVisit": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "perTruck": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               }
             },
             "required": [
               "perHour",
               "perJob",
-              "revenueShare"
+              "revenueShare",
+              "materialShare",
+              "perVisit",
+              "perTruck"
+            ]
+          },
+          "overheadMeasures": {
+            "type": "object",
+            "properties": {
+              "visits": {
+                "type": "integer"
+              },
+              "truckDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "visits",
+              "truckDays"
             ]
           },
           "fullyLoadedMargin": {
@@ -203455,6 +203485,7 @@
           "labourBurden",
           "overhead",
           "overheadParts",
+          "overheadMeasures",
           "fullyLoadedMargin",
           "fullyLoadedMarginPercent",
           "scheduledHours",
@@ -229326,7 +229357,10 @@
                     "percent_of_wages",
                     "per_hour",
                     "per_job",
-                    "percent_of_revenue"
+                    "percent_of_revenue",
+                    "percent_of_material",
+                    "per_visit",
+                    "per_truck"
                   ]
                 },
                 "basisLabel": {
@@ -229387,7 +229421,10 @@
                       "enum": [
                         "per_hour",
                         "per_job",
-                        "percent_of_revenue"
+                        "percent_of_revenue",
+                        "percent_of_material",
+                        "per_visit",
+                        "per_truck"
                       ]
                     },
                     "label": {
@@ -281224,7 +281261,10 @@
               "percent_of_wages",
               "per_hour",
               "per_job",
-              "percent_of_revenue"
+              "percent_of_revenue",
+              "percent_of_material",
+              "per_visit",
+              "per_truck"
             ]
           },
           "rate": {
@@ -281272,7 +281312,10 @@
               "percent_of_wages",
               "per_hour",
               "per_job",
-              "percent_of_revenue"
+              "percent_of_revenue",
+              "percent_of_material",
+              "per_visit",
+              "per_truck"
             ]
           },
           "basisLabel": {
@@ -284951,6 +284994,18 @@
             "type": "string",
             "maxLength": 20
           },
+          "percentOfMaterial": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "perVisit": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "perTruck": {
+            "type": "string",
+            "maxLength": 20
+          },
           "note": {
             "type": "string",
             "maxLength": 500
@@ -284994,7 +285049,10 @@
                     "percent_of_wages",
                     "per_hour",
                     "per_job",
-                    "percent_of_revenue"
+                    "percent_of_revenue",
+                    "percent_of_material",
+                    "per_visit",
+                    "per_truck"
                   ]
                 },
                 "basisLabel": {

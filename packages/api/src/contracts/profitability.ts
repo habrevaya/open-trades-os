@@ -149,8 +149,14 @@ export const getJobProfitability = defineRoute({
     labourBurden: MoneyString,
     /** Overhead at the company's own rate for the job's day. */
     overhead: MoneyString,
-    /** The overhead part by part, which add up to `overhead`: per paid hour, per job, and as a share of revenue. */
-    overheadParts: z.object({ perHour: MoneyString, perJob: MoneyString, revenueShare: MoneyString }),
+    /** The overhead part by part, which add up to `overhead`: per paid hour, per job, as a share of revenue and of material cost, per visit and per truck day. */
+    overheadParts: z.object({
+      perHour: MoneyString, perJob: MoneyString, revenueShare: MoneyString,
+      /** A share of the job's material cost, an amount per visit and an amount per truck day. */
+      materialShare: MoneyString, perVisit: MoneyString, perTruck: MoneyString,
+    }),
+    /** What the per visit and per truck day parts were charged on. */
+    overheadMeasures: z.object({ visits: z.number().int(), truckDays: z.number().int() }),
     /** Gross margin less burden and overhead. Beside the gross margin, never instead of it. */
     fullyLoadedMargin: MoneyString,
     fullyLoadedMarginPercent: z.number().nullable(),

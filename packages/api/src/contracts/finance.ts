@@ -178,11 +178,15 @@ export const getFinancingReport = defineRoute({
 
 /* -------------------------------------------------------------- costing */
 
+const CostingBasis = z.enum([
+  "percent_of_wages", "per_hour", "per_job", "percent_of_revenue", "percent_of_material", "per_visit", "per_truck",
+]);
+
 export const CostingRate = z.object({
   id: Uuid,
   component: z.enum(["payroll_taxes", "benefits", "workers_comp", "overhead"]),
   componentLabel: z.string(),
-  basis: z.enum(["percent_of_wages", "per_hour", "per_job", "percent_of_revenue"]),
+  basis: CostingBasis,
   basisLabel: z.string(),
   /** A percentage or an amount, by the basis. */
   rate: z.string(),
@@ -208,7 +212,8 @@ export const listCostingRates = defineRoute({
     overheadNow: z.object({
       effectiveFrom: DateString,
       parts: z.array(z.object({
-        basis: z.enum(["per_hour", "per_job", "percent_of_revenue"]), label: z.string(), rate: z.string(),
+        basis: z.enum(["per_hour", "per_job", "percent_of_revenue", "percent_of_material", "per_visit", "per_truck"]),
+        label: z.string(), rate: z.string(),
       })),
     }).nullable(),
   }),
@@ -219,13 +224,13 @@ export const setCostingRate = defineRoute({
   path: "/v1/costing/rates",
   summary: "Set a burden or overhead rate from a date",
   description:
-    "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.",
+    "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, a percent of the job's revenue, a percent of its material cost, an amount per visit, or an amount per truck day (each company vehicle that went out on the job, once for each day, by the vehicle register's custody record). A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.",
   module: "M15",
   permissions: ["finance:configure"],
   idempotent: true,
   input: z.object({
     component: z.enum(["payroll_taxes", "benefits", "workers_comp", "overhead"]),
-    basis: z.enum(["percent_of_wages", "per_hour", "per_job", "percent_of_revenue"]),
+    basis: CostingBasis,
     rate: z.string().max(20),
     effectiveFrom: DateString,
     note: z.string().max(500).optional(),
@@ -236,7 +241,7 @@ export const setCostingRate = defineRoute({
 export const setOverheadMix = defineRoute({
   method: "post",
   path: "/v1/costing/overhead",
-  summary: "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+  summary: "Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day",
   description:
     "Each part is optional and at least one is given; a 0 stops charging overhead from the day. The parts set on a day are the whole of the overhead from that day until a later day, so a mix is replaced whole rather than added to, and jobs before the day keep the overhead of their own day. A day that already has overhead is refused unless the same mix is sent again, which returns it. Each part is reported on its own on a job's costing and in the profitability measures.",
   module: "M15",
@@ -250,6 +255,12 @@ export const setOverheadMix = defineRoute({
     perJob: z.string().max(20).optional(),
     /** A percentage of the job's revenue. */
     percentOfRevenue: z.string().max(20).optional(),
+    /** A percentage of the job's material cost: its lines at cost and cost of goods sold posted to it. */
+    percentOfMaterial: z.string().max(20).optional(),
+    /** An amount per visit on the job that was not cancelled. */
+    perVisit: z.string().max(20).optional(),
+    /** An amount per truck day: each company vehicle that went out on the job, once for each day it did. */
+    perTruck: z.string().max(20).optional(),
     note: z.string().max(500).optional(),
   }),
   output: z.object({ effectiveFrom: DateString, rates: z.array(CostingRate) }),

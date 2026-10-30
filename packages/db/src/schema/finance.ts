@@ -96,6 +96,7 @@ export const costingComponent = pgEnum("costing_component", [
 /** Mirrors `costing.BASES` in core, which says which component may use which. */
 export const costingBasis = pgEnum("costing_basis", [
   "percent_of_wages", "per_hour", "per_job", "percent_of_revenue",
+  "percent_of_material", "per_visit", "per_truck",
 ]);
 
 /**

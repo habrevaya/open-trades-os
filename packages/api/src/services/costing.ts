@@ -169,8 +169,9 @@ export async function remove(ctx: ServiceContext, input: { id: string }): Promis
 }
 
 /**
- * Overhead from a date, as a mix: part per paid hour, part per job and part
- * as a share of revenue, any of them left empty. The settings screen's form,
+ * Overhead from a date, as a mix: per paid hour, per job, as a share of
+ * revenue or of material cost, per visit and per truck day, any of them left
+ * empty. The settings screen's form,
  * and the way to change a mix, because a mix is replaced whole on a new day
  * (see `costing.overheadMixOn` in core): what was charged before keeps being
  * charged to the jobs of its own days.
@@ -184,7 +185,8 @@ export async function setOverhead(
   ctx: ServiceContext,
   input: {
     effectiveFrom: string; perHour?: string | undefined; perJob?: string | undefined;
-    percentOfRevenue?: string | undefined; note?: string | undefined;
+    percentOfRevenue?: string | undefined; percentOfMaterial?: string | undefined;
+    perVisit?: string | undefined; perTruck?: string | undefined; note?: string | undefined;
   },
 ): Promise<{ effectiveFrom: string; rates: RateView[] }> {
   return guardedWrite(ctx, "finance:configure", async (tx) => {
@@ -248,6 +250,7 @@ export const handlers = {
   removeCostingRate: (ctx: ServiceContext, input: { id: string }) => remove(ctx, input),
   setOverheadMix: (ctx: ServiceContext, input: {
     effectiveFrom: string; perHour?: string | undefined; perJob?: string | undefined;
-    percentOfRevenue?: string | undefined; note?: string | undefined;
+    percentOfRevenue?: string | undefined; percentOfMaterial?: string | undefined;
+    perVisit?: string | undefined; perTruck?: string | undefined; note?: string | undefined;
   }) => setOverhead(ctx, input),
 } as const;

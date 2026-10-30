@@ -45,6 +45,9 @@ export async function setOverhead(_previous: FormState, form: FormData): Promise
       perHour: amount("perHour"),
       perJob: amount("perJob"),
       percentOfRevenue: amount("percentOfRevenue"),
+      percentOfMaterial: amount("percentOfMaterial"),
+      perVisit: amount("perVisit"),
+      perTruck: amount("perTruck"),
       note: field(form, "note"),
     });
     const done = await costing.setOverhead(await ctx(), input);
