@@ -34,7 +34,9 @@ import { workingMinutesBetween, type WorkingCalendar } from "../holidays/index.j
  * its first day, and it comes round on each named day of every on week. The last of the
  * month is the last Friday (or whichever day), which is the fourth in some
  * months and the fifth in others, and `nth_weekday_of_month` is the first,
- * second, third or fourth, which every month has.
+ * second, third or fourth, which every month has, or the fifth, which only
+ * some months have: a month without one is skipped, and is not moved to the
+ * last one (that is `last_weekday_of_month`).
  */
 export type TaskFrequency =
   | "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month"
@@ -54,10 +56,13 @@ export const NEEDS_WEEKDAY: readonly TaskFrequency[] = [
 ];
 
 /**
- * The most weeks between two occurrences: a year. A gap longer than that is
- * a date in a calendar rather than something that comes round.
+ * The most weeks between two occurrences: five years. A gap longer than that
+ * is a date in a calendar rather than something that comes round. A gap of
+ * more than a year (every 104 weeks, every 156) is counted in days from the
+ * first occurrence like any other, so it drifts a day against the calendar
+ * across a leap year and is not "every two years on the same date".
  */
-export const MAX_INTERVAL_WEEKS = 52;
+export const MAX_INTERVAL_WEEKS = 260;
 
 export interface TaskSchedule {
   frequency: TaskFrequency;
@@ -65,9 +70,13 @@ export interface TaskSchedule {
   weekday?: number | null | undefined;
   /** For monthly: 1 to 31, held to the month's length. */
   monthDay?: number | null | undefined;
-  /** For the given weekday of the month: 1 is the first, 4 the fourth. The last has its own frequency. */
+  /**
+   * For the given weekday of the month: 1 is the first, 4 the fourth, 5 the fifth
+   * (which only some months have, and a month without one is skipped). The last
+   * has its own frequency.
+   */
   monthWeek?: number | null | undefined;
-  /** For every so many weeks: 2 to 52. */
+  /** For every so many weeks: 2 to 260. */
   intervalWeeks?: number | null | undefined;
   /**
    * For chosen weekdays: the days, 0 for Sunday, at least one. For every other
@@ -80,8 +89,15 @@ export interface TaskSchedule {
   startsOn: string;
 }
 
-/** The weeks of the month a "given weekday" task can be on. Every month has four of each weekday. */
-export const MONTH_WEEKS = ["first", "second", "third", "fourth"] as const;
+/**
+ * The weeks of the month a "given weekday" task can be on. Every month has four
+ * of each weekday; the fifth is in the months that run long enough, and the
+ * others are skipped.
+ */
+export const MONTH_WEEKS = ["first", "second", "third", "fourth", "fifth"] as const;
+
+/** The most a "given weekday of the month" can be counted to. */
+export const MOST_MONTH_WEEK = 5;
 
 /**
  * The days a chosen weekdays schedule holds, cleaned: each once, in order,
@@ -135,10 +151,10 @@ export function checkSchedule(schedule: TaskSchedule): ScheduleVerdict {
   }
   if (schedule.frequency === "nth_weekday_of_month") {
     const week = schedule.monthWeek;
-    if (week === null || week === undefined || !Number.isInteger(week) || week < 1 || week > 4) {
+    if (week === null || week === undefined || !Number.isInteger(week) || week < 1 || week > MOST_MONTH_WEEK) {
       return {
         ok: false,
-        message: "Say which one in the month: the first, second, third or fourth. For the last one, choose the last of the month.",
+        message: "Say which one in the month: the first, second, third, fourth or fifth. For the last one, choose the last of the month.",
       };
     }
   }
@@ -207,14 +223,40 @@ function lastWeekdayIn(date: string, weekday: number): string {
 
 /**
  * The given weekday's nth occurrence in the month a date falls in: the first
- * Monday of October, the third Thursday. Never past the 28th, because the
- * fourth of any weekday is at most the 28th, which is why the fifth is not
- * offered: it is missing from most months, and "the last" is its own choice.
+ * Monday of October, the third Thursday. The first to fourth are never past the
+ * 28th, so every month has them. The fifth is past the end of a month that is
+ * too short for it, and then there is none: null, and the month is skipped.
  */
-function nthWeekdayIn(date: string, weekday: number, week: number): string {
+function nthWeekdayIn(date: string, weekday: number, week: number): string | null {
   const first = `${date.slice(0, 8)}01`;
   const ahead = (weekday - weekdayOf(first) + 7) % 7;
-  return addDays(first, ahead + 7 * (week - 1));
+  const found = addDays(first, ahead + 7 * (week - 1));
+  return found.slice(0, 7) === first.slice(0, 7) ? found : null;
+}
+
+/** How many months to look back or forward for a month that has the one asked for: every weekday has a fifth within five. */
+const MONTHS_TO_LOOK = 24;
+
+/** The latest nth weekday of a month on or before a day, in this month or one before it. */
+function nthOnOrBefore(day: string, weekday: number, week: number): string | null {
+  let month = `${day.slice(0, 8)}01`;
+  for (let i = 0; i < MONTHS_TO_LOOK; i += 1) {
+    const found = nthWeekdayIn(month, weekday, week);
+    if (found && compareDates(found, day) <= 0) return found;
+    month = addMonths(month, -1);
+  }
+  return null;
+}
+
+/** The first nth weekday of a month strictly after a day, in this month or one after it. */
+function nthAfter(day: string, weekday: number, week: number): string {
+  let month = `${day.slice(0, 8)}01`;
+  for (let i = 0; i < MONTHS_TO_LOOK; i += 1) {
+    const found = nthWeekdayIn(month, weekday, week);
+    if (found && compareDates(found, day) > 0) return found;
+    month = addMonths(month, 1);
+  }
+  throw new Error("No month in the next two years has that day.");
 }
 
 /**
@@ -329,11 +371,9 @@ export function occurrenceOnOrBefore(schedule: TaskSchedule, day: string): strin
       break;
     }
     case "nth_weekday_of_month": {
-      const week = schedule.monthWeek ?? 1;
-      const thisMonth = nthWeekdayIn(day, schedule.weekday ?? 0, week);
-      found = compareDates(thisMonth, day) <= 0
-        ? thisMonth
-        : nthWeekdayIn(addMonths(`${day.slice(0, 8)}01`, -1), schedule.weekday ?? 0, week);
+      const earlier = nthOnOrBefore(day, schedule.weekday ?? 0, schedule.monthWeek ?? 1);
+      if (earlier === null) return null;
+      found = earlier;
       break;
     }
     case "monthly": {
@@ -387,11 +427,7 @@ export function occurrenceAfter(schedule: TaskSchedule, day: string): string {
       return next;
     }
     case "nth_weekday_of_month": {
-      const week = schedule.monthWeek ?? 1;
-      const thisMonth = nthWeekdayIn(from, schedule.weekday ?? 0, week);
-      return compareDates(thisMonth, from) > 0
-        ? thisMonth
-        : nthWeekdayIn(addMonths(`${from.slice(0, 8)}01`, 1), schedule.weekday ?? 0, week);
+      return nthAfter(from, schedule.weekday ?? 0, schedule.monthWeek ?? 1);
     }
     case "monthly": {
       const thisMonth = monthlyIn(from, schedule.monthDay ?? 1);
@@ -457,7 +493,9 @@ export function describeSchedule(schedule: TaskSchedule): string {
     case "last_weekday_of_month":
       return `On the last ${WEEKDAYS[schedule.weekday ?? 0]} of every month`;
     case "nth_weekday_of_month":
-      return `On the ${MONTH_WEEKS[(schedule.monthWeek ?? 1) - 1] ?? "first"} ${WEEKDAYS[schedule.weekday ?? 0]} of every month`;
+      return (schedule.monthWeek ?? 1) === 5
+        ? `On the fifth ${WEEKDAYS[schedule.weekday ?? 0]} of the month, and a month without a fifth ${WEEKDAYS[schedule.weekday ?? 0]} is skipped`
+        : `On the ${MONTH_WEEKS[(schedule.monthWeek ?? 1) - 1] ?? "first"} ${WEEKDAYS[schedule.weekday ?? 0]} of every month`;
     case "every_n_weeks":
       return `Every ${schedule.intervalWeeks ?? 2} weeks on ${listDays(everySoManyWeeksDays(schedule))}`;
     case "chosen_weekdays":

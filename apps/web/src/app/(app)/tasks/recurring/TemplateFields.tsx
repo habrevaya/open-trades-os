@@ -36,7 +36,7 @@ export function TemplateFields({
           { value: "every_n_weeks", label: "Every few weeks" },
           { value: "chosen_weekdays", label: "On the days I tick" },
           { value: "monthly", label: "Every month, on a date" },
-          { value: "nth_weekday_of_month", label: "The first, second, third or fourth one of every month" },
+          { value: "nth_weekday_of_month", label: "The first, second, third, fourth or fifth one of the month" },
           { value: "last_weekday_of_month", label: "The last one of every month" },
         ]} />
         <Select label="Day of the week (weekly, every few weeks, one of the month)" name="weekday"
@@ -46,13 +46,14 @@ export function TemplateFields({
                    defaultValue={String(template?.monthDay ?? 1)} />
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Select label="Which one in the month (first to fourth)" name="monthWeek" defaultValue={String(template?.monthWeek ?? 1)} options={[
+        <Select label="Which one in the month (first to fifth)" name="monthWeek" defaultValue={String(template?.monthWeek ?? 1)} options={[
           { value: "1", label: "The first" },
           { value: "2", label: "The second" },
           { value: "3", label: "The third" },
           { value: "4", label: "The fourth" },
+          { value: "5", label: "The fifth (months without one are skipped)" },
         ]} />
-        <TextField label="How many weeks apart (every few weeks)" name="intervalWeeks" type="number" min={2} max={52}
+        <TextField label="How many weeks apart (every few weeks)" name="intervalWeeks" type="number" min={2} max={260}
                    defaultValue={String(template?.intervalWeeks ?? 3)} />
         <fieldset className="text-sm">
           <legend className="text-ink-700">Which days (on the days I tick, or every few weeks on several days)</legend>
@@ -78,7 +79,10 @@ export function TemplateFields({
         several days, say Monday and Thursday every third week, tick those days instead of choosing a day of
         the week: the weeks run Monday to Sunday, the first week is the one the first day falls in, and it
         comes round on every ticked day of that week and of every third week after it. The last one of
-        every month is the last Friday, say, whether that is the fourth or the fifth.
+        every month is the last Friday, say, whether that is the fourth or the fifth. The fifth Monday, say, is
+        only in the months that have five Mondays: a month with only four is skipped, and the task is not
+        moved to another day. Every few weeks can be as many as 260 weeks (five years) apart, counted in
+        weeks from the first one, so it slips a day against the calendar across a leap year.
       </p>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="skipHolidays" value="yes" defaultChecked={template?.skipHolidays ?? false} />

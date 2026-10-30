@@ -35,9 +35,9 @@ const Template = z.object({
   weekday: z.number().int().nullable(),
   /** For monthly: 1 to 31, held to the month's length. */
   monthDay: z.number().int().nullable(),
-  /** For `nth_weekday_of_month`: 1 is the first, 4 the fourth. */
+  /** For `nth_weekday_of_month`: 1 is the first, 4 the fourth, 5 the fifth (a month without one is skipped). */
   monthWeek: z.number().int().nullable(),
-  /** For `every_n_weeks`: the gap in weeks, 2 to 52. */
+  /** For `every_n_weeks`: the gap in weeks, 2 to 260. */
   intervalWeeks: z.number().int().nullable(),
   /** For `chosen_weekdays`, and for `every_other_week` and `every_n_weeks` naming two or more days: the days, 0 for Sunday, each once and in order. Null for an every so many weeks task naming one day, which is `weekday`. */
   daysOfWeek: z.array(z.number().int()).nullable(),
@@ -64,8 +64,8 @@ const TemplateFields = {
   frequency: Frequency,
   weekday: z.number().int().min(0).max(6).nullable().optional(),
   monthDay: z.number().int().min(1).max(31).nullable().optional(),
-  monthWeek: z.number().int().min(1).max(4).nullable().optional(),
-  intervalWeeks: z.number().int().min(2).max(52).nullable().optional(),
+  monthWeek: z.number().int().min(1).max(5).nullable().optional(),
+  intervalWeeks: z.number().int().min(2).max(260).nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
   dueMinutes: z.number().int().min(0).max(1439).optional(),
   checklist: z.array(z.string().min(1).max(300)).max(50).optional(),
@@ -91,7 +91,7 @@ export const createTaskTemplate = defineRoute({
   path: "/v1/task-templates",
   summary: "Make a task come round on a schedule",
   description:
-    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 4: the first Monday, say), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 52, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
+    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 5: the first Monday, say; a fifth one is raised only in the months that have one, and a month without is skipped, not moved), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 260, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
   module: "M34",
   permissions: ["task:write"],
   idempotent: true,

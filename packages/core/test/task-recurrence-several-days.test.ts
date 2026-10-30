@@ -117,7 +117,7 @@ describe("what is refused", () => {
 
   it("still needs the gap", () => {
     expect(ok({ frequency: "every_n_weeks", daysOfWeek: [1, 4], startsOn: "2026-10-05" }).ok).toBe(false);
-    expect(ok({ frequency: "every_n_weeks", daysOfWeek: [1, 4], intervalWeeks: 60, startsOn: "2026-10-05" }).ok).toBe(false);
+    expect(ok({ frequency: "every_n_weeks", daysOfWeek: [1, 4], intervalWeeks: 261, startsOn: "2026-10-05" }).ok).toBe(false);
   });
 
   it("refuses a day that is not a day of the week, and two different ways of naming one day", () => {

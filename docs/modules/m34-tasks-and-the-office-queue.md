@@ -173,7 +173,8 @@ and `POST /v1/tasks/{id}/checklist/{itemId}/remove`.
 Wednesday and Saturday for a crew that works those), every week on a weekday,
 every other week or every so many weeks on a weekday, every month on a date
 (the 31st is held to the last day of a shorter month), on the first, second,
-third or fourth given weekday of every month (the first Monday), or on the last
+third, fourth or fifth given weekday of the month (the first Monday; the fifth
+Monday only in the months that have five, the others skipped), or on the last
 given weekday of every month (the last Friday, whether it is the fourth or the
 fifth), with who it goes to, when on the day it is due, its priority and a
 checklist. The rules for which day each one is for are in core's `tasks`
@@ -183,10 +184,16 @@ differently.
 An every other week task is counted from its first day: the first of its
 weekday on or after "Starting", and every fourteenth day after that, so
 "Starting" is what says which of the two weeks is the on week, and editing it
-moves the on week. Every so many weeks (two to fifty two) is counted the same
-way with its own gap, so every third Wednesday starting on a Monday is that
-Wednesday and every twenty first day after it. The fifth given weekday of a
-month is not offered, because most months do not have one; the last one is. A
+moves the on week. Every so many weeks (two to two hundred and sixty, which is five years) is counted
+the same way with its own gap, so every third Wednesday starting on a Monday is that
+Wednesday and every twenty first day after it, and every 104 weeks is every 728th day
+from the first one (so it slips a day against the calendar across a leap year, and the
+screen says so: for the same date every year, use a monthly task). The fifth given
+weekday of a month is raised only in the months that have one: 2026's fifth Mondays are
+March 30, June 29, August 31 and November 30, and every other month is skipped, not moved
+to the fourth or the last (the last one is its own choice). The list says so in words, "On
+the fifth Monday of the month, and a month without a fifth Monday is skipped", and its
+"next" is the next fifth one that exists, however many months away. A
 weekdays task is never raised for a Saturday or a Sunday, and a ticked days task
 is never raised on a day that is not ticked; a worker that was down over a
 weekend raises Friday's, as it raises the latest one of any schedule, and
@@ -194,7 +201,7 @@ nothing more. In the API the frequencies are `daily`, `weekdays`,
 `chosen_weekdays` (with `daysOfWeek`, any of 0 for Sunday to 6 for Saturday,
 stored once each and in order), `weekly`, `every_other_week`, `every_n_weeks`
 (with `intervalWeeks`), `monthly`, `nth_weekday_of_month` (with `monthWeek`, 1
-to 4) and `last_weekday_of_month`, and the ones that come round on a named day
+to 5) and `last_weekday_of_month`, and the ones that come round on a named day
 take `weekday`. A template keeps only the settings its schedule reads, so one
 changed from ticked days to monthly forgets the days. The worker raises each one
 on the day in the COMPANY'S timezone, so Monday's task is not raised on Sunday
@@ -666,10 +673,12 @@ removed notice anywhere: it is gone. A notice whose record had its date moved
 after the notice was removed can be raised again for the new date, which is the
 right notice to get.
 
-Recurring tasks have no fifth given weekday of the month (most months have
-none; the last one is offered instead) and no gap of more than fifty two weeks.
+A gap of more than a year is counted in weeks and days, never in calendar years, and
+none is longer than 260 weeks: a task on a date once a year, or in a given month, is a monthly
+task or a deadline, not this. A fifth weekday that most months do not have is skipped in
+the months without it and nothing says so on the day: the list names the rule and its next day.
 Several weekdays are for the tasks counted in weeks and for "the days I tick";
-the first, second, third, fourth or last given weekday of a month is still one
+the first to fifth or last given weekday of a month is still one
 weekday (the first Monday and Thursday is two templates), because "the first
 Monday and the third Thursday" has no one honest answer for what a company with
 both meant. A template set to skip holidays skips the occurrence
