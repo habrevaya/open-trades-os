@@ -36092,8 +36092,8 @@
       ],
       "post": {
         "operationId": "closeConversation",
-        "summary": "Close a chat from a customer's account",
-        "description": "Ends a chat the customer started from their account, whoever has it (the assistant or a person). The customer's chat page says in words that the company closed it, still shows them what was said, and the next thing they write opens a new conversation. A reply into it is refused from then on. Nothing the office has not read is marked read and no task is closed. A chat from a website visitor, a text or an email cannot be closed here. Closing a chat that is already closed changes nothing.\n\nRequires a session holding: message:send.",
+        "summary": "Close a conversation",
+        "description": "Closes any conversation the caller can see: a website visitor's chat, a customer's chat from their account, a text thread or an email thread. Every message is kept and it is the same conversation if it is reopened. A text or email thread leaves the open inbox (a customer writing again, or a reply from the office, opens it again by itself). A chat has ended: a visitor cannot write into it, a reply is refused from then on, and a customer's chat page says in words that the company closed it, still shows them what was said, and the next thing they write opens a new conversation. Who closed it and when are kept and shown in the inbox. Nothing the office has not read is marked read and no task is closed. A conversation marked as spam is not closed. Closing a conversation that is already closed changes nothing.\n\nRequires a session holding: message:send.",
         "tags": [
           "M05"
         ],
@@ -36129,7 +36129,7 @@
         },
         "responses": {
           "201": {
-            "description": "Close a chat from a customer's account",
+            "description": "Close a conversation",
             "content": {
               "application/json": {
                 "schema": {
@@ -36496,6 +36496,144 @@
         "x-authorization": "session",
         "x-permissions": [
           "message:read"
+        ]
+      }
+    },
+    "/v1/conversations/{id}/reopened": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "reopenConversation",
+        "summary": "Reopen a closed conversation",
+        "description": "Puts a closed conversation back in the open inbox as it was, with every message: the same thread, not a new one. A chat is back with a person when a person had it. Whoever closed it (the customer, the office or the quiet chat rule), a person reopening it is choosing to talk to the customer again; the quiet chat rule leaves a reopened chat alone until it has been quiet again. A chat the customer closed from their account shows to them again. Reopening a conversation that is already open changes nothing; one marked as spam is refused.\n\nRequires a session holding: message:send.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReopenConversationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reopen a closed conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReopenConversationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "message:send"
         ]
       }
     },
@@ -46026,7 +46164,7 @@
       "post": {
         "operationId": "emailCustomerStatement",
         "summary": "Email a customer their statement",
-        "description": "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). With `copyContactId`, one of the customer's own people (on the customer, not removed, with an email address; refused otherwise) is emailed a copy of their own once the statement goes: a typed address is never copied. The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.\n\nRequires a session holding: invoice:send.",
+        "description": "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). With `copies` (five at most), each of the customer's own people (on the customer, not removed, with the address or mobile number the channel needs; refused otherwise) or each address the office types is sent a copy of their own, by email or by text, once the statement goes: a message each, refused or suppressed on its own, a text through the consent gate every text goes through. A copy to an address that was typed also needs `portal:grant` (it is handed the link to the customer's account; refused in words without it, before anything is sent), and is audited on its own (`statement.copied_to_typed_address`) with the address. `copyContactId` is an email copy to that person, first in the list. All copies carry the link the statement went with. `copies` in the answer says where each went or why not. The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.\n\nRequires a session holding: invoice:send.",
         "tags": [
           "M13"
         ],
@@ -54702,7 +54840,7 @@
       "post": {
         "operationId": "extendEstimateExpiry",
         "summary": "Move a sent estimate's good until date later, with a reason",
-        "description": "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, unless `restartFollowUp` is true (leave it out and nothing starts, so a program moving many dates texts nobody): then the follow up counts its days from today and chases once more, the company's recommended follow up is started again with its own wait, and `estimate.follow_up_restarted` is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made.\n\nRequires a session holding: estimate:write.",
+        "description": "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, unless `restartFollowUp` is true (leave it out and nothing starts, so a program moving many dates texts nobody): then the follow up counts its days from today and chases once more, the company's recommended follow up is started again with its own wait, and `estimate.follow_up_restarted` is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made. `tellCustomer` (off when left out) also tells the customer, through the estimate's own send: the company's \"given longer\" words (message templates `estimate_extended.sms` and `estimate_extended.email`, with the product's own wording when none is written) name the new date above a link that works through it, by `tellChannel` (email when the customer has one, otherwise text). It is held to the same consent and suppression checks as any send, and a text is held in the company's quiet hours. Telling needs `estimate:send` and `portal:grant` as well as `estimate:write`. A customer who cannot be told does not undo the date: `told` says what went and why not. Telling starts the follow up through the send itself when `restartFollowUp` is true, and sends without starting it when it is not.\n\nRequires a session holding: estimate:write.",
         "tags": [
           "M07"
         ],
@@ -146735,6 +146873,125 @@
         ]
       }
     },
+    "/v1/visit-change-requests/{id}/next-times": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listVisitChangeNextTimes",
+        "summary": "The next free times to offer after a no, soonest first",
+        "description": "The first few windows online booking would sell for the visit's work (`count`, three when left out), soonest first, without the time the customer turned down or the office took back. It only lists them: nothing is offered and nobody is told until a person sends one with `POST /v1/visit-change-requests/{id}/propose`, and a customer's no never offers another time by itself. Empty where `/times` is.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The next free times to offer after a no, soonest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListVisitChangeNextTimesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
     "/v1/visit-change-requests/{id}/propose": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -163722,6 +163979,12 @@
               "idle"
             ]
           },
+          "closedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "closedAt": {
             "type": "string",
             "format": "date-time"
@@ -163730,6 +163993,7 @@
         "required": [
           "id",
           "closedBy",
+          "closedByName",
           "closedAt"
         ]
       },
@@ -185325,6 +185589,34 @@
           "copyContactId": {
             "type": "string",
             "format": "uuid"
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 320
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                }
+              },
+              "required": [
+                "channel"
+              ]
+            },
+            "maxItems": 5
           }
         }
       },
@@ -185420,6 +185712,65 @@
               "state",
               "explanation"
             ]
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "contactName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                },
+                "destination": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "typed": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "refused"
+                  ]
+                },
+                "explanation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "contactId",
+                "contactName",
+                "channel",
+                "destination",
+                "typed",
+                "state",
+                "explanation"
+              ]
+            }
           }
         },
         "required": [
@@ -185431,7 +185782,8 @@
           "note",
           "explanation",
           "portalUrl",
-          "copy"
+          "copy",
+          "copies"
         ]
       },
       "EmailPurchaseOrderInput": {
@@ -186531,6 +186883,17 @@
           },
           "restartFollowUp": {
             "type": "boolean"
+          },
+          "tellCustomer": {
+            "type": "boolean"
+          },
+          "tellChannel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "both"
+            ]
           }
         },
         "required": [
@@ -186574,6 +186937,38 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "told": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "sent": {
+                "type": "boolean"
+              },
+              "channels": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                }
+              },
+              "explanation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "sent",
+              "channels",
+              "explanation"
+            ]
           }
         },
         "required": [
@@ -186582,7 +186977,8 @@
           "status",
           "expiresOn",
           "previousExpiresOn",
-          "linkExpiresAt"
+          "linkExpiresAt",
+          "told"
         ]
       },
       "FailUploadInput": {
@@ -192781,6 +193177,13 @@
             ],
             "format": "date-time"
           },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "closedBy": {
             "type": [
               "string",
@@ -192793,6 +193196,19 @@
             ]
           },
           "closedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reopenedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reopenedByName": {
             "type": [
               "string",
               "null"
@@ -192821,8 +193237,11 @@
           "customerNotice",
           "customerClosedAt",
           "officeClosedAt",
+          "closedAt",
           "closedBy",
           "closedByName",
+          "reopenedAt",
+          "reopenedByName",
           "canReply",
           "blockedReason",
           "blockedExplanation"
@@ -218970,12 +219389,36 @@
                 "email"
               ]
             }
+          },
+          "textCandidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "phone": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "phone"
+              ]
+            }
           }
         },
         "required": [
           "customerId",
           "monthly",
-          "candidates"
+          "candidates",
+          "textCandidates"
         ]
       },
       "GetStatementScheduleOutput": {
@@ -229470,6 +229913,12 @@
                     "office",
                     "idle"
                   ]
+                },
+                "closedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -229484,7 +229933,8 @@
                 "awaitingReply",
                 "unread",
                 "closedByCustomer",
-                "closedBy"
+                "closedBy",
+                "closedByName"
               ]
             }
           },
@@ -247205,6 +247655,56 @@
                     "null"
                   ]
                 },
+                "copies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "contactName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "channel": {
+                        "type": "string",
+                        "enum": [
+                          "email",
+                          "sms"
+                        ]
+                      },
+                      "destination": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "typed": {
+                        "type": "boolean"
+                      },
+                      "messageStatus": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "contactName",
+                      "channel",
+                      "destination",
+                      "typed",
+                      "messageStatus",
+                      "error"
+                    ]
+                  }
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -250449,6 +250949,50 @@
         },
         "required": [
           "vendors"
+        ]
+      },
+      "ListVisitChangeNextTimesOutput": {
+        "type": "object",
+        "properties": {
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "arrivalWindowId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": "string"
+                },
+                "remaining": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "date",
+                "arrivalWindowId",
+                "label",
+                "startsAt",
+                "endsAt",
+                "remaining"
+              ]
+            }
+          }
+        },
+        "required": [
+          "slots"
         ]
       },
       "ListVisitChangeRequestsOutput": {
@@ -270420,6 +270964,49 @@
           "id",
           "periodEnd",
           "reopenedAt"
+        ]
+      },
+      "ReopenConversationInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReopenConversationOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open"
+            ]
+          },
+          "reopenedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "previouslyClosedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "customer",
+              "office",
+              "idle"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "reopenedAt",
+          "previouslyClosedBy"
         ]
       },
       "ReopenPayPeriodInput": {
@@ -293604,6 +294191,34 @@
           "to": {
             "type": "string",
             "format": "date"
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 320
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                }
+              },
+              "required": [
+                "channel"
+              ]
+            },
+            "maxItems": 5
           }
         }
       },
@@ -293699,6 +294314,65 @@
               "state",
               "explanation"
             ]
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "contactName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                },
+                "destination": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "typed": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "refused"
+                  ]
+                },
+                "explanation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "contactId",
+                "contactName",
+                "channel",
+                "destination",
+                "typed",
+                "state",
+                "explanation"
+              ]
+            }
           }
         },
         "required": [
@@ -293710,7 +294384,8 @@
           "note",
           "explanation",
           "portalUrl",
-          "copy"
+          "copy",
+          "copies"
         ]
       },
       "TickTaskChecklistItemInput": {

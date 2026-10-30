@@ -617,7 +617,7 @@ export const extendEstimateExpiry = defineRoute({
   path: "/v1/estimates/{id}/expiry",
   summary: "Move a sent estimate's good until date later, with a reason",
   description:
-    "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, unless `restartFollowUp` is true (leave it out and nothing starts, so a program moving many dates texts nobody): then the follow up counts its days from today and chases once more, the company's recommended follow up is started again with its own wait, and `estimate.follow_up_restarted` is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made.",
+    "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, unless `restartFollowUp` is true (leave it out and nothing starts, so a program moving many dates texts nobody): then the follow up counts its days from today and chases once more, the company's recommended follow up is started again with its own wait, and `estimate.follow_up_restarted` is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made. `tellCustomer` (off when left out) also tells the customer, through the estimate's own send: the company's \"given longer\" words (message templates `estimate_extended.sms` and `estimate_extended.email`, with the product's own wording when none is written) name the new date above a link that works through it, by `tellChannel` (email when the customer has one, otherwise text). It is held to the same consent and suppression checks as any send, and a text is held in the company's quiet hours. Telling needs `estimate:send` and `portal:grant` as well as `estimate:write`. A customer who cannot be told does not undo the date: `told` says what went and why not. Telling starts the follow up through the send itself when `restartFollowUp` is true, and sends without starting it when it is not.",
   module: "M07",
   permissions: ["estimate:write"],
   idempotent: true,
@@ -627,6 +627,10 @@ export const extendEstimateExpiry = defineRoute({
     reason: z.string().min(1).max(500),
     /** Start the follow up again from today. Off when left out. */
     restartFollowUp: z.boolean().optional(),
+    /** Also tell the customer, by the estimate's own send. Off when left out. */
+    tellCustomer: z.boolean().optional(),
+    /** How to tell them. Email when they have an address, otherwise text. */
+    tellChannel: z.enum(["email", "sms", "both"]).optional(),
   }),
   output: z.object({
     id: Uuid,
@@ -636,6 +640,15 @@ export const extendEstimateExpiry = defineRoute({
     previousExpiresOn: z.string().date(),
     /** When the link the customer was last sent stops working; null when there is no live link and it must be sent again. */
     linkExpiresAt: z.string().datetime().nullable(),
+    /** What became of `tellCustomer`: null when it was not asked for. */
+    told: z.object({
+      /** At least one message was queued to the customer. */
+      sent: z.boolean(),
+      /** The channels that went. */
+      channels: z.array(z.enum(["email", "sms"])),
+      /** Why it did not go, or why one of two did not, in words for the office. */
+      explanation: z.string().nullable(),
+    }).nullable(),
   }),
 });
 

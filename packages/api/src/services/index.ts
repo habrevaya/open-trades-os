@@ -33,6 +33,7 @@ export * as workflowDwell from "./workflow-dwell";
 export * as workflows from "./workflows";
 export * as agreements from "./agreements";
 export * as agreementNotices from "./agreement-notices";
+export * as conversationClose from "./conversation-close";
 export * as entitlements from "./entitlements";
 export * as commercial from "./commercial";
 export * as apps from "./apps";

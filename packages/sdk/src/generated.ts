@@ -2297,6 +2297,7 @@ export type CloseConversationInput = Record<string, unknown>;
 export interface CloseConversationOutput {
   id: string;
   closedBy: "customer" | "office" | "idle";
+  closedByName: string | null;
   closedAt: string;
 }
 
@@ -6475,6 +6476,11 @@ export interface EmailCustomerStatementInput {
   from?: string;
   to?: string;
   copyContactId?: string;
+  copies?: Array<{
+    contactId?: string;
+    address?: string;
+    channel: "email" | "sms";
+  }>;
 }
 
 export interface EmailCustomerStatementOutput {
@@ -6493,6 +6499,15 @@ export interface EmailCustomerStatementOutput {
     state: "queued" | "refused";
     explanation: string | null;
   } | null;
+  copies: Array<{
+    contactId: string | null;
+    contactName: string | null;
+    channel: "email" | "sms";
+    destination: string | null;
+    typed: boolean;
+    state: "queued" | "refused";
+    explanation: string | null;
+  }>;
 }
 
 export interface EmailPurchaseOrderInput {
@@ -6735,6 +6750,8 @@ export interface ExtendEstimateExpiryInput {
   expiresOn: string;
   reason: string;
   restartFollowUp?: boolean;
+  tellCustomer?: boolean;
+  tellChannel?: "email" | "sms" | "both";
 }
 
 export interface ExtendEstimateExpiryOutput {
@@ -6744,6 +6761,11 @@ export interface ExtendEstimateExpiryOutput {
   expiresOn: string;
   previousExpiresOn: string;
   linkExpiresAt: string | null;
+  told: {
+    sent: boolean;
+    channels: Array<"email" | "sms">;
+    explanation: string | null;
+  } | null;
 }
 
 export interface FailUploadInput {
@@ -7929,8 +7951,11 @@ export interface GetConversationOutput {
   customerNotice: string | null;
   customerClosedAt: string | null;
   officeClosedAt: string | null;
+  closedAt: string | null;
   closedBy: "customer" | "office" | "idle" | null;
   closedByName: string | null;
+  reopenedAt: string | null;
+  reopenedByName: string | null;
   canReply: boolean;
   blockedReason: string | null;
   blockedExplanation: string | null;
@@ -12849,6 +12874,11 @@ export interface GetStatementCopyOutput {
     name: string;
     email: string;
   }>;
+  textCandidates: Array<{
+    id: string;
+    name: string;
+    phone: string;
+  }>;
 }
 
 export interface GetStatementScheduleOutput {
@@ -14857,6 +14887,7 @@ export interface ListConversationsOutput {
     unread: number;
     closedByCustomer: boolean;
     closedBy: "customer" | "office" | "idle" | null;
+    closedByName: string | null;
   }>;
   hasMore: boolean;
   nextCursor: string | null;
@@ -18198,6 +18229,14 @@ export interface ListStatementDeliveriesOutput {
     copyDestination?: string | null;
     copyMessageStatus?: string | null;
     copyError?: string | null;
+    copies?: Array<{
+      contactName: string | null;
+      channel: "email" | "sms";
+      destination: string | null;
+      typed: boolean;
+      messageStatus: string | null;
+      error: string | null;
+    }>;
     createdAt: string;
   }>;
 }
@@ -18816,6 +18855,17 @@ export interface ListVendorsOutput {
     email: string | null;
     phone: string | null;
     active: boolean;
+  }>;
+}
+
+export interface ListVisitChangeNextTimesOutput {
+  slots: Array<{
+    date: string;
+    arrivalWindowId: string;
+    label: string;
+    startsAt: string;
+    endsAt: string;
+    remaining: number;
   }>;
 }
 
@@ -22870,6 +22920,15 @@ export interface ReopenAccountingPeriodOutput {
   id: string;
   periodEnd: string;
   reopenedAt: string | null;
+}
+
+export type ReopenConversationInput = Record<string, unknown>;
+
+export interface ReopenConversationOutput {
+  id: string;
+  status: "open";
+  reopenedAt: string | null;
+  previouslyClosedBy: "customer" | "office" | "idle" | null;
 }
 
 export interface ReopenPayPeriodInput {
@@ -27679,6 +27738,11 @@ export interface TextCustomerStatementInput {
   phone?: string;
   from?: string;
   to?: string;
+  copies?: Array<{
+    contactId?: string;
+    address?: string;
+    channel: "email" | "sms";
+  }>;
 }
 
 export interface TextCustomerStatementOutput {
@@ -27697,6 +27761,15 @@ export interface TextCustomerStatementOutput {
     state: "queued" | "refused";
     explanation: string | null;
   } | null;
+  copies: Array<{
+    contactId: string | null;
+    contactName: string | null;
+    channel: "email" | "sms";
+    destination: string | null;
+    typed: boolean;
+    state: "queued" | "refused";
+    explanation: string | null;
+  }>;
 }
 
 export interface TickTaskChecklistItemInput {
@@ -33460,6 +33533,11 @@ export interface ListVendorReturnsInput {
 
 export type ListVendorsInput = Record<string, never>;
 
+export interface ListVisitChangeNextTimesInput {
+  id: string;
+  count?: number;
+}
+
 export interface ListVisitChangeRequestsInput {
   status?: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   jobId?: string;
@@ -34029,6 +34107,10 @@ export interface RenewAgreementParams {
 }
 
 export interface RenewComplianceDocumentParams {
+  id: string;
+}
+
+export interface ReopenConversationParams {
   id: string;
 }
 
@@ -35651,6 +35733,7 @@ export interface OperationTypes {
   listVendorItems: { input: ListVendorItemsInput; output: ListVendorItemsOutput };
   listVendorReturns: { input: ListVendorReturnsInput; output: ListVendorReturnsOutput };
   listVendors: { input: ListVendorsInput; output: ListVendorsOutput };
+  listVisitChangeNextTimes: { input: ListVisitChangeNextTimesInput; output: ListVisitChangeNextTimesOutput };
   listVisitChangeRequests: { input: ListVisitChangeRequestsInput; output: ListVisitChangeRequestsOutput };
   listVisitChangeTimes: { input: ListVisitChangeTimesInput; output: ListVisitChangeTimesOutput };
   listWageScales: { input: ListWageScalesInput; output: ListWageScalesOutput };
@@ -35837,6 +35920,7 @@ export interface OperationTypes {
   renewAgreement: { input: RenewAgreementParams & RenewAgreementInput; output: RenewAgreementOutput };
   renewComplianceDocument: { input: RenewComplianceDocumentParams & RenewComplianceDocumentInput; output: RenewComplianceDocumentOutput };
   reopenAccountingPeriod: { input: ReopenAccountingPeriodInput; output: ReopenAccountingPeriodOutput };
+  reopenConversation: { input: ReopenConversationParams & ReopenConversationInput; output: ReopenConversationOutput };
   reopenPayPeriod: { input: ReopenPayPeriodInput; output: ReopenPayPeriodOutput };
   reorderRoute: { input: ReorderRouteInput; output: ReorderRouteOutput };
   reorderServiceRouteStops: { input: ReorderServiceRouteStopsParams & ReorderServiceRouteStopsInput; output: ReorderServiceRouteStopsOutput };
@@ -36890,6 +36974,7 @@ export const OPERATIONS = {
   listVendorItems: { method: "GET", path: "/v1/vendor-items", pathParams: [], queryParams: ["itemId","vendorId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVendorReturns: { method: "GET", path: "/v1/vendor-returns", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listVendors: { method: "GET", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
+  listVisitChangeNextTimes: { method: "GET", path: "/v1/visit-change-requests/{id}/next-times", pathParams: ["id"], queryParams: ["count"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listVisitChangeRequests: { method: "GET", path: "/v1/visit-change-requests", pathParams: [], queryParams: ["status","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listVisitChangeTimes: { method: "GET", path: "/v1/visit-change-requests/{id}/times", pathParams: ["id"], queryParams: ["from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listWageScales: { method: "GET", path: "/v1/payroll/wage-scales", pathParams: [], queryParams: ["classification"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
@@ -37076,6 +37161,7 @@ export const OPERATIONS = {
   renewAgreement: { method: "POST", path: "/v1/agreements/{id}/renew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   renewComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/renew", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
   reopenAccountingPeriod: { method: "POST", path: "/v1/accounting/periods/reopen", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:close"] },
+  reopenConversation: { method: "POST", path: "/v1/conversations/{id}/reopened", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   reopenPayPeriod: { method: "POST", path: "/v1/payroll/periods/reopen", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   reorderRoute: { method: "POST", path: "/v1/dispatch/route", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   reorderServiceRouteStops: { method: "POST", path: "/v1/service-routes/{id}/order", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -38286,7 +38372,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Close a chat from a customer's account.
+   * Close a conversation.
    *
    * POST /v1/conversations/{id}/closed. Needs message:send.
    */
@@ -43875,6 +43961,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The next free times to offer after a no, soonest first.
+   *
+   * GET /v1/visit-change-requests/{id}/next-times. Needs visit:read.
+   */
+  listVisitChangeNextTimes(input: ListVisitChangeNextTimesInput, options?: CallOptions): Promise<ListVisitChangeNextTimesOutput> {
+    return this.call("listVisitChangeNextTimes", input, options);
+  }
+
+  /**
    * Customers' requests to move or cancel visits.
    *
    * GET /v1/visit-change-requests. Needs visit:read.
@@ -45546,6 +45641,15 @@ export abstract class GeneratedOperations {
    */
   reopenAccountingPeriod(input: ReopenAccountingPeriodInput, options?: CallOptions): Promise<ReopenAccountingPeriodOutput> {
     return this.call("reopenAccountingPeriod", input, options);
+  }
+
+  /**
+   * Reopen a closed conversation.
+   *
+   * POST /v1/conversations/{id}/reopened. Needs message:send.
+   */
+  reopenConversation(input: ReopenConversationParams & ReopenConversationInput, options?: CallOptions): Promise<ReopenConversationOutput> {
+    return this.call("reopenConversation", input, options);
   }
 
   /**

@@ -6,6 +6,36 @@ import { getDb } from "@/lib/db";
 import { statementDelivery } from "@opentradesos/api/services";
 import { attempt, field, refused, refusalOf, type FormState } from "@/lib/actions";
 
+type Copy = { contactId?: string; address?: string; channel: "email" | "sms" };
+
+/**
+ * The copies ticked on the send form: each of the customer's people by email or
+ * by text, and one address or number typed (an at sign makes it an email address,
+ * anything else a number to text). The one "Also send a copy to" box is the
+ * older single email copy and is read separately.
+ */
+function copiesFrom(form: FormData): Copy[] {
+  const typed = field(form, "copyTyped");
+  return [
+    ...form.getAll("copyEmail").map((id) => ({ contactId: String(id), channel: "email" as const })),
+    ...form.getAll("copyText").map((id) => ({ contactId: String(id), channel: "sms" as const })),
+    ...(typed ? [{ address: typed, channel: (typed.includes("@") ? "email" : "sms") as "email" | "sms" }] : []),
+  ];
+}
+
+/** What happened to each copy, in the words the page says it in. */
+function saidCopies(copies: readonly {
+  contactName: string | null; destination: string | null; state: "queued" | "refused"; explanation: string | null;
+  channel: "email" | "sms";
+}[]): string {
+  return copies.map((c) => {
+    const who = c.contactName ?? c.destination ?? "that address";
+    return c.state === "queued"
+      ? ` A ${c.channel === "sms" ? "text copy" : "copy"} goes to ${c.contactName ? `${c.contactName} at ${c.destination}` : c.destination}.`
+      : ` No copy went${c.contactName || c.destination ? ` to ${who}` : ""}: ${c.explanation ?? "it was refused."}`;
+  }).join("");
+}
+
 /**
  * Email the statement on screen, for the period on screen.
  *
@@ -29,6 +59,7 @@ export async function emailStatement(_previous: unknown, form: FormData): Promis
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
       ...(copyContactId ? { copyContactId } : {}),
+      ...(copiesFrom(form).length > 0 ? { copies: copiesFrom(form) } : {}),
     });
   } catch (error) {
     const message = refusalOf(error);
@@ -37,9 +68,7 @@ export async function emailStatement(_previous: unknown, form: FormData): Promis
   }
   revalidatePath(`/customers/${id}/statement`);
   if (result.state === "refused") return refused(form, result.explanation ?? "It was not sent.");
-  const copied = result.copy === null ? ""
-    : result.copy.state === "queued" ? ` A copy goes to ${result.copy.contactName ?? "them"} at ${result.copy.destination}.`
-      : ` No copy went: ${result.copy.explanation ?? "it was refused."}`;
+  const copied = saidCopies(result.copies);
   return {
     done: true,
     message: `Emailed a link to ${result.destination}. It goes out with the next send from the outbox.${copied}`,
@@ -86,6 +115,7 @@ export async function textStatement(_previous: unknown, form: FormData): Promise
       ...(phone ? { phone } : {}),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
+      ...(copiesFrom(form).length > 0 ? { copies: copiesFrom(form) } : {}),
     });
   } catch (error) {
     const message = refusalOf(error);
@@ -96,6 +126,6 @@ export async function textStatement(_previous: unknown, form: FormData): Promise
   if (result.state === "refused") return refused(form, result.explanation ?? "It was not sent.");
   return {
     done: true,
-    message: `Texted a link to ${result.destination}. It goes out with the next send from the outbox.`,
+    message: `Texted a link to ${result.destination}. It goes out with the next send from the outbox.${saidCopies(result.copies)}`,
   };
 }

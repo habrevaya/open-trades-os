@@ -1,9 +1,9 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { branding as brand, money as m, type Actor } from "@opentradesos/core";
+import { branding as brand, comms, money as m, type Actor } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import * as email from "./email";
-import { sendTransactional } from "./comms-send";
+import { quietHoursFor, sendTransactional } from "./comms-send";
 import { stateOf, type DeliveryState } from "./invoice-delivery";
 
 /**
@@ -102,11 +102,13 @@ function escapeHtml(value: string): string {
  */
 export function composeEmail(input: {
   identity: Identity; estimate: EstimateForMessage; url: string; note: string | null;
+  /** A subject of the sender's own (the notice that the customer was given longer). */
+  subject?: string | undefined;
 }): { subject: string; text: string; html: string } {
   const { identity, estimate, url, note } = input;
-  const subject = estimate.title
+  const subject = input.subject?.trim() || (estimate.title
     ? `Your estimate from ${identity.name}: ${estimate.title}`
-    : `Estimate ${estimate.number} from ${identity.name}`;
+    : `Estimate ${estimate.number} from ${identity.name}`);
   const offer = offerLine(estimate.totals);
   const action = "Review and approve your estimate";
 
@@ -164,6 +166,13 @@ export function transportContext(ctx: ServiceContext, tx: Database): ServiceCont
   return { ...ctx, actor, db: tx };
 }
 
+/** "8am", "9pm": an hour of the day in words a customer reads. */
+export function hourWord(hour: number): string {
+  if (hour === 0) return "midnight";
+  if (hour === 12) return "noon";
+  return hour < 12 ? `${hour}am` : `${hour - 12}pm`;
+}
+
 export type Transported =
   | { sent: true; messageId: string; conversationId: string }
   | { sent: false; reason: string; explanation: string };
@@ -180,9 +189,21 @@ export async function transport(
   input: {
     channel: "email" | "sms"; to: string; customerId: string;
     identity: Identity; estimate: EstimateForMessage; url: string; note: string | null;
+    subject?: string | undefined;
+    /** Hold a text in the company's quiet hours: it is not sent and the reason is given. */
+    holdInQuietHours?: boolean | undefined;
   },
 ): Promise<Transported> {
   if (input.channel === "sms") {
+    if (input.holdInQuietHours) {
+      const quiet = await quietHoursFor(tx, ctx.actor.organizationId, new Date());
+      if (quiet.window && comms.inQuietHours(quiet.localHour, quiet.window)) {
+        return {
+          sent: false, reason: "quiet_hours",
+          explanation: `It is outside the hours we text people (${hourWord(quiet.window.endHour)} to ${hourWord(quiet.window.startHour)}).`,
+        };
+      }
+    }
     const outcome = await sendTransactional(tx, {
       organizationId: ctx.actor.organizationId,
       address: input.to,

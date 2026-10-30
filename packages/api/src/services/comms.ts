@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms as c, files as f } from "@opentradesos/core";
 /**
@@ -18,6 +18,7 @@ import { sendability, sendTransactional, refusal } from "./comms-send";
 import * as email from "./email";
 import * as files from "./files";
 import { tellOfReply } from "./portal-chat-notice";
+import { nameOfPerson } from "./conversation-close";
 
 /**
  * THE INBOX
@@ -50,6 +51,8 @@ export interface ThreadSummary {
   closedByCustomer: boolean;
   /** Who closed an account chat: the customer, a person in the office, or the company's quiet chat rule. Null: not closed that way. */
   closedBy: "customer" | "office" | "idle" | null;
+  /** The person, when a person in the office closed it. */
+  closedByName: string | null;
 }
 
 export async function threads(
@@ -127,17 +130,33 @@ export async function threads(
     `);
 
     const state = new Map(lastDirections.map((r) => [r.conversation_id, r]));
-    /** Chats closed from an account chat, so the list can say who closed them. */
-    const closers = new Map<string, "customer" | "office" | "idle">(ids.length === 0 ? [] : (await tx.select({
+    /**
+     * Who closed each closed conversation, so the list can say. A chat says so
+     * on the chat (the customer, a person, the quiet chat rule); a text, an email
+     * thread or a website chat a person closed, on the conversation. Read only
+     * for the ones that are closed now: an open thread's old marks mean nothing.
+     */
+    const closedIds = page.data.filter((r) => r.conversation.status === "closed").map((r) => r.conversation.id);
+    const chatClosers = closedIds.length === 0 ? [] : await tx.select({
       id: schema.aiChatSession.conversationId,
       customerClosedAt: schema.aiChatSession.customerClosedAt,
+      officeClosedAt: schema.aiChatSession.officeClosedAt,
+      userId: schema.aiChatSession.officeClosedByUserId,
       kind: schema.aiChatSession.officeCloseKind,
-    }).from(schema.aiChatSession)
-      .where(and(
-        inArray(schema.aiChatSession.conversationId, ids),
-        or(isNotNull(schema.aiChatSession.customerClosedAt), isNotNull(schema.aiChatSession.officeClosedAt)),
-      )))
-      .map((r) => [r.id, r.customerClosedAt ? "customer" as const : (r.kind ?? "office")] as const));
+    }).from(schema.aiChatSession).where(inArray(schema.aiChatSession.conversationId, closedIds));
+    const closers = new Map<string, { by: "customer" | "office" | "idle"; userId: string | null }>();
+    for (const row of page.data) {
+      if (row.conversation.status !== "closed") continue;
+      const chat = chatClosers.find((c) => c.id === row.conversation.id);
+      if (chat?.customerClosedAt) closers.set(row.conversation.id, { by: "customer", userId: null });
+      else if (chat?.officeClosedAt) closers.set(row.conversation.id, { by: chat.kind ?? "office", userId: chat.userId });
+      else if (row.conversation.closedByUserId) closers.set(row.conversation.id, { by: "office", userId: row.conversation.closedByUserId });
+    }
+    const people = new Map<string, string>();
+    for (const userId of new Set([...closers.values()].map((c) => c.userId).filter((u): u is string => u !== null))) {
+      const name = await nameOfPerson(tx, userId);
+      if (name) people.set(userId, name);
+    }
 
     return {
       ...page,
@@ -152,8 +171,10 @@ export async function threads(
         lastMessagePreview: conversation.lastMessagePreview,
         awaitingReply: state.get(conversation.id)?.direction === "inbound",
         unread: state.get(conversation.id)?.unread ?? 0,
-        closedByCustomer: closers.get(conversation.id) === "customer",
-        closedBy: closers.get(conversation.id) ?? null,
+        closedByCustomer: closers.get(conversation.id)?.by === "customer",
+        closedBy: closers.get(conversation.id)?.by ?? null,
+        closedByName: closers.get(conversation.id)?.by === "office"
+          ? (people.get(closers.get(conversation.id)!.userId ?? "") ?? null) : null,
       })),
     };
   });
@@ -196,29 +217,39 @@ export async function thread(ctx: ServiceContext, input: { id: string }) {
      * chat from their account (`portal-chat-notice.ts`). Null on every other
      * thread, and on an account chat nobody has answered yet.
      */
-    const [chat] = conversation.internalAddress === "portal"
-      ? await tx.select({
-        customerNotice: schema.aiChatSession.customerNotice, customerClosedAt: schema.aiChatSession.customerClosedAt,
-        officeClosedAt: schema.aiChatSession.officeClosedAt, officeClosedByUserId: schema.aiChatSession.officeClosedByUserId,
-        officeCloseKind: schema.aiChatSession.officeCloseKind,
-      }).from(schema.aiChatSession)
-        .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1)
-      : [];
-    const closer = chat?.officeClosedByUserId
-      ? (await tx.execute<{ name: string | null; email: string }>(
-        sql`select name, email from app.organization_people() where user_id = ${chat.officeClosedByUserId}::uuid`,
-      ))[0]
-      : undefined;
+    const [chat] = await tx.select({
+      customerNotice: schema.aiChatSession.customerNotice, customerClosedAt: schema.aiChatSession.customerClosedAt,
+      officeClosedAt: schema.aiChatSession.officeClosedAt, officeClosedByUserId: schema.aiChatSession.officeClosedByUserId,
+      officeCloseKind: schema.aiChatSession.officeCloseKind,
+    }).from(schema.aiChatSession)
+      .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1);
+    /**
+     * WHO CLOSED IT, for any kind of conversation: a chat says so on the chat
+     * (the customer, a person, the quiet chat rule), and a text or an email
+     * thread, or a chat a person closed, on the conversation. Read only
+     * while it is closed: a customer writing again opens it and leaves the
+     * old marks behind.
+     */
+    const closed = conversation.status === "closed";
+    const byCustomer = closed && chat?.customerClosedAt ? chat.customerClosedAt : null;
+    const officeAt = closed && !byCustomer ? (chat?.officeClosedAt ?? conversation.closedAt ?? null) : null;
+    const closerId = chat?.officeClosedByUserId ?? conversation.closedByUserId;
+    const closedBy = (byCustomer ? "customer" : officeAt ? (chat?.officeCloseKind ?? "office") : null) as
+      "customer" | "office" | "idle" | null;
+    const closerName = closedBy === "office" ? await nameOfPerson(tx, closerId) : null;
+    const reopenerName = conversation.reopenedAt ? await nameOfPerson(tx, conversation.reopenedByUserId) : null;
 
     return {
       conversation,
       customerNotice: chat?.customerNotice ?? null,
-      customerClosedAt: chat?.customerClosedAt ?? null,
+      customerClosedAt: byCustomer,
       /** Closed from the office side: when, how, and by whom (nobody, for the quiet chat rule). */
-      officeClosedAt: chat?.officeClosedAt ?? null,
-      closedBy: (chat?.customerClosedAt ? "customer" : chat?.officeClosedAt ? (chat.officeCloseKind ?? "office") : null) as
-        "customer" | "office" | "idle" | null,
-      closedByName: closer ? (closer.name ?? closer.email) : null,
+      officeClosedAt: officeAt,
+      closedAt: byCustomer ?? officeAt,
+      closedBy,
+      closedByName: closerName,
+      reopenedAt: conversation.reopenedAt ?? null,
+      reopenedByName: reopenerName,
       customer: customer ? clean(ctx, "customer", customer) : null,
       messages: messages.map((m) => clean(ctx, "message", m)),
       canReply: decision.allowed,
@@ -280,7 +311,7 @@ async function replyDecision(tx: Database, conversation: typeof schema.conversat
       allowed: false,
       reason: "chat_closed",
       explanation: conversation.internalAddress !== "portal"
-        ? "This website chat has ended, so a reply has nowhere to go."
+        ? "This website chat has ended, so a reply has nowhere to go. Reopen it if you want to answer."
         : session?.officeClosedAt
           ? session.kind === "idle"
             ? "This chat was closed because it went quiet, so a reply has nowhere to go. If the customer writes again, it opens a new one."
@@ -764,8 +795,11 @@ export const handlers = {
       customerNotice: found.customerNotice,
       customerClosedAt: iso(found.customerClosedAt),
       officeClosedAt: iso(found.officeClosedAt),
+      closedAt: iso(found.closedAt),
       closedBy: found.closedBy,
       closedByName: found.closedByName,
+      reopenedAt: iso(found.reopenedAt),
+      reopenedByName: found.reopenedByName,
       canReply: found.canReply,
       blockedReason: found.blockedReason ?? null,
       blockedExplanation: found.blockedExplanation ?? null,

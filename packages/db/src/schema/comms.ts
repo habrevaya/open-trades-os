@@ -627,6 +627,24 @@ export const conversation = pgTable("conversation", {
   lastMessagePreview: text("last_message_preview"),
   unreadCount: integer("unread_count").notNull().default(0),
   snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+  /**
+   * WHO CLOSED IT, for any conversation (M18). `closed_at` and
+   * `closed_by_user_id` are written when a person in the office closes a
+   * website chat, a text thread, an email thread or an account chat, and
+   * they are read only while `status` is `closed`: a customer writing again
+   * opens the thread without touching them, so a stale pair on an open thread
+   * means nothing. A chat the customer closed, or the quiet chat rule did, is
+   * said by `ai_chat_session`, which has always held that.
+   *
+   * `reopened_at` and `reopened_by_user_id` are the last time a person
+   * reopened it. The quiet chat rule leaves a reopened chat alone until it
+   * has been quiet again since, so a chat is not closed again within the
+   * minute by the rule that closed it.
+   */
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  closedByUserId: uuid("closed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+  reopenedByUserId: uuid("reopened_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   inboxIdx: index("conversation_inbox_idx").on(t.organizationId, t.status, t.lastMessageAt),

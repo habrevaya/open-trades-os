@@ -735,14 +735,43 @@ export async function unsoldHandler(
  * is written down, so a leaked database backup contains no working links.
  */
 export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstimate.input>) {
-  return guardedWrite(ctx, "estimate:send", async (tx) => {
+  return guardedWrite(ctx, "estimate:send", (tx) => sendWithin(tx, ctx, input));
+}
+
+/**
+ * What a send made by another service (giving the customer longer, M07) may
+ * change about the ordinary send. Every field off is the route's own send.
+ */
+export interface SendOptions {
+  /** An email subject of the caller's own, in place of "Your estimate from ...". */
+  subject?: string | undefined;
+  /** The line above the link, one for each channel, in place of the office's `message`. */
+  notes?: { email?: string | undefined; sms?: string | undefined } | undefined;
+  /** Hold a text in the company's quiet hours instead of sending it. The email is not held. */
+  holdTextsInQuietHours?: boolean | undefined;
+  /**
+   * Send without starting the follow up: `sent_at` is kept and `estimate.sent` is not raised, so
+   * the office's "leave the follow up alone" is true even when the customer was told.
+   */
+  quiet?: boolean | undefined;
+  /** The link works at least until this moment, past the days asked for. */
+  linkUntil?: Date | undefined;
+  /** Not the route's own retry: the caller keeps its own idempotency. */
+  keyless?: boolean | undefined;
+}
+
+/** `send`, inside a transaction that already holds the permission check. */
+export async function sendWithin(
+  tx: Database, ctx: ServiceContext, input: z.infer<typeof sendEstimate.input>, options: SendOptions = {},
+) {
+  {
     /**
      * A retry is the same send, not a second message to the customer. It
      * gets the attempt back WITHOUT the link: only the link's hash was ever
      * stored, and minting another for a retry would put two live links to
      * one document into the world.
      */
-    if (ctx.idempotencyKey) {
+    if (ctx.idempotencyKey && !options.keyless) {
       const seen = await seenBefore(tx, ctx.idempotencyKey, "estimate_delivery");
       if (seen) {
         const all = await deliveriesWithin(tx, input.id);
@@ -808,7 +837,8 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
 
     const token = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
-    const expiresAt = new Date(Date.now() + input.expiresInDays * 864e5);
+    const byDays = new Date(Date.now() + input.expiresInDays * 864e5);
+    const expiresAt = options.linkUntil && options.linkUntil > byDays ? options.linkUntil : byDays;
 
     const [grant] = await tx.insert(schema.portalGrant).values({
       organizationId: ctx.actor.organizationId,
@@ -859,7 +889,9 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
             totals: current.options.map((o) => o.total as string),
           },
           url,
-          note: input.message?.trim() ? input.message.trim() : null,
+          note: options.notes?.[one] ?? (input.message?.trim() ? input.message.trim() : null),
+          ...(options.subject ? { subject: options.subject } : {}),
+          ...(options.holdTextsInQuietHours ? { holdInQuietHours: true } : {}),
         });
         if (outcome.sent) {
           await tx.update(schema.estimateDelivery)
@@ -893,7 +925,7 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
         await audit(tx, ctx, "estimate.delivery_refused", "estimate", input.id, null, {
           deliveryId, channel, to, refused,
         });
-        await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
+        if (!options.keyless) await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
         const all = await deliveriesWithin(tx, input.id);
         return {
           estimate: current,
@@ -935,7 +967,7 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
     const today = time.dateIn(sentAt, await timezoneOf(tx, ctx.actor.organizationId));
     const pastItsDate = current.expiresOn !== null && current.expiresOn !== undefined && current.expiresOn < today;
     await tx.update(schema.estimate)
-      .set({ status: pastItsDate ? "expired" : "sent", sentAt, updatedAt: sentAt })
+      .set({ status: pastItsDate ? "expired" : "sent", sentAt: options.quiet ? sql<Date>`${schema.estimate.sentAt}` : sentAt, updatedAt: sentAt })
       .where(eq(schema.estimate.id, input.id));
 
     await tx.insert(schema.portalEvent).values({
@@ -962,7 +994,7 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
      * value, and the event log is not the place for a working credential; an
      * automation that sends the link again mints its own.
      */
-    await emit(tx, ctx, {
+    if (!options.quiet) await emit(tx, ctx, {
       name: "estimate.sent",
       entityType: "estimate",
       entityId: input.id,
@@ -985,7 +1017,7 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
 
     await audit(tx, ctx, "estimate.sent", "estimate", input.id,
       { status: current.status }, { status: pastItsDate ? "expired" : "sent", channel, deliveryId });
-    await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
+    if (!options.keyless) await recordIdempotency(tx, ctx, "estimate_delivery", deliveryId);
 
     const all = await deliveriesWithin(tx, input.id);
     return {
@@ -995,7 +1027,7 @@ export async function send(ctx: ServiceContext, input: z.infer<typeof sendEstima
       delivery: all.find((d) => d.id === deliveryId)!,
       deliveries: all.filter((d) => deliveryIds.includes(d.id)),
     };
-  });
+  }
 }
 
 /** The attempts one send made: every delivery row carrying the same link as this one. */

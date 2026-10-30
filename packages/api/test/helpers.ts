@@ -205,7 +205,7 @@ const ORDER = [
    * A delivery points at its schedule, a schedule at a saved report, and a
    * statement delivery at the customer and the message it went as.
    */
-  "statement_delivery", "report_delivery", "delivery_schedule",
+  "statement_delivery_copy", "statement_delivery", "report_delivery", "delivery_schedule",
   "dashboard", "report",
   // The company's own logo and favicon, which are bytes rather than a key.
   "brand_asset",

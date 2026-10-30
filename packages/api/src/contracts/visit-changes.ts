@@ -217,6 +217,18 @@ export const listVisitChangeTimes = defineRoute({
   output: z.object({ slots: z.array(Slot) }),
 });
 
+export const listVisitChangeNextTimes = defineRoute({
+  method: "get",
+  path: "/v1/visit-change-requests/{id}/next-times",
+  summary: "The next free times to offer after a no, soonest first",
+  description:
+    "The first few windows online booking would sell for the visit's work (`count`, three when left out), soonest first, without the time the customer turned down or the office took back. It only lists them: nothing is offered and nobody is told until a person sends one with `POST /v1/visit-change-requests/{id}/propose`, and a customer's no never offers another time by itself. Empty where `/times` is.",
+  module: "M05",
+  permissions: ["visit:read"],
+  input: z.object({ id: Uuid, count: z.number().int().min(1).max(10).optional() }),
+  output: z.object({ slots: z.array(Slot) }),
+});
+
 export const proposeVisitChangeTime = defineRoute({
   method: "post",
   path: "/v1/visit-change-requests/{id}/propose",
@@ -251,5 +263,5 @@ export const withdrawVisitChangeOffer = defineRoute({
 export const visitChangeRoutes = {
   getPortalVisitChange, requestPortalVisitChange, answerPortalVisitChangeProposal,
   listVisitChangeRequests, approveVisitChangeRequest, declineVisitChangeRequest,
-  listVisitChangeTimes, proposeVisitChangeTime, withdrawVisitChangeOffer,
+  listVisitChangeTimes, listVisitChangeNextTimes, proposeVisitChangeTime, withdrawVisitChangeOffer,
 } as const;

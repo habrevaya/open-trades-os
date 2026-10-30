@@ -4,7 +4,7 @@ import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { comms, portalChat, ConflictError } from "@opentradesos/api/services";
+import { comms, conversationClose, ConflictError } from "@opentradesos/api/services";
 
 /**
  * The reply goes through the service, which checks consent again.
@@ -39,20 +39,43 @@ export async function sendReply(_previous: unknown, form: FormData) {
 }
 
 /**
- * The office closes a chat from a customer's account. The customer is told in
- * words on their chat page, not by text or email, and what they wrote stays here.
- * A chat already closed is a close already made.
+ * The office closes a conversation: a website chat, a customer's chat from their
+ * account, a text thread or an email thread. Everything said is kept. A customer
+ * with a chat from their account is told in words on their chat page, not by text
+ * or email. A conversation already closed is a close already made.
  */
 export async function closeChat(_previous: unknown, form: FormData) {
   const user = await requireSetupUser();
   const conversationId = String(form.get("conversationId") ?? "");
+  const kind = String(form.get("kind") ?? "");
   try {
-    await portalChat.closeFromOffice({ actor: user.actor, db: getDb() }, { id: conversationId });
+    await conversationClose.close({ actor: user.actor, db: getDb() }, { id: conversationId });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);
     throw error;
   }
   revalidatePath(`/inbox/${conversationId}`);
   revalidatePath("/inbox");
-  return { done: true, message: "Closed. The customer will see that you closed it." };
+  return {
+    done: true,
+    message: kind === "account" ? "Closed. The customer will see that you closed it." : "Closed. You can reopen it from here.",
+  };
+}
+
+/**
+ * The office reopens a closed conversation. It is the same thread, with every
+ * message, back in the open inbox. The customer is not told.
+ */
+export async function reopenChat(_previous: unknown, form: FormData) {
+  const user = await requireSetupUser();
+  const conversationId = String(form.get("conversationId") ?? "");
+  try {
+    await conversationClose.reopen({ actor: user.actor, db: getDb() }, { id: conversationId });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath(`/inbox/${conversationId}`);
+  revalidatePath("/inbox");
+  return { done: true, message: "Reopened." };
 }
