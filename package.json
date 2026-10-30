@@ -27,11 +27,11 @@
     "@eslint/js": "^9.17.0",
     "eslint": "^9.17.0",
     "eslint-plugin-boundaries": "^5.0.1",
-    "playwright-core": "^1.63.0",
-    "prettier": "^3.4.1",
-    "turbo": "^2.3.0",
+    "playwright-core": "^1.64.1",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.10",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.1"
+    "typescript-eslint": "^8.72.1"
   },
   "type": "module"
 }
