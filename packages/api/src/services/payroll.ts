@@ -1216,7 +1216,8 @@ async function assemble(
           label: `Reimbursement: ${row.expense.description.slice(0, 80)}${
             row.expense.miles ? ` (${row.expense.miles} miles at $${row.expense.mileageRate} a mile${
               row.expense.mileageRateSource === "person" ? ", this person's own rate"
-                : row.expense.mileageRateSource === "vehicle" ? `, the rate for ${row.expense.mileageAssetLabel ?? "the vehicle"}` : ""})` : ""}${row.jobNumber ? `, job ${row.jobNumber}` : ""}`,
+                : row.expense.mileageRateSource === "vehicle" ? `, the rate for ${row.expense.mileageAssetLabel ?? "the vehicle"}`
+                  : row.expense.mileageRateSource === "work" ? `, the rate for ${row.expense.mileageJobTypeLabel ?? "the kind of work"}` : ""})` : ""}${row.jobNumber ? `, job ${row.jobNumber}` : ""}`,
           occurredAt: row.expense.decidedAt ?? row.expense.createdAt,
         })),
       perDiems: perDiemRows

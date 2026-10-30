@@ -576,6 +576,13 @@ export const getFieldSnapshot = defineRoute({
        * on the day of the drive, whatever the phone showed.
        */
       mileageRate: z.string().nullable(),
+      /**
+       * Company vehicles with a rate for a mile of their own, with what each pays today, so the phone offers the
+       * vehicle on a claim in miles. Empty when there are none, and the claim is at the person's or the company's.
+       */
+      mileageVehicles: z.array(z.object({ id: Uuid, label: z.string(), rateToday: z.string().nullable() })),
+      /** Whether any kind of work has a rate for a mile of its own, so the phone says a job's kind of work may pay its own. */
+      mileageWork: z.boolean(),
     }),
     /**
      * This person's own expenses from the last sixty days and what the office

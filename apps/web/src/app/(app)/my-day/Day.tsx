@@ -5,7 +5,7 @@ import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
   chemicalsIn, clockWords, mobilisationPunch, projectDay, recordApproval, recordCallOff, recordPartRequest, recordCashTip, recordDecline, recordEstimate, recordExpense, recordHaulTime, recordInvoice, recordPayment, recordWater, tipChoices,
   type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptReceipt, type KeptSignature, type PriceBookEntry,
-  type QueuedOperation, type UploadTransport, checkExpenseDraft,
+  type QueuedOperation, type UploadTransport, checkExpenseDraft, vehicleChoices,
 } from "@opentradesos/field-client";
 import type { dispatch } from "@opentradesos/api/services";
 import { sync, onMyWay, paymentLink, financingLink } from "./actions";
@@ -547,11 +547,16 @@ export function Day({
             expenses={projected.expenses}
             today={today}
             mileageRate={can.mileageRate ?? null}
+            vehicles={vehicleChoices(can)}
+            workRates={can.mileageWork ?? false}
             jobs={[...new Map(ordered.map((v) => [v.jobId, v])).values()]
               .map((v) => ({ jobId: v.jobId, jobNumber: v.jobNumber, customerName: v.customer.name }))}
             onSave={async (input) => {
               const checked = checkExpenseDraft(
-                { amount: input.amount, miles: input.miles, spentOn: input.spentOn, description: input.description, jobId: input.jobId }, today,
+                {
+                  amount: input.amount, miles: input.miles, spentOn: input.spentOn, description: input.description,
+                  jobId: input.jobId, vehicleId: input.vehicleId,
+                }, today,
               );
               if (!checked.ok) return checked.reason;
               let receipt: KeptReceipt | undefined;

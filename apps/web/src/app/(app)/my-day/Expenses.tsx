@@ -19,20 +19,28 @@ const field = "h-12 w-full rounded border border-steel-300 bg-canvas px-3 text-b
 
 export interface ExpenseJob { jobId: string; jobNumber: number; customerName: string }
 
-export function ExpensesPanel({ expenses, jobs, today, mileageRate, onSave }: {
+export function ExpensesPanel({ expenses, jobs, today, mileageRate, vehicles = [], workRates = false, onSave }: {
   expenses: DayExpense[];
   jobs: ExpenseJob[];
   /** The company's date today, which is the day a receipt defaults to. */
   today: string;
   /** What the company pays for one mile today, or null when it has set none, which hides the claim in miles. */
   mileageRate: string | null;
+  /**
+   * The vehicle picker's choices, from `vehicleChoices`: empty when no company vehicle has a rate of its own,
+   * and then there is no picker.
+   */
+  vehicles?: { value: string; label: string }[];
+  /** Whether a job's kind of work may pay its own rate for a mile, which the form says. */
+  workRates?: boolean;
   onSave: (input: {
-    amount: string; miles: string; spentOn: string; description: string; jobId: string | null; jobNumber: number | null; receipt: File | null;
+    amount: string; miles: string; vehicleId: string; spentOn: string; description: string; jobId: string | null; jobNumber: number | null; receipt: File | null;
   }) => Promise<string | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [miles, setMiles] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
   const [what, setWhat] = useState("");
   const [day, setDay] = useState(today);
   const [jobId, setJobId] = useState("");
@@ -45,18 +53,19 @@ export function ExpensesPanel({ expenses, jobs, today, mileageRate, onSave }: {
 
   async function save() {
     setSaved(false);
-    const checked = checkExpenseDraft({ amount, miles, spentOn: day, description: what, jobId: jobId || null }, today);
+    const checked = checkExpenseDraft({ amount, miles, vehicleId, spentOn: day, description: what, jobId: jobId || null }, today);
     if (!checked.ok) { setProblem(checked.reason); return; }
     setProblem(null);
     setBusy(true);
     try {
       const job = jobs.find((j) => j.jobId === jobId);
       const failed = await onSave({
-        amount: checked.amount ?? "", miles: checked.miles ?? "", spentOn: checked.spentOn, description: checked.description,
+        amount: checked.amount ?? "", miles: checked.miles ?? "", vehicleId: checked.vehicleId ?? "",
+        spentOn: checked.spentOn, description: checked.description,
         jobId: checked.jobId, jobNumber: job?.jobNumber ?? null, receipt,
       });
       if (failed) { setProblem(failed); return; }
-      setAmount(""); setMiles(""); setWhat(""); setReceipt(null); setJobId(""); setDay(today); setSaved(true);
+      setAmount(""); setMiles(""); setVehicleId(""); setWhat(""); setReceipt(null); setJobId(""); setDay(today); setSaved(true);
     } finally {
       setBusy(false);
     }
@@ -85,14 +94,25 @@ export function ExpensesPanel({ expenses, jobs, today, mileageRate, onSave }: {
             <span className="text-sm font-medium">What you paid</span>
             <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="42.50" className={field} />
           </label>
-          {mileageRate !== null && (
+          {(mileageRate !== null || vehicles.length > 0) && (
             <label className="block">
               <span className="text-sm font-medium">Or the miles you drove</span>
               <input value={miles} onChange={(e) => setMiles(e.target.value)} inputMode="decimal" placeholder="18.4" className={field} />
               <span className="mt-1 block text-sm text-ink-500">
-                Your own vehicle. Fill in the miles or what you paid, not both. Miles are paid at ${mileageRate} a mile,
-                the rate for the day you drove, and the office sees the amount.
+                {mileageRate !== null
+                  ? <>Your own vehicle. Fill in the miles or what you paid, not both. Miles are paid at ${mileageRate} a mile,
+                    the rate for the day you drove, and the office sees the amount.</>
+                  : <>Fill in the miles or what you paid, not both. Miles are paid at the rate for the vehicle you pick.</>}
+                {workRates ? " A job whose kind of work has its own rate is paid at that rate." : ""}
               </span>
+            </label>
+          )}
+          {vehicles.length > 0 && (
+            <label className="block">
+              <span className="text-sm font-medium">Which vehicle (if it has its own rate)</span>
+              <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className={field}>
+                {vehicles.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+              </select>
             </label>
           )}
           <label className="block">

@@ -271,6 +271,13 @@ export interface FieldAbilities {
    * miles. As of the last fetch. Absent from older servers, which is read as none.
    */
   mileageRate?: string | null | undefined;
+  /**
+   * Company vehicles with a rate for a mile of their own, with what each pays today, which a claim in miles may
+   * name. Absent from older servers, which is read as none.
+   */
+  mileageVehicles?: Array<{ id: string; label: string; rateToday: string | null }> | undefined;
+  /** Whether a job's kind of work may pay its own rate for a mile. Absent from older servers, read as no. */
+  mileageWork?: boolean | undefined;
 }
 
 /**

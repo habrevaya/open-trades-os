@@ -9,12 +9,13 @@ import { settingsWithin } from "./pay-extras";
 import { technicianScopeFilter } from "./scope";
 
 /**
- * A MILEAGE RATE OF ONE PERSON'S OR ONE VEHICLE'S OWN (M17)
+ * A MILEAGE RATE OF ONE PERSON'S, ONE VEHICLE'S OR ONE KIND OF WORK'S OWN (M17)
  *
  * The company's rate for a mile is a history in its pay settings (`services/pay-extras.ts`). A company that
- * pays one driver more, or one vehicle less, keeps a line here for that person or that vehicle, in the same
- * shape: a day it starts from and dollars for one mile. When a claim in miles is made, the rate is the
- * vehicle's line in force on the day of the drive, else the person's, else the company's. The claim keeps the
+ * pays one driver more, one vehicle less, or the drive for one kind of work (a job type) differently keeps a
+ * line here for it, in the same shape: a day it starts from and dollars for one mile. When a claim in miles is
+ * made, the rate is the vehicle's line in force on the day of the drive, else the line for the kind of work the
+ * claim's job is, else the person's, else the company's (core's `resolveMileageRate` says why that order). The claim keeps the
  * rate and where it came from, so adding or taking off a line here never reprices a claim already made.
  *
  * Whether a rate is within what the tax authority allows without tax is the company's to check, as it is for
@@ -23,15 +24,16 @@ import { technicianScopeFilter } from "./scope";
  * WHO. Setting a rate is a statement about what a person is owed, so `payroll:configure`, the permission for
  * the company's own rate (the owner and the accountant, not the office manager). Reading is the timesheet's
  * `timesheet:read`, narrowed to the people the reader's timesheet scope reaches for a person's line; a
- * vehicle's line is the company's and is read by anyone who reads the timesheet.
+ * vehicle's or a kind of work's line is the company's and is read by anyone who reads the timesheet.
  */
 
 export interface OverrideLine {
   id: string;
-  kind: "person" | "vehicle";
+  kind: "person" | "vehicle" | "work";
   technicianId: string | null;
   assetId: string | null;
-  /** The person's name, or the vehicle's label. */
+  jobTypeId: string | null;
+  /** The person's name, the vehicle's label, or the kind of work's name. */
   subjectName: string;
   from: string;
   perMile: string;
@@ -42,13 +44,14 @@ export interface OverrideLine {
 export interface OverrideLines { lines: OverrideLine[] }
 
 /** What the rows of one person and one vehicle say, as the company's own kind of list. */
-export interface SubjectLines { person: px.MileageRate[]; vehicle: px.MileageRate[] }
+export interface SubjectLines { person: px.MileageRate[]; vehicle: px.MileageRate[]; work: px.MileageRate[] }
 
 const rateOf = (r: { fromDay: string; perMile: string }): px.MileageRate => ({ from: r.fromDay, perMile: r.perMile });
 
 /** The lines of one person and of one vehicle, oldest first, for working a claim out. */
 export async function linesWithin(
-  tx: Database, organizationId: string, subject: { technicianId?: string | null | undefined; assetId?: string | null | undefined },
+  tx: Database, organizationId: string,
+  subject: { technicianId?: string | null | undefined; assetId?: string | null | undefined; jobTypeId?: string | null | undefined },
 ): Promise<SubjectLines> {
   const person = subject.technicianId ? (await tx.select().from(schema.mileageRateOverride).where(and(
     eq(schema.mileageRateOverride.organizationId, organizationId),
@@ -58,20 +61,27 @@ export async function linesWithin(
     eq(schema.mileageRateOverride.organizationId, organizationId),
     eq(schema.mileageRateOverride.assetId, subject.assetId),
   )).orderBy(asc(schema.mileageRateOverride.fromDay))).map(rateOf) : [];
-  return { person, vehicle };
+  const work = subject.jobTypeId ? (await tx.select().from(schema.mileageRateOverride).where(and(
+    eq(schema.mileageRateOverride.organizationId, organizationId),
+    eq(schema.mileageRateOverride.jobTypeId, subject.jobTypeId),
+  )).orderBy(asc(schema.mileageRateOverride.fromDay))).map(rateOf) : [];
+  return { person, vehicle, work };
 }
 
 /**
  * The rate for a mile for this person on this day, and where it came from, or null when nothing has started.
- * `assetId` is the vehicle the person named, if they named one.
+ * `assetId` is the vehicle the person named, if they named one; `jobTypeId` the kind of work of the job the claim
+ * is for, if it is for one.
  */
 export async function resolveWithin(
   tx: Database, organizationId: string,
-  input: { day: string; technicianId: string | null; assetId?: string | null | undefined },
+  input: { day: string; technicianId: string | null; assetId?: string | null | undefined; jobTypeId?: string | null | undefined },
 ): Promise<{ rate: px.MileageRate; source: px.MileageRateSource } | null> {
-  const own = await linesWithin(tx, organizationId, { technicianId: input.technicianId, assetId: input.assetId ?? null });
+  const own = await linesWithin(tx, organizationId, {
+    technicianId: input.technicianId, assetId: input.assetId ?? null, jobTypeId: input.jobTypeId ?? null,
+  });
   const company = (await settingsWithin(tx, organizationId)).mileageRates;
-  return px.resolveMileageRate(input.day, { vehicle: own.vehicle, person: own.person, company });
+  return px.resolveMileageRate(input.day, { vehicle: own.vehicle, work: own.work, person: own.person, company });
 }
 
 /** The vehicles that have a line of their own, with the rate each pays today (null while every line is still to come). */
@@ -94,10 +104,31 @@ export async function vehiclesWithinRates(
   return [...found.values()].map((v) => ({ id: v.id, label: v.label, rateToday: px.mileageRateOn(v.lines, today)?.perMile ?? null }));
 }
 
+/** The kinds of work in use that have a line of their own, with the rate each pays today (null while every line is still to come). */
+export async function workWithinRates(
+  tx: Database, organizationId: string, today: string,
+): Promise<{ id: string; name: string; rateToday: string | null }[]> {
+  const rows = await tx.select({
+    jobTypeId: schema.mileageRateOverride.jobTypeId, name: schema.jobType.name,
+    fromDay: schema.mileageRateOverride.fromDay, perMile: schema.mileageRateOverride.perMile,
+  }).from(schema.mileageRateOverride)
+    .innerJoin(schema.jobType, eq(schema.jobType.id, schema.mileageRateOverride.jobTypeId))
+    .where(and(eq(schema.mileageRateOverride.organizationId, organizationId), eq(schema.jobType.active, true)))
+    .orderBy(asc(schema.jobType.name), asc(schema.mileageRateOverride.fromDay));
+  const found = new Map<string, { id: string; name: string; lines: px.MileageRate[] }>();
+  for (const r of rows) {
+    const entry = found.get(r.jobTypeId!) ?? { id: r.jobTypeId!, name: r.name, lines: [] };
+    entry.lines.push(rateOf(r));
+    found.set(r.jobTypeId!, entry);
+  }
+  return [...found.values()].map((w) => ({ id: w.id, name: w.name, rateToday: px.mileageRateOn(w.lines, today)?.perMile ?? null }));
+}
+
 const todayOf = async (tx: Database, organizationId: string) => time.dateIn(new Date(), await timezoneOf(tx, organizationId));
 
 async function viewWithin(
-  tx: Database, ctx: ServiceContext, filter: { technicianId?: string | undefined; assetId?: string | undefined } = {},
+  tx: Database, ctx: ServiceContext,
+  filter: { technicianId?: string | undefined; assetId?: string | undefined; jobTypeId?: string | undefined } = {},
 ): Promise<OverrideLines> {
   const today = await todayOf(tx, ctx.actor.organizationId);
   const reach = technicianScopeFilter(scopeOf(ctx, "timesheet"), ctx.actor);
@@ -105,35 +136,40 @@ async function viewWithin(
     id: schema.mileageRateOverride.id,
     technicianId: schema.mileageRateOverride.technicianId,
     assetId: schema.mileageRateOverride.assetId,
+    jobTypeId: schema.mileageRateOverride.jobTypeId,
     fromDay: schema.mileageRateOverride.fromDay,
     perMile: schema.mileageRateOverride.perMile,
     personName: schema.technician.displayName,
     vehicleLabel: schema.companyAsset.label,
+    workName: schema.jobType.name,
   }).from(schema.mileageRateOverride)
     .leftJoin(schema.technician, eq(schema.technician.id, schema.mileageRateOverride.technicianId))
     .leftJoin(schema.companyAsset, eq(schema.companyAsset.id, schema.mileageRateOverride.assetId))
+    .leftJoin(schema.jobType, eq(schema.jobType.id, schema.mileageRateOverride.jobTypeId))
     .where(and(
       eq(schema.mileageRateOverride.organizationId, ctx.actor.organizationId),
       filter.technicianId ? eq(schema.mileageRateOverride.technicianId, filter.technicianId) : undefined,
       filter.assetId ? eq(schema.mileageRateOverride.assetId, filter.assetId) : undefined,
+      filter.jobTypeId ? eq(schema.mileageRateOverride.jobTypeId, filter.jobTypeId) : undefined,
       /** A person's line is read by whoever reaches that person on the timesheet; a vehicle's by all who read it. */
       reach === undefined ? undefined : sql`(${schema.mileageRateOverride.technicianId} is null or ${reach})`,
     ))
-    .orderBy(asc(schema.technician.displayName), asc(schema.companyAsset.label), asc(schema.mileageRateOverride.fromDay));
+    .orderBy(asc(schema.technician.displayName), asc(schema.companyAsset.label), asc(schema.jobType.name), asc(schema.mileageRateOverride.fromDay));
   const bySubject = new Map<string, px.MileageRate[]>();
   for (const r of rows) {
-    const key = r.technicianId ?? r.assetId!;
+    const key = r.technicianId ?? r.assetId ?? r.jobTypeId!;
     bySubject.set(key, [...(bySubject.get(key) ?? []), rateOf(r)]);
   }
   return {
     lines: rows.map((r) => {
-      const key = r.technicianId ?? r.assetId!;
+      const key = r.technicianId ?? r.assetId ?? r.jobTypeId!;
       return {
         id: r.id,
-        kind: r.technicianId ? "person" : "vehicle",
+        kind: r.technicianId ? "person" : r.assetId ? "vehicle" : "work",
         technicianId: r.technicianId,
         assetId: r.assetId,
-        subjectName: r.personName ?? r.vehicleLabel ?? "",
+        jobTypeId: r.jobTypeId,
+        subjectName: r.personName ?? r.vehicleLabel ?? r.workName ?? "",
         from: r.fromDay,
         perMile: r.perMile,
         inForceToday: px.mileageRateOn(bySubject.get(key) ?? [], today)?.from === r.fromDay,
@@ -143,24 +179,28 @@ async function viewWithin(
 }
 
 export async function list(
-  ctx: ServiceContext, filter: { technicianId?: string | undefined; assetId?: string | undefined } = {},
+  ctx: ServiceContext,
+  filter: { technicianId?: string | undefined; assetId?: string | undefined; jobTypeId?: string | undefined } = {},
 ): Promise<OverrideLines> {
   return guardedRead(ctx, "timesheet:read", (tx) => viewWithin(tx, ctx, filter));
 }
 
 export interface OverrideInput {
-  /** The person whose rate it is. Exactly one of this and `assetId`. */
+  /** The person whose rate it is. Exactly one of this, `assetId` and `jobTypeId`. */
   technicianId?: string | undefined;
-  /** The vehicle whose rate it is. Exactly one of this and `technicianId`. */
+  /** The vehicle whose rate it is. */
   assetId?: string | undefined;
+  /** The kind of work (job type) whose rate it is: claims for a job of this type. */
+  jobTypeId?: string | undefined;
   from: string;
   perMile: string;
 }
 
 export async function add(ctx: ServiceContext, input: OverrideInput): Promise<OverrideLines> {
   return guardedWrite(ctx, "payroll:configure", async (tx) => {
-    if ((input.technicianId === undefined) === (input.assetId === undefined)) {
-      throw new ConflictError("Say whose rate it is: one person or one vehicle, not both and not neither.");
+    const named = [input.technicianId, input.assetId, input.jobTypeId].filter((v) => v !== undefined).length;
+    if (named !== 1) {
+      throw new ConflictError("Say whose rate it is: one person or one vehicle, or one kind of work, and only one of them.");
     }
     const organizationId = ctx.actor.organizationId;
     let subjectName: string;
@@ -169,6 +209,12 @@ export async function add(ctx: ServiceContext, input: OverrideInput): Promise<Ov
         .where(and(eq(schema.technician.id, input.technicianId), eq(schema.technician.organizationId, organizationId))).limit(1);
       if (!person) throw new NotFoundError("Person");
       subjectName = person.name;
+    } else if (input.jobTypeId) {
+      const [work] = await tx.select({ name: schema.jobType.name, active: schema.jobType.active }).from(schema.jobType)
+        .where(and(eq(schema.jobType.id, input.jobTypeId), eq(schema.jobType.organizationId, organizationId))).limit(1);
+      if (!work) throw new NotFoundError("Kind of work");
+      if (!work.active) throw new ConflictError(`${work.name} is no longer used, so it cannot be given a rate for a mile.`);
+      subjectName = work.name;
     } else {
       const [vehicle] = await tx.select({ label: schema.companyAsset.label, kind: schema.companyAsset.kind, retiredOn: schema.companyAsset.retiredOn })
         .from(schema.companyAsset)
@@ -179,7 +225,7 @@ export async function add(ctx: ServiceContext, input: OverrideInput): Promise<Ov
       subjectName = vehicle.label;
     }
     const own = await linesWithin(tx, organizationId, input);
-    const existing = input.technicianId ? own.person : own.vehicle;
+    const existing = input.technicianId ? own.person : input.assetId ? own.vehicle : own.work;
     /** The same line sent again, by a caller that lost the answer, is the first one back and changes nothing. */
     const same = px.checkMileageRate(input);
     if (!same.ok) throw new ConflictError(same.reason);
@@ -196,13 +242,14 @@ export async function add(ctx: ServiceContext, input: OverrideInput): Promise<Ov
       organizationId,
       technicianId: input.technicianId ?? null,
       assetId: input.assetId ?? null,
+      jobTypeId: input.jobTypeId ?? null,
       fromDay: line.from,
       perMile: line.perMile,
       createdByUserId: ctx.actor.userId,
     }).returning({ id: schema.mileageRateOverride.id });
     await audit(tx, ctx, "mileage_rate_override.added", "mileage_rate_override", row!.id, null, {
-      kind: input.technicianId ? "person" : "vehicle", technicianId: input.technicianId ?? null,
-      assetId: input.assetId ?? null, subjectName, from: line.from, perMile: line.perMile,
+      kind: input.technicianId ? "person" : input.assetId ? "vehicle" : "work", technicianId: input.technicianId ?? null,
+      assetId: input.assetId ?? null, jobTypeId: input.jobTypeId ?? null, subjectName, from: line.from, perMile: line.perMile,
     });
     return viewWithin(tx, ctx);
   });
@@ -216,7 +263,7 @@ export async function remove(ctx: ServiceContext, input: { id: string }): Promis
     if (!row) return viewWithin(tx, ctx);
     await tx.delete(schema.mileageRateOverride).where(eq(schema.mileageRateOverride.id, row.id));
     await audit(tx, ctx, "mileage_rate_override.removed", "mileage_rate_override", row.id, {
-      technicianId: row.technicianId, assetId: row.assetId, from: row.fromDay, perMile: row.perMile,
+      technicianId: row.technicianId, assetId: row.assetId, jobTypeId: row.jobTypeId, from: row.fromDay, perMile: row.perMile,
     }, null);
     return viewWithin(tx, ctx);
   });
@@ -243,7 +290,9 @@ export async function vehicleForClaim(
 }
 
 export const handlers = {
-  listMileageOverrides: (ctx: ServiceContext, input: { technicianId?: string | undefined; assetId?: string | undefined }) => list(ctx, input),
+  listMileageOverrides: (
+    ctx: ServiceContext, input: { technicianId?: string | undefined; assetId?: string | undefined; jobTypeId?: string | undefined },
+  ) => list(ctx, input),
   addMileageOverride: (ctx: ServiceContext, input: OverrideInput) => add(ctx, input),
   removeMileageOverride: (ctx: ServiceContext, input: { id: string }) => remove(ctx, input),
 } as const;

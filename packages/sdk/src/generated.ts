@@ -272,6 +272,7 @@ export interface AddIncidentPhotoOutput {
 export interface AddMileageOverrideInput {
   technicianId?: string;
   assetId?: string;
+  jobTypeId?: string;
   from: string;
   perMile: string;
 }
@@ -279,9 +280,10 @@ export interface AddMileageOverrideInput {
 export interface AddMileageOverrideOutput {
   lines: Array<{
     id: string;
-    kind: "person" | "vehicle";
+    kind: "person" | "vehicle" | "work";
     technicianId: string | null;
     assetId: string | null;
+    jobTypeId: string | null;
     subjectName: string;
     from: string;
     perMile: string;
@@ -5401,8 +5403,9 @@ export interface DecideExpenseOutput {
   amount: string;
   miles: string | null;
   mileageRate: string | null;
-  mileageRateSource: "company" | "person" | "vehicle" | null;
+  mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
   mileageVehicle: string | null;
+  mileageWork: string | null;
   spentOn: string;
   description: string;
   status: "pending" | "approved" | "refused";
@@ -9241,6 +9244,12 @@ export interface GetFieldSnapshotOutput {
     assistant: boolean;
     expenses: boolean;
     mileageRate: string | null;
+    mileageVehicles: Array<{
+      id: string;
+      label: string;
+      rateToday: string | null;
+    }>;
+    mileageWork: boolean;
   };
   expenses: Array<{
     id: string;
@@ -9788,8 +9797,9 @@ export interface GetJobExpensesOutput {
     amount: string;
     miles: string | null;
     mileageRate: string | null;
-    mileageRateSource: "company" | "person" | "vehicle" | null;
+    mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageWork: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -15694,8 +15704,9 @@ export interface ListExpensesOutput {
     amount: string;
     miles: string | null;
     mileageRate: string | null;
-    mileageRateSource: "company" | "person" | "vehicle" | null;
+    mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageWork: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -16586,9 +16597,10 @@ export interface ListMessagingRegistrationsOutput {
 export interface ListMileageOverridesOutput {
   lines: Array<{
     id: string;
-    kind: "person" | "vehicle";
+    kind: "person" | "vehicle" | "work";
     technicianId: string | null;
     assetId: string | null;
+    jobTypeId: string | null;
     subjectName: string;
     from: string;
     perMile: string;
@@ -16630,8 +16642,9 @@ export interface ListMyExpensesOutput {
     amount: string;
     miles: string | null;
     mileageRate: string | null;
-    mileageRateSource: "company" | "person" | "vehicle" | null;
+    mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageWork: string | null;
     spentOn: string;
     description: string;
     status: "pending" | "approved" | "refused";
@@ -16666,6 +16679,11 @@ export interface ListMyExpensesOutput {
   vehicles: Array<{
     id: string;
     label: string;
+    rateToday: string | null;
+  }>;
+  work: Array<{
+    id: string;
+    name: string;
     rateToday: string | null;
   }>;
 }
@@ -21378,8 +21396,9 @@ export interface RecordExpenseOutput {
   amount: string;
   miles: string | null;
   mileageRate: string | null;
-  mileageRateSource: "company" | "person" | "vehicle" | null;
+  mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
   mileageVehicle: string | null;
+  mileageWork: string | null;
   spentOn: string;
   description: string;
   status: "pending" | "approved" | "refused";
@@ -22588,9 +22607,10 @@ export type RemoveMileageOverrideInput = Record<string, unknown>;
 export interface RemoveMileageOverrideOutput {
   lines: Array<{
     id: string;
-    kind: "person" | "vehicle";
+    kind: "person" | "vehicle" | "work";
     technicianId: string | null;
     assetId: string | null;
+    jobTypeId: string | null;
     subjectName: string;
     from: string;
     perMile: string;
@@ -33075,6 +33095,7 @@ export type ListMessagingRegistrationsInput = Record<string, never>;
 export interface ListMileageOverridesInput {
   technicianId?: string;
   assetId?: string;
+  jobTypeId?: string;
 }
 
 export type ListMyCashTipsInput = Record<string, never>;
@@ -36791,7 +36812,7 @@ export const OPERATIONS = {
   listMarketingPlatforms: { method: "GET", path: "/v1/marketing/platforms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listMessageTemplates: { method: "GET", path: "/v1/message-templates", pathParams: [], queryParams: ["channel"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listMessagingRegistrations: { method: "GET", path: "/v1/messaging/registrations", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
-  listMileageOverrides: { method: "GET", path: "/v1/payroll/mileage-overrides", pathParams: [], queryParams: ["technicianId","assetId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
+  listMileageOverrides: { method: "GET", path: "/v1/payroll/mileage-overrides", pathParams: [], queryParams: ["technicianId","assetId","jobTypeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   listMyCashTips: { method: "GET", path: "/v1/me/cash-tips", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
   listMyExpenses: { method: "GET", path: "/v1/me/expenses", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
   listMyNotices: { method: "GET", path: "/v1/me/notices", pathParams: [], queryParams: ["limit","unread"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -37567,7 +37588,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set what one person or one vehicle is paid for a mile, from a day.
+   * Set what one person, one vehicle or one kind of work is paid for a mile, from a day.
    *
    * POST /v1/payroll/mileage-overrides. Needs payroll:configure.
    */
@@ -42913,7 +42934,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The mileage rates set for one person or one vehicle.
+   * The mileage rates set for one person, one vehicle or one kind of work.
    *
    * GET /v1/payroll/mileage-overrides. Needs timesheet:read.
    */
@@ -45352,7 +45373,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Take a person's or a vehicle's mileage rate off.
+   * Take a person's, a vehicle's or a kind of work's mileage rate off.
    *
    * POST /v1/payroll/mileage-overrides/{id}/removal. Needs payroll:configure.
    */

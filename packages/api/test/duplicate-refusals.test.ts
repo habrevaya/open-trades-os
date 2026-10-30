@@ -72,6 +72,7 @@ const REFUSED: Record<string, Refused> = {
   /** A second mileage rate for one person, or one vehicle, on one day: "what was a mile paid at on the 1st" would have two answers. */
   mileage_rate_override_person_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
   mileage_rate_override_asset_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
+  mileage_rate_override_work_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
   /** A second, different percentage for one rate on one day: "what did it charge on the 1st" would have two answers. */
   tax_rate_version_day_idx: { file: "tax.ts", how: "check", says: "already has a percentage from" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */

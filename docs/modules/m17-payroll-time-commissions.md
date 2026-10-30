@@ -521,11 +521,28 @@ narrowed to the people the reader's timesheet scope reaches). Setting and removi
 `payroll:configure`, like the company's rate: the owner and the accountant, not the office
 manager. A day that already has a line for that person or vehicle is refused in words, not
 replaced; the same line sent again is the first answer back and writes one audit row;
-each add and removal writes an audit row (`mileage_rate_override.added`, `.removed`). When a
-claim in miles is made, the rate is the **vehicle's line in force on the day of the drive** (only if
-the claim names a vehicle with `vehicleId`), else the **person's**, else the **company's**. A
-vehicle or person whose lines have not started by that day is passed over, so a line added from
-next month changes nothing before it. A person with a line of their own can claim miles when the
+each add and removal writes an audit row (`mileage_rate_override.added`, `.removed`).
+
+**A rate for a kind of work.** A line can also be for one kind of work, a job type (`jobTypeId` on
+`POST /v1/payroll/mileage-overrides`, a job type still in use), in the same table and with the same
+checks, permissions and audit rows: a trailer run to an install, a long drive to commercial sites. A
+claim in miles for a job of that type (the job named with `jobId` or `jobNumber`) is worked out at
+it. The owner sets one on `/payroll/pay-rules` with "Pick the kind of work" (the picker needs
+`job:read`), in the same section as the person's and the vehicle's lines, where the list says
+"Kind of work" beside it. `GET /v1/payroll/mileage-overrides` filters by `jobTypeId` too.
+
+**Which rate a claim gets.** When a claim in miles is made, the rate is, in this order: the
+**vehicle's line in force on the day of the drive** (only if the claim names a vehicle with
+`vehicleId`), else the **line for the kind of work of the job the claim is for**, else the
+**person's**, else the **company's**. The vehicle comes first because it is what was driven, the most
+particular fact about a mile; the kind of work next because it is what this drive was for; the
+person's line is a standing arrangement for all their driving, so it gives way to both. A vehicle,
+kind of work or person whose lines have not started by that day is passed over, so a line added from
+next month changes nothing before it. The job's type is read when the claim is made: a job moved to
+another type later, or a line taken off, never reprices a claim, and the claim keeps the kind of
+work's name as it was (`expense.mileage_job_type_label`, shown as `mileageWork`), with
+`mileage_rate_source` `work`. It reads "the rate for Install work" on the office's list, on the
+person's own and on the payroll line. A person with a line of their own can claim miles when the
 company has set none; with no line anywhere in force the claim is refused as before. The claim keeps the rate and
 where it came from (`expense.mileage_rate_source`: `company`, `person` or `vehicle`, with the
 vehicle's name as it was in `mileage_asset_label`), so a line added or taken off afterwards never
@@ -536,11 +553,18 @@ amount on `/timesheets/expenses`, and on the line the payroll bureau gets. The o
 `/payroll/pay-rules` under "A mile for one person or one vehicle" (the vehicle picker needs
 `asset:read`). On `/me/expenses` the person sees their own rate today and a "Which vehicle" pick
 that lists only vehicles that have a rate of their own, each with what it pays today
-(`GET /v1/me/expenses` returns `vehicles`); a vehicle is named with `vehicleId` beside `miles`,
-never with an amount. The phone is told the person's rate today (their line, else the company's)
-so it offers miles to someone who has a rate, but it does not pick a vehicle: a claim from the phone
-or `/my-day` is worked out at the person's or the company's rate, and the office sees which. The
-rate is the company's own choice: nothing here knows or checks the tax authority's rate, and
+(`GET /v1/me/expenses` returns `vehicles`, and `work`: the kinds of work with a rate of their own,
+which the page lists under the miles box); a vehicle is named with `vehicleId` beside `miles`,
+never with an amount. The phone and `/my-day` are told the person's rate today (their line, else
+the company's) and the vehicles with a rate of their own with what each pays today
+(`abilities.mileageVehicles`), and whether any kind of work has a rate of its own
+(`abilities.mileageWork`, which adds "A job whose kind of work has its own rate is paid at that
+rate." to the form). Both offer a "Which vehicle" pick after "My own vehicle" when there is one, and
+offer miles to somebody with no rate of their own when a vehicle has one; the vehicle goes with the
+miles as `vehicleId` on `expense.record`, never with an amount, and the server checks it again as it
+does for `/me/expenses`. The choices and the check are field-client's (`vehicleChoices`,
+`milesOffered`, `checkExpenseDraft`), unit tested; the phone's screen itself has not been run on a
+device. The rate is the company's own choice: nothing here knows or checks the tax authority's rate, and
 the screen says so, as it does for the company's rate.
 
 A per diem is the company's rate for one day away. `POST /v1/payroll/pay-extras`
@@ -809,9 +833,11 @@ rule for the whole company: there is no rule per job or per technician, and "hou
 the hours clocked against the job, not against one visit of it. Reimbursements and per diem
 are recorded, decided and exported, but not posted to the ledger, only for people on
 the board, and a decision on a reimbursement cannot be taken back. A mileage rate is the
-company's from a day, or a person's or a vehicle's own from a day: there is no rate per kind of
-work, no vehicle chosen from the phone or `/my-day` (only from `/me/expenses` and the API), no vehicle
-tied to a person by custody so that driving it picks its rate by itself, no odometer or trip log behind the miles (they are what the person types, and the office
+company's from a day, or a person's, a vehicle's or a kind of work's (job type's) own from a day. A
+kind of work's rate follows the job's type when the claim is made; there is no rate per job, per
+customer or per branch, and a claim not for a job never gets a kind of work's rate. A vehicle is
+chosen on `/me/expenses`, `/my-day` and the phone only from the vehicles with a rate of their own;
+there is no vehicle tied to a person by custody so that driving it picks its rate by itself, no odometer or trip log behind the miles (they are what the person types, and the office
 decides), no distance worked out from the addresses, and nothing checks the rate or the miles against the
 tax authority's rate. A claim in miles is not repriced when its rate is wrong: it is refused by the
 office and entered again. A per diem does not vary by meal, and nothing checks a per diem against the tax
