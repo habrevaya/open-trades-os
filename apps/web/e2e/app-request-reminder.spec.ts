@@ -38,7 +38,7 @@ async function workerPass() {
 
 test("the owner sets the reminder, a waiting request is chased once, and the notice is on their page", async ({ owner, stranger }) => {
   test.setTimeout(120_000);
-  const name = `Slow Partner ${run}`;
+  const name = `Tardy Applet ${run}`;
   const region = owner.getByRole("region", { name: "Reminders" });
 
   try {
