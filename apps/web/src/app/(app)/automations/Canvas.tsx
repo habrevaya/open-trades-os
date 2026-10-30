@@ -712,6 +712,7 @@ function CheckFields({
 }: { config: Record<string, unknown>; set: (c: Record<string, unknown>) => void }) {
   const checks = Object.entries(automation.CHECKS);
   const check = String(config["check"] ?? checks[0]?.[0] ?? "");
+  const compare = automation.fieldComparison(config);
   return (
     <div className="mt-3 space-y-2 text-sm">
       <label className="block">
@@ -739,34 +740,80 @@ function CheckFields({
           <label className="block">
             <span className="block text-ink-700">Compare the field with</span>
             <select
-              value={automation.fieldComparison(config)}
+              value={compare}
               onChange={(e) => {
                 const rest = { ...config };
                 delete rest["value"];
-                set(e.target.value === "value" ? { ...rest, compare: "value", value: String(config["value"] ?? "") } : { ...rest, compare: "event" });
+                delete rest["values"];
+                const next = e.target.value;
+                if (next === "value" || next === "greater" || next === "less") {
+                  set({ ...rest, compare: next, value: String(config["value"] ?? "") });
+                } else if (next === "one_of") {
+                  set({ ...rest, compare: "one_of", values: automation.typedValues(config) });
+                } else if (next === "blank") {
+                  set({ ...rest, compare: "blank" });
+                } else {
+                  delete rest["compare"];
+                  set({ ...rest, compare: "event" });
+                }
               }}
               className={`${FIELD} w-full`}
             >
               <option value="event">What the field said when the record was added or changed</option>
               <option value="value">A value I type</option>
+              <option value="greater">Greater than a value I type (a number, or a later date)</option>
+              <option value="less">Less than a value I type (a number, or an earlier date)</option>
+              <option value="one_of">One of several values I type</option>
+              <option value="blank">Still blank: nobody has filled it in</option>
             </select>
           </label>
-          {automation.fieldComparison(config) === "value" ? (
+          {compare === "value" || compare === "greater" || compare === "less" ? (
             <label className="block">
-              <span className="block text-ink-700">The value it has to still be</span>
+              <span className="block text-ink-700">
+                {compare === "value" ? "The value it has to still be"
+                  : compare === "greater" ? "The value it has to stay greater than" : "The value it has to stay less than"}
+              </span>
               <input
                 value={String(config["value"] ?? "")}
-                onChange={(e) => set({ ...config, compare: "value", value: e.target.value })}
+                onChange={(e) => set({ ...config, compare, value: e.target.value })}
                 maxLength={automation.MAX_TYPED_VALUE}
                 className={`${FIELD} w-60`}
               />
               <span className="mt-1 block text-xs text-ink-500">
-                Typed the way the field is filled in: a number as 12, a date as 2026-03-01, a yes or no field as yes or no,
-                a choice exactly as it is listed. For a field with several choices, separate them with commas.
-                If it cannot be read that way when the automation runs, that step fails and says why. Use it on an
+                {compare === "value" ? (
+                  <>
+                    Typed the way the field is filled in: a number as 12, a date as 2026-03-01, a yes or no field as yes or no,
+                    a choice exactly as it is listed. For a field with several choices, separate them with commas.
+                  </>
+                ) : (
+                  <>
+                    Only a number field (typed as 12) or a date field (typed as 2026-03-01, where greater means later).
+                    A blank field is never {compare === "greater" ? "greater" : "less"}, so the run stops.
+                  </>
+                )}
+                {" "}If it cannot be read that way when the automation runs, that step fails and says why. Use it on an
                 automation that starts when one of your own records is added or changed.
               </span>
             </label>
+          ) : compare === "one_of" ? (
+            <label className="block">
+              <span className="block text-ink-700">The values it may be, one to a line</span>
+              <textarea
+                value={Array.isArray(config["values"]) ? (config["values"] as string[]).join("\n") : String(config["values"] ?? "")}
+                onChange={(e) => set({ ...config, compare: "one_of", values: e.target.value.split("\n") })}
+                rows={4}
+                className="mt-1 w-60 rounded border border-steel-300 px-2 py-1 text-sm"
+              />
+              <span className="mt-1 block text-xs text-ink-500">
+                Up to {automation.MAX_TYPED_VALUES}, each typed the way the field is filled in. Not for a field with several
+                choices. If one cannot be read that way when the automation runs, that step fails and says why.
+              </span>
+            </label>
+          ) : compare === "blank" ? (
+            <span className="block text-xs text-ink-500">
+              The run carries on while nobody has filled the field in, and stops once somebody does. Use it on an
+              automation that starts when one of your own records is added or changed.
+            </span>
           ) : (
             <span className="block text-xs text-ink-500">
               Compared with what the field said when the record was added or changed. Use it on an automation
