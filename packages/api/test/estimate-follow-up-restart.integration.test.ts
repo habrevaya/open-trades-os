@@ -236,7 +236,8 @@ run("the recommended follow up, started again", () => {
       .rejects.toThrow(PermissionError);
     await expiry.extend(owner(), { id, expiresOn: plus(20), reason: "Holding.", restartFollowUp: true });
     const [audited] = await raw<{ after: { followUpRestarted: boolean; followUpRuns: number } }[]>`
-      select after from public.audit_log where organization_id = ${ORG} and action = 'estimate.expiry_extended'`;
+      select after from public.audit_log
+       where organization_id = ${ORG} and entity_id = ${id} and action = 'estimate.expiry_extended'`;
     expect(audited!.after).toMatchObject({ followUpRestarted: true, followUpRuns: 1 });
   });
 });
