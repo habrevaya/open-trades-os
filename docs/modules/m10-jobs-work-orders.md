@@ -252,6 +252,37 @@ changes only the days. They apply to tasks raised from then on.
   marked as the office queue's so the office can find it there. Somebody who has
   left since is skipped and the task stays in the office queue, unassigned,
   rather than being lost on a person who will never open it.
+  Two more choices give it to a group. **Everybody in a role** (`role`, with
+  `assigneeRole`: owner, administrator, office manager, branch manager, dispatcher,
+  customer service or accountant, the roles that work in the office) and **the manager of the
+  job's branch** (`branch_manager`: the active people on the Branch manager preset whose branch
+  is the job's). The task stays one task in the office queue, unassigned, and starts with "Sent to
+  the office managers." Each person in the group is told on the bell ("A task for your team: ..."),
+  once, if their role can open tasks. It is one task rather than one for each person on purpose:
+  whoever acts closes it, and the others are not left with a copy that can never be done. It
+  is not assigned to anybody even when the group has one person, so a company that hires a second
+  dispatcher does not see the task change shape. When nobody holds the role, the job is in no
+  branch, or the branch has no manager, the task stays in the office queue and its first line says
+  why ("This was to go to the dispatchers, but nobody holds that role now, so it stays in the
+  office queue."). The audit row for the nudge names who was told.
+
+**The nudge by reason and by branch.** Under the company's numbers on `/settings`, the section
+"Different for some jobs on hold" adds rules. A rule names a reason (waiting on a part, an
+inspection, the customer, the weather, something else), a branch, or both, and says only what
+is different: the days, the due date, the repeat and who gets the task. A box left empty is
+"as the company has it", and a ticked "never" is none: no nudge at all, no due date, or never
+reminded again. A company whose own nudge is off can still nudge one reason this way. One rule
+for each reason and branch (`GET`, `POST /v1/job-hold-nudge-rules`, `PATCH` and `DELETE
+/v1/job-hold-nudge-rules/{id}`; `settings:read` to read, `settings:write` to change, each change
+audited as `job_hold_nudge_rule.created`, `.updated` and `.deleted` with what it was; `clear` on a
+patch hands a field back to the company). When more than one rule fits a hold, each setting is read
+from the first that says something about it: the reason in the branch, then the reason in any
+branch, then the branch for any reason, then the company's own. The reason comes before the branch
+because why a job is waiting says how long a wait is a worry. Which numbers a hold gets is worked
+out when the worker passes, so a rule changed today applies to the next nudge raised and not to
+tasks already raised. The worker finds a company through `app.job_hold_nudge_organizations`, which
+now also counts a company with a rule that sets days. A branch that is deleted takes its rules
+with it.
 
 **A technician asks for a part from the field; the office places the hold.**
 "Ask the office for a part" under the visit, on `/my-day` and on the phone app's
@@ -456,6 +487,10 @@ because a technician may finish work and may not re-describe it.
 | `POST /v1/job-holds/{id}/released` | `job:write` |
 | `GET /v1/job-hold-nudge` | `settings:read` |
 | `PATCH /v1/job-hold-nudge` | `settings:write` |
+| `GET /v1/job-hold-nudge-rules` | `settings:read` |
+| `POST /v1/job-hold-nudge-rules` | `settings:write` |
+| `PATCH /v1/job-hold-nudge-rules/{id}` | `settings:write` |
+| `DELETE /v1/job-hold-nudge-rules/{id}` | `settings:write` |
 | `POST /v1/jobs/{id}/visits` | `visit:write` |
 | `POST /v1/visits/{id}/assign` | `visit:dispatch` |
 | `POST /v1/jobs/{id}/dropped-skills` | `job:write`, `visit:assign_unqualified` |
@@ -518,11 +553,16 @@ held for without an order in this product (bought over the counter, say) can
 be held for "something else" with words, but it is not "held for a part
 order", so the first time fix rate counts it. A hold names one order; a job
 waiting on two orders names the one the work is waiting for. The nudge for a job
-left on hold is one set of numbers for the whole company: a job waiting on the weather
-is nudged after as many days as one waiting on a part, and a branch cannot set
-its own, nor can a reason, a trade or a customer. Who the nudge goes to is
-whoever put the job on hold or one named colleague: there is no "the dispatcher
-on duty", no "whoever manages this branch" and no list of people. A reminder is
+left on hold can differ by the reason it is held and by branch (rules under the company's
+numbers), and a trade or a customer cannot have their own. A task given to a role goes to the
+office queue as one task and every person who holds the role is told: it is not assigned to any
+one of them, there is no "the dispatcher on duty" (nothing says who is on a rota), and a person
+whose role cannot open tasks is not told. "The manager of the job's branch" is whoever holds the
+Branch manager preset in that branch, not a person named on the branch, and a company's own role
+that is based on it is not counted. Who put the job on hold, a named colleague, a role or the
+branch's manager are the choices: there is no list of named people. A rule cannot be moved to
+another reason or branch (make another), and there is no rule for every reason in every branch
+because that is the company's own setting. A reminder is
 never raised on top of a nudge that is still open. A job's crew hour budget is added up from its estimate only
 for the lines that say their quantity is crew hours, so an estimate whose labour is priced as a flat
 amount, or typed without the tick, budgets nothing and the office types the budget. Hours are never

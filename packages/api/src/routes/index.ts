@@ -127,6 +127,10 @@ export const handlers = {
   releaseJobHold: jobHolds.handlers.releaseJobHold,
   getJobHoldNudge: jobHolds.handlers.getJobHoldNudge,
   setJobHoldNudge: jobHolds.handlers.setJobHoldNudge,
+  listJobHoldNudgeRules: jobHolds.handlers.listJobHoldNudgeRules,
+  createJobHoldNudgeRule: jobHolds.handlers.createJobHoldNudgeRule,
+  updateJobHoldNudgeRule: jobHolds.handlers.updateJobHoldNudgeRule,
+  deleteJobHoldNudgeRule: jobHolds.handlers.deleteJobHoldNudgeRule,
   listJobPartRequests: partRequests.handlers.listJobPartRequests,
 
   // Money

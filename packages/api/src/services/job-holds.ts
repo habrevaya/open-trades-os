@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, assertCan, can, time, work, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, assertCan, can, notices, time, work, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -10,6 +10,7 @@ import { emit } from "./events";
 import * as plugins from "./plugins";
 import { remember, replayed } from "./once";
 import { tellAssignee } from "./tasks";
+import { raiseWithin } from "./staff-notices";
 
 /**
  * WHY A JOB IS ON HOLD, AS A RECORD
@@ -383,12 +384,18 @@ async function personName(tx: Database, userId: string | null): Promise<string |
  * without saying who is refused, and choosing anything else forgets the
  * person, so a rule never names somebody it no longer uses.
  */
-export type HoldNudgeChange = { [K in keyof work.HoldNudgeRules]?: work.HoldNudgeRules[K] | undefined };
+export type HoldNudgeChange = {
+  [K in Exclude<keyof work.HoldNudgeRules, "assigneeRole">]?: work.HoldNudgeRules[K] | undefined;
+} & { assigneeRole?: work.HoldNudgeRole | null | undefined };
 
 export function setNudge(ctx: ServiceContext, input: HoldNudgeChange): Promise<HoldNudgeView> {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const before = await nudgeRulesWithin(tx, ctx.actor.organizationId);
+    if (input.assigneeRole && !work.isHoldNudgeRole(input.assigneeRole)) throw new ConflictError("Choose a role from the list.");
     const assignTo = input.assignTo ?? before.assignTo;
+    const assigneeRole = assignTo === "role"
+      ? (input.assigneeRole !== undefined ? input.assigneeRole : before.assigneeRole ?? null)
+      : null;
     const next: work.HoldNudgeRules = {
       days: input.days !== undefined ? input.days : before.days,
       dueDays: input.dueDays !== undefined ? input.dueDays : before.dueDays,
@@ -397,6 +404,7 @@ export function setNudge(ctx: ServiceContext, input: HoldNudgeChange): Promise<H
       assigneeUserId: assignTo === "person"
         ? (input.assigneeUserId !== undefined ? input.assigneeUserId : before.assigneeUserId)
         : null,
+      ...(assigneeRole ? { assigneeRole } : {}),
     };
     const problem = work.holdNudgeRulesProblem(next);
     if (problem) throw new ConflictError(problem);
@@ -417,24 +425,233 @@ export function setNudge(ctx: ServiceContext, input: HoldNudgeChange): Promise<H
   });
 }
 
+/* ----------------------------------------- the nudge by reason and by branch */
+
+export interface HoldNudgeRuleView {
+  id: string;
+  reason: work.HoldReason | null;
+  reasonLabel: string | null;
+  businessUnitId: string | null;
+  businessUnitName: string | null;
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assignTo?: work.HoldNudgeAssign;
+  assigneeUserId?: string | null;
+  assigneeRole?: work.HoldNudgeRole | null;
+  assigneeName: string | null;
+  summary: string;
+}
+
+export interface HoldNudgeRuleInput {
+  reason?: work.HoldReason | null | undefined;
+  businessUnitId?: string | null | undefined;
+  days?: number | null | undefined;
+  dueDays?: number | null | undefined;
+  repeatDays?: number | null | undefined;
+  assignTo?: work.HoldNudgeAssign | undefined;
+  assigneeUserId?: string | null | undefined;
+  assigneeRole?: work.HoldNudgeRole | null | undefined;
+}
+
+type RuleRow = typeof schema.jobHoldNudgeRule.$inferSelect;
+
+/** The rules as the worker and the screens read them: the saved overrides, cleaned. */
+async function rulesWithin(tx: Database, organizationId: string): Promise<RuleRow[]> {
+  return tx.select().from(schema.jobHoldNudgeRule)
+    .where(eq(schema.jobHoldNudgeRule.organizationId, organizationId))
+    .orderBy(asc(schema.jobHoldNudgeRule.createdAt));
+}
+
+const asRow = (row: RuleRow): work.HoldNudgeRuleRow => ({
+  reason: row.reason, businessUnitId: row.businessUnitId, overrides: work.holdNudgeOverrides(row.overrides),
+});
+
+async function ruleViews(tx: Database, rows: RuleRow[]): Promise<HoldNudgeRuleView[]> {
+  const branches = new Map((await tx.select({ id: schema.businessUnit.id, name: schema.businessUnit.name })
+    .from(schema.businessUnit)).map((b) => [b.id, b.name]));
+  const views: HoldNudgeRuleView[] = [];
+  for (const row of rows) {
+    const o = work.holdNudgeOverrides(row.overrides);
+    const namedPerson = o.assign?.to === "person" ? await personName(tx, o.assign.userId) : null;
+    const branchName = row.businessUnitId ? branches.get(row.businessUnitId) ?? "a branch that has gone" : null;
+    views.push({
+      id: row.id,
+      reason: row.reason,
+      reasonLabel: row.reason ? work.holdReasonLabel(row.reason) : null,
+      businessUnitId: row.businessUnitId,
+      businessUnitName: branchName,
+      ...(o.days !== undefined ? { days: o.days } : {}),
+      ...(o.dueDays !== undefined ? { dueDays: o.dueDays } : {}),
+      ...(o.repeatDays !== undefined ? { repeatDays: o.repeatDays } : {}),
+      ...(o.assign ? {
+        assignTo: o.assign.to,
+        assigneeUserId: o.assign.userId,
+        ...(o.assign.role ? { assigneeRole: o.assign.role } : {}),
+      } : {}),
+      assigneeName: namedPerson,
+      summary: work.holdNudgeRuleSummary({ reason: row.reason, businessUnitName: branchName, overrides: o }, { personName: namedPerson }),
+    });
+  }
+  return views;
+}
+
+export function listRules(ctx: ServiceContext): Promise<{ data: HoldNudgeRuleView[] }> {
+  return guardedRead(ctx, "settings:read", async (tx) => ({
+    data: await ruleViews(tx, await rulesWithin(tx, ctx.actor.organizationId)),
+  }));
+}
+
+/** What a request says about the numbers, as the overrides a rule keeps. */
+function overridesFrom(input: HoldNudgeRuleInput, before: work.HoldNudgeOverrides = {}, clear: string[] = []): work.HoldNudgeOverrides {
+  if (input.assigneeRole && !work.isHoldNudgeRole(input.assigneeRole)) throw new ConflictError("Choose a role from the list.");
+  const out: work.HoldNudgeOverrides = { ...before };
+  if (clear.includes("days")) delete out.days;
+  if (clear.includes("dueDays")) delete out.dueDays;
+  if (clear.includes("repeatDays")) delete out.repeatDays;
+  if (clear.includes("assign")) delete out.assign;
+  if (input.days !== undefined) out.days = input.days;
+  if (input.dueDays !== undefined) out.dueDays = input.dueDays;
+  if (input.repeatDays !== undefined) out.repeatDays = input.repeatDays;
+  if (input.assignTo !== undefined) {
+    out.assign = {
+      to: input.assignTo,
+      userId: input.assignTo === "person" ? input.assigneeUserId ?? null : null,
+      ...(input.assignTo === "role" && input.assigneeRole ? { role: input.assigneeRole } : {}),
+    };
+  } else if (input.assigneeUserId !== undefined || input.assigneeRole !== undefined) {
+    /** A person or a role named without saying what it is for: the choice stays, the name changes. */
+    if (!out.assign) throw new ConflictError("Say who the task goes to (a person or a role) as well.");
+    const role = input.assigneeRole !== undefined ? input.assigneeRole : out.assign.role ?? null;
+    out.assign = {
+      to: out.assign.to,
+      userId: out.assign.to === "person" ? (input.assigneeUserId !== undefined ? input.assigneeUserId : out.assign.userId) : null,
+      ...(out.assign.to === "role" && role ? { role } : {}),
+    };
+  }
+  return out;
+}
+
+async function checkRuleTargets(tx: Database, organizationId: string, o: work.HoldNudgeOverrides, businessUnitId: string | null) {
+  if (businessUnitId) {
+    const [unit] = await tx.select({ id: schema.businessUnit.id }).from(schema.businessUnit)
+      .where(eq(schema.businessUnit.id, businessUnitId)).limit(1);
+    if (!unit) throw new NotFoundError("Branch");
+  }
+  if (o.assign?.userId) {
+    const [member] = await tx.select({ active: schema.membership.active }).from(schema.membership)
+      .where(and(eq(schema.membership.organizationId, organizationId), eq(schema.membership.userId, o.assign.userId))).limit(1);
+    if (!member?.active) throw new ConflictError("The person the task goes to has to be somebody who works here now.");
+  }
+}
+
+export function createRule(ctx: ServiceContext, input: HoldNudgeRuleInput): Promise<HoldNudgeRuleView> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const again = await replayed<HoldNudgeRuleView>(tx, ctx, "job_hold_nudge_rule");
+    if (again) return again;
+    const organizationId = ctx.actor.organizationId;
+    const reason = input.reason ?? null;
+    const businessUnitId = input.businessUnitId ?? null;
+    const reach = work.holdNudgeRuleReachProblem(reason, businessUnitId);
+    if (reach) throw new ConflictError(reach);
+    const overrides = overridesFrom(input);
+    const problem = work.holdNudgeOverridesProblem(overrides);
+    if (problem) throw new ConflictError(problem);
+    await checkRuleTargets(tx, organizationId, overrides, businessUnitId);
+    const [twin] = await tx.select({ id: schema.jobHoldNudgeRule.id }).from(schema.jobHoldNudgeRule)
+      .where(and(
+        eq(schema.jobHoldNudgeRule.organizationId, organizationId),
+        reason ? eq(schema.jobHoldNudgeRule.reason, reason) : isNull(schema.jobHoldNudgeRule.reason),
+        businessUnitId ? eq(schema.jobHoldNudgeRule.businessUnitId, businessUnitId) : isNull(schema.jobHoldNudgeRule.businessUnitId),
+      )).limit(1);
+    if (twin) throw new ConflictError("There is already a rule for that reason and branch. Change it, or take it away first.");
+    const [row] = await tx.insert(schema.jobHoldNudgeRule).values({
+      organizationId, reason, businessUnitId, overrides: overrides as Record<string, unknown>, createdByUserId: ctx.actor.userId,
+    }).returning();
+    await audit(tx, ctx, "job_hold_nudge_rule.created", "job_hold_nudge_rule", row!.id, null, row!);
+    const [view] = await ruleViews(tx, [row!]);
+    await remember(tx, ctx, "job_hold_nudge_rule", row!.id, view!);
+    return view!;
+  });
+}
+
+export function updateRule(
+  ctx: ServiceContext, input: HoldNudgeRuleInput & { id: string; clear?: string[] | undefined },
+): Promise<HoldNudgeRuleView> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const again = await replayed<HoldNudgeRuleView>(tx, ctx, "job_hold_nudge_rule");
+    if (again) return again;
+    const [before] = await tx.select().from(schema.jobHoldNudgeRule).where(and(
+      eq(schema.jobHoldNudgeRule.id, input.id), eq(schema.jobHoldNudgeRule.organizationId, ctx.actor.organizationId),
+    )).limit(1);
+    if (!before) throw new NotFoundError("Nudge rule");
+    const overrides = overridesFrom(input, work.holdNudgeOverrides(before.overrides), input.clear ?? []);
+    const problem = work.holdNudgeOverridesProblem(overrides);
+    if (problem) throw new ConflictError(problem.startsWith("Say what is different")
+      ? "A rule that changes nothing does nothing. Take it away instead." : problem);
+    await checkRuleTargets(tx, ctx.actor.organizationId, overrides, null);
+    const [row] = await tx.update(schema.jobHoldNudgeRule)
+      .set({ overrides: overrides as Record<string, unknown>, updatedAt: new Date() })
+      .where(eq(schema.jobHoldNudgeRule.id, before.id)).returning();
+    await audit(tx, ctx, "job_hold_nudge_rule.updated", "job_hold_nudge_rule", before.id, before, row!);
+    const [view] = await ruleViews(tx, [row!]);
+    await remember(tx, ctx, "job_hold_nudge_rule", before.id, view!);
+    return view!;
+  });
+}
+
+export function deleteRule(ctx: ServiceContext, input: { id: string }): Promise<{ id: string; removed: true }> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const again = await replayed<{ id: string; removed: true }>(tx, ctx, "job_hold_nudge_rule_removed");
+    if (again) return again;
+    const [before] = await tx.select().from(schema.jobHoldNudgeRule).where(and(
+      eq(schema.jobHoldNudgeRule.id, input.id), eq(schema.jobHoldNudgeRule.organizationId, ctx.actor.organizationId),
+    )).limit(1);
+    if (!before) throw new NotFoundError("Nudge rule");
+    await tx.delete(schema.jobHoldNudgeRule).where(eq(schema.jobHoldNudgeRule.id, before.id));
+    await audit(tx, ctx, "job_hold_nudge_rule.deleted", "job_hold_nudge_rule", before.id, before, null);
+    const answer = { id: before.id, removed: true as const };
+    await remember(tx, ctx, "job_hold_nudge_rule_removed", before.id, answer);
+    return answer;
+  });
+}
+
+/* ------------------------------------------------------------ the pass */
+
 /** The most one pass raises for one company; the rest wait for the next pass. */
 const NUDGES_PER_PASS = 200;
+
+/** Whom a task is given to, and what to say when the company asked for somebody who is not there. */
+interface Delivery {
+  /** The one person it is assigned to, or null for the office queue. */
+  assigneeUserId: string | null;
+  /** Everybody told as well, when it was given to a role or a branch's manager. */
+  told: string[];
+  /** Said at the top of the task. */
+  sentTo: string | undefined;
+}
 
 /**
  * Raise the nudges that are due for the company this transaction belongs to.
  * Returns the jobs it raised one for.
+ *
+ * What applies to each hold is the company's numbers with the rules for its
+ * reason and its branch laid over them (`work.holdNudgeFor`), so one pass can
+ * nudge a part hold after 3 days and a weather hold after 10, and leave the
+ * customer holds of one branch alone.
  */
 export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date()): Promise<string[]> {
   const organizationId = ctx.actor.organizationId;
-  const rules = await nudgeRulesWithin(tx, organizationId);
-  const days = rules.days;
-  if (days === null) return [];
+  const company = await nudgeRulesWithin(tx, organizationId);
+  const rules = (await rulesWithin(tx, organizationId)).map(asRow);
+  /** The soonest any hold could be due, so the query only reads holds that could be. */
+  const everyDays = [company.days, ...rules.map((r) => r.overrides.days)].filter((d): d is number => typeof d === "number");
+  if (everyDays.length === 0) return [];
+  const everyRepeat = [company.repeatDays, ...rules.map((r) => r.overrides.repeatDays)].filter((d): d is number => typeof d === "number");
   const zone = await timezoneOf(tx, organizationId);
   const today = time.dateIn(now, zone);
-  /** Held on or before this day has lasted the days: the first instant after it is the bound. */
-  const placedBefore = time.startOfDayIn(time.addDays(today, 1 - days), zone);
-  /** Last raised on or before this day is a whole repeat ago. */
-  const repeatBefore = rules.repeatDays === null ? null : time.startOfDayIn(time.addDays(today, 1 - rules.repeatDays), zone);
+  const placedBefore = time.startOfDayIn(time.addDays(today, 1 - Math.min(...everyDays)), zone);
+  const repeatBefore = everyRepeat.length === 0 ? null : time.startOfDayIn(time.addDays(today, 1 - Math.min(...everyRepeat)), zone);
 
   const due = await tx.select({
     hold: schema.jobHold,
@@ -457,8 +674,7 @@ export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date
       eq(schema.job.status, "on_hold"),
       isNull(schema.job.deletedAt),
     ))
-    .orderBy(asc(schema.jobHold.placedAt))
-    .limit(NUDGES_PER_PASS);
+    .orderBy(asc(schema.jobHold.placedAt));
   if (due.length === 0) return [];
 
   const people = await tx.execute<{ user_id: string; name: string | null; email: string }>(
@@ -468,28 +684,59 @@ export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date
     const person = id ? people.find((p) => p.user_id === id) : undefined;
     return person ? (person.name ?? person.email) : null;
   };
-  const working = new Set((await tx.select({ userId: schema.membership.userId }).from(schema.membership)
-    .where(and(eq(schema.membership.organizationId, organizationId), eq(schema.membership.active, true))))
-    .map((m) => m.userId));
-  /** Somebody who has left cannot be given work: it goes to the office queue instead. */
-  const assigneeFor = (hold: typeof schema.jobHold.$inferSelect): string | null => {
-    const wanted = rules.assignTo === "placed_by" ? hold.placedByUserId
-      : rules.assignTo === "person" ? rules.assigneeUserId : null;
-    return wanted && working.has(wanted) ? wanted : null;
+  const members = await tx.select({
+    userId: schema.membership.userId, role: schema.membership.role, businessUnitId: schema.membership.businessUnitId,
+  }).from(schema.membership)
+    .where(and(eq(schema.membership.organizationId, organizationId), eq(schema.membership.active, true)));
+  const working = new Set(members.map((m) => m.userId));
+
+  /** Who gets the task, for a hold under the rules that apply to it. */
+  const deliveryFor = (hold: typeof schema.jobHold.$inferSelect, job: typeof schema.job.$inferSelect, rule: work.HoldNudgeRules): Delivery => {
+    const queue = (why: string | undefined): Delivery => ({ assigneeUserId: null, told: [], sentTo: why });
+    switch (rule.assignTo) {
+      case "nobody": return queue(undefined);
+      case "placed_by": {
+        const who = hold.placedByUserId;
+        return who && working.has(who) ? { assigneeUserId: who, told: [], sentTo: undefined } : queue(undefined);
+      }
+      case "person": {
+        const who = rule.assigneeUserId;
+        return who && working.has(who) ? { assigneeUserId: who, told: [], sentTo: undefined } : queue(undefined);
+      }
+      case "role": {
+        const role = rule.assigneeRole;
+        if (!role) return queue(undefined);
+        const holders = members.filter((m) => m.role === role).map((m) => m.userId);
+        const words = work.HOLD_NUDGE_ROLE_WORDS[role];
+        return holders.length === 0
+          ? queue(`This was to go to ${words}, but nobody holds that role now, so it stays in the office queue.`)
+          : { assigneeUserId: null, told: holders, sentTo: `Sent to ${words}.` };
+      }
+      case "branch_manager": {
+        if (!job.businessUnitId) {
+          return queue("This was to go to the manager of the job's branch, but the job is in no branch, so it stays in the office queue.");
+        }
+        const managers = members.filter((m) => m.role === "branch_manager" && m.businessUnitId === job.businessUnitId).map((m) => m.userId);
+        return managers.length === 0
+          ? queue("This was to go to the manager of the job's branch, but the branch has none now, so it stays in the office queue.")
+          : { assigneeUserId: null, told: managers, sentTo: "Sent to the manager of the job's branch." };
+      }
+    }
   };
-  /** The end of the company day the office has, so the task is late the morning after. */
-  const dueAt = rules.dueDays === null ? null : time.startOfDayIn(time.addDays(today, rules.dueDays + 1), zone);
 
   const raised: string[] = [];
   for (const { hold, job, customerName, lastTaskStatus } of due) {
+    if (raised.length >= NUDGES_PER_PASS) break;
+    const rule = work.holdNudgeFor(company, rules, { reason: hold.reason, businessUnitId: job.businessUnitId });
+    if (rule.days === null) continue;
     const placedOn = time.dateIn(hold.placedAt, zone);
     const held = work.daysHeld(placedOn, today);
     /** Raised before; a hold nudged before repeats existed counts as once. */
     const timesBefore = hold.nudgedAt ? Math.max(hold.nudgeCount, 1) : 0;
     if (timesBefore === 0) {
-      if (!work.holdNudgeDue(held, days)) continue;
+      if (!work.holdNudgeDue(held, rule.days)) continue;
     } else {
-      if (!work.holdNudgeRepeatDue(time.dateIn(hold.nudgedAt!, zone), today, rules.repeatDays)) continue;
+      if (!work.holdNudgeRepeatDue(time.dateIn(hold.nudgedAt!, zone), today, rule.repeatDays)) continue;
       /** Never two open nudges for one hold: the one still open is the nudge, and the late rules chase it. */
       if (lastTaskStatus === "open" || lastTaskStatus === "in_progress") continue;
     }
@@ -505,37 +752,55 @@ export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date
       .returning({ id: schema.jobHold.id });
     if (!claimed) continue;
 
+    /** The end of the company day the office has, so the task is late the morning after. */
+    const dueAt = rule.dueDays === null ? null : time.startOfDayIn(time.addDays(today, rule.dueDays + 1), zone);
     const label = work.documentNumber(job.numberPrefix, job.number);
-    const assigneeUserId = assigneeFor(hold);
+    const delivery = deliveryFor(hold, job, rule);
+    const title = work.holdNudgeTitle({ jobLabel: label, reason: hold.reason, held, again: timesBefore > 0 });
     const [task] = await tx.insert(schema.task).values({
       organizationId,
-      title: work.holdNudgeTitle({ jobLabel: label, reason: hold.reason, held, again: timesBefore > 0 }),
+      title,
       body: work.holdNudgeBody({
         customerName, summary: job.summary, reason: hold.reason, note: hold.note, held,
         since: new Date(`${placedOn}T12:00:00Z`).toLocaleDateString("en-US", {
           month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
         }),
-        placedBy: nameOf(hold.placedByUserId), days,
+        placedBy: nameOf(hold.placedByUserId), days: rule.days,
         ...(timesBefore > 0 ? { reminder: timesBefore + 1 } : {}),
+        ...(delivery.sentTo ? { sentTo: delivery.sentTo } : {}),
       }),
       priority: "normal",
       entityType: "job",
       entityId: job.id,
       /** Kept in the office queue as well as given to a person, so the office can still find it there. */
       queue: "office",
-      assigneeUserId,
+      assigneeUserId: delivery.assigneeUserId,
       dueAt,
     }).returning({ id: schema.task.id });
     await tx.update(schema.jobHold).set({ nudgeTaskId: task!.id }).where(eq(schema.jobHold.id, hold.id));
-    if (assigneeUserId) {
+    if (delivery.assigneeUserId) {
       await tellAssignee(tx, {
-        id: task!.id, organizationId, title: work.holdNudgeTitle({ jobLabel: label, reason: hold.reason, held, again: timesBefore > 0 }),
-        assigneeUserId, dueAt,
-      }, `task_assigned:${task!.id}:${assigneeUserId}`);
+        id: task!.id, organizationId, title, assigneeUserId: delivery.assigneeUserId, dueAt,
+      }, `task_assigned:${task!.id}:${delivery.assigneeUserId}`);
+    }
+    /**
+     * A task for a role or a branch's managers stays in the office queue, one task for whoever acts on it,
+     * and each of them is told. A person who cannot open the task is not told (the notice refuses).
+     */
+    const zoneDue = dueAt ? notices.localWhen(dueAt, zone) : null;
+    for (const userId of delivery.told) {
+      await raiseWithin(tx, {
+        organizationId, userId, kind: "task_assigned", key: `task_assigned:${task!.id}:${userId}`,
+        title: `A task for your team: ${title}`,
+        body: zoneDue ? `Due ${zoneDue}.` : null,
+        about: { type: "task", id: task!.id },
+      });
     }
     await audit(tx, ctx, "job.hold_nudged", "job_hold", hold.id, null, {
       jobId: job.id, taskId: task!.id, days: held, times: timesBefore + 1,
-      assigneeUserId, dueAt: dueAt?.toISOString() ?? null,
+      assigneeUserId: delivery.assigneeUserId, dueAt: dueAt?.toISOString() ?? null,
+      assignTo: rule.assignTo, toldUserIds: delivery.told,
+      ...(rule.assigneeRole ? { assigneeRole: rule.assigneeRole } : {}),
     });
     raised.push(job.id);
   }
@@ -611,4 +876,8 @@ export const handlers = {
   releaseJobHold: (ctx: ServiceContext, input: { id: string }) => release(ctx, input),
   getJobHoldNudge: (ctx: ServiceContext) => nudgeSetting(ctx),
   setJobHoldNudge: (ctx: ServiceContext, input: Parameters<typeof setNudge>[1]) => setNudge(ctx, input),
+  listJobHoldNudgeRules: (ctx: ServiceContext) => listRules(ctx),
+  createJobHoldNudgeRule: (ctx: ServiceContext, input: HoldNudgeRuleInput) => createRule(ctx, input),
+  updateJobHoldNudgeRule: (ctx: ServiceContext, input: Parameters<typeof updateRule>[1]) => updateRule(ctx, input),
+  deleteJobHoldNudgeRule: (ctx: ServiceContext, input: { id: string }) => deleteRule(ctx, input),
 } as const;

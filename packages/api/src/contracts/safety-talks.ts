@@ -139,6 +139,32 @@ export const createSafetyTalkSchedule = defineRoute({
   output: Schedule,
 });
 
+export const updateSafetyTalkSchedule = defineRoute({
+  method: "patch",
+  path: "/v1/safety/schedules/{id}",
+  summary: "Change a scheduled talk's topic, audience, time or holidays",
+  description:
+    "Changes what the schedule raises from the next talk on: the topic (`topicId`, one that is not retired), who it is for (any one of `crewId`, `technicianId`, `role`, `roleId`, `branchId` or `everybody: true`, which replaces the old audience whole; none of them leaves it as it is), the time (`heldMinutes`), where (`location`) and who leads it (`ledBy`), and `skipHolidays`. A field left out is kept. A talk already raised keeps what it was given: its words, the people on its sheet, its time and its place are not touched. A talk not yet raised, today's included when the worker has not come round to it, uses the new settings. Which days it comes round on is not changed here: pause it and make a new schedule. The audit log has the schedule before and after (`safety.schedule_changed`).",
+  module: "M23",
+  permissions: ["safety:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    topicId: Uuid.optional(),
+    crewId: Uuid.nullable().optional(),
+    technicianId: Uuid.nullable().optional(),
+    role: PresetRole.nullable().optional(),
+    roleId: Uuid.nullable().optional(),
+    branchId: Uuid.nullable().optional(),
+    everybody: z.boolean().optional(),
+    heldMinutes: z.number().int().min(0).max(1439).optional(),
+    location: z.string().max(300).nullable().optional(),
+    ledBy: z.string().max(200).nullable().optional(),
+    skipHolidays: z.boolean().optional(),
+  }),
+  output: Schedule,
+});
+
 export const listSafetyTalkAudiences = defineRoute({
   method: "get",
   path: "/v1/safety/schedule-audiences",
@@ -188,6 +214,6 @@ export const listUnsignedSafetyLines = defineRoute({
 
 export const safetyTalkRoutes = {
   listSafetyTopics, createSafetyTopic, updateSafetyTopic,
-  listSafetyTalkSchedules, createSafetyTalkSchedule, setSafetyTalkScheduleActive, listSafetyTalkAudiences,
+  listSafetyTalkSchedules, createSafetyTalkSchedule, updateSafetyTalkSchedule, setSafetyTalkScheduleActive, listSafetyTalkAudiences,
   listUnsignedSafetyLines,
 } as const;

@@ -1931,6 +1931,32 @@ returns table (organization_id uuid)
 revoke all on function app.task_rule_organizations(int) from public;
 grant execute on function app.task_rule_organizations(int) to background;
 
+-- ---- Companies whose reporting lines have not been scanned today ----------
+-- The worker scans each company's reporting lines for a loop once a day, in
+-- the company's own calendar (settings.reportingLoopScan.on is the day it last
+-- did). The worker has no tenant until it picks one, so it asks here which
+-- companies have at least one reporting line recorded and have not been
+-- scanned today, as ids and nothing else. A suspended or demo company is left
+-- alone. Whether there is a loop, and what to say about it, is the service's.
+create or replace function app.reporting_loop_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id from public.organization o
+     where o.suspended_at is null
+       and o.demo_user_id is null
+       and exists (
+         select 1 from public.membership m
+          where m.organization_id = o.id and m.reports_to_user_id is not null
+       )
+       and coalesce(o.settings -> 'reportingLoopScan' ->> 'on', '')
+         < to_char((now() at time zone coalesce(nullif(o.timezone, ''), 'UTC'))::date, 'YYYY-MM-DD')
+     limit p_limit
+  $$;
+
+revoke all on function app.reporting_loop_organizations(int) from public;
+grant execute on function app.reporting_loop_organizations(int) to background;
+
 -- ---- Companies with toolbox talks to raise ---------------------------------
 -- The talk pass raises a scheduled toolbox talk on its day, across every
 -- tenant, as the task pass raises a recurring task. This answers only WHICH
@@ -2205,18 +2231,32 @@ returns table (organization_id uuid)
     select o.id from public.organization o
      where o.suspended_at is null
        and o.demo_user_id is null
-       and jsonb_typeof(o.settings -> 'holdNudge' -> 'days') = 'number'
+       -- Somebody has asked for a nudge: the company's own days, or a rule for one reason or branch.
+       and (
+         jsonb_typeof(o.settings -> 'holdNudge' -> 'days') = 'number'
+         or exists (
+           select 1 from public.job_hold_nudge_rule r
+            where r.organization_id = o.id and jsonb_typeof(r.overrides -> 'days') = 'number'
+         )
+       )
        and exists (
          select 1 from public.job_hold h
           where h.organization_id = o.id and h.released_at is null
             and (
               h.nudged_at is null
-              -- A company that asked for the nudge to be raised again (settings.holdNudge.repeatDays):
-              -- a hold last nudged a whole day less than that ago may be due, by the company's calendar.
-              or (
-                jsonb_typeof(o.settings -> 'holdNudge' -> 'repeatDays') = 'number'
-                and h.nudged_at <= now() - (((o.settings -> 'holdNudge' ->> 'repeatDays')::numeric - 1) * interval '1 day')
-              )
+              -- A company that asked for the nudge to be raised again (settings.holdNudge.repeatDays, or
+              -- a rule's own repeatDays): a hold last nudged a whole day less than the shortest repeat
+              -- ago may be due, by the company's calendar.
+              or h.nudged_at <= now() - ((
+                select min(x.n) from (
+                  select (o.settings -> 'holdNudge' ->> 'repeatDays')::numeric as n
+                   where jsonb_typeof(o.settings -> 'holdNudge' -> 'repeatDays') = 'number'
+                  union all
+                  select (r.overrides ->> 'repeatDays')::numeric
+                    from public.job_hold_nudge_rule r
+                   where r.organization_id = o.id and jsonb_typeof(r.overrides -> 'repeatDays') = 'number'
+                ) x
+              ) - 1) * interval '1 day'
             )
        )
      limit p_limit

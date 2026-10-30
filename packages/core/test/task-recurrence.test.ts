@@ -54,7 +54,7 @@ describe("the first, second, third or fourth given weekday of the month", () => 
   it("needs a day of the week and which one, first to fourth", () => {
     expect(checkSchedule({ frequency: "nth_weekday_of_month", monthWeek: 1, startsOn: MONDAY }).ok).toBe(false);
     expect(checkSchedule({ frequency: "nth_weekday_of_month", weekday: 1, startsOn: MONDAY }).ok).toBe(false);
-    expect(checkSchedule({ frequency: "nth_weekday_of_month", weekday: 1, monthWeek: 5, startsOn: MONDAY }).ok).toBe(false);
+    expect(checkSchedule({ frequency: "nth_weekday_of_month", weekday: 1, monthWeek: 6, startsOn: MONDAY }).ok).toBe(false);
     expect(checkSchedule({ frequency: "nth_weekday_of_month", weekday: 1, monthWeek: 0, startsOn: MONDAY }).ok).toBe(false);
     expect(checkSchedule(firstMonday)).toEqual({ ok: true });
   });
@@ -102,11 +102,11 @@ describe("every so many weeks", () => {
 
   it("needs a gap of two to fifty two weeks and a day", () => {
     expect(checkSchedule({ ...everyThird, intervalWeeks: 1 }).ok).toBe(false);
-    expect(checkSchedule({ ...everyThird, intervalWeeks: 53 }).ok).toBe(false);
+    expect(checkSchedule({ ...everyThird, intervalWeeks: 261 }).ok).toBe(false);
     expect(checkSchedule({ ...everyThird, intervalWeeks: 2.5 }).ok).toBe(false);
     expect(checkSchedule({ ...everyThird, intervalWeeks: null }).ok).toBe(false);
     expect(checkSchedule({ ...everyThird, weekday: null }).ok).toBe(false);
-    expect(checkSchedule({ ...everyThird, intervalWeeks: 52 })).toEqual({ ok: true });
+    expect(checkSchedule({ ...everyThird, intervalWeeks: 260 })).toEqual({ ok: true });
   });
 });
 

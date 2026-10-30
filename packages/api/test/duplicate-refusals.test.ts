@@ -125,6 +125,10 @@ const REFUSED: Record<string, Refused> = {
   do_not_mail_address_idx: { file: "do-not-mail.ts", how: "check", says: "is already on your do not mail list" },
   /** A second open hold on a job: "already on hold", with the reason it is on hold for. */
   job_hold_open_idx: { file: "job-holds.ts", how: "check", says: "This job is already on hold" },
+  /** A second nudge rule for the same reason and branch (any reason, or any branch, counts as one): "There is already a rule for that reason and branch". */
+  job_hold_nudge_rule_both_idx: { file: "job-holds.ts", how: "check", says: "There is already a rule for that reason and branch" },
+  job_hold_nudge_rule_reason_idx: { file: "job-holds.ts", how: "check", says: "There is already a rule for that reason and branch" },
+  job_hold_nudge_rule_branch_idx: { file: "job-holds.ts", how: "check", says: "There is already a rule for that reason and branch" },
   certification_type_code_idx: {
     file: "people.ts", how: "check", says: "already has a certification with the code",
   },

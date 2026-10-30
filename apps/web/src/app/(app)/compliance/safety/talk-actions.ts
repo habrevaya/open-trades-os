@@ -5,7 +5,7 @@ import { attempt, field, type FormState } from "@/lib/actions";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { safetyTalks } from "@opentradesos/api/services";
-import { createSafetyTalkSchedule } from "@opentradesos/api/contracts";
+import { createSafetyTalkSchedule, updateSafetyTalkSchedule } from "@opentradesos/api/contracts";
 import { parsed } from "@/lib/actions";
 
 /** The library and the schedule. Every refusal is the service's. */
@@ -80,6 +80,30 @@ export async function addSchedule(_previous: FormState, form: FormData): Promise
     });
     await safetyTalks.createSchedule(await ctx(), input);
     return { message: "On the schedule. The talk is raised on its day with everybody on it." };
+  });
+  revalidatePath("/compliance/safety/schedules");
+  return state;
+}
+
+/**
+ * Change a scheduled talk: its topic, who it is for, the time, where, who leads it, and holidays. It applies from the next
+ * talk raised; talks already raised keep what they were given. The audience is always sent whole, because the form always
+ * shows one.
+ */
+export async function changeSchedule(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const held = minutesOf(field(form, "heldTime"));
+    const input = parsed(updateSafetyTalkSchedule.input, {
+      id: field(form, "id"),
+      topicId: field(form, "topicId"),
+      ...audienceOf(field(form, "who") ?? ""),
+      ...(held !== undefined ? { heldMinutes: held } : {}),
+      location: field(form, "location") ?? null,
+      ledBy: field(form, "ledBy") ?? null,
+      skipHolidays: form.get("skipHolidays") === "on",
+    });
+    await safetyTalks.updateSchedule(await ctx(), input);
+    return { message: "Saved. It applies from the next talk raised. Talks already raised keep what they were given." };
   });
   revalidatePath("/compliance/safety/schedules");
   return state;

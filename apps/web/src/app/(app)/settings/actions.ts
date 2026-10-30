@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, jobHolds, noticeUpkeep, noticeDefaults, ConflictError, NotFoundError } from "@opentradesos/api/services";
-import { notices, type branding as brand } from "@opentradesos/core";
+import { notices, work, type branding as brand } from "@opentradesos/core";
 
 /**
  * `requireUser`, not the setup gate: the setup wizard draws these same forms
@@ -339,6 +339,27 @@ export async function setCancelNotice(_previous: FormState, form: FormData): Pro
 }
 
 /**
+ * One choice from the "who gets the task" list, as the service wants it: nobody, whoever put the job on hold,
+ * the manager of the job's branch, `person:<id>` for a colleague or `role:<role>` for everybody in a role.
+ * Anything else is "bad", so a made up value is refused rather than read as nobody.
+ */
+function holdAssignment(choice: string): "bad" | {
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assigneeUserId: string | null; assigneeRole: work.HoldNudgeRole | null;
+} {
+  if (choice === "nobody" || choice === "placed_by" || choice === "branch_manager") {
+    return { assignTo: choice, assigneeUserId: null, assigneeRole: null };
+  }
+  if (choice.startsWith("person:") && choice.length > "person:".length) {
+    return { assignTo: "person", assigneeUserId: choice.slice("person:".length), assigneeRole: null };
+  }
+  if (choice.startsWith("role:") && work.isHoldNudgeRole(choice.slice("role:".length))) {
+    return { assignTo: "role", assigneeUserId: null, assigneeRole: choice.slice("role:".length) as work.HoldNudgeRole };
+  }
+  return "bad";
+}
+
+/**
  * How many days a job may stay on hold before the office is nudged. A box left
  * empty turns it off, which is how it starts. Tasks already raised stay where
  * they are.
@@ -357,19 +378,71 @@ export async function setHoldNudge(_previous: FormState, form: FormData): Promis
   if (days === "bad" || dueDays === "bad" || repeatDays === "bad") {
     return refused(form, "Give the days as whole numbers, or leave a box empty.");
   }
-  /** One choice: nobody, whoever put the job on hold, or "person:<id>" for a colleague. */
-  const who = field(form, "assignTo") ?? "nobody";
-  const person = who.startsWith("person:") ? who.slice("person:".length) : null;
-  const assignTo = person ? "person" : who === "placed_by" ? "placed_by" : "nobody";
+  /** One choice: nobody, whoever put the job on hold, the job's branch manager, "person:<id>" or "role:<role>". */
+  const who = holdAssignment(field(form, "assignTo") ?? "nobody");
+  if (who === "bad") return refused(form, "Choose who the task goes to from the list.");
   const result = await attempt(form, async () => {
     const saved = await jobHolds.setNudge(await ctx(), {
-      days, dueDays, repeatDays, assignTo, assigneeUserId: person,
+      days, dueDays, repeatDays, assignTo: who.assignTo, assigneeUserId: who.assigneeUserId, assigneeRole: who.assigneeRole,
     });
     return {
       message: saved.days === null
         ? "Saved. Nobody is nudged about a job on hold."
         : `Saved. The office gets a task when a job has been on hold ${saved.days} ${saved.days === 1 ? "day" : "days"}.`,
     };
+  });
+  revalidatePath("/settings");
+  return result;
+}
+
+/**
+ * Add a nudge rule for one reason a job is on hold, one branch, or both. A number box left empty is "as the
+ * company has it", and a ticked "never" box is "none": a rule that is empty and ticks nothing is refused by
+ * the service in words. A box with a number and its "never" box ticked is refused here, because it says two things.
+ */
+export async function addHoldNudgeRule(_previous: FormState, form: FormData): Promise<FormState> {
+  const count = (name: string): number | null | undefined | "bad" => {
+    const said = field(form, name);
+    const never = form.get(`${name}Never`) === "on";
+    if (said !== undefined && never) return "bad";
+    if (never) return null;
+    if (said === undefined) return undefined;
+    const n = Number(said);
+    return Number.isInteger(n) ? n : "bad";
+  };
+  const days = count("days");
+  const dueDays = count("dueDays");
+  const repeatDays = count("repeatDays");
+  if (days === "bad" || dueDays === "bad" || repeatDays === "bad") {
+    return refused(form, "Give each number of days as a whole number, or leave the box empty, or tick its \"never\" box, not both.");
+  }
+  const choice = field(form, "assignTo") ?? "";
+  const who = choice === "" ? null : holdAssignment(choice);
+  if (who === "bad") return refused(form, "Choose who the task goes to from the list.");
+  const reason = field(form, "reason") ?? null;
+  if (reason !== null && !work.HOLD_REASONS.some((r) => r.value === reason)) return refused(form, "Choose a reason from the list.");
+  const result = await attempt(form, async () => {
+    await jobHolds.createRule(await ctx(), {
+      reason: reason as work.HoldReason | null,
+      businessUnitId: field(form, "businessUnitId") ?? null,
+      ...(days !== undefined ? { days } : {}),
+      ...(dueDays !== undefined ? { dueDays } : {}),
+      ...(repeatDays !== undefined ? { repeatDays } : {}),
+      ...(who ? { assignTo: who.assignTo, assigneeUserId: who.assigneeUserId, assigneeRole: who.assigneeRole } : {}),
+    });
+    return { message: "Saved. It applies to nudges raised from now on." };
+  });
+  revalidatePath("/settings");
+  return result;
+}
+
+/** Take a nudge rule away. Jobs it covered go back to the company's numbers. */
+export async function removeHoldNudgeRule(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id");
+  if (!id) return refused(form, "Choose a rule to take away.");
+  const result = await attempt(form, async () => {
+    await jobHolds.deleteRule(await ctx(), { id });
+    return { message: "Taken away." };
   });
   revalidatePath("/settings");
   return result;

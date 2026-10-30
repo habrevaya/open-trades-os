@@ -187,8 +187,26 @@ export function holdNudgeDays(saved: unknown): number | null {
 export const HOLD_NUDGE_MOST_DUE_DAYS = 30;
 export const HOLD_NUDGE_MOST_REPEAT_DAYS = 90;
 
-export type HoldNudgeAssign = "nobody" | "placed_by" | "person";
-export const HOLD_NUDGE_ASSIGN: HoldNudgeAssign[] = ["nobody", "placed_by", "person"];
+export type HoldNudgeAssign = "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+export const HOLD_NUDGE_ASSIGN: HoldNudgeAssign[] = ["nobody", "placed_by", "person", "role", "branch_manager"];
+
+/**
+ * The roles a nudge can be given to. Every one is a role that works in the
+ * office: a technician or a read only user is not handed a company's chasing,
+ * and a notice is never raised for somebody who cannot open the task.
+ */
+export const HOLD_NUDGE_ROLES = ["owner", "admin", "office_manager", "branch_manager", "dispatcher", "csr", "accountant"] as const;
+export type HoldNudgeRole = (typeof HOLD_NUDGE_ROLES)[number];
+
+/** The role as a group of people, in the words a task says: "the dispatchers". */
+export const HOLD_NUDGE_ROLE_WORDS: Record<HoldNudgeRole, string> = {
+  owner: "the owners", admin: "the administrators", office_manager: "the office managers",
+  branch_manager: "the branch managers", dispatcher: "the dispatchers", csr: "the customer service team",
+  accountant: "the accountants",
+};
+
+export const isHoldNudgeRole = (value: unknown): value is HoldNudgeRole =>
+  typeof value === "string" && (HOLD_NUDGE_ROLES as readonly string[]).includes(value);
 
 export interface HoldNudgeRules {
   /** Days on hold before the first nudge. Null: no nudges at all. */
@@ -200,6 +218,11 @@ export interface HoldNudgeRules {
   assignTo: HoldNudgeAssign;
   /** Who, when `assignTo` is "person". */
   assigneeUserId: string | null;
+  /**
+   * Which role, when `assignTo` is "role". Left out otherwise, so a company that
+   * never gave the task to a role reads exactly as it always did.
+   */
+  assigneeRole?: HoldNudgeRole;
 }
 
 export const HOLD_NUDGE_OFF: HoldNudgeRules = {
@@ -221,7 +244,8 @@ export function holdNudgeRulesProblem(rules: HoldNudgeRules): string | null {
     ?? holdNudgeCountProblem(rules.dueDays, HOLD_NUDGE_MOST_DUE_DAYS, "the days the office has", 0)
     ?? holdNudgeCountProblem(rules.repeatDays, HOLD_NUDGE_MOST_REPEAT_DAYS, "the days before it is raised again")
     ?? (!HOLD_NUDGE_ASSIGN.includes(rules.assignTo) ? "Choose who the task goes to." : null)
-    ?? (rules.assignTo === "person" && !rules.assigneeUserId ? "Choose which person the task goes to." : null);
+    ?? (rules.assignTo === "person" && !rules.assigneeUserId ? "Choose which person the task goes to." : null)
+    ?? (rules.assignTo === "role" && !rules.assigneeRole ? "Choose which role the task goes to." : null);
 }
 
 /** The rules as saved, with anything that is not good read as off. Never throws. */
@@ -231,13 +255,190 @@ export function holdNudgeRules(saved: unknown): HoldNudgeRules {
     typeof v === "number" && holdNudgeCountProblem(v, most, "", least) === null ? v : null;
   const assignTo = HOLD_NUDGE_ASSIGN.includes(raw["assignTo"] as HoldNudgeAssign) ? raw["assignTo"] as HoldNudgeAssign : "nobody";
   const assigneeUserId = typeof raw["assigneeUserId"] === "string" ? raw["assigneeUserId"] : null;
+  const assigneeRole = isHoldNudgeRole(raw["assigneeRole"]) ? raw["assigneeRole"] : null;
+  const usable = assignTo === "person" ? assigneeUserId !== null : assignTo === "role" ? assigneeRole !== null : true;
+  const chosen: HoldNudgeAssign = usable ? assignTo : "nobody";
   return {
     days: holdNudgeDays(raw["days"]),
     dueDays: count(raw["dueDays"], HOLD_NUDGE_MOST_DUE_DAYS, 0),
     repeatDays: count(raw["repeatDays"], HOLD_NUDGE_MOST_REPEAT_DAYS, 1),
-    assignTo: assignTo === "person" && !assigneeUserId ? "nobody" : assignTo,
-    assigneeUserId: assignTo === "person" ? assigneeUserId : null,
+    assignTo: chosen,
+    assigneeUserId: chosen === "person" ? assigneeUserId : null,
+    ...(chosen === "role" && assigneeRole ? { assigneeRole } : {}),
   };
+}
+
+/**
+ * THE NUDGE BY REASON AND BY BRANCH
+ *
+ * The company's numbers above are the default. A rule changes some of them for
+ * one reason, one branch, or one reason in one branch. It holds only what it
+ * changes: a key it does not have is "as the company has it", and a key set to
+ * null is "none" (no nudge at all, no due date, never again). Who the task
+ * goes to is one unit (`assign`), because a person or a role means nothing
+ * without the choice that names it.
+ *
+ * Which rule applies to a hold, most specific first:
+ *   1. this reason in this branch
+ *   2. this reason, in any branch
+ *   3. this branch, for any reason
+ *   4. the company's own numbers
+ * Each setting is read from the first of those that says something about it,
+ * so a branch that only changes who gets the task still takes its days from
+ * the company. A rule for the reason beats a rule for the branch: why a job is
+ * waiting is what decides how long a wait is a worry, and a branch is where
+ * the answer goes.
+ */
+export interface HoldNudgeAssignment {
+  to: HoldNudgeAssign;
+  userId: string | null;
+  role?: HoldNudgeRole;
+}
+
+export interface HoldNudgeOverrides {
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assign?: HoldNudgeAssignment;
+}
+
+const OVERRIDE_KEYS = ["days", "dueDays", "repeatDays", "assign"] as const;
+
+/** A rule as saved, with anything that is not good dropped. Never throws. */
+export function holdNudgeOverrides(saved: unknown): HoldNudgeOverrides {
+  const raw = (saved && typeof saved === "object" ? saved : {}) as Record<string, unknown>;
+  const out: HoldNudgeOverrides = {};
+  if ("days" in raw && holdNudgeProblem(raw["days"]) === null && (raw["days"] === null || typeof raw["days"] === "number")) {
+    out.days = raw["days"] as number | null;
+  }
+  if ("dueDays" in raw && holdNudgeCountProblem(raw["dueDays"], HOLD_NUDGE_MOST_DUE_DAYS, "", 0) === null
+    && (raw["dueDays"] === null || typeof raw["dueDays"] === "number")) out.dueDays = raw["dueDays"] as number | null;
+  if ("repeatDays" in raw && holdNudgeCountProblem(raw["repeatDays"], HOLD_NUDGE_MOST_REPEAT_DAYS, "") === null
+    && (raw["repeatDays"] === null || typeof raw["repeatDays"] === "number")) out.repeatDays = raw["repeatDays"] as number | null;
+  const assign = raw["assign"];
+  if (assign && typeof assign === "object") {
+    const a = assign as Record<string, unknown>;
+    const to = HOLD_NUDGE_ASSIGN.includes(a["to"] as HoldNudgeAssign) ? a["to"] as HoldNudgeAssign : null;
+    const userId = typeof a["userId"] === "string" ? a["userId"] : null;
+    const role = isHoldNudgeRole(a["role"]) ? a["role"] : null;
+    if (to && (to !== "person" || userId) && (to !== "role" || role)) {
+      out.assign = { to, userId: to === "person" ? userId : null, ...(to === "role" && role ? { role } : {}) };
+    }
+  }
+  return out;
+}
+
+/** Why a rule's changes are refused, or null when they are fine. */
+export function holdNudgeOverridesProblem(overrides: HoldNudgeOverrides): string | null {
+  if (!OVERRIDE_KEYS.some((key) => overrides[key] !== undefined)) {
+    return "Say what is different for this rule: the days, the due date, the reminders or who gets the task.";
+  }
+  if (overrides.days !== undefined && overrides.days !== null) {
+    const problem = holdNudgeProblem(overrides.days);
+    if (problem) return problem;
+  }
+  if (overrides.dueDays !== undefined) {
+    const problem = holdNudgeCountProblem(overrides.dueDays, HOLD_NUDGE_MOST_DUE_DAYS, "the days the office has", 0);
+    if (problem) return problem;
+  }
+  if (overrides.repeatDays !== undefined) {
+    const problem = holdNudgeCountProblem(overrides.repeatDays, HOLD_NUDGE_MOST_REPEAT_DAYS, "the days before it is raised again");
+    if (problem) return problem;
+  }
+  const assign = overrides.assign;
+  if (assign) {
+    if (!HOLD_NUDGE_ASSIGN.includes(assign.to)) return "Choose who the task goes to.";
+    if (assign.to === "person" && !assign.userId) return "Choose which person the task goes to.";
+    if (assign.to === "role" && !assign.role) return "Choose which role the task goes to.";
+  }
+  return null;
+}
+
+/** Why a rule's reach is refused, or null: it names a reason, a branch or both. */
+export function holdNudgeRuleReachProblem(reason: string | null, businessUnitId: string | null): string | null {
+  if (reason === null && businessUnitId === null) {
+    return "Choose a reason, a branch or both. What applies to every job on hold is set above, for the whole company.";
+  }
+  return null;
+}
+
+export interface HoldNudgeRuleRow {
+  reason: string | null;
+  businessUnitId: string | null;
+  overrides: HoldNudgeOverrides;
+}
+
+/**
+ * What applies to one hold: the company's numbers with every rule that fits it
+ * laid over, the most specific first. A rule never turns a nudge on for a
+ * hold the company did not nudge unless it says `days` itself.
+ */
+export function holdNudgeFor(
+  company: HoldNudgeRules, rules: HoldNudgeRuleRow[], hold: { reason: string; businessUnitId: string | null },
+): HoldNudgeRules {
+  const fits = (r: HoldNudgeRuleRow, level: 1 | 2 | 3): boolean =>
+    level === 1 ? r.reason === hold.reason && r.businessUnitId !== null && r.businessUnitId === hold.businessUnitId
+      : level === 2 ? r.reason === hold.reason && r.businessUnitId === null
+        : r.reason === null && r.businessUnitId !== null && r.businessUnitId === hold.businessUnitId;
+  const ordered = ([1, 2, 3] as const).flatMap((level) => rules.filter((r) => fits(r, level)));
+  const first = <K extends keyof HoldNudgeOverrides>(key: K): HoldNudgeOverrides[K] | undefined =>
+    ordered.map((r) => r.overrides[key]).find((v) => v !== undefined);
+  const days = first("days");
+  const dueDays = first("dueDays");
+  const repeatDays = first("repeatDays");
+  const assign = first("assign");
+  const base: HoldNudgeRules = {
+    days: days !== undefined ? days : company.days,
+    dueDays: dueDays !== undefined ? dueDays : company.dueDays,
+    repeatDays: repeatDays !== undefined ? repeatDays : company.repeatDays,
+    assignTo: company.assignTo,
+    assigneeUserId: company.assigneeUserId,
+    ...(company.assigneeRole ? { assigneeRole: company.assigneeRole } : {}),
+  };
+  if (!assign) return base;
+  const { assigneeRole: _drop, ...rest } = base;
+  return {
+    ...rest, assignTo: assign.to, assigneeUserId: assign.to === "person" ? assign.userId : null,
+    ...(assign.to === "role" && assign.role ? { assigneeRole: assign.role } : {}),
+  };
+}
+
+/** Who a nudge goes to, in words: "the dispatchers", "Mona Manager", "whoever put the job on hold". */
+export function holdNudgeAssignWords(
+  to: HoldNudgeAssign, who: { personName?: string | null | undefined; role?: HoldNudgeRole | null | undefined },
+): string {
+  switch (to) {
+    case "nobody": return "the office queue";
+    case "placed_by": return "whoever put the job on hold";
+    case "person": return who.personName ?? "a person who has left";
+    case "role": return who.role ? HOLD_NUDGE_ROLE_WORDS[who.role] : "a role";
+    case "branch_manager": return "the manager of the job's branch";
+  }
+}
+
+/**
+ * What a rule says, as a sentence a person can read back:
+ * "Jobs waiting on the weather, in Houston: nudge after 7 days, due 2 days later, remind every 3 days, give it to the dispatchers."
+ */
+export function holdNudgeRuleSummary(
+  rule: { reason: string | null; businessUnitName: string | null; overrides: HoldNudgeOverrides },
+  who: { personName?: string | null | undefined } = {},
+): string {
+  const what = !rule.reason ? "Jobs on hold"
+    : rule.reason === "other" ? "Jobs on hold for another reason" : `Jobs ${holdReasonLabel(rule.reason).toLowerCase()}`;
+  const where = rule.businessUnitName ? `, in ${rule.businessUnitName}` : "";
+  const o = rule.overrides;
+  const parts: string[] = [];
+  if (o.days !== undefined) parts.push(o.days === null ? "never nudge" : `nudge after ${dayCount(o.days)}`);
+  if (o.dueDays !== undefined) {
+    parts.push(o.dueDays === null ? "no due date" : o.dueDays === 0 ? "due the same day" : `due ${dayCount(o.dueDays)} later`);
+  }
+  if (o.repeatDays !== undefined) parts.push(o.repeatDays === null ? "do not remind again" : `remind every ${dayCount(o.repeatDays)}`);
+  if (o.assign) {
+    parts.push(o.assign.to === "nobody" ? "keep it in the office queue"
+      : `give it to ${holdNudgeAssignWords(o.assign.to, { personName: who.personName, role: o.assign.role ?? null })}`);
+  }
+  return `${what}${where}: ${parts.join(", ")}.`;
 }
 
 /**
@@ -283,9 +484,12 @@ export function holdNudgeBody(input: {
   since: string; placedBy: string | null; days: number;
   /** Which reminder this is, from 2, when the nudge has been raised before for this hold. */
   reminder?: number;
+  /** Said first when the task was sent to a group, or could not be: "Sent to the dispatchers." */
+  sentTo?: string;
 }): string {
   const again = input.reminder && input.reminder > 1 ? `This is reminder ${input.reminder} for this hold. ` : "";
-  return `${again}${input.customerName}: ${input.summary}. ${holdWords(input.reason, input.note)}. `
+  const sent = input.sentTo ? `${input.sentTo} ` : "";
+  return `${sent}${again}${input.customerName}: ${input.summary}. ${holdWords(input.reason, input.note)}. `
     + `On hold since ${input.since}${input.placedBy ? `, put there by ${input.placedBy}` : ""}, which is ${dayCount(input.held)}. `
     + `Your company asked to be told after ${dayCount(input.days)}. `
     + "Chase whoever it is waiting on, or take the job off hold on its page when the wait is over. "

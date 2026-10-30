@@ -90,7 +90,7 @@ run("the newer recurring schedules", () => {
 
   it("refuses each new schedule without what it needs, in words", async () => {
     await expect(rules.createTemplate(owner(), { title: "X", frequency: "nth_weekday_of_month", weekday: 1 }))
-      .rejects.toThrow(/first, second, third or fourth/);
+      .rejects.toThrow(/first, second, third, fourth or fifth/);
     await expect(rules.createTemplate(owner(), { title: "X", frequency: "every_n_weeks", weekday: 1, intervalWeeks: 1 }))
       .rejects.toThrow(/every how many weeks/);
     await expect(rules.createTemplate(owner(), { title: "X", frequency: "chosen_weekdays", daysOfWeek: [] }))
