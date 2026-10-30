@@ -75,8 +75,9 @@ test("a card rise applied late offers what job work billed at last year's price 
   await expect(late.getByRole("list", { name: "Left out" })).toContainText("Diagnostic fee: Priced from our price book, not the card.");
 
   await late.getByRole("button", { name: "Make a draft invoice for the ticked work" }).click();
-  await expect(late.getByRole("status")).toContainText("It is not sent until somebody issues it.");
-  await owner.reload();
+  /** The only line was billed, so the form goes with it, and the row says which draft it is on. */
+  await expect(late.getByRole("link", { name: /On draft invoice \d+/ })).toBeVisible();
+  await expect(late.getByRole("button", { name: "Make a draft invoice for the ticked work" })).toHaveCount(0);
   await late.getByRole("link", { name: /On draft invoice \d+/ }).click();
   await expect(owner.getByRole("region", { name: "Draft" })).toContainText("nothing is owed and nothing is posted until it is issued");
   await expect(owner.getByText(`Condenser fan motor, card price rise from ${anniversary}`)).toBeVisible();
