@@ -182,10 +182,11 @@ export async function add(ctx: ServiceContext, input: OverrideInput): Promise<Ov
     const existing = input.technicianId ? own.person : own.vehicle;
     /** The same line sent again, by a caller that lost the answer, is the first one back and changes nothing. */
     const same = px.checkMileageRate(input);
-    if (same.ok && existing.some((r) => r.from === same.rate.from && r.perMile === same.rate.perMile)) {
+    if (!same.ok) throw new ConflictError(same.reason);
+    if (existing.some((r) => r.from === same.rate.from && r.perMile === same.rate.perMile)) {
       return viewWithin(tx, ctx);
     }
-    if (same.ok && existing.some((r) => r.from === same.rate.from)) {
+    if (existing.some((r) => r.from === same.rate.from)) {
       throw new ConflictError(`There is already a rate from ${same.rate.from} for ${subjectName}. Take it off first if it is wrong.`);
     }
     const added = px.addMileageRate(existing, input);

@@ -54,9 +54,6 @@ const pdfBytes = (words: string) => Buffer.from(`%PDF-1.4\n% ${words}\n%%EOF\n`)
 const pngBytes = (n: number) => Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(`picture number ${n} ${randomBytes(4).toString("hex")}`),
 ]);
-/** A Windows program: the "MZ" every one of them starts with. */
-const exeBytes = Buffer.concat([Buffer.from("MZ"), Buffer.alloc(200, 0x90)]);
-const oversized = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(coreFiles.EMAIL_ATTACHMENTS.maxFileBytes + 1024, 0x20)]);
 
 /* ----------------------------------------------------------- the fake Resend */
 
