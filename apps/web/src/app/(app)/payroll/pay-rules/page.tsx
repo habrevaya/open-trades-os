@@ -297,7 +297,7 @@ export default async function PayRulesPage() {
           </Table>
         )}
         {configures ? (
-          <ActionForm action={act} submit="Save rule" hidden={{ op: "tipRule" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+          <ActionForm action={act} submit="Set the rule" hidden={{ op: "tipRule" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
             <Select label="For this person" name="technicianId"
                     options={[{ value: "", label: "Nobody, a job instead" }, ...people.map((p) => ({ value: p.id, label: p.displayName }))]} />
             <TextField label="Or this job number" name="jobNumber" inputMode="numeric" placeholder="1042" />

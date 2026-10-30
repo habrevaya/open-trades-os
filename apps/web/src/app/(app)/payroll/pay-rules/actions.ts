@@ -108,7 +108,7 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           ...(technicianId !== undefined ? { technicianId } : {}),
         });
         return {
-          message: `Saved. Tips ${set.kind === "job" ? `on job ${set.jobNumber}` : `for ${set.technicianName}`} are shared this way from the next one. Tips already shared keep theirs.`,
+          message: `Set. Tips ${set.kind === "job" ? `on job ${set.jobNumber}` : `for ${set.technicianName}`} are shared this way from the next one. Tips already shared keep theirs.`,
         };
       }
 
