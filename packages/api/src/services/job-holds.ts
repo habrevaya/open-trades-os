@@ -534,8 +534,8 @@ function overridesFrom(input: HoldNudgeRuleInput, before: work.HoldNudgeOverride
 
 async function checkRuleTargets(tx: Database, organizationId: string, o: work.HoldNudgeOverrides, businessUnitId: string | null) {
   if (businessUnitId) {
-    const [unit] = await tx.select({ active: schema.businessUnit.active }).from(schema.businessUnit)
-      .where(and(eq(schema.businessUnit.id, businessUnitId), isNull(schema.businessUnit.deletedAt))).limit(1);
+    const [unit] = await tx.select({ id: schema.businessUnit.id }).from(schema.businessUnit)
+      .where(eq(schema.businessUnit.id, businessUnitId)).limit(1);
     if (!unit) throw new NotFoundError("Branch");
   }
   if (o.assign?.userId) {
