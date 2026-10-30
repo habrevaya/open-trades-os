@@ -95,6 +95,32 @@ export const REVIEW_REMINDER_WORDING = {
 } as const;
 
 /**
+ * The first reminder's words we ship, when the company has turned a SECOND
+ * reminder on: the same, without "This is the only reminder we will send",
+ * which would then be untrue. A company that wrote its own words keeps them.
+ */
+export const REVIEW_REMINDER_BEFORE_SECOND_WORDING = {
+  sms: REVIEW_REMINDER_WORDING.sms,
+  emailSubject: REVIEW_REMINDER_WORDING.emailSubject,
+  emailBody: REVIEW_REMINDER_WORDING.emailBody.replace("This is the only reminder we will send. ", ""),
+} as const;
+
+/**
+ * What the second reminder says, when a company has turned it on. It says it
+ * is the last one, and like the first it offers nothing and asks for no
+ * number of stars; a test holds it to that.
+ */
+export const REVIEW_SECOND_REMINDER_WORDING = {
+  sms: "Hi {{ customer.name }}, one last note from {{ organization.name }}. If you have a minute, "
+    + "an honest review of our work would help us a great deal: {{ review.url }}",
+  emailSubject: "One last note, {{ customer.name }}",
+  emailBody: "Hi {{ customer.name }},\n\nOne last note from {{ organization.name }}. If you have a minute, "
+    + "an honest review of the work would help us a great deal. You can leave one here:\n\n{{ review.url }}\n\n"
+    + "This is the last reminder we will send. If anything was not right, just reply to this email and we "
+    + "will sort it out.\n\n{{ organization.name }}",
+} as const;
+
+/**
  * WHICH JOBS THE REVIEW AUTOMATION ASKS ABOUT, a choice made when it is turned on.
  * `paid` asks when an invoice is paid in full, which is all it did. `finished`
  * asks about every job that has finished and owes nothing: the paid ones, the

@@ -12412,6 +12412,18 @@ export interface GetReviewRemindersOutput {
     sent: boolean;
     detail: string | null;
   }>;
+  secondAfterDays: number | null;
+  followUpAfterDays: number | null;
+  followUpApplies: boolean;
+  later: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    kind: "follow_up" | "second_reminder";
+    at: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
 }
 
 export interface GetReviewWorkListOutput {
@@ -26561,6 +26573,8 @@ export interface SetReviewRemindersInput {
     emailSubject: string;
     emailBody: string;
   } | null;
+  secondAfterDays?: number | null;
+  followUpAfterDays?: number | null;
 }
 
 export interface SetReviewRemindersOutput {
@@ -26577,6 +26591,18 @@ export interface SetReviewRemindersOutput {
     customerName: string;
     askedAt: string;
     remindedAt: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
+  secondAfterDays: number | null;
+  followUpAfterDays: number | null;
+  followUpApplies: boolean;
+  later: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    kind: "follow_up" | "second_reminder";
+    at: string;
     sent: boolean;
     detail: string | null;
   }>;
@@ -47119,7 +47145,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Turn the one reminder on or off, and change its words.
+   * Turn the reminders and the follow up by email on or off, and change the first reminder's words.
    *
    * PUT /v1/reviews/reminders. Needs settings:write.
    */

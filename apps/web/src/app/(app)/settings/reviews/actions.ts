@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db";
 import { reviews } from "@opentradesos/api/services";
 import { setReviewPolicy, setReviewReminders } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, refused, type FormState } from "@/lib/actions";
-import { BAND_ROWS, DAYS } from "./fields";
+import { BAND_ROWS, DAYS, MAX_BAND_ROWS } from "./fields";
 
 /**
  * SETTINGS → REVIEW POLICY, THE WRITES
@@ -31,7 +31,9 @@ export async function saveReviewPolicy(_previous: FormState, form: FormData): Pr
    * reason empty is refused by the route's schema, naming the field.
    */
   const bands: { upToRating: number; withinHours: number; businessHoursOnly: boolean; priority: number; reason: string }[] = [];
-  for (let i = 0; i < BAND_ROWS; i += 1) {
+  /** As many rows as the form drew: five, or every band the policy had when it has more. */
+  const rows = Math.min(Math.max(BAND_ROWS, Number(field(form, "bandRows") ?? BAND_ROWS) || BAND_ROWS), MAX_BAND_ROWS);
+  for (let i = 0; i < rows; i += 1) {
     const upTo = field(form, `band:${i}:upTo`);
     if (!upTo) continue;
     bands.push({
@@ -77,9 +79,12 @@ export async function saveReviewPolicy(_previous: FormState, form: FormData): Pr
 /** The days and the words, together, as the reminder's own route takes them. */
 export async function saveReminder(_previous: FormState, form: FormData): Promise<FormState> {
   const typed = field(form, "afterDays");
+  const days = (name: string) => (field(form, name) === undefined ? null : Number(field(form, name)));
   const result = await attempt(form, async () => {
     const input = parsed(setReviewReminders.input, {
       afterDays: typed === undefined ? null : Number(typed),
+      ...(form.has("secondAfterDays") ? { secondAfterDays: days("secondAfterDays") } : {}),
+      ...(form.has("followUpAfterDays") ? { followUpAfterDays: days("followUpAfterDays") } : {}),
       wording: {
         sms: String(form.get("sms") ?? ""),
         emailSubject: String(form.get("emailSubject") ?? ""),
@@ -90,7 +95,9 @@ export async function saveReminder(_previous: FormState, form: FormData): Promis
     return {
       message: saved.afterDays === null
         ? "Saved. The reminder is off; its words are kept for when it is on."
-        : `Saved. One reminder after ${saved.afterDays} days${saved.wording.custom ? ", in your words" : ""}.`,
+        : saved.secondAfterDays === null
+          ? `Saved. One reminder after ${saved.afterDays} days${saved.wording.custom ? ", in your words" : ""}.`
+          : `Saved. A reminder after ${saved.afterDays} days${saved.wording.custom ? ", in your words" : ""}, and a second ${saved.secondAfterDays} days after it.`,
     };
   });
   if (!result?.error) {

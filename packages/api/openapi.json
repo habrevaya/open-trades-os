@@ -123759,8 +123759,8 @@
       },
       "put": {
         "operationId": "setReviewReminders",
-        "summary": "Turn the one reminder on or off, and change its words",
-        "description": "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy.\n\nRequires a session holding: settings:write.",
+        "summary": "Turn the reminders and the follow up by email on or off, and change the first reminder's words",
+        "description": "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy. `secondAfterDays` turns on a second reminder that many days after the first went, under the same rules, in words that say it is the last; it needs the first on, and turning the first off turns it off. `followUpAfterDays` sends the ask again by email that many days after it went by text, for a company that asks by text and then email, under the same rules. Both are off (`null`) unless the company says how many days, 3 to 60.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M20"
         ],
@@ -123787,7 +123787,7 @@
         },
         "responses": {
           "200": {
-            "description": "Turn the one reminder on or off, and change its words",
+            "description": "Turn the reminders and the follow up by email on or off, and change the first reminder's words",
             "content": {
               "application/json": {
                 "schema": {
@@ -216254,12 +216254,78 @@
                 "detail"
               ]
             }
+          },
+          "secondAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpApplies": {
+            "type": "boolean"
+          },
+          "later": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "follow_up",
+                    "second_reminder"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sent": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "jobNumber",
+                "customerName",
+                "kind",
+                "at",
+                "sent",
+                "detail"
+              ]
+            }
           }
         },
         "required": [
           "afterDays",
           "wording",
-          "recent"
+          "recent",
+          "secondAfterDays",
+          "followUpAfterDays",
+          "followUpApplies",
+          "later"
         ]
       },
       "GetReviewWorkListOutput": {
@@ -287921,6 +287987,22 @@
               "emailSubject",
               "emailBody"
             ]
+          },
+          "secondAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 3,
+            "maximum": 60
+          },
+          "followUpAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 3,
+            "maximum": 60
           }
         }
       },
@@ -288002,12 +288084,78 @@
                 "detail"
               ]
             }
+          },
+          "secondAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpApplies": {
+            "type": "boolean"
+          },
+          "later": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "follow_up",
+                    "second_reminder"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sent": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "jobNumber",
+                "customerName",
+                "kind",
+                "at",
+                "sent",
+                "detail"
+              ]
+            }
           }
         },
         "required": [
           "afterDays",
           "wording",
-          "recent"
+          "recent",
+          "secondAfterDays",
+          "followUpAfterDays",
+          "followUpApplies",
+          "later"
         ]
       },
       "SetSafetyTalkScheduleActiveInput": {

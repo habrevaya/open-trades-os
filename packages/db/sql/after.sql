@@ -2011,6 +2011,26 @@ returns table (organization_id uuid)
          and r.reminder_at is null
          and p.reminder_after_days is not null
          and r.sent_at <= coalesce(p_now, now()) - make_interval(days => p.reminder_after_days)
+      union
+      -- An ask old enough for the follow up by email, in a company that turned it on.
+      select r.organization_id from public.review_request r
+       join public.review_policy p on p.organization_id = r.organization_id and p.active and p.deleted_at is null
+       where r.state = 'sent'
+         and r.deleted_at is null
+         and r.follow_up_at is null
+         and r.reminder_at is null
+         and p.follow_up_after_days is not null
+         and r.sent_at <= coalesce(p_now, now()) - make_interval(days => p.follow_up_after_days)
+      union
+      -- A first reminder that went, old enough for the second, in a company that turned it on.
+      select r.organization_id from public.review_request r
+       join public.review_policy p on p.organization_id = r.organization_id and p.active and p.deleted_at is null
+       where r.state = 'sent'
+         and r.deleted_at is null
+         and r.reminder_message_id is not null
+         and r.second_reminder_at is null
+         and p.second_reminder_after_days is not null
+         and r.reminder_at <= coalesce(p_now, now()) - make_interval(days => p.second_reminder_after_days)
     ) x
     where not exists (
       select 1 from public.organization o

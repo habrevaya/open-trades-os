@@ -235,8 +235,14 @@ export default async function ReviewsPage() {
           {reminders.afterDays === null
             ? "Off. Each customer is asked once. You can send one reminder to a customer who has not answered."
             : `On. If nobody has answered ${reminders.afterDays} days after the ask, the customer gets one reminder, in the same way you ask.`}
+          {reminders.afterDays !== null && reminders.secondAfterDays !== null
+            ? ` A second, last one goes ${reminders.secondAfterDays} days after the first.` : ""}
+          {reminders.followUpAfterDays !== null && reminders.followUpApplies
+            ? ` A text nobody answered is followed by the ask by email after ${reminders.followUpAfterDays} days.` : ""}
           {" "}It is never sent to a customer who asked not to be contacted, who has a complaint open, or who has
-          left a review since, whatever it said. Nobody gets more than one.
+          left a review since, whatever it said.
+          {reminders.afterDays !== null && reminders.secondAfterDays !== null
+            ? " Nobody gets more than two." : " Nobody gets more than one."}
           {" "}Its words, and the rest of how you ask, are on{" "}
           <a href="/settings/reviews" className="underline underline-offset-4">Settings, Review policy</a>.
         </p>

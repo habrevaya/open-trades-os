@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { automation, reviews as rv } from "@opentradesos/core";
 import { loadHolidays } from "./holidays";
+import { askStyleFor } from "./review-asks";
 import {
   audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
@@ -235,6 +236,17 @@ export interface RemindersView {
     requestId: string; jobNumber: number; customerName: string;
     askedAt: string; remindedAt: string; sent: boolean; detail: string | null;
   }[];
+  /** Null is off. Days after the first reminder went. */
+  secondAfterDays: number | null;
+  /** Null is off. Days after a text ask before the ask goes again by email. */
+  followUpAfterDays: number | null;
+  /** The company asks by text and then email, the only way a follow up by email is sent. */
+  followUpApplies: boolean;
+  /** The latest follow ups and second reminders, sent or decided against, newest first. */
+  later: {
+    requestId: string; jobNumber: number; customerName: string;
+    kind: "follow_up" | "second_reminder"; at: string; sent: boolean; detail: string | null;
+  }[];
 }
 
 /** Whether a reminder goes, and what the last ones did. */
@@ -250,6 +262,30 @@ export async function reminders(ctx: ServiceContext): Promise<RemindersView> {
       .innerJoin(schema.customer, eq(schema.customer.id, schema.reviewRequest.customerId))
       .where(and(sql`${schema.reviewRequest.reminderAt} is not null`, isNull(schema.reviewRequest.deletedAt)))
       .orderBy(desc(schema.reviewRequest.reminderAt)).limit(25);
+    const laterRows = await tx.select({
+      id: schema.reviewRequest.id, jobNumber: schema.job.number, customerName: schema.customer.name,
+      followUpAt: schema.reviewRequest.followUpAt, followUpMessageId: schema.reviewRequest.followUpMessageId,
+      followUpDetail: schema.reviewRequest.followUpDetail,
+      secondAt: schema.reviewRequest.secondReminderAt, secondMessageId: schema.reviewRequest.secondReminderMessageId,
+      secondDetail: schema.reviewRequest.secondReminderDetail,
+    }).from(schema.reviewRequest)
+      .innerJoin(schema.job, eq(schema.job.id, schema.reviewRequest.jobId))
+      .innerJoin(schema.customer, eq(schema.customer.id, schema.reviewRequest.customerId))
+      .where(and(
+        sql`(${schema.reviewRequest.followUpAt} is not null or ${schema.reviewRequest.secondReminderAt} is not null)`,
+        isNull(schema.reviewRequest.deletedAt),
+      ))
+      .orderBy(desc(sql`greatest(${schema.reviewRequest.followUpAt}, ${schema.reviewRequest.secondReminderAt})`)).limit(25);
+    const later: RemindersView["later"] = laterRows.flatMap((r) => [
+      ...(r.secondAt ? [{
+        requestId: r.id, jobNumber: r.jobNumber, customerName: r.customerName, kind: "second_reminder" as const,
+        at: r.secondAt.toISOString(), sent: r.secondMessageId !== null, detail: r.secondDetail,
+      }] : []),
+      ...(r.followUpAt ? [{
+        requestId: r.id, jobNumber: r.jobNumber, customerName: r.customerName, kind: "follow_up" as const,
+        at: r.followUpAt.toISOString(), sent: r.followUpMessageId !== null, detail: r.followUpDetail,
+      }] : []),
+    ]).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 25);
     return {
       afterDays: policy.reminderAfterDays,
       wording: { ...reminderWording(policy), custom: policy.reminderSms !== null },
@@ -258,6 +294,10 @@ export async function reminders(ctx: ServiceContext): Promise<RemindersView> {
         askedAt: (r.sentAt ?? r.reminderAt!).toISOString(), remindedAt: r.reminderAt!.toISOString(),
         sent: r.messageId !== null, detail: r.detail,
       })),
+      secondAfterDays: policy.secondReminderAfterDays,
+      followUpAfterDays: policy.followUpAfterDays,
+      followUpApplies: (await askStyleFor(tx)).channel === "sms_then_email",
+      later,
     };
   });
 }
@@ -267,8 +307,16 @@ export async function reminders(ctx: ServiceContext): Promise<RemindersView> {
  * else the ones we ship. The worker and the screen both read it here.
  */
 export function reminderWording(policy: Pick<typeof schema.reviewPolicy.$inferSelect,
-  "reminderSms" | "reminderEmailSubject" | "reminderEmailBody">): rv.ReviewWording {
-  const shipped = automation.REVIEW_REMINDER_WORDING;
+  "reminderSms" | "reminderEmailSubject" | "reminderEmailBody"> & {
+    secondReminderAfterDays?: number | null | undefined;
+  }): rv.ReviewWording {
+  /**
+   * With a second reminder on, the words we ship drop "This is the only
+   * reminder we will send", which would then be untrue. A company's own words
+   * are its own.
+   */
+  const shipped = policy.secondReminderAfterDays !== null && policy.secondReminderAfterDays !== undefined
+    ? automation.REVIEW_REMINDER_BEFORE_SECOND_WORDING : automation.REVIEW_REMINDER_WORDING;
   return {
     sms: policy.reminderSms ?? shipped.sms,
     emailSubject: policy.reminderEmailSubject ?? shipped.emailSubject,
@@ -286,10 +334,13 @@ export function reminderWording(policy: Pick<typeof schema.reviewPolicy.$inferSe
 export async function setReminders(ctx: ServiceContext, input: {
   afterDays?: number | null | undefined;
   wording?: rv.ReviewWording | null | undefined;
+  secondAfterDays?: number | null | undefined;
+  followUpAfterDays?: number | null | undefined;
 }) {
   await guardedWrite(ctx, "settings:write", async (tx) => {
-    if (input.afterDays !== undefined) {
-      const verdict = rv.checkReminderDays(input.afterDays);
+    for (const days of [input.afterDays, input.secondAfterDays, input.followUpAfterDays]) {
+      if (days === undefined) continue;
+      const verdict = rv.checkReminderDays(days);
       if (!verdict.ok) throw new ConflictError(verdict.reason);
     }
     const typed = input.wording ? {
@@ -307,9 +358,22 @@ export async function setReminders(ctx: ServiceContext, input: {
       && typed.emailBody === shipped.emailBody) ? typed : null;
 
     const before = await policyFor(tx, ctx.actor.organizationId);
+    /**
+     * A second reminder follows the first, so it needs the first on. Asked for
+     * without it, it is refused in words; turning the first off turns the
+     * second off with it, rather than leaving a setting that does nothing.
+     */
+    const firstAfter = input.afterDays !== undefined ? input.afterDays : before.reminderAfterDays;
+    if (input.secondAfterDays !== undefined && input.secondAfterDays !== null && firstAfter === null) {
+      throw new ConflictError("A second reminder follows the first. Turn the first reminder on, then the second.");
+    }
+    const secondAfter = firstAfter === null ? null
+      : input.secondAfterDays !== undefined ? input.secondAfterDays : before.secondReminderAfterDays;
     const [after] = await tx.update(schema.reviewPolicy)
       .set({
         ...(input.afterDays !== undefined ? { reminderAfterDays: input.afterDays } : {}),
+        secondReminderAfterDays: secondAfter,
+        ...(input.followUpAfterDays !== undefined ? { followUpAfterDays: input.followUpAfterDays } : {}),
         ...(input.wording !== undefined ? {
           reminderSms: own?.sms ?? null,
           reminderEmailSubject: own?.emailSubject ?? null,
@@ -320,6 +384,7 @@ export async function setReminders(ctx: ServiceContext, input: {
       .where(eq(schema.reviewPolicy.id, before.id)).returning();
     const kept = (row: typeof before) => ({
       reminderAfterDays: row.reminderAfterDays,
+      secondReminderAfterDays: row.secondReminderAfterDays, followUpAfterDays: row.followUpAfterDays,
       reminderSms: row.reminderSms, reminderEmailSubject: row.reminderEmailSubject, reminderEmailBody: row.reminderEmailBody,
     });
     await audit(tx, ctx, "review_policy.reminders_set", "review_policy", before.id, kept(before), kept(after!));
@@ -1174,6 +1239,8 @@ export const handlers = {
   setReviewReminders: (ctx: ServiceContext, input: {
     afterDays?: number | null | undefined;
     wording?: rv.ReviewWording | null | undefined;
+    secondAfterDays?: number | null | undefined;
+    followUpAfterDays?: number | null | undefined;
   }) => setReminders(ctx, input),
 
   listReviewPlatforms: async (ctx: ServiceContext): Promise<{

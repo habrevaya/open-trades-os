@@ -60,6 +60,8 @@ export default async function ReviewPolicyPage() {
   const hours = Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: hourLabel(h) }));
   const ratings = [1, 2, 3, 4, 5].map((r) => ({ value: String(r), label: `${r} star${r === 1 ? "" : "s"}` }));
   const reminder = policy && can(user.actor, "review:respond") ? await reviews.reminders(ctx) : null;
+  /** Every band the policy has, and empty rows to make five: a policy saved with more is shown whole, never cut. */
+  const bandRows = Math.max(BAND_ROWS, value.bands.length);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -131,7 +133,8 @@ export default async function ReviewPolicyPage() {
               drop it.
             </p>
             <div className="mt-2 space-y-3">
-              {Array.from({ length: BAND_ROWS }, (_, i) => {
+              <input type="hidden" name="bandRows" value={bandRows} />
+              {Array.from({ length: bandRows }, (_, i) => {
                 const band = value.bands[i];
                 return (
                   <div key={i} className="grid gap-2 rounded border border-steel-200 p-3 sm:grid-cols-[9rem_9rem_1fr]">
@@ -168,7 +171,9 @@ export default async function ReviewPolicyPage() {
             <p className="mt-1 max-w-2xl text-sm text-ink-700">
               {reminder.afterDays === null
                 ? "Off. Each customer is asked once."
-                : `On. A customer who has not answered ${reminder.afterDays} days after the ask gets one reminder, the way you ask.`}
+                : `On. A customer who has not answered ${reminder.afterDays} days after the ask gets a reminder, the way you ask.`}
+              {reminder.afterDays !== null && reminder.secondAfterDays !== null
+                ? ` A second, last one goes ${reminder.secondAfterDays} days after the first.` : ""}
               {" "}{reminder.wording.custom ? "It goes in your own words." : "It goes in the words we wrote."}
               {" "}You can use {"{{ customer.name }}"} (their first name), {"{{ organization.name }}"} and
               {" "}{"{{ review.url }}"}, the link, which the text and the email both need. Nothing may offer something for a
@@ -179,10 +184,39 @@ export default async function ReviewPolicyPage() {
                 <ActionForm action={saveReminder} submit="Save the reminder" className="mt-3 space-y-3">
                   <TextField label="Remind after this many days (3 to 60). Empty is off." name="afterDays" type="number"
                              min={3} max={60} defaultValue={reminder.afterDays ?? ""} className="block w-80" />
+                  <TextField label="A second reminder this many days after the first (3 to 60). Empty is off." name="secondAfterDays"
+                             type="number" min={3} max={60} defaultValue={reminder.secondAfterDays ?? ""} className="block w-80" />
+                  <p className="text-xs text-ink-500">
+                    The second goes only after the first went, in words that say it is the last. With it on, the first no longer
+                    says it is the only one.
+                  </p>
+                  <TextField label="Follow an unanswered text with the ask by email after this many days (3 to 60). Empty is off."
+                             name="followUpAfterDays" type="number" min={3} max={60}
+                             defaultValue={reminder.followUpAfterDays ?? ""} className="block w-80" />
+                  <p className="text-xs text-ink-500">
+                    {reminder.followUpApplies
+                      ? "You ask by text, then email, so this is sent: the ask again, by email, in your ask's own email words. The reminder waits until after it."
+                      : "Only sent when you ask by text, then email (the review automation's way of asking). You ask another way now, so it would not be sent."}
+                    {" "}Like the reminders, it goes only in your sending hours, never to a customer who opted out, and not once a
+                    review that may be theirs has come in.
+                  </p>
                   <TextArea label="The text" name="sms" rows={3} defaultValue={reminder.wording.sms} />
                   <TextField label="The email's subject" name="emailSubject" defaultValue={reminder.wording.emailSubject} />
                   <TextArea label="The email" name="emailBody" rows={8} defaultValue={reminder.wording.emailBody} />
                 </ActionForm>
+                {reminder.later.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="text-sm font-medium text-ink-700">The latest follow ups and second reminders</p>
+                    <ul className="mt-1 space-y-1 text-sm text-ink-700">
+                      {reminder.later.map((l) => (
+                        <li key={`${l.requestId}:${l.kind}`}>
+                          Job {l.jobNumber}, {l.customerName}: {l.kind === "follow_up" ? "follow up by email" : "second reminder"},{" "}
+                          {l.sent ? "sent" : l.detail ?? "not sent"}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 {reminder.wording.custom ? (
                   <ActionForm action={resetReminderWords} submit="Put back the words we wrote" tone="quiet"
                               className="mt-3 flex items-center gap-2" />
