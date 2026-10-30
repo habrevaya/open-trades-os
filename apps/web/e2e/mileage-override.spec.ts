@@ -59,7 +59,7 @@ test("the owner sets a rate for a person and a vehicle, and a claim says whose r
     // The owner gives Ray a rate and the van a rate.
     await owner.goto("/payroll/pay-rules");
     const own = owner.getByRole("region", { name: "A mile for one person or one vehicle" });
-    await own.getByLabel("Person", { exact: true }).selectOption({ label: "Ray Ortiz" });
+    await own.getByLabel("Pick the person").selectOption({ label: "Ray Ortiz" });
     await own.getByLabel("Person's rate starts on").fill("2025-01-01");
     await own.getByLabel("Dollars for one mile, for this person").fill("seventy cents");
     await own.getByRole("button", { name: "Add the rate for this person" }).click();
@@ -71,11 +71,13 @@ test("the owner sets a rate for a person and a vehicle, and a claim says whose r
     await expect(table).toContainText("Ray Ortiz");
     await expect(table).toContainText("$0.800");
     // A day cannot have two for the same person.
+    await own.getByLabel("Pick the person").selectOption({ label: "Ray Ortiz" });
+    await own.getByLabel("Person's rate starts on").fill("2025-01-01");
     await own.getByLabel("Dollars for one mile, for this person").fill("0.90");
     await own.getByRole("button", { name: "Add the rate for this person" }).click();
     await expect(owner.getByRole("alert").filter({ hasText: "There is already a rate from" })).toBeVisible();
 
-    await own.getByLabel("Vehicle", { exact: true }).selectOption({ label: VAN });
+    await own.getByLabel("Pick the vehicle").selectOption({ label: VAN });
     await own.getByLabel("Vehicle's rate starts on").fill("2025-01-01");
     await own.getByLabel("Dollars for one mile, for this vehicle").fill("0.45");
     await own.getByRole("button", { name: "Add the rate for this vehicle" }).click();

@@ -411,7 +411,7 @@ export default async function PayRulesPage() {
         {configures && people.length > 0 ? (
           <ActionForm action={act} submit="Add the rate for this person" hidden={{ op: "mileageOverrideAdd" }}
                       className="mt-4 grid max-w-xl gap-3 sm:grid-cols-3">
-            <Select label="Person" name="technicianId" required
+            <Select label="Pick the person" name="technicianId" required
                     options={people.map((p) => ({ value: p.id, label: p.displayName }))} />
             <TextField label="Person's rate starts on" name="from" type="date" required defaultValue={today} />
             <TextField label="Dollars for one mile, for this person" name="perMile" inputMode="decimal" required placeholder="0.725" />
@@ -420,7 +420,7 @@ export default async function PayRulesPage() {
         {configures && fleet.assets.length > 0 ? (
           <ActionForm action={act} submit="Add the rate for this vehicle" hidden={{ op: "mileageOverrideAdd" }}
                       className="mt-4 grid max-w-xl gap-3 sm:grid-cols-3">
-            <Select label="Vehicle" name="assetId" required
+            <Select label="Pick the vehicle" name="assetId" required
                     options={fleet.assets.map((v) => ({ value: v.id, label: v.label }))} />
             <TextField label="Vehicle's rate starts on" name="from" type="date" required defaultValue={today} />
             <TextField label="Dollars for one mile, for this vehicle" name="perMile" inputMode="decimal" required placeholder="0.500" />
