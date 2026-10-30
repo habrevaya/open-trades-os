@@ -83010,7 +83010,7 @@
       "post": {
         "operationId": "setMyNoticeDigest",
         "summary": "Turn your daily email of unread notices on or off",
-        "description": "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8), an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on.\n\nRequires a session holding: profile:own.",
+        "description": "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8) or at your own `hour`, an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on. `hour` is your own hour of the company's day (one of `digestHour.choices`: from its morning hour, never inside its quiet hours); null goes back to the morning hour, and left out keeps what you had.\n\nRequires a session holding: profile:own.",
         "tags": [
           "M34"
         ],
@@ -86756,6 +86756,228 @@
         "x-authorization": "session",
         "x-permissions": [
           "settings:write"
+        ]
+      }
+    },
+    "/v1/notice-defaults/apply": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyNoticeDefaults",
+        "summary": "Give everybody already here the company's notice defaults",
+        "description": "For every kind a person never chose on their own page, they get the company's defaults now: a kind copied onto them when they joined, or one they never had a row for. A kind they chose themselves is kept, and texts are never touched. `confirmed` must be true: ask first. Running it again changes nothing more. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyNoticeDefaultsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give everybody already here the company's notice defaults",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyNoticeDefaultsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "get": {
+        "operationId": "previewNoticeDefaultsApplied",
+        "summary": "What giving everybody the company's notice defaults would change",
+        "description": "Counts only, for the question asked before `POST /v1/notice-defaults/apply`: how many people would change, how many kinds, and how many keep a choice of their own.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M34"
+        ],
+        "responses": {
+          "200": {
+            "description": "What giving everybody the company's notice defaults would change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewNoticeDefaultsAppliedOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
         ]
       }
     },
@@ -157634,6 +157856,43 @@
           "told"
         ]
       },
+      "ApplyNoticeDefaultsInput": {
+        "type": "object",
+        "properties": {
+          "confirmed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "confirmed"
+        ]
+      },
+      "ApplyNoticeDefaultsOutput": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "integer"
+          },
+          "changed": {
+            "type": "integer"
+          },
+          "kinds": {
+            "type": "integer"
+          },
+          "keptOwn": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "people",
+          "changed",
+          "kinds",
+          "keptOwn"
+        ]
+      },
       "ApplyPaymentInput": {
         "type": "object",
         "properties": {
@@ -207318,6 +207577,31 @@
               "lastOutcome"
             ]
           },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
           "onCall": {
             "type": "array",
             "items": {
@@ -207347,6 +207631,7 @@
           "phones",
           "companyCanText",
           "digest",
+          "digestHour",
           "onCall"
         ]
       },
@@ -258216,6 +258501,29 @@
           "missing"
         ]
       },
+      "PreviewNoticeDefaultsAppliedOutput": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "integer"
+          },
+          "changed": {
+            "type": "integer"
+          },
+          "kinds": {
+            "type": "integer"
+          },
+          "keptOwn": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "people",
+          "changed",
+          "kinds",
+          "keptOwn"
+        ]
+      },
       "PreviewPriceChangeOutput": {
         "type": "object",
         "properties": {
@@ -283867,6 +284175,14 @@
         "properties": {
           "on": {
             "type": "boolean"
+          },
+          "hour": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 23
           }
         },
         "required": [
@@ -283995,6 +284311,31 @@
               "lastOutcome"
             ]
           },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
           "onCall": {
             "type": "array",
             "items": {
@@ -284024,6 +284365,7 @@
           "phones",
           "companyCanText",
           "digest",
+          "digestHour",
           "onCall"
         ]
       },
@@ -284201,6 +284543,31 @@
               "lastOutcome"
             ]
           },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
           "onCall": {
             "type": "array",
             "items": {
@@ -284230,6 +284597,7 @@
           "phones",
           "companyCanText",
           "digest",
+          "digestHour",
           "onCall"
         ]
       },
@@ -284376,6 +284744,31 @@
               "lastOutcome"
             ]
           },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
           "onCall": {
             "type": "array",
             "items": {
@@ -284405,6 +284798,7 @@
           "phones",
           "companyCanText",
           "digest",
+          "digestHour",
           "onCall"
         ]
       },

@@ -83,6 +83,14 @@ export const staffNoticeSetting = pgTable("staff_notice_setting", {
    * ever reads it.
    */
   email: boolean("email"),
+  /**
+   * Whether the person chose these switches themselves on `/me`. False for a
+   * row the company's defaults copied onto them when they joined and they have
+   * not changed since. "Apply the defaults to everybody" replaces only rows
+   * that are false here (and fills in kinds with no row), never a choice the
+   * person made.
+   */
+  chosen: boolean("chosen").notNull().default(true),
   ...timestamps,
 }, (t) => ({
   kindIdx: uniqueIndex("staff_notice_setting_kind_idx").on(t.organizationId, t.userId, t.kind),
@@ -131,6 +139,13 @@ export const staffNoticeDigest = pgTable("staff_notice_digest", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
+  /**
+   * The hour of the company's day they want it, 0 to 23 in the company's time
+   * zone. Null is the company's morning hour (when its quiet hours end, or 8).
+   * Only an hour inside the company's day and outside its quiet hours is
+   * saved; one the company's quiet hours later cover goes at the morning hour.
+   */
+  hour: integer("hour"),
   /** The company day the last digest was decided on. */
   lastOn: date("last_on"),
   /** When the last one was put in the company's email outbox. */

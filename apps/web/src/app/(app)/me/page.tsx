@@ -3,12 +3,12 @@ import { getDb } from "@/lib/db";
 import { me, staffNotices } from "@opentradesos/api/services";
 import { can, time } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { Fact, Facts } from "@/components/Detail";
 import { Empty, Table, Td, Th } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import {
-  addContact, saveOwnContact, logCeHours, removeContact, saveNoticeSwitches, setNoticeDigest, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
+  addContact, saveOwnContact, logCeHours, removeContact, saveNoticeSwitches, setNoticeDigest, setNoticeDigestHour, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
 } from "./actions";
 import { SignDocument } from "./SignDocument";
 import { OwnContactChanges } from "@/components/OwnContactChanges";
@@ -341,8 +341,8 @@ function NoticeSettings({ told, zone }: { told: Awaited<ReturnType<typeof staffN
       <div className="mt-1 space-y-2 text-sm">
         <p className="text-ink-700">
           {told.digest.on
-            ? `On. Each morning at ${hourWords(told.digest.hour)}, an email to the address you sign in with lists the notices you have not read. Nothing comes on a day you have read them all.`
-            : `Off. Turn it on to get one email each morning at ${hourWords(told.digest.hour)} listing the notices you have not read.`}
+            ? `On. ${told.digest.hour < 12 ? "Each morning" : "Each day"} at ${hourWords(told.digest.hour)}, an email to the address you sign in with lists the notices you have not read. Nothing comes on a day you have read them all.`
+            : `Off. Turn it on to get one email ${told.digest.hour < 12 ? "each morning" : "each day"} at ${hourWords(told.digest.hour)} listing the notices you have not read.`}
         </p>
         {told.digest.on && told.digest.lastOutcome && told.digest.lastOn
           ? <p className="text-ink-500">Last morning ({told.digest.lastOn}): {told.digest.lastOutcome}</p>
@@ -350,6 +350,18 @@ function NoticeSettings({ told, zone }: { told: Awaited<ReturnType<typeof staffN
         <ActionForm action={setNoticeDigest} submit={told.digest.on ? "Turn the daily email off" : "Turn the daily email on"}
                     tone={told.digest.on ? "quiet" : "primary"} hidden={{ on: told.digest.on ? "false" : "true" }}
                     className="inline-flex" />
+        <ActionForm action={setNoticeDigestHour} submit="Save the hour" tone="quiet" hidden={{ on: told.digest.on ? "true" : "false" }}
+                    className="flex flex-wrap items-end gap-3">
+          <Select label="When it comes" name="hour" defaultValue={told.digestHour.own === null ? "" : String(told.digestHour.own)}
+                  className="block w-64"
+                  options={[
+                    { value: "", label: `The company's morning (${hourWords(told.digestHour.company)})` },
+                    ...told.digestHour.choices.map((h) => ({ value: String(h), label: hourWords(h) })),
+                  ]} />
+        </ActionForm>
+        <p className="text-xs text-ink-500">
+          Any hour of the company's day, from its morning to the start of its quiet hours, in the company's time zone.
+        </p>
       </div>
 
       <h3 className="mt-6 text-sm font-semibold">Texts to your mobile</h3>

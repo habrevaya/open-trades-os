@@ -521,11 +521,20 @@ export interface NoticeSettingsView {
   /** The daily email of unread notices: off until the person turns it on. */
   digest: {
     on: boolean;
-    /** The company's morning hour, when it goes: the end of its quiet hours, or 8. */
+    /** The hour it goes: their own where they chose one still inside the company's day, else the company's morning hour. */
     hour: number;
     /** The company day it was last decided on, and what happened, in words. */
     lastOn: string | null;
     lastOutcome: string | null;
+  };
+  /** The hour of the digest they may choose, beside `digest` so its shape stays as it was. */
+  digestHour: {
+    /** The hour they chose, or null for the company's morning hour. */
+    own: number | null;
+    /** The company's morning hour: the end of its quiet hours, or 8. */
+    company: number;
+    /** The hours they may choose: inside the company's day, outside its quiet hours. */
+    choices: number[];
   };
   /** The person's own turns on the office's on call rota, from today on (`office-on-call.ts`). */
   onCall: { startsOn: string; endsOn: string; today: boolean }[];
@@ -571,9 +580,14 @@ async function settingsWithin(tx: Database, ctx: ServiceContext): Promise<Notice
     companyCanText: Boolean(sender?.smsRegistered),
     digest: {
       on: digest?.enabled ?? false,
-      hour: rules.digestHour(quiet.window),
+      hour: rules.digestHourFor(digest?.hour ?? null, quiet.window),
       lastOn: digest?.lastOn ?? null,
       lastOutcome: digest?.lastOutcome ?? null,
+    },
+    digestHour: {
+      own: digest?.hour ?? null,
+      company: rules.digestHour(quiet.window),
+      choices: rules.digestHourChoices(quiet.window),
     },
     onCall: await myTurns(tx, ctx.actor.organizationId, ctx.actor.userId),
   };
@@ -609,15 +623,30 @@ export function setSwitches(
         throw new ConflictError("Turn on texts with your mobile number first, then choose what comes by text.");
       }
     }
+    const had = await tx.select().from(schema.staffNoticeSetting)
+      .where(eq(schema.staffNoticeSetting.userId, ctx.actor.userId));
     for (const k of input.kinds) {
+      const kind = k.kind as rules.NoticeKind;
       /** Only a kind that is emailed keeps a choice; the others never read it. */
-      const emailSwitch = rules.isEmailKind(k.kind as rules.NoticeKind) && k.email !== undefined ? { email: k.email } : {};
+      const emailSwitch = rules.isEmailKind(kind) && k.email !== undefined ? { email: k.email } : {};
+      /**
+       * A kind is the person's own choice once they change it, or once they
+       * already had. The page sends every kind at once, so a kind sent back
+       * exactly as it was is not a choice they made, and the company's
+       * defaults may still be applied to it later.
+       */
+      const row = had.find((r) => r.kind === kind);
+      const before = { ...rules.switchesFor(had, kind), email: rules.emailFor(had, kind) };
+      const differs = before.inApp !== k.inApp || before.push !== k.push || before.text !== k.text
+        || (rules.isEmailKind(kind) && k.email !== undefined && before.email !== k.email);
+      const chosen = (row?.chosen ?? false) || differs;
+      if (!row && !differs) continue;
       await tx.insert(schema.staffNoticeSetting).values({
         organizationId: ctx.actor.organizationId, userId: ctx.actor.userId,
-        kind: k.kind, inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch,
+        kind: k.kind, inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch, chosen,
       }).onConflictDoUpdate({
         target: [schema.staffNoticeSetting.organizationId, schema.staffNoticeSetting.userId, schema.staffNoticeSetting.kind],
-        set: { inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch, updatedAt: new Date() },
+        set: { inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch, chosen, updatedAt: new Date() },
       });
     }
     return settingsWithin(tx, ctx);
@@ -694,20 +723,42 @@ export function setTexts(
  * already went does not send a second one that day; the next morning's does.
  * Audited, like their texts.
  */
-export function setDigest(ctx: ServiceContext, input: { on: boolean }): Promise<NoticeSettingsView> {
+export function setDigest(
+  ctx: ServiceContext, input: { on: boolean; hour?: number | null | undefined },
+): Promise<NoticeSettingsView> {
   return guardedWrite(ctx, "profile:own", async (tx) => {
     mustBePerson(ctx);
-    const [before] = await tx.select({ enabled: schema.staffNoticeDigest.enabled }).from(schema.staffNoticeDigest)
+    const [before] = await tx.select({ enabled: schema.staffNoticeDigest.enabled, hour: schema.staffNoticeDigest.hour })
+      .from(schema.staffNoticeDigest)
       .where(eq(schema.staffNoticeDigest.userId, ctx.actor.userId)).limit(1);
-    if ((before?.enabled ?? false) === input.on) return settingsWithin(tx, ctx);
+    /**
+     * THEIR OWN HOUR, when they send one: an hour of the company's day, after
+     * its morning hour and outside its quiet hours. Null goes back to the
+     * company's morning hour. Left out keeps what they had.
+     */
+    const hourSent = input.hour !== undefined;
+    if (hourSent) {
+      const quiet = await quietHoursFor(tx, ctx.actor.organizationId, new Date());
+      const problem = rules.digestHourProblem(input.hour ?? null, quiet.window);
+      if (problem) throw new ConflictError(problem);
+    }
+    const wasOn = before?.enabled ?? false;
+    const hadHour = before?.hour ?? null;
+    const hour = hourSent ? input.hour ?? null : hadHour;
+    if (wasOn === input.on && hadHour === hour) return settingsWithin(tx, ctx);
     await tx.insert(schema.staffNoticeDigest).values({
-      organizationId: ctx.actor.organizationId, userId: ctx.actor.userId, enabled: input.on,
+      organizationId: ctx.actor.organizationId, userId: ctx.actor.userId, enabled: input.on, hour,
     }).onConflictDoUpdate({
       target: [schema.staffNoticeDigest.organizationId, schema.staffNoticeDigest.userId],
-      set: { enabled: input.on, updatedAt: new Date() },
+      set: { enabled: input.on, hour, updatedAt: new Date() },
     });
-    await audit(tx, ctx, input.on ? "staff_notice_digest.on" : "staff_notice_digest.off", "user", ctx.actor.userId,
-      { on: before?.enabled ?? false }, { on: input.on });
+    if (wasOn !== input.on) {
+      await audit(tx, ctx, input.on ? "staff_notice_digest.on" : "staff_notice_digest.off", "user", ctx.actor.userId,
+        { on: wasOn }, { on: input.on });
+    }
+    if (hadHour !== hour) {
+      await audit(tx, ctx, "staff_notice_digest.hour_changed", "user", ctx.actor.userId, { hour: hadHour }, { hour });
+    }
     return settingsWithin(tx, ctx);
   });
 }
@@ -1529,5 +1580,5 @@ export const handlers = {
     setSwitches(ctx, input),
   setMyNoticeTexts: (ctx: ServiceContext, input: { on: boolean; mobilePhone?: string | null | undefined; agreed?: boolean | undefined }) =>
     setTexts(ctx, input),
-  setMyNoticeDigest: (ctx: ServiceContext, input: { on: boolean }) => setDigest(ctx, input),
+  setMyNoticeDigest: (ctx: ServiceContext, input: { on: boolean; hour?: number | null | undefined }) => setDigest(ctx, input),
 } as const;

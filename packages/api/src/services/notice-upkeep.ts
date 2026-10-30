@@ -15,11 +15,12 @@ import { within } from "./workflow-schedule";
  * Two jobs the worker does for notices (M34) beside raising and sending
  * them, both off until somebody asks.
  *
- * THE DAILY DIGEST is a person's own choice, on `/me`: one email a morning
+ * THE DAILY DIGEST is a person's own choice, on `/me`: one email a day
  * listing the notices on their bell they have not read and can still open.
  * Sent at the company's morning hour, which is when its quiet hours end (8
  * without them), because that is already when the company starts texting
- * people. Nothing goes on a day nothing is unread. It is decided once per
+ * people, or at an hour of their own they chose on `/me`, inside the
+ * company's day and outside its quiet hours. Nothing goes on a day nothing is unread. It is decided once per
  * company day: the row is claimed for the day in the same transaction that
  * puts the email in the company's outbox, so two workers, or a pass run
  * twice, send one. Through `email.queue` like every other email, so a
@@ -141,13 +142,18 @@ async function sendDigests(db: Database, organizationId: string, now: Date, resu
     const quiet = await quietHoursFor(tx, organizationId, now);
     const today = time.dateIn(now, quiet.zone);
     if (!rules.digestDue({ today, localHour: quiet.localHour, lastOn: null, quiet: quiet.window })) return null;
-    const people = await tx.select({ id: schema.staffNoticeDigest.id }).from(schema.staffNoticeDigest)
+    const people = await tx.select({ id: schema.staffNoticeDigest.id, hour: schema.staffNoticeDigest.hour })
+      .from(schema.staffNoticeDigest)
       .where(and(
         eq(schema.staffNoticeDigest.enabled, true),
         or(isNull(schema.staffNoticeDigest.lastOn), lt(schema.staffNoticeDigest.lastOn, today)),
       ))
       .limit(500);
-    return { today, ids: people.map((p) => p.id) };
+    /** Each person at their own hour, where they chose one still inside the company's day. */
+    const due = people.filter((p) => rules.digestDue({
+      today, localHour: quiet.localHour, lastOn: null, quiet: quiet.window, hour: p.hour,
+    }));
+    return { today, ids: due.map((p) => p.id) };
   });
   if (!due) return;
   for (const id of due.ids) {

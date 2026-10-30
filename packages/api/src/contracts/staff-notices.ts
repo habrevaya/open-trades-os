@@ -51,12 +51,21 @@ const Settings = z.object({
   companyCanText: z.boolean(),
   digest: z.object({
     on: z.boolean(),
-    /** The company's morning hour, 0 to 23, when the digest goes: when its quiet hours end, or 8. */
+    /** The hour it goes, 0 to 23 in the company's time zone: your own where you chose one, else the company's morning hour. */
     hour: z.number().int(),
     /** The company day it was last decided on. */
     lastOn: z.string().nullable(),
     /** What happened then, in words: how many it listed, nothing unread, or why it could not go. */
     lastOutcome: z.string().nullable(),
+  }),
+  /** Your own hour for the daily email. */
+  digestHour: z.object({
+    /** The hour you chose, or null for the company's morning hour. */
+    own: z.number().int().nullable(),
+    /** The company's morning hour: when its quiet hours end, or 8. */
+    company: z.number().int(),
+    /** The hours you may choose: from the company's morning hour, never inside its quiet hours. */
+    choices: z.array(z.number().int()),
   }),
   /** Your own turns on the office's on call rota, from today on. */
   onCall: z.array(z.object({ startsOn: z.string(), endsOn: z.string(), today: z.boolean() })),
@@ -152,13 +161,14 @@ export const setMyNoticeDigest = defineRoute({
   path: "/v1/me/notice-digest",
   summary: "Turn your daily email of unread notices on or off",
   description:
-    "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8), an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. "
-    + "It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on.",
+    "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8) or at your own `hour`, an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. "
+    + "It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on. "
+    + "`hour` is your own hour of the company's day (one of `digestHour.choices`: from its morning hour, never inside its quiet hours); null goes back to the morning hour, and left out keeps what you had.",
   module: "M34",
   permissions: ["profile:own"],
   /** Setting a state: on twice is on. */
   idempotent: true,
-  input: z.object({ on: z.boolean() }),
+  input: z.object({ on: z.boolean(), hour: z.number().int().min(0).max(23).nullable().optional() }),
   output: Settings,
 });
 
@@ -328,7 +338,46 @@ export const removeOfficeOnCallTurn = defineRoute({
   output: z.object({ id: Uuid, removed: z.boolean() }),
 });
 
+const Applied = z.object({
+  /** People who work here now. */
+  people: z.number().int(),
+  /** People at least one of whose kinds changes. */
+  changed: z.number().int(),
+  /** Kinds changed across everybody. */
+  kinds: z.number().int(),
+  /** People who keep at least one kind they chose themselves. */
+  keptOwn: z.number().int(),
+});
+
+export const previewNoticeDefaultsApplied = defineRoute({
+  method: "get",
+  path: "/v1/notice-defaults/apply",
+  summary: "What giving everybody the company's notice defaults would change",
+  description:
+    "Counts only, for the question asked before `POST /v1/notice-defaults/apply`: how many people would change, how many kinds, and how many keep a choice of their own.",
+  module: "M34",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: Applied,
+});
+
+export const applyNoticeDefaults = defineRoute({
+  method: "post",
+  path: "/v1/notice-defaults/apply",
+  summary: "Give everybody already here the company's notice defaults",
+  description:
+    "For every kind a person never chose on their own page, they get the company's defaults now: a kind copied onto them when they joined, or one they never had a row for. "
+    + "A kind they chose themselves is kept, and texts are never touched. `confirmed` must be true: ask first. Running it again changes nothing more. Audited.",
+  module: "M34",
+  permissions: ["settings:write"],
+  /** Applying twice is the same state. */
+  idempotent: true,
+  input: z.object({ confirmed: z.literal(true) }),
+  output: Applied,
+});
+
 export const staffNoticeRoutes = {
+  previewNoticeDefaultsApplied, applyNoticeDefaults,
   getOfficeOnCall, setOfficeOnCallKinds, addOfficeOnCallTurn, removeOfficeOnCallTurn,
   getNoticeDefaults, setNoticeDefaults,
   listMyNotices, readMyNotices, getMyNoticeSettings, setMyNoticeSettings, setMyNoticeTexts, setMyNoticeDigest,

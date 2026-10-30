@@ -1093,6 +1093,17 @@ export interface ApplyMultiDayRebalanceOutput {
   }>;
 }
 
+export interface ApplyNoticeDefaultsInput {
+  confirmed: true;
+}
+
+export interface ApplyNoticeDefaultsOutput {
+  people: number;
+  changed: number;
+  kinds: number;
+  keptOwn: number;
+}
+
 export interface ApplyPaymentInput {
   allocations: Array<{
     invoiceId: string;
@@ -10713,6 +10724,11 @@ export interface GetMyNoticeSettingsOutput {
     hour: number;
     lastOn: string | null;
     lastOutcome: string | null;
+  };
+  digestHour: {
+    own: number | null;
+    company: number;
+    choices: number[];
   };
   onCall: Array<{
     startsOn: string;
@@ -20406,6 +20422,13 @@ export interface PreviewMessageTemplateOutput {
   missing: string[];
 }
 
+export interface PreviewNoticeDefaultsAppliedOutput {
+  people: number;
+  changed: number;
+  kinds: number;
+  keptOwn: number;
+}
+
 export interface PreviewPriceChangeOutput {
   description: string;
   changing: number;
@@ -25708,6 +25731,7 @@ export interface SetMyContactOutput {
 
 export interface SetMyNoticeDigestInput {
   on: boolean;
+  hour?: number | null;
 }
 
 export interface SetMyNoticeDigestOutput {
@@ -25733,6 +25757,11 @@ export interface SetMyNoticeDigestOutput {
     hour: number;
     lastOn: string | null;
     lastOutcome: string | null;
+  };
+  digestHour: {
+    own: number | null;
+    company: number;
+    choices: number[];
   };
   onCall: Array<{
     startsOn: string;
@@ -25775,6 +25804,11 @@ export interface SetMyNoticeSettingsOutput {
     lastOn: string | null;
     lastOutcome: string | null;
   };
+  digestHour: {
+    own: number | null;
+    company: number;
+    choices: number[];
+  };
   onCall: Array<{
     startsOn: string;
     endsOn: string;
@@ -25811,6 +25845,11 @@ export interface SetMyNoticeTextsOutput {
     hour: number;
     lastOn: string | null;
     lastOutcome: string | null;
+  };
+  digestHour: {
+    own: number | null;
+    company: number;
+    choices: number[];
   };
   onCall: Array<{
     startsOn: string;
@@ -33646,6 +33685,8 @@ export interface PreviewMailCampaignInput {
   id: string;
 }
 
+export type PreviewNoticeDefaultsAppliedInput = Record<string, never>;
+
 export interface PreviewPriceChangeInput {
   categoryId?: string;
   includeSubcategories?: boolean;
@@ -34945,6 +34986,7 @@ export interface OperationTypes {
   applyDispatchPlan: { input: ApplyDispatchPlanParams & ApplyDispatchPlanInput; output: ApplyDispatchPlanOutput };
   applyExternalWorkOrderRemote: { input: ApplyExternalWorkOrderRemoteParams & ApplyExternalWorkOrderRemoteInput; output: ApplyExternalWorkOrderRemoteOutput };
   applyMultiDayRebalance: { input: ApplyMultiDayRebalanceInput; output: ApplyMultiDayRebalanceOutput };
+  applyNoticeDefaults: { input: ApplyNoticeDefaultsInput; output: ApplyNoticeDefaultsOutput };
   applyPayment: { input: ApplyPaymentParams & ApplyPaymentInput; output: ApplyPaymentOutput };
   applyPriceChange: { input: ApplyPriceChangeInput; output: ApplyPriceChangeOutput };
   applyProposalTemplate: { input: ApplyProposalTemplateParams & ApplyProposalTemplateInput; output: ApplyProposalTemplateOutput };
@@ -35688,6 +35730,7 @@ export interface OperationTypes {
   previewJobBilling: { input: PreviewJobBillingInput; output: PreviewJobBillingOutput };
   previewMailCampaign: { input: PreviewMailCampaignInput; output: PreviewMailCampaignOutput };
   previewMessageTemplate: { input: PreviewMessageTemplateInput; output: PreviewMessageTemplateOutput };
+  previewNoticeDefaultsApplied: { input: PreviewNoticeDefaultsAppliedInput; output: PreviewNoticeDefaultsAppliedOutput };
   previewPriceChange: { input: PreviewPriceChangeInput; output: PreviewPriceChangeOutput };
   previewRecurringSchedule: { input: PreviewRecurringScheduleInput; output: PreviewRecurringScheduleOutput };
   previewRentalInvoice: { input: PreviewRentalInvoiceInput; output: PreviewRentalInvoiceOutput };
@@ -36183,6 +36226,7 @@ export const OPERATIONS = {
   applyDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   applyExternalWorkOrderRemote: { method: "POST", path: "/v1/external-work-orders/{id}/remote", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   applyMultiDayRebalance: { method: "POST", path: "/v1/dispatch/rebalance/days/apply", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch","visit:reschedule"] },
+  applyNoticeDefaults: { method: "POST", path: "/v1/notice-defaults/apply", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   applyPayment: { method: "POST", path: "/v1/payments/{id}/apply", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   applyPriceChange: { method: "POST", path: "/v1/pricebook/price-changes", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   applyProposalTemplate: { method: "POST", path: "/v1/estimates/{id}/proposal-template", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
@@ -36926,6 +36970,7 @@ export const OPERATIONS = {
   previewJobBilling: { method: "GET", path: "/v1/jobs/{id}/billing", pathParams: ["id"], queryParams: ["taxRate","lineRates","beyondPayer","beyondRate"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   previewMailCampaign: { method: "GET", path: "/v1/marketing/mail/{id}/preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   previewMessageTemplate: { method: "POST", path: "/v1/message-templates/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  previewNoticeDefaultsApplied: { method: "GET", path: "/v1/notice-defaults/apply", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewPriceChange: { method: "GET", path: "/v1/pricebook/price-change-preview", pathParams: [], queryParams: ["categoryId","includeSubcategories","q","itemIds","mode","value","ending","effectiveOn"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   previewRecurringSchedule: { method: "GET", path: "/v1/recurring-schedules/{id}/preview", pathParams: ["id"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   previewRentalInvoice: { method: "GET", path: "/v1/rentals/{id}/invoice-preview", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write","asset:read"] },
@@ -37780,6 +37825,15 @@ export abstract class GeneratedOperations {
    */
   applyMultiDayRebalance(input: ApplyMultiDayRebalanceInput, options?: CallOptions): Promise<ApplyMultiDayRebalanceOutput> {
     return this.call("applyMultiDayRebalance", input, options);
+  }
+
+  /**
+   * Give everybody already here the company's notice defaults.
+   *
+   * POST /v1/notice-defaults/apply. Needs settings:write.
+   */
+  applyNoticeDefaults(input: ApplyNoticeDefaultsInput, options?: CallOptions): Promise<ApplyNoticeDefaultsOutput> {
+    return this.call("applyNoticeDefaults", input, options);
   }
 
   /**
@@ -44467,6 +44521,15 @@ export abstract class GeneratedOperations {
    */
   previewMessageTemplate(input: PreviewMessageTemplateInput, options?: CallOptions): Promise<PreviewMessageTemplateOutput> {
     return this.call("previewMessageTemplate", input, options);
+  }
+
+  /**
+   * What giving everybody the company's notice defaults would change.
+   *
+   * GET /v1/notice-defaults/apply. Needs settings:read.
+   */
+  previewNoticeDefaultsApplied(input: PreviewNoticeDefaultsAppliedInput = {} as PreviewNoticeDefaultsAppliedInput, options?: CallOptions): Promise<PreviewNoticeDefaultsAppliedOutput> {
+    return this.call("previewNoticeDefaultsApplied", input, options);
   }
 
   /**

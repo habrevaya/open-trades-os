@@ -434,6 +434,23 @@ reaches only people added after it. There is no text setting, deliberately: a te
 goes to somebody's own mobile and only because they turned it on with their own
 number, so the copied row always says text is off.
 
+GIVING THE DEFAULTS TO PEOPLE ALREADY HERE is a separate act, under the same table
+on Settings, "Give these to people already here". It says first how many of the
+people who work here would change and how many have choices of their own that are
+kept, and goes only once the box saying yes is ticked (`GET /v1/notice-defaults/apply`
+with `settings:read` for the question, `POST /v1/notice-defaults/apply` with
+`settings:write` and `confirmed: true` for the act, audited as
+`staff_notice_defaults.applied` with the counts). It never replaces a person's own
+choice: each of a person's switches is marked as theirs (`staff_notice_setting.chosen`)
+once they change that kind on `/me`. Their page sends every kind at once, so a kind
+sent back exactly as it was is not marked; a kind changed is, for good. A kind they
+never chose takes the company's default: one the defaults copied onto them when they
+joined, or one they never had a row for. Texts are never touched. It gives what is
+saved in the table, not what is ticked and not yet saved, and running it again
+changes nothing more. Switches saved before this existed are read as the person's own
+choice, except a row the membership trigger wrote and nobody saved since (the same
+moment as the membership, never updated), which the migration marks as the company's.
+
 ON CALL FOR THE OFFICE ("On call for the office"). The three kinds the office queue raises (a deadline about
 to be missed, a customer asking to change a visit, an automatic payment that failed)
 tell everybody who holds the permission that answers them. A company can instead keep
@@ -511,7 +528,15 @@ asked the way the bell asks, with the person's own permissions now, so it never
 names a record they can no longer open, and leaves out a kind they keep off the
 bell. Nothing is sent on a day nothing is unread. The morning hour is when the
 company's quiet hours end (eight without them), the hour the company already
-starts texting people, and it is not sent inside quiet hours; a worker that was
+starts texting people, and it is not sent inside quiet hours. A person can choose an
+hour of their own on `/me` ("When it comes"): any hour of the company's day, from its
+morning hour to the start of its quiet hours (eight to eight in the evening with the
+usual nine to eight quiet hours), in the company's time zone, sent as `hour` on
+`POST /v1/me/notice-digest` and audited as `staff_notice_digest.hour_changed`; an
+hour before the morning or inside quiet hours is refused in words, and null goes back
+to the morning hour. When the company later moves its quiet hours over the hour a
+person chose, theirs goes at the morning hour rather than not at all, and `/me` shows
+the hour it now goes; a worker that was
 down at the hour sends it later that day, and a day it never came back on is not
 sent late. It is decided once per company day (`staff_notice_digest.last_on`),
 claimed in the transaction that queues the email, so two workers send one. What
@@ -590,6 +615,8 @@ them use the task permissions, because an obligation is work in the same queue.
 | `PATCH /v1/notice-keeping` | `settings:write` |
 | `GET /v1/notice-defaults` | `settings:read` |
 | `PATCH /v1/notice-defaults` | `settings:write` |
+| `GET /v1/notice-defaults/apply` | `settings:read` |
+| `POST /v1/notice-defaults/apply` | `settings:write` |
 | `GET /v1/office-on-call` | `settings:read` |
 | `PATCH /v1/office-on-call` | `settings:write` |
 | `POST /v1/office-on-call/turns` | `settings:write` |
@@ -675,12 +702,16 @@ lands in the inbox like any text from a number nobody recognises; a STOP is
 honoured. There is no notice by email one at a time beyond a licence or skill running
 out and the emails the escalation, the approval and the app request already
 send; the daily digest is the other way to get them by email, and it lists, it does
-not send each. The digest's hour is the end of the company's quiet hours, not a
-setting of its own or the person's, deliberately; it is plain text, and it goes
-only to the address the person signs in with. There is no per company
-setting for which kinds exist, and the company's defaults for a new person are
-copied once and never applied to people already here, never include a text, and
-do not include the daily digest, which only the person can turn on. A licence notice goes to
+not send each. The digest goes at the company's morning hour or an hour the person chose
+inside the company's day, in the company's time zone, never the person's own time
+zone, and once a day; it is plain text, and it goes only to the address the person
+signs in with. There is no per company setting for which kinds exist. The company's
+defaults for a new person are copied when they join, and reach people already here
+only when the company gives them to everybody on Settings, which keeps every kind a
+person changed themselves; there is no undo for it apart from changing the defaults
+and giving them again, and it cannot be given to one person or one role alone. The
+defaults never include a text, and do not include the daily digest or its hour, which
+only the person can choose. A licence notice goes to
 the holder, to whoever they report to and to the people named to keep the
 renewals list, not to everybody who can read it, deliberately; a talk is nudged once, an hour after it was held,
 and not again. Read notices are kept for good unless the company chooses a number

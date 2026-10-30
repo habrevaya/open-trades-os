@@ -18,7 +18,7 @@ import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
-import { saveNoticeDefaults, setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
+import { applyNoticeDefaults, saveNoticeDefaults, setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +83,8 @@ export default async function SettingsPage() {
   const holdPeople = holdNudge && can(user.actor, "task:read") ? await taskRules.assignable(ctx) : [];
   const keeping = writes ? await noticeUpkeep.keeping(ctx) : null;
   const noticeStart = writes ? await noticeDefaults.defaults(ctx) : null;
+  /** What giving these to everybody already here would change, for the question asked before it is done. */
+  const applying = writes ? await noticeDefaults.applyPreview(ctx) : null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -218,6 +220,27 @@ export default async function SettingsPage() {
               ))}
             </Table>
           </ActionForm>
+          {applying ? (
+            <div aria-label="People already here" role="group" className="mt-6 border-t border-steel-200 pt-4">
+              <h3 className="text-sm font-semibold text-ink-900">Give these to people already here</h3>
+              <p className="mt-1 max-w-prose text-sm text-ink-500">
+                {applying.changed === 0
+                  ? "Everybody already has these, or chose their own."
+                  : `${applying.changed} of ${applying.people} ${applying.people === 1 ? "person" : "people"} would change.`}
+                {" "}A choice a person made on their own page is kept
+                {applying.keptOwn > 0 ? ` (${applying.keptOwn} ${applying.keptOwn === 1 ? "person has" : "people have"} some)` : ""}.
+                {" "}Texts are not changed. Save the table above first: this gives what is saved.
+              </p>
+              {applying.changed > 0 ? (
+                <ActionForm action={applyNoticeDefaults} submit="Apply to everybody" tone="quiet" className="mt-3 space-y-2">
+                  <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="confirmed" value="yes" required className="mt-0.5 h-4 w-4" />
+                    <span>Yes, give everybody these, except where they chose their own.</span>
+                  </label>
+                </ActionForm>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       )}
 
