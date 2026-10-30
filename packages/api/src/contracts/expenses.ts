@@ -249,7 +249,7 @@ export const getJobExpenses = defineRoute({
   }),
 });
 
-const TipSplitRule = z.enum(["even", "hours", "lead"]);
+const TipSplitRule = z.enum(["even", "hours", "lead", "visit_hours"]);
 
 export const PayExtras = z.object({
   /** What a day away is worth, in dollars and cents. Null until somebody sets it, which pays none. */
@@ -292,7 +292,7 @@ export const setPayExtras = defineRoute({
   path: "/v1/payroll/pay-extras",
   summary: "Set the rate for a day away, or how tips are shared",
   description:
-    "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job) or `lead` (all to the lead on the job's visits): it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.",
+    "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job), `visit_hours` (by the hours each was clocked in on the visit the tip was for: the one it was taken on, or else the job's visit finished most recently) or `lead` (all to the lead on the job's visits); a job's or a person's own rule (`/v1/payroll/tip-rules`) is read before it: it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.",
   module: "M17",
   permissions: ["payroll:configure"],
   idempotent: true,
@@ -301,6 +301,62 @@ export const setPayExtras = defineRoute({
     tipSplit: TipSplitRule.optional(),
   }),
   output: PayExtras,
+});
+
+const TipRule = z.object({
+  id: Uuid,
+  kind: z.enum(["job", "technician"]),
+  jobId: Uuid.nullable(),
+  jobNumber: z.number().int().nullable(),
+  jobSummary: z.string().nullable(),
+  technicianId: Uuid.nullable(),
+  technicianName: z.string().nullable(),
+  rule: TipSplitRule,
+  ruleLabel: z.string(),
+  note: z.string().nullable(),
+  setAt: z.string().datetime(),
+});
+
+export const listTipRules = defineRoute({
+  method: "get",
+  path: "/v1/payroll/tip-rules",
+  summary: "The jobs and people with a tip rule of their own",
+  description:
+    "A job's own rule is read first when a tip on it is shared; then a person's own, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.",
+  module: "M17",
+  permissions: ["timesheet:read"],
+  input: z.object({}),
+  output: z.object({ rules: z.array(TipRule) }),
+});
+
+export const setTipRule = defineRoute({
+  method: "post",
+  path: "/v1/payroll/tip-rules",
+  summary: "Give one job, or one person, a tip rule of its own",
+  description:
+    "Exactly one of `jobId` and `technicianId`. A job or person that has one already has it changed, and the audit log keeps what it was. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so `payroll:configure`. Audited.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({
+    jobId: Uuid.optional(),
+    technicianId: Uuid.optional(),
+    rule: TipSplitRule,
+    note: z.string().max(500).optional(),
+  }),
+  output: TipRule,
+});
+
+export const removeTipRule = defineRoute({
+  method: "delete",
+  path: "/v1/payroll/tip-rules/{id}",
+  summary: "Take a job's or a person's own tip rule off",
+  description: "The job or person goes back to the company's rule from the next tip. Tips already shared keep theirs. Audited.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, removed: z.literal(true) }),
 });
 
 export const addMileageRate = defineRoute({
@@ -524,6 +580,7 @@ export const listMyCashTips = defineRoute({
 });
 
 export const expenseRoutes = {
+  listTipRules, setTipRule, removeTipRule,
   recordExpense, addExpenseReceipt, listMyExpenses, listExpenses, decideExpense,
   recordPerDiem, listPerDiem, removePerDiem, getJobExpenses, getPayExtras, setPayExtras,
   addMileageRate, removeMileageRate, listMileageOverrides, addMileageOverride, removeMileageOverride, addPerDiemPlace, addPerDiemPlaceRate, removePerDiemPlaceRate, retirePerDiemPlace,

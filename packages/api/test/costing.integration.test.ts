@@ -212,12 +212,12 @@ run("overhead as a mix", () => {
     const june = await job({ revenue: "900", completedAt: "2026-06-04T20:00:00Z", punches: [{ at: "2026-06-04T15:00:00Z", minutes: 180, base: "30" }] });
 
     const statement = await profitability.statement(owner(), { jobId });
-    expect(statement.overheadParts).toEqual({ perHour: "36.0000", perJob: "25.0000", revenueShare: "27.0000" });
+    expect(statement.overheadParts).toEqual({ perHour: "36.0000", perJob: "25.0000", revenueShare: "27.0000", materialShare: "0.0000", perVisit: "0.0000", perTruck: "0.0000" });
     expect(statement.overhead).toBe("88.0000");
     expect(statement.fullyLoadedMargin).toBe(m.toString(m.subtract(m.money(statement.grossMargin), m.money("88"))));
     /** June is before the mix: only January's $20 an hour. */
     const before = await profitability.statement(owner(), { jobId: june });
-    expect(before.overheadParts).toEqual({ perHour: "60.0000", perJob: "0.0000", revenueShare: "0.0000" });
+    expect(before.overheadParts).toEqual({ perHour: "60.0000", perJob: "0.0000", revenueShare: "0.0000", materialShare: "0.0000", perVisit: "0.0000", perTruck: "0.0000" });
 
     const rates = (await costing.list(owner())).rates
       .map((r) => ({ component: r.component, basis: r.basis, rate: r.rate, effectiveFrom: r.effectiveFrom }));
@@ -245,7 +245,7 @@ run("overhead as a mix", () => {
     await costing.setOverhead(owner(), { effectiveFrom: "2026-03-01", percentOfRevenue: "10" });
     const jobId = await job({ revenue: "1000", completedAt: "2026-03-05T20:00:00Z", punches: [{ at: "2026-03-05T15:00:00Z", minutes: 60, base: "30" }] });
     expect((await profitability.statement(owner(), { jobId })).overheadParts)
-      .toEqual({ perHour: "0.0000", perJob: "0.0000", revenueShare: "100.0000" });
+      .toEqual({ perHour: "0.0000", perJob: "0.0000", revenueShare: "100.0000", materialShare: "0.0000", perVisit: "0.0000", perTruck: "0.0000" });
   });
 
   it("answers a retried mix with the first, refuses a different one on the same day, and adds a part by basis", async () => {

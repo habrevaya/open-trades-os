@@ -586,6 +586,8 @@ export async function crewOf(tx: Database, jobId: string): Promise<string[]> {
 
 export async function writeTipShares(tx: Database, ctx: ServiceContext, input: {
   paymentId: string; invoiceId: string | null; jobId: string; tip: m.Money; occurredAt: Date;
+  /** The visit the payment was taken on, which is the visit the tip was for. */
+  visitId?: string | null | undefined;
 }): Promise<void> {
   await tips.writeShares(tx, {
     organizationId: ctx.actor.organizationId,
@@ -595,6 +597,7 @@ export async function writeTipShares(tx: Database, ctx: ServiceContext, input: {
     tip: input.tip,
     technicianIds: await crewOf(tx, input.jobId),
     occurredAt: input.occurredAt,
+    visitId: input.visitId ?? null,
   });
 }
 

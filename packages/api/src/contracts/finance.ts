@@ -178,11 +178,15 @@ export const getFinancingReport = defineRoute({
 
 /* -------------------------------------------------------------- costing */
 
+const CostingBasis = z.enum([
+  "percent_of_wages", "per_hour", "per_job", "percent_of_revenue", "percent_of_material", "per_visit", "per_truck",
+]);
+
 export const CostingRate = z.object({
   id: Uuid,
   component: z.enum(["payroll_taxes", "benefits", "workers_comp", "overhead"]),
   componentLabel: z.string(),
-  basis: z.enum(["percent_of_wages", "per_hour", "per_job", "percent_of_revenue"]),
+  basis: CostingBasis,
   basisLabel: z.string(),
   /** A percentage or an amount, by the basis. */
   rate: z.string(),
@@ -208,7 +212,8 @@ export const listCostingRates = defineRoute({
     overheadNow: z.object({
       effectiveFrom: DateString,
       parts: z.array(z.object({
-        basis: z.enum(["per_hour", "per_job", "percent_of_revenue"]), label: z.string(), rate: z.string(),
+        basis: z.enum(["per_hour", "per_job", "percent_of_revenue", "percent_of_material", "per_visit", "per_truck"]),
+        label: z.string(), rate: z.string(),
       })),
     }).nullable(),
   }),
@@ -219,13 +224,13 @@ export const setCostingRate = defineRoute({
   path: "/v1/costing/rates",
   summary: "Set a burden or overhead rate from a date",
   description:
-    "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.",
+    "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, a percent of the job's revenue, a percent of its material cost, an amount per visit, or an amount per truck day (each company vehicle that went out on the job, once for each day, by the vehicle register's custody record). A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.",
   module: "M15",
   permissions: ["finance:configure"],
   idempotent: true,
   input: z.object({
     component: z.enum(["payroll_taxes", "benefits", "workers_comp", "overhead"]),
-    basis: z.enum(["percent_of_wages", "per_hour", "per_job", "percent_of_revenue"]),
+    basis: CostingBasis,
     rate: z.string().max(20),
     effectiveFrom: DateString,
     note: z.string().max(500).optional(),
@@ -236,7 +241,7 @@ export const setCostingRate = defineRoute({
 export const setOverheadMix = defineRoute({
   method: "post",
   path: "/v1/costing/overhead",
-  summary: "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+  summary: "Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day",
   description:
     "Each part is optional and at least one is given; a 0 stops charging overhead from the day. The parts set on a day are the whole of the overhead from that day until a later day, so a mix is replaced whole rather than added to, and jobs before the day keep the overhead of their own day. A day that already has overhead is refused unless the same mix is sent again, which returns it. Each part is reported on its own on a job's costing and in the profitability measures.",
   module: "M15",
@@ -250,6 +255,12 @@ export const setOverheadMix = defineRoute({
     perJob: z.string().max(20).optional(),
     /** A percentage of the job's revenue. */
     percentOfRevenue: z.string().max(20).optional(),
+    /** A percentage of the job's material cost: its lines at cost and cost of goods sold posted to it. */
+    percentOfMaterial: z.string().max(20).optional(),
+    /** An amount per visit on the job that was not cancelled. */
+    perVisit: z.string().max(20).optional(),
+    /** An amount per truck day: each company vehicle that went out on the job, once for each day it did. */
+    perTruck: z.string().max(20).optional(),
     note: z.string().max(500).optional(),
   }),
   output: z.object({ effectiveFrom: DateString, rates: z.array(CostingRate) }),
@@ -270,14 +281,21 @@ export const removeCostingRate = defineRoute({
 const Year = z.coerce.number().int().min(2000).max(2100);
 
 /** How the year end forecast takes the months to come; mirrors `budget.FORECAST_METHODS` in core. */
-const ForecastMethod = z.enum(["budget", "run_rate", "seasonal"]);
+const ForecastMethod = z.enum(["budget", "run_rate", "seasonal", "blend"]);
+
+/** For a blend: whole percentages of the budget, the run rate and the seasonal shape, adding up to 100. */
+const ForecastWeights = z.object({
+  budget: z.number().int().min(0).max(100),
+  runRate: z.number().int().min(0).max(100),
+  seasonal: z.number().int().min(0).max(100),
+});
 
 export const getBudgetReport = defineRoute({
   method: "get",
   path: "/v1/budgets/{year}",
   summary: "The year's budget against the ledger, by line and month, with variance",
   description:
-    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold; with both, that job type's lines in that branch against the entries that carry the branch and are on the type's jobs, with both counts. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it, nor a branch's job type's into either. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over, or shaped like last year (the months already over taken as the share of the year they were last year in the same branch and job type, the rest in proportion; a line with nothing last year to follow is at its budget and says `noShape`); `forecast.assumption` says which, and it is an estimate, never a promise.",
+    "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold; with both, that job type's lines in that branch against the entries that carry the branch and are on the type's jobs, with both counts. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it, nor a branch's job type's into either. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over, or shaped like last year or the average of several past years (the months already over taken as the share of the year they were then in the same branch and job type, the rest in proportion; a line with nothing then to follow is at its budget and says `noShape`), or a blend of the three by the weights the company set; `forecast.months` gives the year month by month, adding up to the forecast; `forecast.assumption` says which, and it is an estimate, never a promise, and never stored as the budget.",
   module: "M15",
   permissions: ["report.financial:read"],
   input: z.object({
@@ -312,6 +330,10 @@ export const getBudgetReport = defineRoute({
         unbudgetedMonths: z.number().int(),
         /** Present, and true, on a line shaped like last year that had nothing last year to follow, so it is at its budget. */
         noShape: z.literal(true).optional(),
+        /** The year month by month, January to December: a month over at its actual, a month to come as forecast. They add up to `forecast`. */
+        months: z.array(MoneyString),
+        /** For a blend: what each of the three would make the months to come on its own. */
+        parts: z.object({ budget: MoneyString, runRate: MoneyString, seasonal: MoneyString }).optional(),
       }),
     })),
     net: z.object({ budget: MoneyString, actual: MoneyString }).nullable(),
@@ -329,8 +351,12 @@ export const getBudgetReport = defineRoute({
       method: ForecastMethod,
       closed: z.number().int(),
       fellBack: z.boolean(),
-      /** With last year's shape chosen, how many lines had none and were taken at their budget. */
+      /** With last year's shape chosen, or weighed in a blend, how many lines had none and were taken at their budget. */
       linesWithoutShape: z.number().int().optional(),
+      /** For a blend, its weights. Null otherwise. */
+      weights: ForecastWeights.nullable(),
+      /** How many past years the seasonal shape is the average of. */
+      seasonalYears: z.number().int(),
       assumption: z.string(),
       net: z.object({ forecast: MoneyString, budget: MoneyString }).nullable(),
     }),
@@ -342,11 +368,25 @@ export const setBudgetForecastMethod = defineRoute({
   path: "/v1/budgets/{year}/forecast",
   summary: "Choose how the year end forecast takes the months to come",
   description:
-    "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `seasonal` is refused, in words, unless the books hold the whole of last year (their first entry is in its January or earlier). One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.",
+    "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `blend` takes them as a weighted mix of the three, by `weights` (whole percentages adding up to 100), each part falling back to the budget where it would on its own. `seasonalYears` (1 to 5) makes the shape the average of that many past years, added together month by month, so one odd month counts for less. Shaping, on its own or weighed in a blend, is refused, in words, unless the books hold the whole of every year it is drawn from (their first entry is in the January of the earliest, or before). One choice for the year, which every reader and every branch's and job type's report uses. Only the choice is kept: the forecast, by line and by month, is worked out on every read and never stored as the budget. Nothing is posted.",
   module: "M15",
   permissions: ["finance:configure"],
-  input: z.object({ year: Year, method: ForecastMethod }),
-  output: z.object({ year: z.number().int(), method: ForecastMethod }),
+  input: z.object({
+    year: Year,
+    method: ForecastMethod,
+    /** Required for `blend`: whole percentages adding up to 100. */
+    weights: ForecastWeights.optional(),
+    /** How many past years the seasonal shape is the average of, 1 to 5. Left out, it stays as it was (1 at first). */
+    seasonalYears: z.number().int().min(1).max(5).optional(),
+  }),
+  output: z.object({
+    year: z.number().int(),
+    method: ForecastMethod,
+    /** For a blend, its weights. */
+    weights: ForecastWeights.optional(),
+    /** When the shape is the average of more than one past year, how many. */
+    seasonalYears: z.number().int().optional(),
+  }),
 });
 
 export const setBudgetLine = defineRoute({

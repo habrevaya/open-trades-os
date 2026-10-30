@@ -24,15 +24,69 @@ import { addDays } from "../time/index.js";
  *          tips were always shared, and what a company that never chose gets.
  *   hours  in proportion to the hours each person was clocked in on the job.
  *   lead   the person marked as lead on the job's visits takes all of it.
+ *   visit_hours
+ *          in proportion to the hours each person was clocked in on the ONE
+ *          visit the tip was for: the visit it was taken on, when it was
+ *          taken on site; otherwise the job's visit finished most recently,
+ *          which is the work the customer had just seen when they paid.
  */
-export const TIP_SPLIT_RULES = ["even", "hours", "lead"] as const;
+export const TIP_SPLIT_RULES = ["even", "hours", "lead", "visit_hours"] as const;
 export type TipSplitRule = (typeof TIP_SPLIT_RULES)[number];
 
 export const TIP_SPLIT_LABEL: Record<TipSplitRule, string> = {
   even: "Evenly between everybody on the job",
   hours: "By the hours each person worked on the job",
   lead: "All to the lead on the job",
+  visit_hours: "By the hours each person worked on the visit the tip was for",
 };
+
+/**
+ * WHERE THE RULE A TIP WAS SHARED BY CAME FROM.
+ *
+ *   job         the job's own rule, set by the office for that one job.
+ *   technician  a rule of a person's own, which everybody on the job who has
+ *               one agrees on.
+ *   company     the company's rule on Pay rules, which is what applies when
+ *               neither of the above does.
+ */
+export const TIP_RULE_SOURCES = ["company", "job", "technician"] as const;
+export type TipRuleSource = (typeof TIP_RULE_SOURCES)[number];
+
+export interface TipRuleChoice {
+  rule: TipSplitRule;
+  source: TipRuleSource;
+  /** Said when a rule of a person's own was passed over, empty otherwise. */
+  note: string;
+}
+
+/**
+ * WHICH RULE A TIP IS SHARED BY: the job's own rule first, then a rule of a
+ * person's own, then the company's.
+ *
+ * A person's own rule is about tips they share in. When everybody on the job
+ * who has one has the same one, it is used. When two people on the job have
+ * different rules of their own, neither can be followed without going against
+ * the other, so the company's rule is used and the tip says so: the
+ * conservative reading, because the company's rule is the one everybody on
+ * the job was told about.
+ */
+export function chooseTipRule(input: {
+  company: TipSplitRule;
+  job: TipSplitRule | null;
+  /** The rules of their own that people on the job have. People with none are left out. */
+  people: readonly { technicianId: string; rule: TipSplitRule }[];
+}): TipRuleChoice {
+  if (input.job) return { rule: input.job, source: "job", note: "" };
+  const rules = [...new Set(input.people.map((p) => p.rule))];
+  if (rules.length === 1) return { rule: rules[0]!, source: "technician", note: "" };
+  if (rules.length > 1) {
+    return {
+      rule: input.company, source: "company",
+      note: "People on this job have different tip rules of their own, so the company's rule was used.",
+    };
+  }
+  return { rule: input.company, source: "company", note: "" };
+}
 
 /**
  * What the company pays for one mile driven in a vehicle of the person's own, from a day. A list of these,
@@ -484,6 +538,8 @@ export interface TipPerson {
   technicianId: string;
   /** Seconds clocked in on the job, closed punches only. Zero when none are recorded. */
   seconds: number;
+  /** Seconds clocked in on the one visit the tip was for, for `visit_hours`. Zero when none, or no visit. */
+  visitSeconds?: number;
   /** Marked as lead on at least one of the job's visits. */
   isLead: boolean;
 }
@@ -516,7 +572,10 @@ export function splitTipByRule(rule: TipSplitRule, tip: Money, people: readonly 
   for (const person of people) {
     const seen = byId.get(person.technicianId);
     byId.set(person.technicianId, seen
-      ? { ...seen, isLead: seen.isLead || person.isLead, seconds: Math.max(seen.seconds, person.seconds) }
+      ? {
+        ...seen, isLead: seen.isLead || person.isLead, seconds: Math.max(seen.seconds, person.seconds),
+        visitSeconds: Math.max(seen.visitSeconds ?? 0, person.visitSeconds ?? 0),
+      }
       : person);
   }
   const everybody = [...byId.values()].sort((a, b) => a.technicianId.localeCompare(b.technicianId));
@@ -541,21 +600,27 @@ export function splitTipByRule(rule: TipSplitRule, tip: Money, people: readonly 
     };
   }
 
-  if (rule === "hours") {
-    const worked = everybody.filter((p) => p.seconds > 0);
+  if (rule === "hours" || rule === "visit_hours") {
+    const onVisit = rule === "visit_hours";
+    const secondsOf = (p: TipPerson) => (onVisit ? p.visitSeconds ?? 0 : p.seconds);
+    const worked = everybody.filter((p) => secondsOf(p) > 0);
     if (worked.length === 0) {
       return {
         shares: evenly(everybody), rule: "even",
-        note: "No hours were recorded on this job, so the tip was split evenly between everybody on it.",
+        note: onVisit
+          ? "No hours were recorded on the visit this tip was for, so the tip was split evenly between everybody on the job."
+          : "No hours were recorded on this job, so the tip was split evenly between everybody on it.",
       };
     }
-    const parts = allocate(tip, worked.map((p) => String(Math.round(p.seconds))), 2);
+    const parts = allocate(tip, worked.map((p) => String(Math.round(secondsOf(p)))), 2);
     return {
       shares: worked.map((p, i) => ({ technicianId: p.technicianId, amount: parts[i] ?? zero(tip.currency) }))
         .filter((s) => !isZero(s.amount)),
-      rule: "hours",
+      rule,
       note: worked.length < everybody.length
-        ? "Somebody on the job has no hours recorded on it, so they have no share of this tip."
+        ? onVisit
+          ? "Somebody on the job has no hours recorded on the visit this tip was for, so they have no share of this tip."
+          : "Somebody on the job has no hours recorded on it, so they have no share of this tip."
         : "",
     };
   }

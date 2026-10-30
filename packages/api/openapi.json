@@ -17080,7 +17080,7 @@
       "get": {
         "operationId": "getBudgetReport",
         "summary": "The year's budget against the ledger, by line and month, with variance",
-        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold; with both, that job type's lines in that branch against the entries that carry the branch and are on the type's jobs, with both counts. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it, nor a branch's job type's into either. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over, or shaped like last year (the months already over taken as the share of the year they were last year in the same branch and job type, the rest in proportion; a line with nothing last year to follow is at its budget and says `noShape`); `forecast.assumption` says which, and it is an estimate, never a promise.\n\nRequires a session holding: report.financial:read.",
+        "description": "Actuals are read from the ledger in the company's calendar, so they agree with the trial balance. Months not yet over show the budget and no variance. `caveat` says which costs the ledger only holds when they are journalled. With `businessUnitId`, the branch's own lines against the ledger entries that carry that branch; with `jobTypeId`, the job type's own lines against the ledger entries on that type's jobs, and `jobType` counts the year's entries on no job, which it cannot hold; with both, that job type's lines in that branch against the entries that carry the branch and are on the type's jobs, with both counts. The whole company's report is the lines with neither, and no branch's or job type's lines are added into it, nor a branch's job type's into either. Each line has a year end `forecast`: the months already over at their actual, and this month and the rest at their budget or, when the company chose it, at the run rate of the months already over, or shaped like last year or the average of several past years (the months already over taken as the share of the year they were then in the same branch and job type, the rest in proportion; a line with nothing then to follow is at its budget and says `noShape`), or a blend of the three by the weights the company set; `forecast.months` gives the year month by month, adding up to the forecast; `forecast.assumption` says which, and it is an estimate, never a promise, and never stored as the budget.\n\nRequires a session holding: report.financial:read.",
         "tags": [
           "M15"
         ],
@@ -17208,7 +17208,7 @@
       "put": {
         "operationId": "setBudgetForecastMethod",
         "summary": "Choose how the year end forecast takes the months to come",
-        "description": "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `seasonal` is refused, in words, unless the books hold the whole of last year (their first entry is in its January or earlier). One choice for the year, which every reader and every branch's and job type's report uses. Nothing is posted.\n\nRequires a session holding: finance:configure.",
+        "description": "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `blend` takes them as a weighted mix of the three, by `weights` (whole percentages adding up to 100), each part falling back to the budget where it would on its own. `seasonalYears` (1 to 5) makes the shape the average of that many past years, added together month by month, so one odd month counts for less. Shaping, on its own or weighed in a blend, is refused, in words, unless the books hold the whole of every year it is drawn from (their first entry is in the January of the earliest, or before). One choice for the year, which every reader and every branch's and job type's report uses. Only the choice is kept: the forecast, by line and by month, is worked out on every read and never stored as the budget. Nothing is posted.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -36506,7 +36506,7 @@
       ],
       "post": {
         "operationId": "setOverheadMix",
-        "summary": "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+        "summary": "Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day",
         "description": "Each part is optional and at least one is given; a 0 stops charging overhead from the day. The parts set on a day are the whole of the overhead from that day until a later day, so a mix is replaced whole rather than added to, and jobs before the day keep the overhead of their own day. A day that already has overhead is refused unless the same mix is sent again, which returns it. Each part is reported on its own on a job's costing and in the profitability measures.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
@@ -36534,7 +36534,7 @@
         },
         "responses": {
           "201": {
-            "description": "Set overhead from a date as a mix: per paid hour, per job and a share of revenue",
+            "description": "Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day",
             "content": {
               "application/json": {
                 "schema": {
@@ -36729,7 +36729,7 @@
       "post": {
         "operationId": "setCostingRate",
         "summary": "Set a burden or overhead rate from a date",
-        "description": "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, or a percent of the job's revenue. A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.\n\nRequires a session holding: finance:configure.",
+        "description": "Payroll taxes, benefits and workers' compensation are a percent of base wages or an amount per paid hour; overhead is per paid hour, per job, a percent of the job's revenue, a percent of its material cost, an amount per visit, or an amount per truck day (each company vehicle that went out on the job, once for each day, by the vehicle register's custody record). A rate applies from its date until a later one for the same component, so a change does not reprice the past; a zero switches a component off. A second rate for one burden component on one day is refused. Overhead can be a mix: an overhead rate by another basis on a day that already has overhead is added to that day's mix, and the same basis twice is refused. Sending the same rate again returns it.\n\nRequires a session holding: finance:configure.",
         "tags": [
           "M15"
         ],
@@ -91683,7 +91683,7 @@
       "post": {
         "operationId": "setPayExtras",
         "summary": "Set the rate for a day away, or how tips are shared",
-        "description": "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job) or `lead` (all to the lead on the job's visits): it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.\n\nRequires a session holding: payroll:configure.",
+        "description": "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job), `visit_hours` (by the hours each was clocked in on the visit the tip was for: the one it was taken on, or else the job's visit finished most recently) or `lead` (all to the lead on the job's visits); a job's or a person's own rule (`/v1/payroll/tip-rules`) is read before it: it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.\n\nRequires a session holding: payroll:configure.",
         "tags": [
           "M17"
         ],
@@ -93071,6 +93071,356 @@
         "x-authorization": "session",
         "x-permissions": [
           "payroll:export"
+        ]
+      }
+    },
+    "/v1/payroll/tip-rules": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listTipRules",
+        "summary": "The jobs and people with a tip rule of their own",
+        "description": "A job's own rule is read first when a tip on it is shared; then a person's own, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.\n\nRequires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "The jobs and people with a tip rule of their own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTipRulesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
+        ]
+      },
+      "post": {
+        "operationId": "setTipRule",
+        "summary": "Give one job, or one person, a tip rule of its own",
+        "description": "Exactly one of `jobId` and `technicianId`. A job or person that has one already has it changed, and the audit log keeps what it was. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so `payroll:configure`. Audited.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTipRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give one job, or one person, a tip rule of its own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetTipRuleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/tip-rules/{id}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeTipRule",
+        "summary": "Take a job's or a person's own tip rule off",
+        "description": "The job or person goes back to the company's rule from the next tip. Tips already shared keep theirs. Audited.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveTipRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a job's or a person's own tip rule off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveTipRuleOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
         ]
       }
     },
@@ -104488,6 +104838,283 @@
         "x-authorization": "session",
         "x-permissions": [
           "report.financial:read",
+          "job.cost:read"
+        ]
+      }
+    },
+    "/v1/profitability/jobs/{id}/not-the-same": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "markJobCostNotTheSame",
+        "summary": "Say a flagged journal cost and a job line are two different costs",
+        "description": "Takes the possible double count warning off one pair on the job: a journal line debiting cost of goods sold (`ledgerEntryId`) and a line on the job (`jobLineId`), as listed in the statement's `doubleCounts`. Changes no figure: both costs were in material cost and stay there. Only a pair the job is flagging can be marked; marking one already marked returns that mark. Needs `ledger:post`, because the bookkeeper is who can tell, and `job.cost:read`. Audited.\n\nRequires a session holding: ledger:post, job.cost:read.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkJobCostNotTheSameInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Say a flagged journal cost and a job line are two different costs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkJobCostNotTheSameOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:post",
+          "job.cost:read"
+        ]
+      }
+    },
+    "/v1/profitability/jobs/{id}/not-the-same/{markId}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "unmarkJobCostNotTheSame",
+        "summary": "Take back a \"not the same cost\" mark",
+        "description": "The possible double count warning shows again. Changes no figure. Audited.\n\nRequires a session holding: ledger:post, job.cost:read.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "markId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnmarkJobCostNotTheSameInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take back a \"not the same cost\" mark",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnmarkJobCostNotTheSameOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:post",
           "job.cost:read"
         ]
       }
@@ -153033,7 +153660,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -153046,7 +153674,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -153670,7 +154299,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -153683,7 +154313,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -153829,7 +154460,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -153842,7 +154474,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -188731,6 +189364,35 @@
                       "enum": [
                         true
                       ]
+                    },
+                    "months": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "parts": {
+                      "type": "object",
+                      "properties": {
+                        "budget": {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                        },
+                        "runRate": {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                        },
+                        "seasonal": {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                        }
+                      },
+                      "required": [
+                        "budget",
+                        "runRate",
+                        "seasonal"
+                      ]
                     }
                   },
                   "required": [
@@ -188740,7 +189402,8 @@
                     "variance",
                     "percent",
                     "favourable",
-                    "unbudgetedMonths"
+                    "unbudgetedMonths",
+                    "months"
                   ]
                 }
               },
@@ -188841,7 +189504,8 @@
                 "enum": [
                   "budget",
                   "run_rate",
-                  "seasonal"
+                  "seasonal",
+                  "blend"
                 ]
               },
               "method": {
@@ -188849,7 +189513,8 @@
                 "enum": [
                   "budget",
                   "run_rate",
-                  "seasonal"
+                  "seasonal",
+                  "blend"
                 ]
               },
               "closed": {
@@ -188859,6 +189524,37 @@
                 "type": "boolean"
               },
               "linesWithoutShape": {
+                "type": "integer"
+              },
+              "weights": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "budget": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "runRate": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "seasonal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  }
+                },
+                "required": [
+                  "budget",
+                  "runRate",
+                  "seasonal"
+                ]
+              },
+              "seasonalYears": {
                 "type": "integer"
               },
               "assumption": {
@@ -188890,6 +189586,8 @@
               "method",
               "closed",
               "fellBack",
+              "weights",
+              "seasonalYears",
               "assumption",
               "net"
             ]
@@ -202644,12 +203342,42 @@
               "revenueShare": {
                 "type": "string",
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "materialShare": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "perVisit": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "perTruck": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               }
             },
             "required": [
               "perHour",
               "perJob",
-              "revenueShare"
+              "revenueShare",
+              "materialShare",
+              "perVisit",
+              "perTruck"
+            ]
+          },
+          "overheadMeasures": {
+            "type": "object",
+            "properties": {
+              "visits": {
+                "type": "integer"
+              },
+              "truckDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "visits",
+              "truckDays"
             ]
           },
           "fullyLoadedMargin": {
@@ -203050,6 +203778,114 @@
                 "unpricedHours"
               ]
             }
+          },
+          "doubleCounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ledgerEntryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "journalId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "journalNumber": {
+                  "type": "integer"
+                },
+                "journalOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "journalMemo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobLineId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "lineName": {
+                  "type": "string"
+                },
+                "lineOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "daysApart": {
+                  "type": "integer"
+                },
+                "sameVendor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "notTheSame": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "note": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "markedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "markedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "note",
+                    "markedAt",
+                    "markedBy"
+                  ]
+                }
+              },
+              "required": [
+                "ledgerEntryId",
+                "journalId",
+                "journalNumber",
+                "journalOn",
+                "journalMemo",
+                "jobLineId",
+                "lineName",
+                "lineOn",
+                "amount",
+                "daysApart",
+                "sameVendor",
+                "reason",
+                "notTheSame"
+              ]
+            }
+          },
+          "possibleDoubleCounts": {
+            "type": "integer"
           }
         },
         "required": [
@@ -203070,6 +203906,7 @@
           "labourBurden",
           "overhead",
           "overheadParts",
+          "overheadMeasures",
           "fullyLoadedMargin",
           "fullyLoadedMarginPercent",
           "scheduledHours",
@@ -203088,7 +203925,9 @@
           "feeEntries",
           "journalLines",
           "lines",
-          "labour"
+          "labour",
+          "doubleCounts",
+          "possibleDoubleCounts"
         ]
       },
       "GetJobRateOffersOutput": {
@@ -208485,7 +209324,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -208498,7 +209338,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -228939,7 +229780,10 @@
                     "percent_of_wages",
                     "per_hour",
                     "per_job",
-                    "percent_of_revenue"
+                    "percent_of_revenue",
+                    "percent_of_material",
+                    "per_visit",
+                    "per_truck"
                   ]
                 },
                 "basisLabel": {
@@ -229000,7 +229844,10 @@
                       "enum": [
                         "per_hour",
                         "per_job",
-                        "percent_of_revenue"
+                        "percent_of_revenue",
+                        "percent_of_material",
+                        "per_visit",
+                        "per_truck"
                       ]
                     },
                     "label": {
@@ -234940,6 +235787,9 @@
                 "splitNote": {
                   "type": "string"
                 },
+                "ruleSource": {
+                  "type": "string"
+                },
                 "shares": {
                   "type": "array",
                   "items": {
@@ -234979,6 +235829,7 @@
                 "amount",
                 "splitRule",
                 "splitNote",
+                "ruleSource",
                 "shares"
               ]
             }
@@ -248093,6 +248944,100 @@
           "timeOff"
         ]
       },
+      "ListTipRulesOutput": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "job",
+                    "technician"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead",
+                    "visit_hours"
+                  ]
+                },
+                "ruleLabel": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "setAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "jobId",
+                "jobNumber",
+                "jobSummary",
+                "technicianId",
+                "technicianName",
+                "rule",
+                "ruleLabel",
+                "note",
+                "setAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "rules"
+        ]
+      },
       "ListTouchesOutput": {
         "type": "object",
         "properties": {
@@ -252569,6 +253514,66 @@
           "pendingPush",
           "lastPushError",
           "weMayMoveTo"
+        ]
+      },
+      "MarkJobCostNotTheSameInput": {
+        "type": "object",
+        "properties": {
+          "jobLineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ledgerEntryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "jobLineId",
+          "ledgerEntryId"
+        ]
+      },
+      "MarkJobCostNotTheSameOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobLineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ledgerEntryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "markedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "jobId",
+          "jobLineId",
+          "ledgerEntryId",
+          "note",
+          "markedAt"
         ]
       },
       "MarkJobLineBilledBackInput": {
@@ -268312,7 +269317,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -268325,7 +269331,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -268576,7 +269583,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -268589,7 +269597,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -269003,6 +270012,29 @@
         "properties": {}
       },
       "RemoveTaskChecklistItemOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
+      "RemoveTipRuleInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveTipRuleOutput": {
         "type": "object",
         "properties": {
           "id": {
@@ -272517,7 +273549,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -272530,7 +273563,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -279581,8 +280615,39 @@
             "enum": [
               "budget",
               "run_rate",
+              "seasonal",
+              "blend"
+            ]
+          },
+          "weights": {
+            "type": "object",
+            "properties": {
+              "budget": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "runRate": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "seasonal": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "budget",
+              "runRate",
               "seasonal"
             ]
+          },
+          "seasonalYears": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
           }
         },
         "required": [
@@ -279600,8 +280665,37 @@
             "enum": [
               "budget",
               "run_rate",
+              "seasonal",
+              "blend"
+            ]
+          },
+          "weights": {
+            "type": "object",
+            "properties": {
+              "budget": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "runRate": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "seasonal": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "budget",
+              "runRate",
               "seasonal"
             ]
+          },
+          "seasonalYears": {
+            "type": "integer"
           }
         },
         "required": [
@@ -280777,7 +281871,10 @@
               "percent_of_wages",
               "per_hour",
               "per_job",
-              "percent_of_revenue"
+              "percent_of_revenue",
+              "percent_of_material",
+              "per_visit",
+              "per_truck"
             ]
           },
           "rate": {
@@ -280825,7 +281922,10 @@
               "percent_of_wages",
               "per_hour",
               "per_job",
-              "percent_of_revenue"
+              "percent_of_revenue",
+              "percent_of_material",
+              "per_visit",
+              "per_truck"
             ]
           },
           "basisLabel": {
@@ -284504,6 +285604,18 @@
             "type": "string",
             "maxLength": 20
           },
+          "percentOfMaterial": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "perVisit": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "perTruck": {
+            "type": "string",
+            "maxLength": 20
+          },
           "note": {
             "type": "string",
             "maxLength": 500
@@ -284547,7 +285659,10 @@
                     "percent_of_wages",
                     "per_hour",
                     "per_job",
-                    "percent_of_revenue"
+                    "percent_of_revenue",
+                    "percent_of_material",
+                    "per_visit",
+                    "per_truck"
                   ]
                 },
                 "basisLabel": {
@@ -284609,7 +285724,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           }
         }
@@ -284629,7 +285745,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -284642,7 +285759,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -288334,6 +289452,118 @@
           "current",
           "orphaned",
           "ended"
+        ]
+      },
+      "SetTipRuleInput": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead",
+              "visit_hours"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "rule"
+        ]
+      },
+      "SetTipRuleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "job",
+              "technician"
+            ]
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "jobSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "technicianName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead",
+              "visit_hours"
+            ]
+          },
+          "ruleLabel": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "jobId",
+          "jobNumber",
+          "jobSummary",
+          "technicianId",
+          "technicianName",
+          "rule",
+          "ruleLabel",
+          "note",
+          "setAt"
         ]
       },
       "SetTravelSettingsInput": {
@@ -293720,6 +294950,29 @@
           "filledCleared",
           "filledKept",
           "tagsRemoved"
+        ]
+      },
+      "UnmarkJobCostNotTheSameInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "UnmarkJobCostNotTheSameOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
         ]
       },
       "UnpinDisposalFacilityInput": {

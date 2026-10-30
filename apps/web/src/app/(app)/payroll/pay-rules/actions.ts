@@ -1,10 +1,10 @@
 "use server";
 
-import { attempt, field, type FormState } from "@/lib/actions";
+import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { laborSettings, mileageOverrides, payExtras } from "@opentradesos/api/services";
+import { laborSettings, mileageOverrides, payExtras, tipRules } from "@opentradesos/api/services";
 
 /** Hours typed on the form, as the minutes the policy is declared in, or null when left empty. */
 function minutes(form: FormData, name: string): number | null {
@@ -26,6 +26,10 @@ function minutes(form: FormData, name: string): number | null {
 export async function act(_previous: FormState, form: FormData): Promise<FormState> {
   const ctx = { actor: (await requireSetupUser()).actor, db: getDb() };
   const op = String(form.get("op") ?? "");
+
+  /** A job number that is not one is said before anything is asked of the service. */
+  const typedJob = op === "tipRule" ? field(form, "jobNumber")?.replace(/^#/, "") : undefined;
+  if (typedJob !== undefined && !/^\d+$/.test(typedJob)) return refused(form, "A job number is the digits it is printed with, like 1042.");
 
   const state = await attempt(form, async () => {
     switch (op) {
@@ -89,10 +93,28 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
         /** Left empty means pay none, which is a choice the box has to be able to make. */
         await payExtras.set(ctx, {
           perDiemRate: field(form, "perDiemRate") ?? null,
-          ...(rule === "even" || rule === "hours" || rule === "lead" ? { tipSplit: rule } : {}),
+          ...(rule === "even" || rule === "hours" || rule === "lead" || rule === "visit_hours" ? { tipSplit: rule } : {}),
         });
         return { message: "Saved. Tips are shared this way from the next one, and a day away is recorded at this rate from now on. What was already shared or recorded keeps what it was worked out at." };
       }
+
+      case "tipRule": {
+        const number = field(form, "jobNumber")?.replace(/^#/, "");
+        const technicianId = field(form, "technicianId");
+        const set = await tipRules.set(ctx, {
+          rule: field(form, "rule") ?? "",
+          note: field(form, "note"),
+          ...(number !== undefined ? { jobNumber: Number(number) } : {}),
+          ...(technicianId !== undefined ? { technicianId } : {}),
+        });
+        return {
+          message: `Set. Tips ${set.kind === "job" ? `on job ${set.jobNumber}` : `for ${set.technicianName}`} are shared this way from the next one. Tips already shared keep theirs.`,
+        };
+      }
+
+      case "tipRuleRemove":
+        await tipRules.remove(ctx, { id: field(form, "id") ?? "" });
+        return { message: "Taken off. The company's rule applies from the next tip." };
 
       case "mileageAdd":
         await payExtras.addMileageRate(ctx, { from: field(form, "from") ?? "", perMile: field(form, "perMile") ?? "" });

@@ -19,6 +19,7 @@ import { Branch } from "./Branch";
 import { RequiredSkills } from "./RequiredSkills";
 import { Parties } from "./Parties";
 import { Costing } from "./Costing";
+import { markNotTheSame, unmarkNotTheSame } from "./costing-actions";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
 import { Table, Th, Td, Empty } from "@/components/Table";
@@ -432,7 +433,8 @@ export default async function JobPage({ params, searchParams }: {
       <ContractAndDeadlines jobId={id} clocks={clocks} options={contractOptions} writes={writes}
                             timezone={user.organizationTimezone} />
 
-      {costing && <Costing data={costing} />}
+      {costing && <Costing data={costing} jobId={id}
+                           notTheSame={can(user.actor, "ledger:post") ? { mark: markNotTheSame, unmark: unmarkNotTheSame } : null} />}
 
       {paidOut && (paidOut.reimbursements.length > 0 || paidOut.perDiems.length > 0) ? (
         <section aria-labelledby="paid-out" className="mt-6">

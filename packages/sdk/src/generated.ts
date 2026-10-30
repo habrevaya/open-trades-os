@@ -296,9 +296,9 @@ export interface AddMileageRateInput {
 
 export interface AddMileageRateOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -408,9 +408,9 @@ export interface AddPerDiemPlaceInput {
 
 export interface AddPerDiemPlaceOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -439,9 +439,9 @@ export interface AddPerDiemPlaceRateInput {
 
 export interface AddPerDiemPlaceRateOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -7302,6 +7302,12 @@ export interface GetBudgetReportOutput {
       favourable: boolean | null;
       unbudgetedMonths: number;
       noShape?: true;
+      months: string[];
+      parts?: {
+        budget: string;
+        runRate: string;
+        seasonal: string;
+      };
     };
   }>;
   net: {
@@ -7322,11 +7328,17 @@ export interface GetBudgetReportOutput {
     withoutJobDebits: string;
   } | null;
   forecast: {
-    chosen: "budget" | "run_rate" | "seasonal";
-    method: "budget" | "run_rate" | "seasonal";
+    chosen: "budget" | "run_rate" | "seasonal" | "blend";
+    method: "budget" | "run_rate" | "seasonal" | "blend";
     closed: number;
     fellBack: boolean;
     linesWithoutShape?: number;
+    weights: {
+      budget: number;
+      runRate: number;
+      seasonal: number;
+    } | null;
+    seasonalYears: number;
     assumption: string;
     net: {
       forecast: string;
@@ -9899,6 +9911,13 @@ export interface GetJobProfitabilityOutput {
     perHour: string;
     perJob: string;
     revenueShare: string;
+    materialShare: string;
+    perVisit: string;
+    perTruck: string;
+  };
+  overheadMeasures: {
+    visits: number;
+    truckDays: number;
   };
   fullyLoadedMargin: string;
   fullyLoadedMarginPercent: number | null;
@@ -9980,6 +9999,27 @@ export interface GetJobProfitabilityOutput {
     cost: string;
     unpricedHours: string;
   }>;
+  doubleCounts: Array<{
+    ledgerEntryId: string;
+    journalId: string;
+    journalNumber: number;
+    journalOn: string;
+    journalMemo: string | null;
+    jobLineId: string;
+    lineName: string;
+    lineOn: string;
+    amount: string;
+    daysApart: number;
+    sameVendor: string | null;
+    reason: string;
+    notTheSame: {
+      id: string;
+      note: string | null;
+      markedAt: string;
+      markedBy: string | null;
+    } | null;
+  }>;
+  possibleDoubleCounts: number;
 }
 
 export interface GetJobRateOffersOutput {
@@ -11009,9 +11049,9 @@ export interface GetOnCallNowOutput {
 
 export interface GetPayExtrasOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -14871,7 +14911,7 @@ export interface ListCostingRatesOutput {
     id: string;
     component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
     componentLabel: string;
-    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
     basisLabel: string;
     rate: string;
     effectiveFrom: string;
@@ -14882,7 +14922,7 @@ export interface ListCostingRatesOutput {
   overheadNow: {
     effectiveFrom: string;
     parts: Array<{
-      basis: "per_hour" | "per_job" | "percent_of_revenue";
+      basis: "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
       label: string;
       rate: string;
     }>;
@@ -15996,6 +16036,7 @@ export interface ListInvoiceTipsOutput {
     amount: string;
     splitRule: string;
     splitNote: string;
+    ruleSource: string;
     shares: Array<{
       technicianId: string;
       technicianName: string;
@@ -18483,6 +18524,22 @@ export interface ListTimeOffOutput {
   }>;
 }
 
+export interface ListTipRulesOutput {
+  rules: Array<{
+    id: string;
+    kind: "job" | "technician";
+    jobId: string | null;
+    jobNumber: number | null;
+    jobSummary: string | null;
+    technicianId: string | null;
+    technicianName: string | null;
+    rule: "even" | "hours" | "lead" | "visit_hours";
+    ruleLabel: string;
+    note: string | null;
+    setAt: string;
+  }>;
+}
+
 export interface ListTouchesOutput {
   touches: Array<{
     id: string;
@@ -19356,6 +19413,21 @@ export interface MarkExternalWorkOrderPushedOutput {
   pendingPush: boolean;
   lastPushError: string | null;
   weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
+}
+
+export interface MarkJobCostNotTheSameInput {
+  jobLineId: string;
+  ledgerEntryId: string;
+  note?: string;
+}
+
+export interface MarkJobCostNotTheSameOutput {
+  id: string;
+  jobId: string;
+  jobLineId: string;
+  ledgerEntryId: string;
+  note: string | null;
+  markedAt: string;
 }
 
 export interface MarkJobLineBilledBackInput {
@@ -22532,9 +22604,9 @@ export type RemoveMileageRateInput = Record<string, unknown>;
 
 export interface RemoveMileageRateOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -22594,9 +22666,9 @@ export type RemovePerDiemPlaceRateInput = Record<string, unknown>;
 
 export interface RemovePerDiemPlaceRateOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -22705,6 +22777,13 @@ export interface RemoveSpendOutput {
 export type RemoveTaskChecklistItemInput = Record<string, unknown>;
 
 export interface RemoveTaskChecklistItemOutput {
+  id: string;
+  removed: true;
+}
+
+export type RemoveTipRuleInput = Record<string, unknown>;
+
+export interface RemoveTipRuleOutput {
   id: string;
   removed: true;
 }
@@ -23449,9 +23528,9 @@ export type RetirePerDiemPlaceInput = Record<string, unknown>;
 
 export interface RetirePerDiemPlaceOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -24904,12 +24983,24 @@ export interface SetBranchNumberingOutput {
 }
 
 export interface SetBudgetForecastMethodInput {
-  method: "budget" | "run_rate" | "seasonal";
+  method: "budget" | "run_rate" | "seasonal" | "blend";
+  weights?: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  };
+  seasonalYears?: number;
 }
 
 export interface SetBudgetForecastMethodOutput {
   year: number;
-  method: "budget" | "run_rate" | "seasonal";
+  method: "budget" | "run_rate" | "seasonal" | "blend";
+  weights?: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  };
+  seasonalYears?: number;
 }
 
 export interface SetBudgetLineInput {
@@ -25159,7 +25250,7 @@ export type SetContractRisesOutput = Array<{
 
 export interface SetCostingRateInput {
   component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
-  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
   rate: string;
   effectiveFrom: string;
   note?: string;
@@ -25169,7 +25260,7 @@ export interface SetCostingRateOutput {
   id: string;
   component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
   componentLabel: string;
-  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+  basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
   basisLabel: string;
   rate: string;
   effectiveFrom: string;
@@ -25918,6 +26009,9 @@ export interface SetOverheadMixInput {
   perHour?: string;
   perJob?: string;
   percentOfRevenue?: string;
+  percentOfMaterial?: string;
+  perVisit?: string;
+  perTruck?: string;
   note?: string;
 }
 
@@ -25927,7 +26021,7 @@ export interface SetOverheadMixOutput {
     id: string;
     component: "payroll_taxes" | "benefits" | "workers_comp" | "overhead";
     componentLabel: string;
-    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue";
+    basis: "percent_of_wages" | "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
     basisLabel: string;
     rate: string;
     effectiveFrom: string;
@@ -25939,14 +26033,14 @@ export interface SetOverheadMixOutput {
 
 export interface SetPayExtrasInput {
   perDiemRate?: string | null;
-  tipSplit?: "even" | "hours" | "lead";
+  tipSplit?: "even" | "hours" | "lead" | "visit_hours";
 }
 
 export interface SetPayExtrasOutput {
   perDiemRate: string | null;
-  tipSplit: "even" | "hours" | "lead";
+  tipSplit: "even" | "hours" | "lead" | "visit_hours";
   rules: Array<{
-    rule: "even" | "hours" | "lead";
+    rule: "even" | "hours" | "lead" | "visit_hours";
     label: string;
   }>;
   mileageRates: Array<{
@@ -26715,6 +26809,27 @@ export interface SetTechnicianSkillExpiryOutput {
       sentence: string;
     };
   }>;
+}
+
+export interface SetTipRuleInput {
+  jobId?: string;
+  technicianId?: string;
+  rule: "even" | "hours" | "lead" | "visit_hours";
+  note?: string;
+}
+
+export interface SetTipRuleOutput {
+  id: string;
+  kind: "job" | "technician";
+  jobId: string | null;
+  jobNumber: number | null;
+  jobSummary: string | null;
+  technicianId: string | null;
+  technicianName: string | null;
+  rule: "even" | "hours" | "lead" | "visit_hours";
+  ruleLabel: string;
+  note: string | null;
+  setAt: string;
 }
 
 export interface SetTravelSettingsInput {
@@ -27828,6 +27943,13 @@ export interface UndoCustomerMergeOutput {
   filledCleared: string[];
   filledKept: string[];
   tagsRemoved: string[];
+}
+
+export type UnmarkJobCostNotTheSameInput = Record<string, unknown>;
+
+export interface UnmarkJobCostNotTheSameOutput {
+  id: string;
+  removed: true;
 }
 
 export type UnpinDisposalFacilityInput = Record<string, unknown>;
@@ -33280,6 +33402,8 @@ export interface ListTimeOffInput {
   includeDeclined?: boolean;
 }
 
+export type ListTipRulesInput = Record<string, never>;
+
 export interface ListTouchesInput {
   customerId?: string;
   visitorId?: string;
@@ -33420,6 +33544,10 @@ export interface MarkExternalWorkOrderPushFailedParams {
 }
 
 export interface MarkExternalWorkOrderPushedParams {
+  id: string;
+}
+
+export interface MarkJobCostNotTheSameParams {
   id: string;
 }
 
@@ -33881,6 +34009,10 @@ export interface RemoveSpendParams {
 export interface RemoveTaskChecklistItemParams {
   id: string;
   itemId: string;
+}
+
+export interface RemoveTipRuleParams {
+  id: string;
 }
 
 export interface RemoveTruckWaterParams {
@@ -34478,6 +34610,11 @@ export interface TurnPluginOnParams {
 
 export interface UndoCustomerMergeParams {
   id: string;
+}
+
+export interface UnmarkJobCostNotTheSameParams {
+  id: string;
+  markId: string;
 }
 
 export interface UnpinDisposalFacilityParams {
@@ -35496,6 +35633,7 @@ export interface OperationTypes {
   listTerritories: { input: ListTerritoriesInput; output: ListTerritoriesOutput };
   listTimeEntries: { input: ListTimeEntriesInput; output: ListTimeEntriesOutput };
   listTimeOff: { input: ListTimeOffInput; output: ListTimeOffOutput };
+  listTipRules: { input: ListTipRulesInput; output: ListTipRulesOutput };
   listTouches: { input: ListTouchesInput; output: ListTouchesOutput };
   listTrackedItems: { input: ListTrackedItemsInput; output: ListTrackedItemsOutput };
   listTrackingCampaigns: { input: ListTrackingCampaignsInput; output: ListTrackingCampaignsOutput };
@@ -35540,6 +35678,7 @@ export interface OperationTypes {
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
   markExternalWorkOrderPushed: { input: MarkExternalWorkOrderPushedParams & MarkExternalWorkOrderPushedInput; output: MarkExternalWorkOrderPushedOutput };
+  markJobCostNotTheSame: { input: MarkJobCostNotTheSameParams & MarkJobCostNotTheSameInput; output: MarkJobCostNotTheSameOutput };
   markJobLineBilledBack: { input: MarkJobLineBilledBackParams & MarkJobLineBilledBackInput; output: MarkJobLineBilledBackOutput };
   markRequestSent: { input: MarkRequestSentParams & MarkRequestSentInput; output: MarkRequestSentOutput };
   markReviewRecovered: { input: MarkReviewRecoveredParams & MarkReviewRecoveredInput; output: MarkReviewRecoveredOutput };
@@ -35691,6 +35830,7 @@ export interface OperationTypes {
   removeRole: { input: RemoveRoleParams & RemoveRoleInput; output: RemoveRoleOutput };
   removeSpend: { input: RemoveSpendParams & RemoveSpendInput; output: RemoveSpendOutput };
   removeTaskChecklistItem: { input: RemoveTaskChecklistItemParams & RemoveTaskChecklistItemInput; output: RemoveTaskChecklistItemOutput };
+  removeTipRule: { input: RemoveTipRuleParams & RemoveTipRuleInput; output: RemoveTipRuleOutput };
   removeTruckWater: { input: RemoveTruckWaterParams & RemoveTruckWaterInput; output: RemoveTruckWaterOutput };
   removeVendorItem: { input: RemoveVendorItemParams & RemoveVendorItemInput; output: RemoveVendorItemOutput };
   renameCustomerTag: { input: RenameCustomerTagInput; output: RenameCustomerTagOutput };
@@ -35888,6 +36028,7 @@ export interface OperationTypes {
   setTechnicianMobile: { input: SetTechnicianMobileParams & SetTechnicianMobileInput; output: SetTechnicianMobileOutput };
   setTechnicianPhoto: { input: SetTechnicianPhotoParams & SetTechnicianPhotoInput; output: SetTechnicianPhotoOutput };
   setTechnicianSkillExpiry: { input: SetTechnicianSkillExpiryParams & SetTechnicianSkillExpiryInput; output: SetTechnicianSkillExpiryOutput };
+  setTipRule: { input: SetTipRuleInput; output: SetTipRuleOutput };
   setTravelSettings: { input: SetTravelSettingsInput; output: SetTravelSettingsOutput };
   setTruckMinimum: { input: SetTruckMinimumInput; output: SetTruckMinimumOutput };
   setUpSoftphone: { input: SetUpSoftphoneInput; output: SetUpSoftphoneOutput };
@@ -35942,6 +36083,7 @@ export interface OperationTypes {
   turnPluginOff: { input: TurnPluginOffParams & TurnPluginOffInput; output: TurnPluginOffOutput };
   turnPluginOn: { input: TurnPluginOnParams & TurnPluginOnInput; output: TurnPluginOnOutput };
   undoCustomerMerge: { input: UndoCustomerMergeParams & UndoCustomerMergeInput; output: UndoCustomerMergeOutput };
+  unmarkJobCostNotTheSame: { input: UnmarkJobCostNotTheSameParams & UnmarkJobCostNotTheSameInput; output: UnmarkJobCostNotTheSameOutput };
   unpinDisposalFacility: { input: UnpinDisposalFacilityParams & UnpinDisposalFacilityInput; output: UnpinDisposalFacilityOutput };
   unpinLocation: { input: UnpinLocationParams & UnpinLocationInput; output: UnpinLocationOutput };
   unpinProperty: { input: UnpinPropertyParams & UnpinPropertyInput; output: UnpinPropertyOutput };
@@ -36730,6 +36872,7 @@ export const OPERATIONS = {
   listTerritories: { method: "GET", path: "/v1/territories", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTimeEntries: { method: "GET", path: "/v1/timesheets/entries", pathParams: [], queryParams: ["technicianId","weekOf"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   listTimeOff: { method: "GET", path: "/v1/time-off", pathParams: [], queryParams: ["technicianId","from","to","pendingOnly","includeDeclined"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
+  listTipRules: { method: "GET", path: "/v1/payroll/tip-rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   listTouches: { method: "GET", path: "/v1/marketing/touches", pathParams: [], queryParams: ["customerId","visitorId","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackedItems: { method: "GET", path: "/v1/stock-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
@@ -36774,6 +36917,7 @@ export const OPERATIONS = {
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   markExternalWorkOrderPushed: { method: "POST", path: "/v1/external-work-orders/{id}/pushed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  markJobCostNotTheSame: { method: "POST", path: "/v1/profitability/jobs/{id}/not-the-same", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post","job.cost:read"] },
   markJobLineBilledBack: { method: "POST", path: "/v1/job-lines/{id}/billed-back", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   markRequestSent: { method: "POST", path: "/v1/reviews/requests/{id}/sent", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   markReviewRecovered: { method: "POST", path: "/v1/reviews/{id}/recovered", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
@@ -36925,6 +37069,7 @@ export const OPERATIONS = {
   removeRole: { method: "POST", path: "/v1/roles/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
   removeSpend: { method: "DELETE", path: "/v1/marketing/spend-rows/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   removeTaskChecklistItem: { method: "POST", path: "/v1/tasks/{id}/checklist/{itemId}/remove", pathParams: ["id","itemId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
+  removeTipRule: { method: "DELETE", path: "/v1/payroll/tip-rules/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeTruckWater: { method: "DELETE", path: "/v1/assets/{assetId}/water/{day}", pathParams: ["assetId","day"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   removeVendorItem: { method: "POST", path: "/v1/vendor-items/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   renameCustomerTag: { method: "POST", path: "/v1/customer-tags/rename", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customer:write"] },
@@ -37122,6 +37267,7 @@ export const OPERATIONS = {
   setTechnicianMobile: { method: "POST", path: "/v1/field/technicians/{id}/mobile", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setTechnicianPhoto: { method: "POST", path: "/v1/technicians/{id}/photo", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setTechnicianSkillExpiry: { method: "POST", path: "/v1/technician-skills/{id}/expiry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setTipRule: { method: "POST", path: "/v1/payroll/tip-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setTravelSettings: { method: "PUT", path: "/v1/dispatch/travel", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setTruckMinimum: { method: "PUT", path: "/v1/truck-minimums", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   setUpSoftphone: { method: "PUT", path: "/v1/softphone", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -37176,6 +37322,7 @@ export const OPERATIONS = {
   turnPluginOff: { method: "POST", path: "/v1/app-plugins/{id}/turn-off", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   turnPluginOn: { method: "POST", path: "/v1/app-plugins/{id}/turn-on", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   undoCustomerMerge: { method: "POST", path: "/v1/customer-merges/{id}/undo", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
+  unmarkJobCostNotTheSame: { method: "DELETE", path: "/v1/profitability/jobs/{id}/not-the-same/{markId}", pathParams: ["id","markId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post","job.cost:read"] },
   unpinDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   unpinLocation: { method: "DELETE", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   unpinProperty: { method: "DELETE", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
@@ -43566,6 +43713,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The jobs and people with a tip rule of their own.
+   *
+   * GET /v1/payroll/tip-rules. Needs timesheet:read.
+   */
+  listTipRules(input: ListTipRulesInput = {} as ListTipRulesInput, options?: CallOptions): Promise<ListTipRulesOutput> {
+    return this.call("listTipRules", input, options);
+  }
+
+  /**
    * Everything recorded for one customer, visitor or job.
    *
    * GET /v1/marketing/touches. Needs adspend:read.
@@ -43959,6 +44115,15 @@ export abstract class GeneratedOperations {
    */
   markExternalWorkOrderPushed(input: MarkExternalWorkOrderPushedParams & MarkExternalWorkOrderPushedInput, options?: CallOptions): Promise<MarkExternalWorkOrderPushedOutput> {
     return this.call("markExternalWorkOrderPushed", input, options);
+  }
+
+  /**
+   * Say a flagged journal cost and a job line are two different costs.
+   *
+   * POST /v1/profitability/jobs/{id}/not-the-same. Needs ledger:post, job.cost:read.
+   */
+  markJobCostNotTheSame(input: MarkJobCostNotTheSameParams & MarkJobCostNotTheSameInput, options?: CallOptions): Promise<MarkJobCostNotTheSameOutput> {
+    return this.call("markJobCostNotTheSame", input, options);
   }
 
   /**
@@ -45318,6 +45483,15 @@ export abstract class GeneratedOperations {
    */
   removeTaskChecklistItem(input: RemoveTaskChecklistItemParams & RemoveTaskChecklistItemInput, options?: CallOptions): Promise<RemoveTaskChecklistItemOutput> {
     return this.call("removeTaskChecklistItem", input, options);
+  }
+
+  /**
+   * Take a job's or a person's own tip rule off.
+   *
+   * DELETE /v1/payroll/tip-rules/{id}. Needs payroll:configure.
+   */
+  removeTipRule(input: RemoveTipRuleParams & RemoveTipRuleInput, options?: CallOptions): Promise<RemoveTipRuleOutput> {
+    return this.call("removeTipRule", input, options);
   }
 
   /**
@@ -46707,7 +46881,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set overhead from a date as a mix: per paid hour, per job and a share of revenue.
+   * Set overhead from a date as a mix: per paid hour, per job, shares of revenue and material cost, per visit and per truck day.
    *
    * POST /v1/costing/overhead. Needs finance:configure.
    */
@@ -47091,6 +47265,15 @@ export abstract class GeneratedOperations {
    */
   setTechnicianSkillExpiry(input: SetTechnicianSkillExpiryParams & SetTechnicianSkillExpiryInput, options?: CallOptions): Promise<SetTechnicianSkillExpiryOutput> {
     return this.call("setTechnicianSkillExpiry", input, options);
+  }
+
+  /**
+   * Give one job, or one person, a tip rule of its own.
+   *
+   * POST /v1/payroll/tip-rules. Needs payroll:configure.
+   */
+  setTipRule(input: SetTipRuleInput, options?: CallOptions): Promise<SetTipRuleOutput> {
+    return this.call("setTipRule", input, options);
   }
 
   /**
@@ -47577,6 +47760,15 @@ export abstract class GeneratedOperations {
    */
   undoCustomerMerge(input: UndoCustomerMergeParams & UndoCustomerMergeInput, options?: CallOptions): Promise<UndoCustomerMergeOutput> {
     return this.call("undoCustomerMerge", input, options);
+  }
+
+  /**
+   * Take back a "not the same cost" mark.
+   *
+   * DELETE /v1/profitability/jobs/{id}/not-the-same/{markId}. Needs ledger:post, job.cost:read.
+   */
+  unmarkJobCostNotTheSame(input: UnmarkJobCostNotTheSameParams & UnmarkJobCostNotTheSameInput, options?: CallOptions): Promise<UnmarkJobCostNotTheSameOutput> {
+    return this.call("unmarkJobCostNotTheSame", input, options);
   }
 
   /**

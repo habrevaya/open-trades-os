@@ -541,10 +541,12 @@ export const listInvoiceTips = defineRoute({
       paymentId: Uuid,
       receivedAt: z.string().datetime(),
       amount: MoneyString,
-      /** The company's rule the tip was shared by: `even`, `hours` or `lead`. `even` when the chosen rule had nothing to go on. */
+      /** The rule the tip was shared by: `even`, `hours`, `lead` or `visit_hours`. `even` when the chosen rule had nothing to go on. */
       splitRule: z.string(),
       /** Said when the chosen rule could not be followed, empty otherwise. */
       splitNote: z.string(),
+      /** Where the rule came from: `company`, `job` (the job's own rule) or `technician` (the people's own). */
+      ruleSource: z.string(),
       shares: z.array(z.object({
         technicianId: Uuid,
         technicianName: z.string(),

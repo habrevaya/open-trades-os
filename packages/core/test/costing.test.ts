@@ -150,3 +150,61 @@ describe("overhead as a mix", () => {
     expect(c.checkOverheadMix({ perJob: "0", effectiveFrom: "2026-07-01" }).ok).toBe(true);
   });
 });
+
+describe("a cost that may be counted twice", () => {
+  const pair = (over: Partial<c.DoubleCountCandidate>): c.DoubleCountCandidate => ({
+    lineCost: "480", journalAmount: "480.00", daysApart: 4, sameVendor: null, ...over,
+  });
+
+  it("is the same amount to the cent, with dates close or a vendor on both", () => {
+    expect(c.possibleDoubleCount(pair({}))).toBe(true);
+    expect(c.possibleDoubleCount(pair({ daysApart: -30 }))).toBe(true);
+    expect(c.possibleDoubleCount(pair({ daysApart: 31 }))).toBe(false);
+    expect(c.possibleDoubleCount(pair({ daysApart: 200, sameVendor: "Ferguson" }))).toBe(true);
+    expect(c.possibleDoubleCount(pair({ journalAmount: "480.01" }))).toBe(false);
+    expect(c.possibleDoubleCount(pair({ lineCost: "479.999" }))).toBe(true);
+  });
+
+  it("never flags nothing against nothing", () => {
+    expect(c.possibleDoubleCount(pair({ lineCost: "0", journalAmount: "0" }))).toBe(false);
+  });
+
+  it("says why in a sentence", () => {
+    expect(c.doubleCountReason({ daysApart: 0, sameVendor: null })).toBe("Same amount, on the same day.");
+    expect(c.doubleCountReason({ daysApart: -1, sameVendor: null })).toBe("Same amount, 1 day apart.");
+    expect(c.doubleCountReason({ daysApart: 12, sameVendor: "Ferguson" })).toBe("Same amount, and both name Ferguson (12 days apart).");
+  });
+});
+
+describe("overhead by material cost, by the visit and by the truck", () => {
+  const rates: c.CostingRate[] = [
+    { component: "overhead", basis: "percent_of_material", rate: "5", effectiveFrom: "2026-01-01" },
+    { component: "overhead", basis: "per_visit", rate: "15", effectiveFrom: "2026-01-01" },
+    { component: "overhead", basis: "per_truck", rate: "40", effectiveFrom: "2026-01-01" },
+  ];
+  const job = { date: "2026-08-20", minutes: 120, revenue: m.money("1000"), materialCost: m.money("600"), visits: 3, truckDays: 2 };
+
+  it("charges a share of material cost, an amount per visit and an amount per truck day", () => {
+    const parts = c.overheadParts(job, rates);
+    expect(m.toString(parts.materialShare)).toBe("30.0000");
+    expect(m.toString(parts.perVisit)).toBe("45.0000");
+    expect(m.toString(parts.perTruck)).toBe("80.0000");
+    expect(m.toString(parts.total)).toBe("155.0000");
+    expect(m.toString(parts.perHour)).toBe("0.0000");
+  });
+
+  it("charges nothing for a measure it was not given, and nothing on a cancelled job", () => {
+    expect(m.toString(c.overhead({ date: "2026-08-20", minutes: 0, revenue: m.money("0") }, rates))).toBe("0.0000");
+    expect(m.toString(c.overhead({ ...job, cancelled: true }, rates))).toBe("0.0000");
+  });
+
+  it("takes the three new boxes on the mix form, and a percentage of material is at most 100", () => {
+    const mix = c.checkOverheadMix({ percentOfMaterial: "5", perVisit: "15", perTruck: "40", effectiveFrom: "2026-07-01" });
+    expect(mix).toEqual({ ok: true, parts: [
+      { basis: "percent_of_material", rate: "5" }, { basis: "per_visit", rate: "15" }, { basis: "per_truck", rate: "40" },
+    ] });
+    expect(c.checkOverheadMix({ percentOfMaterial: "101", effectiveFrom: "2026-07-01" }))
+      .toMatchObject({ ok: false, field: "percentOfMaterial" });
+    expect(c.checkRate({ component: "benefits", basis: "per_truck", rate: "1", effectiveFrom: "2026-07-01" }).ok).toBe(false);
+  });
+});

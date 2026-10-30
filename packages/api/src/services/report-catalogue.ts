@@ -1,4 +1,4 @@
-import { work, type reporting } from "@opentradesos/core";
+import { costing, work, type reporting } from "@opentradesos/core";
 
 /**
  * JOB COSTING, AS SQL FRAGMENTS, WRITTEN ONCE
@@ -42,10 +42,74 @@ import { work, type reporting } from "@opentradesos/core";
 const COMPANY_ZONE = "coalesce((select o.timezone from public.organization o where o.id = job.organization_id), 'America/Chicago')";
 
 /**
- * Overhead on the job by the bases named: the overhead rows on the latest day
- * on or before the job's own, those bases only, each charged its way.
+ * What was consumed on the job, at cost: its lines (labour excluded) and the
+ * cost of goods sold posted to it. `JOB_COSTING_SQL.materialCost` below, and
+ * what overhead by material cost is a share of. Defined here so overhead can
+ * read the one copy.
  */
-function overheadSql(bases: readonly ("per_hour" | "per_job" | "percent_of_revenue")[]): string {
+const MATERIAL_COST_SQL = `((
+    select coalesce(sum(jl.quantity * jl.unit_cost), 0)
+    from public.job_line jl
+    where jl.job_id = job.id and jl.kind <> 'labor' and jl.unit_cost is not null
+  ) + (
+    /*
+     * Late freight on parts this job used, and cost journalled to it, from
+     * the ledger: debits less credits on cost of goods sold tagged with the
+     * job.
+     */
+    select coalesce(sum(case when le.direction = 'debit' then le.amount else -le.amount end), 0)
+    from public.ledger_entry le
+    where le.job_id = job.id and le.account_code = '5000'
+  ))`;
+
+/**
+ * The visits overhead per visit counts: not cancelled, and not brought in
+ * from the company's old system, whose work was costed there.
+ */
+const VISIT_COUNT_SQL = `(
+  select count(*) from public.visit v
+  where v.job_id = job.id and v.status <> 'cancelled' and v.from_history = false
+)`;
+
+/**
+ * TRUCK DAYS ON THE JOB: each company vehicle that went out on it, once for
+ * each day it did. A vehicle went out on a visit's day when the vehicle
+ * register says it was held that day by somebody on the visit, or by the job
+ * itself. A visit's day is when they arrived, else its window, else when it
+ * was finished, in the company's calendar. A visit by somebody holding no
+ * vehicle adds nothing, because the register is the only record of which
+ * truck went.
+ */
+const TRUCK_DAYS_SQL = `(
+  select count(*) from (
+    select distinct ca.asset_id, vd.day
+    from (
+      select v.id, (coalesce(v.arrived_at, v.window_start, v.completed_at) at time zone ${COMPANY_ZONE})::date as day
+      from public.visit v
+      where v.job_id = job.id and v.status <> 'cancelled' and v.from_history = false
+        and coalesce(v.arrived_at, v.window_start, v.completed_at) is not null
+    ) vd
+    join public.asset_custody ca
+      on ca.organization_id = job.organization_id and ca.deleted_at is null
+     and ca.held_from <= vd.day and (ca.held_until is null or ca.held_until >= vd.day)
+     and (
+       (ca.custodian_kind = 'job' and ca.custodian_id = job.id)
+       or (ca.custodian_kind = 'technician' and ca.custodian_id in (
+         select va.technician_id from public.visit_assignment va where va.visit_id = vd.id
+       ))
+     )
+    join public.company_asset fleet on fleet.id = ca.asset_id and fleet.kind = 'vehicle' and fleet.deleted_at is null
+  ) trucks
+)`;
+
+type OverheadBasisSql = "per_hour" | "per_job" | "percent_of_revenue" | "percent_of_material" | "per_visit" | "per_truck";
+
+/**
+ * Overhead on the job by the bases named: the overhead rows on the latest day
+ * on or before the job's own, those bases only, each charged its way. The
+ * same rule in TypeScript is `costing.overheadParts` in core.
+ */
+function overheadSql(bases: readonly OverheadBasisSql[]): string {
   return `(case when job.status = 'cancelled' then 0 else coalesce((
     select sum(case cr.basis
       when 'per_job' then cr.rate
@@ -59,6 +123,9 @@ function overheadSql(bases: readonly ("per_hour" | "per_job" | "percent_of_reven
         from public.ledger_entry le
         where le.job_id = job.id and le.account_code in ('4000', '4100', '4900')
       )
+      when 'percent_of_material' then cr.rate / 100 * ${MATERIAL_COST_SQL}
+      when 'per_visit' then cr.rate * ${VISIT_COUNT_SQL}
+      when 'per_truck' then cr.rate * ${TRUCK_DAYS_SQL}
       else 0 end)
     from public.costing_rate cr
     where cr.organization_id = job.organization_id and cr.component = 'overhead'
@@ -70,6 +137,59 @@ function overheadSql(bases: readonly ("per_hour" | "per_job" | "percent_of_reven
       )
   ), 0) end)`;
 }
+
+/**
+ * A COST THAT MAY BE COUNTED TWICE, as pairs: a journal's debit to cost of
+ * goods sold on the job against a line on the job that cost the same, to the
+ * cent, with either a vendor named on both or the two days within
+ * `costing.DOUBLE_COUNT_DAYS` of each other. The rule in words, and in
+ * TypeScript, is `costing.possibleDoubleCount` in core.
+ *
+ * A select of rows correlated against `job`, read whole by the job's
+ * statement (which lists each pair and how it was marked) and counted by the
+ * `possibleDoubleCounts` measure below, so the warning on the job and the
+ * number on the margin report are one query. Neither changes a figure: both
+ * costs stay in material cost until a person removes one of them.
+ *
+ * A journal that was reversed, and the reversal, are left out: together they
+ * net to nothing. `mark_id` is the "not the same cost" mark, when somebody
+ * has looked and said so.
+ */
+const LINE_DAY = `(jl.occurred_at at time zone ${COMPANY_ZONE})::date`;
+export const DOUBLE_COUNT_PAIRS_SQL = `
+  select le.id as ledger_entry_id, je.id as journal_id, je.number as journal_number, je.occurred_on as journal_on,
+         coalesce(nullif(le.memo, ''), je.memo) as journal_memo,
+         jl.id as job_line_id, jl.name as line_name, ${LINE_DAY} as line_on,
+         le.amount as amount, (je.occurred_on - ${LINE_DAY}) as days_apart,
+         vm.name as same_vendor, ns.id as mark_id, ns.note as mark_note, ns.created_at as marked_at,
+         ns.marked_by_user_id as marked_by_user_id
+  from public.ledger_entry le
+  join public.journal_entry je on je.id = le.source_id
+  join public.job_line jl on jl.job_id = job.id and jl.kind <> 'labor' and jl.unit_cost is not null
+  left join lateral (
+    select v.name from public.vendor v
+    where v.organization_id = job.organization_id and v.deleted_at is null and length(trim(v.name)) >= 3
+      and position(lower(trim(v.name)) in lower(je.memo || ' ' || coalesce(le.memo, ''))) > 0
+      and (
+        position(lower(trim(v.name)) in lower(jl.name || ' ' || coalesce(jl.description, ''))) > 0
+        or exists (
+          select 1 from public.price_book_item_version piv
+          join public.vendor_item vi on vi.item_id = piv.item_id and vi.vendor_id = v.id
+          where piv.id = jl.price_book_item_version_id
+        )
+      )
+    order by length(v.name) desc, v.name
+    limit 1
+  ) vm on true
+  left join public.job_cost_not_same ns on ns.job_line_id = jl.id and ns.ledger_entry_id = le.id
+  where le.job_id = job.id and le.source_type = 'journal'
+    and le.account_code = '5000' and le.direction = 'debit'
+    and je.reverses_journal_id is null
+    and not exists (select 1 from public.journal_entry r where r.reverses_journal_id = je.id)
+    and round(jl.quantity * jl.unit_cost, 2) = round(le.amount, 2)
+    and round(le.amount, 2) <> 0
+    and (vm.name is not null or abs(je.occurred_on - ${LINE_DAY}) <= ${costing.DOUBLE_COUNT_DAYS})
+`;
 
 export const JOB_COSTING_SQL = {
   /**
@@ -105,20 +225,7 @@ export const JOB_COSTING_SQL = {
    * `uncostedLines` below, so "we do not know" is visible rather than
    * arriving as zero.
    */
-  materialCost: `((
-    select coalesce(sum(jl.quantity * jl.unit_cost), 0)
-    from public.job_line jl
-    where jl.job_id = job.id and jl.kind <> 'labor' and jl.unit_cost is not null
-  ) + (
-    /*
-     * Late freight on parts this job used, from the ledger: debits less
-     * credits on cost of goods sold tagged with the job. Nothing else posts
-     * there, so this cannot count a job line twice.
-     */
-    select coalesce(sum(case when le.direction = 'debit' then le.amount else -le.amount end), 0)
-    from public.ledger_entry le
-    where le.job_id = job.id and le.account_code = '5000'
-  ))`,
+  materialCost: MATERIAL_COST_SQL,
 
   /**
    * WHAT PEOPLE SPENT FOR THE JOB AND THE COMPANY HAS AGREED TO PAY BACK, and
@@ -341,14 +448,17 @@ export const JOB_COSTING_SQL = {
 
   /**
    * OVERHEAD CHARGED TO THE JOB, at the overhead in effect on the job's day
-   * (finished, or started while it runs): the sum of the three parts below.
+   * (finished, or started while it runs): the sum of the six parts below.
    * None on a cancelled job. Zero with no rate set.
    */
-  overhead: overheadSql(["per_hour", "per_job", "percent_of_revenue"]),
+  overhead: overheadSql([
+    "per_hour", "per_job", "percent_of_revenue", "percent_of_material", "per_visit", "per_truck",
+  ]),
   /**
-   * THE THREE PARTS OF THE MIX, each reported on its own: per paid hour on
-   * the job, a flat amount per job, and a share of its revenue. A company that
-   * charges one basis has two of them at zero. The mix on a day is every
+   * THE PARTS OF THE MIX, each reported on its own: per paid hour on the job,
+   * a flat amount per job, a share of its revenue, a share of its material
+   * cost, an amount per visit and an amount per truck day. A company that
+   * charges one basis has the others at zero. The mix on a day is every
    * overhead rate on the latest date on or before it, which is
    * `costing.overheadMixOn` in core, and an integration test holds the two to
    * each other.
@@ -356,6 +466,22 @@ export const JOB_COSTING_SQL = {
   overheadPerHour: overheadSql(["per_hour"]),
   overheadPerJob: overheadSql(["per_job"]),
   overheadRevenueShare: overheadSql(["percent_of_revenue"]),
+  /** The three later parts: a share of material cost, an amount per visit and an amount per truck day. */
+  overheadMaterialShare: overheadSql(["percent_of_material"]),
+  overheadPerVisit: overheadSql(["per_visit"]),
+  overheadPerTruck: overheadSql(["per_truck"]),
+  /** What the later parts are charged on, for the statement to show beside them. */
+  visitCount: VISIT_COUNT_SQL,
+  truckDays: TRUCK_DAYS_SQL,
+
+  /**
+   * Costs journalled to the job that may also be on one of its lines, not yet
+   * marked as two different costs: how many journal lines, each once however
+   * many lines it matches. A warning, never a change to material cost.
+   */
+  possibleDoubleCounts: `(
+    select count(distinct p.ledger_entry_id) from (${DOUBLE_COUNT_PAIRS_SQL}) p where p.mark_id is null
+  )`,
 
   labourNotRecorded: `(case when not exists (
     select 1 from public.timeclock_entry tc
@@ -669,8 +795,29 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
       permission: "job.cost:read", sql: JOB_COSTING_SQL.overheadRevenueShare,
     },
     {
+      key: "overhead_material_share", label: "Overhead as a share of material cost", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overheadMaterialShare,
+    },
+    {
+      key: "overhead_per_visit", label: "Overhead per visit", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overheadPerVisit,
+    },
+    {
+      key: "overhead_per_truck", label: "Overhead per truck day", kind: "sum", type: "money",
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.overheadPerTruck,
+    },
+    {
       key: "fully_loaded_margin", label: "Fully loaded margin", kind: "sum", type: "money",
       permission: "job.cost:read", sql: FULLY_LOADED_MARGIN_SQL,
+    },
+    {
+      key: "possible_double_counts", label: "Possible double counts", kind: "sum", type: "number",
+      /**
+       * A cost journalled to a job that matches a cost on its lines. Counted
+       * here so a margin report says how many of its jobs may carry a cost
+       * twice; the job's own page lists the pairs and takes the mark.
+       */
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.possibleDoubleCounts,
     },
     {
       key: "unbilled_cost", label: "Unbilled cost", kind: "sum", type: "money",

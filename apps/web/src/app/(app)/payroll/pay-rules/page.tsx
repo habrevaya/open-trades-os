@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { assets, laborSettings, mileageOverrides, payExtras } from "@opentradesos/api/services";
+import { assets, laborSettings, mileageOverrides, payExtras, tipRules } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
@@ -57,7 +57,7 @@ export default async function PayRulesPage() {
     );
   }
 
-  const [policies, scales, people, extras, overrides, fleet] = await Promise.all([
+  const [policies, scales, people, extras, overrides, fleet, ownTipRules] = await Promise.all([
     laborSettings.policies(ctx),
     laborSettings.scales(ctx, {}),
     laborSettings.crewRates(ctx),
@@ -65,6 +65,7 @@ export default async function PayRulesPage() {
     mileageOverrides.list(ctx),
     /** The picker of vehicles needs the fleet register, which not everybody who reads pay rules may read. */
     can(user.actor, "asset:read") ? assets.listAssets(ctx, { kind: "vehicle" }) : Promise.resolve({ on: "", assets: [] }),
+    tipRules.list(ctx),
   ]);
   const configures = can(user.actor, "payroll:configure");
   const current = policies.find((p) => p.active) ?? null;
@@ -257,11 +258,52 @@ export default async function PayRulesPage() {
             <TextField label="A day away is worth (dollars)" name="perDiemRate" inputMode="decimal"
                        defaultValue={extras.perDiemRate ?? ""} placeholder="75.00" />
             <p className="text-sm text-ink-700 sm:col-span-2">
-              By hours means the hours each person was clocked in on the job. If none are recorded, or no lead
-              is marked on the job, the tip is shared evenly and the tip says so. A day away is paid with no
+              By hours means the hours each person was clocked in on the job. By the hours on the visit means
+              the visit the tip was for: the one it was taken on, or else the visit finished last. If no hours
+              are recorded, or no lead is marked on the job, the tip is shared evenly and the tip says so. A day away is paid with no
               tax taken from it, which is only right while it is within what the tax authority allows for the
               place and the day. That check is yours. Leave the box empty to pay none.
             </p>
+          </ActionForm>
+        ) : null}
+      </section>
+
+      <section className="mt-10" aria-labelledby="own-tip-rules-heading">
+        <h2 id="own-tip-rules-heading" className="text-base font-semibold">Tips on one job, or for one person</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          A job or a person can have a rule of their own. A job&rsquo;s rule comes first. Then a person&rsquo;s,
+          when everybody on the job who has one has the same one. If two people on a job have different rules,
+          the company&rsquo;s rule above is used and the tip says so. A rule here applies from the next tip: tips
+          already shared keep theirs.
+        </p>
+        {ownTipRules.rules.length === 0 ? (
+          <p className="mt-3 text-sm text-ink-700">None yet, so every tip is shared by the company&rsquo;s rule.</p>
+        ) : (
+          <Table label="Tip rules of their own" head={<><Th>For</Th><Th>Shared</Th><Th>Why</Th><Th>{""}</Th></>}>
+            {ownTipRules.rules.map((r) => (
+              <tr key={r.id}>
+                <Td className="font-medium">
+                  {r.kind === "job" ? `Job ${r.jobNumber}${r.jobSummary ? `, ${r.jobSummary}` : ""}` : r.technicianName}
+                </Td>
+                <Td className="text-ink-700">{r.ruleLabel}</Td>
+                <Td className="text-ink-700">{r.note ?? ""}</Td>
+                <Td>
+                  {configures ? (
+                    <ActionForm action={act} submit="Take off" tone="quiet" hidden={{ op: "tipRuleRemove", id: r.id }} />
+                  ) : null}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {configures ? (
+          <ActionForm action={act} submit="Set the rule" hidden={{ op: "tipRule" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+            <Select label="For this person" name="technicianId"
+                    options={[{ value: "", label: "Nobody, a job instead" }, ...people.map((p) => ({ value: p.id, label: p.displayName }))]} />
+            <TextField label="Or this job number" name="jobNumber" inputMode="numeric" placeholder="1042" />
+            <Select label="Share their tips" name="rule" defaultValue="hours"
+                    options={extras.rules.map((r) => ({ value: r.rule, label: r.label }))} />
+            <TextField label="Why (optional)" name="note" />
           </ActionForm>
         ) : null}
       </section>

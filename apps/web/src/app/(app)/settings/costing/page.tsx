@@ -13,10 +13,15 @@ export const dynamic = "force-dynamic";
 const COMPONENTS = rules.COMPONENTS.map((c) => ({ value: c, label: rules.COMPONENT_LABEL[c] }));
 const BASES = rules.BASES.map((b) => ({ value: b, label: rules.BASIS_LABEL[b] }));
 
+const PER: Record<"per_hour" | "per_job" | "per_visit" | "per_truck", string> = {
+  per_hour: "per paid hour", per_job: "per job", per_visit: "per visit", per_truck: "per truck day",
+};
+
 /** One part of the overhead in words: "$12.00 per paid hour", "3% of revenue". */
 function partText(basis: rules.OverheadBasis, rate: string): string {
   if (basis === "percent_of_revenue") return `${rate}% of revenue`;
-  return `$${Number(rate).toFixed(2)} ${basis === "per_hour" ? "per paid hour" : "per job"}`;
+  if (basis === "percent_of_material") return `${rate}% of material cost`;
+  return `$${Number(rate).toFixed(2)} ${PER[basis]}`;
 }
 
 /** Today's figure for a part, to start the form from, so changing one part does not drop the others. */
@@ -65,8 +70,10 @@ export default async function CostingPage() {
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
         An overhead allocation is a choice, not a measurement. By revenue, every job keeps the margin
         percentage it already had; by the hour, a job that ran long is charged twice for the same overrun;
-        per job, a quick call carries as much as an install. You can mix them: part by the hour, part per
-        job and part as a share of revenue, and each job shows what each part charged it.
+        per job, a quick call carries as much as an install; by material cost, a job heavy on parts carries
+        more; per visit, a second trip is charged again; per truck day, each truck that went out on the job
+        is charged once for each day, as your vehicle register says who had it. You can mix them, and each
+        job shows what each part charged it.
       </p>
 
       <p className="mt-4 text-sm text-ink-700">
@@ -125,6 +132,12 @@ export default async function CostingPage() {
                        defaultValue={currentPart(overheadNow, "per_job")} />
             <TextField label="Share of revenue (%)" name="percentOfRevenue" inputMode="decimal" placeholder="3"
                        defaultValue={currentPart(overheadNow, "percent_of_revenue")} />
+            <TextField label="Share of material cost (%)" name="percentOfMaterial" inputMode="decimal" placeholder="10"
+                       defaultValue={currentPart(overheadNow, "percent_of_material")} />
+            <TextField label="Per visit ($)" name="perVisit" inputMode="decimal" placeholder="15.00"
+                       defaultValue={currentPart(overheadNow, "per_visit")} />
+            <TextField label="Per truck day ($)" name="perTruck" inputMode="decimal" placeholder="40.00"
+                       defaultValue={currentPart(overheadNow, "per_truck")} />
             <TextField label="From" name="effectiveFrom" type="date" defaultValue={today} required />
             <TextField label="Note (optional)" name="note" className="sm:col-span-2" />
           </ActionForm>
@@ -135,8 +148,8 @@ export default async function CostingPage() {
         <section aria-label="Add a rate" className="mt-8 rounded-md border border-steel-200 p-4">
           <h2 className="text-base font-semibold">Add a rate</h2>
           <p className="mt-1 text-sm text-ink-700">
-            Burden is a percent of base wages or an amount per paid hour. Overhead is per paid hour, per job, or
-            a percent of the job&rsquo;s revenue; an overhead rate on a day that already has overhead another way
+            Burden is a percent of base wages or an amount per paid hour. Overhead is per paid hour, per job, a
+            percent of the job&rsquo;s revenue or material cost, per visit or per truck day; an overhead rate on a day that already has overhead another way
             is added to that day&rsquo;s mix. A zero switches one off from its date.
           </p>
           <ActionForm action={addRate} submit="Add rate" className="mt-3 grid gap-3 sm:grid-cols-2">

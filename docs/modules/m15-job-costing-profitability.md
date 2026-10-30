@@ -67,8 +67,8 @@ revenue every job keeps its margin percentage, by the hour a job that ran long
 is charged twice for the overrun, per job a quick call carries as much as an
 install.
 
-**Overhead can be a mix.** Part per paid hour, part per job and part as a
-share of revenue, all at once. The parts set on one day are the whole of the
+**Overhead can be a mix.** Per paid hour, per job, as a share of revenue, as a
+share of material cost, per visit and per truck day, in any combination. The parts set on one day are the whole of the
 overhead from that day: a mix is replaced whole on a later day rather than
 added to, because the other reading (each basis its own history) would turn
 every change of basis a company already made into a mix it never chose. So a
@@ -76,10 +76,28 @@ company charging $20 an hour from January that sets 3% of revenue and $25 a
 job from July charges those two from July and no longer the hourly part. Each
 part is reported on its own: on the job's statement as `overheadParts`, under
 the overhead figure on `/jobs/{id}`, and as the `overhead_per_hour`,
-`overhead_per_job` and `overhead_revenue_share` measures on the profitability
+`overhead_per_job`, `overhead_revenue_share`, `overhead_material_share`,
+`overhead_per_visit` and `overhead_per_truck` measures on the profitability
 dataset, which add up to `overhead`. The rule is core's `costing.overheadMixOn`
 and `costing.overheadParts`, with unit tests, and an integration test holds the
 SQL to it.
+
+**The three later bases, and what each is charged on.** By material cost is a
+percentage of the job's material cost, the same figure as the materials on its
+statement (its lines at cost and the cost of goods sold posted to it). Per visit
+is an amount for each of the job's visits that was not cancelled and was not
+brought in from an old system. Per truck day is an amount for each company
+vehicle that went out on the job, once for each day it did: a vehicle went out
+on a visit's day when the vehicle register (M22) says it was held that day by
+somebody on the visit, or by the job itself. A visit's day is when they
+arrived, else its window, else when it was finished, in the company's
+calendar. The statement says what the last two were charged on
+(`overheadMeasures`: visits and truck days). **The conservative reading
+taken:** a visit by somebody holding no vehicle that day adds no truck day,
+because the register is the only record of which truck went, and a guess would
+charge a truck that stayed in the yard; so a company that does not keep custody
+in the register charges nothing per truck, and the settings screen says the
+part is read from the register.
 
 **What people spent for a job is a cost of it.** A receipt a person paid for the
 job that the office approved, and the company's rate for each day somebody was away
@@ -121,7 +139,7 @@ branch. The company's report does not add a job type's lines in.
 forecast: the months already over (every month before the one the company is
 in) at what the ledger says, and this month and the rest at their budget, at
 the run rate of the months already over, or shaped like last year, as the
-company chooses. The
+company chooses, or a blend of the three. The
 month in progress is not read at its actual so far, because ten days of
 October are not October. The budget is the default because it is the figure
 the company already wrote down; a month with no budget counts as nothing, and
@@ -134,7 +152,13 @@ of the year they were last year, and the rest of the year follows in proportion:
 a company that did a third of last year by May, and has done 40,000 by May this
 year, is forecast 120,000. Each line is shaped by its own last year, in the same
 branch and job type, read from the ledger the same way as the actuals, and rounded
-once, to the cent (`budget.seasonalToCome`). A line with nothing last year, or
+once, to the cent (`budget.seasonalToCome`). The shape can be the average of
+up to five past years instead of last year alone: their months are added
+together, month by month, and the year is shaped like that ("shaped like the
+average of 2023 to 2025"), so a big one off job in one March counts for a
+fraction of what it would alone. Choosing it is refused, in words, unless the
+books hold all of those years ("Use fewer years, or take the months to come
+at their budget or at the run rate until they are."). A line with nothing last year, or
 with nothing or less by this point of last year, has no shape to follow and is
 taken at its budget; the line says so ("Nothing last year to follow, so at its
 budget", `noShape`), and the assumption counts those lines. With no month over
@@ -147,6 +171,28 @@ like the other two. The assumption is written above the table every time,
 with "This is an estimate, not a promise." Nothing about it posts or is stored
 but the choice. The rule is core's `budget.forecastLine` and
 `budget.closedMonths`, with unit tests.
+
+**A blend of the three.** The owner sets whole percentages of the budget, the
+run rate and the seasonal shape that add up to 100 ("70% at their budget and
+30% at the run rate so far"); anything else is refused in words. Each part is
+worked out exactly as it would be on its own, falling back to the budget where
+it would (no month over yet, nothing to shape), and the months to come are the
+weighted sum, so 50 budget and 50 run rate is halfway between the two
+forecasts. Each line says what each part alone would make the months to come
+(`forecast.parts`). A blend that weighs the shape needs the shape's years in
+the books, like the seasonal choice. It is the same one choice for the year as
+the other three, set with `finance:configure`.
+
+**The forecast by month.** Every line also gives the year month by month
+(`forecast.months`): a month already over at its actual, a month to come at its
+budget, at an even part of the run rate, at its share of the past years'
+shape, or at the weighted mix of those for a blend, to the cent, adding up to
+the year end figure. The rule is core's `budget.forecastLine`, with unit tests.
+**The conservative reading taken:** the forecast, by month or for the year, is
+never stored, as the budget or anywhere else; it is worked out each time the
+report is read. Only the choice (the method, the weights and the number of
+years) is kept, so the budget the company wrote down is never quietly replaced
+by an estimate.
 
 **Three judgements the product owner has not made, and the conservative reading
 taken.** The forecast's default is the budget rather than the run rate, because
@@ -199,7 +245,38 @@ the one that matters is labour: hours come from the timeclock at the rate frozen
 on each punch, so a payroll journal to the same job would count the same hours
 twice. The commission expense stays out of margin, as it always has. The one
 way left to count a cost twice is to journal to a job a cost that is already on
-one of its lines, which the statement and the journal screen both say.
+one of its lines, which the statement and the journal screen both say, and
+which job costing now warns about (below).
+
+**A cost that may be counted twice is flagged, never changed.** A journal's
+debit to cost of goods sold (5000) on a job is matched against the job's own
+lines (every kind but labour, each at quantity times unit cost). A pair is
+flagged when the amounts are the same to the cent and either the same vendor
+is named on both, or the two days are within 30 days of each other. "The same
+vendor" is one of the company's vendors whose name is in the journal's memo or
+the journal line's note, and also in the line's name or description, or who
+sells the line's price book item. Thirty days because a supplier's or
+subcontractor's bill often arrives weeks after the work, and a warning that can
+be dismissed in one click is cheaper than a cost counted twice. A reversed
+journal and its reversal are never flagged, because together they are nothing.
+The rule is core's `costing.possibleDoubleCount`, with unit tests, and the SQL
+is `DOUBLE_COUNT_PAIRS_SQL` in report-catalogue.ts, held to it by an
+integration test. The job page says "This cost may be counted twice", lists
+each pair with why it was flagged ("Same amount, 4 days apart."), and leaves
+both costs in the materials figure. The margin reports carry a "Possible
+double counts" measure (`possible_double_counts`) from the same SQL, on the job
+costing report and margin by job type. Whoever posts journals can say a pair is
+"Not the same cost", with a note: the warning becomes a line saying who checked
+it, and can be taken back. Neither the warning nor the mark changes a figure,
+and both the mark and taking it back are audited.
+
+**Two judgements the product owner has not made, and the conservative
+reading taken.** The warning never removes or adjusts a cost by itself,
+because only the bookkeeper knows whether a $480 bill and a $480 line are one
+cost, and a margin that quietly dropped one would be wrong half the time in
+the direction nobody checks. And marking a pair is for whoever holds
+`ledger:post` (the owner and the finance role), not for everyone who reads
+job cost, because the mark is a statement about a journal.
 
 **Revenue is read from the ledger, not from the invoice total.** That is what
 makes the job costing report agree with the trial balance to the cent, and it is
@@ -214,6 +291,17 @@ figures to whoever may read both sides, and under them lists "Booked to this job
 by journal": each journal line that names the job, with the journal's number, and
 whether it is counted in revenue, materials or card fees or not counted here. Over
 the API those are `journalLines`, and the ledger rows carry the journal's number.
+
+Above the figures, a journalled cost that matches one of the job's lines is
+shown as "This cost may be counted twice", with the journal, the line, the
+amount and why. Somebody holding `ledger:post` sees a "Not the same cost"
+button with an optional note under each pair, and "Take back" on a pair
+already marked. Over the API the pairs are `doubleCounts` on the statement
+(each with `notTheSame`, null while the warning stands) and
+`possibleDoubleCounts` is how many journal lines are still flagged;
+`POST /v1/profitability/jobs/{id}/not-the-same` marks a pair (idempotent, and
+marking one already marked returns the mark) and
+`DELETE /v1/profitability/jobs/{id}/not-the-same/{markId}` takes it back.
 
 ### The roll up
 
@@ -242,9 +330,10 @@ is a normal company.
 `/settings/costing` holds the rates with the day each took effect, what an hour
 at a $30 wage costs today with them, the overhead charged today in a sentence
 ("$12.00 per paid hour, $25.00 per job and 3% of revenue"), a form to set
-overhead from a date as a mix (three boxes, any left empty, started from
-today's figures so changing one part does not drop the others), and a form to
-add one rate. `GET /v1/costing/rates` lists them with `overheadNow`,
+overhead from a date as a mix (six boxes: per paid hour, per job, share of
+revenue, share of material cost, per visit and per truck day, any left empty,
+started from today's figures so changing one part does not drop the others),
+and a form to add one rate. `GET /v1/costing/rates` lists them with `overheadNow`,
 `POST /v1/costing/overhead` sets the mix from a date (a day that already has
 overhead is refused unless the same mix is sent again),
 `POST /v1/costing/rates` adds one rate (a second rate for one burden component
@@ -274,7 +363,10 @@ counted as nothing. Above the table, "How the forecast is made" says what was
 assumed. "The forecast" section, for whoever sets the budget, chooses how the
 months to come are taken: at their budget, at the run rate so far, or shaped
 like last year, for the whole year, which every branch's and job type's report
-uses too.
+uses too. A blend takes three boxes of percentages, and "Shape from" chooses
+last year alone or the average of up to five past years. Under the table, "The
+forecast by month" opens each line's year month by month, saying it is never
+saved as the budget.
 
 `GET /v1/budgets/{year}` is the report, `PUT /v1/budgets/{year}/lines` sets a
 line, `DELETE /v1/budgets/{year}/lines/{line}` removes one and
@@ -284,9 +376,12 @@ branch, and the report
 then carries `branch` with the count of entries that carry no branch, or
 `jobType` with the count on no job (both, for a job type in a branch). Every
 line carries `forecast` and the report carries `forecast` with the method chosen
-(`budget`, `run_rate` or `seasonal`), the one used, the months already over, the
-lines with no shape last year and the assumption in words. `PUT
-/v1/budgets/{year}/forecast` chooses the method.
+(`budget`, `run_rate`, `seasonal` or `blend`), the one used, the months already
+over, the lines with no shape last year, the blend's `weights`, the
+`seasonalYears` the shape is averaged over and the assumption in words; each
+line's `forecast` has `months` (twelve figures adding up to it) and, for a
+blend, `parts`. `PUT /v1/budgets/{year}/forecast` chooses the method, with
+`weights` for a blend and `seasonalYears` (1 to 5).
 
 ## Permissions
 
@@ -300,6 +395,11 @@ lines with no shape last year and the assumption in words. `PUT
 
 `job.cost:read` and `report.financial:read` are both on the sensitive list.
 
+Marking a possible double count as two different costs, or taking that back,
+needs `ledger:post` and `job.cost:read`, in the caller's scope: the owner and
+the finance role. The administrator and the office manager read the warning
+and cannot mark it.
+
 Setting burden and overhead rates, the budget and how its forecast is made needs `finance:configure`,
 which the owner, the administrator and the accountant hold and the office
 manager does not: a rate changes what every fully loaded margin says. The rates
@@ -311,6 +411,8 @@ are read with `job.cost:read`, the budget with `report.financial:read`.
 |---|---|
 | `GET /v1/profitability/jobs/{id}` | `report.financial:read`, `job.cost:read` |
 | `GET /v1/profitability/summary` | `report.financial:read`, `job.cost:read` |
+| `POST /v1/profitability/jobs/{id}/not-the-same` | `ledger:post`, `job.cost:read` |
+| `DELETE /v1/profitability/jobs/{id}/not-the-same/{markId}` | `ledger:post`, `job.cost:read` |
 | `GET /v1/jobs/{jobId}/material-cost` | `inventory:read` |
 | `POST /v1/reports/drill` | `report:read`, and the report's own permissions |
 | `GET /v1/costing/rates` | `job.cost:read` |
@@ -337,19 +439,28 @@ attached to it.
 
 ## What is not built
 
-Overhead can be a mix of per paid hour, per job and a share of revenue, but
-there is no fourth basis (by material cost, by visit, by truck), and a mix is
-replaced whole on a new day rather than one part at a time. The overtime
+Overhead can be a mix of per paid hour, per job, a share of revenue or of
+material cost, per visit and per truck day, and a mix is replaced whole on a new
+day rather than one part at a time. A truck day is only what the vehicle
+register's custody record says: there is no truck chosen on the visit or from
+the phone, so a company that does not record who holds which vehicle charges
+nothing per truck, and a vehicle held by two people on one visit is one truck
+day. Per visit counts every visit that was not cancelled, a callback and a
+visit nobody worked included. The overtime
 premium is still not on a job, for the reason above. Burden and overhead are
 applied in reporting only; nothing posts them to the ledger, which keeps them
 as the company's choice rather than an entry in its books. A job type's actuals, in a branch or not, are only what was booked to its jobs,
-and a branch's only what carries the branch. The forecast is one method for the
-whole year (the budget, the run rate, or shaped like last year), with no forecast
-by month, no weighting of recent months and no blend of the three; it is shown,
-never stored or posted. Shaped like last year follows one year, the one before:
-two or more years averaged into a shape is not offered, and a year with one odd
-month (a big one-off job last March) shapes this year with it. Whether a company
-has a whole last year is read from the first entry in its books, for the whole
+and a branch's only what carries the branch. The forecast is one choice for the
+whole year (the budget, the run rate, shaped like past years, or a blend of the
+three by whole percentages), by month and for the year; it is shown, never
+stored or posted. The run rate weighs every month over the same: there is no
+weighting of recent months. The months to come of the run rate are even, not
+shaped. A blend's weights are the same for every line and every month: a line
+cannot be weighted differently, nor the months late in the year. A shape is
+the plain average of the years chosen, each counted the same, the most recent
+no more than the oldest, and a year with a one off month still shapes the
+year, by a share of it. Whether a company
+has the years a shape needs is read from the first entry in its books, for the whole
 company: a branch or a job type that is newer is not refused, its lines simply
 have nothing to follow and are at their budget, saying so. The history needed is
 the whole calendar year before, from its January; a company whose books start on
@@ -357,9 +468,15 @@ the second of February waits a year more, which is the conservative reading. A b
 own branch automatically: the report is a company financial report under
 `report.financial:read`, and whoever holds that chooses the branch. Labour and materials actuals depend on journals, because
 nothing here posts wages or supplier bills. A journal can now put a supplier
-bill or a subcontractor's cost on a job, and the margin counts it, but nothing
-checks it against the job's own lines: a cost entered on a line and journalled to
-the job as well is counted twice, and only the bookkeeper can tell. Labour
+bill or a subcontractor's cost on a job, and the margin counts it; a journalled
+cost that matches one of the job's lines (the same amount, and a vendor named on
+both or within 30 days) is flagged on the job and counted on the margin reports,
+but never taken out: until somebody removes one of the two, both are in the
+margin. A cost that was split (one bill journalled as two lines, or a line for
+part of a bill) is not matched, because only the same amount is; nor is a cost
+on the ledger by any other route than a manual journal, such as late freight. A
+vendor is matched by name in the words, so a bill whose memo does not name the
+vendor and that arrived more than 30 days after the line is not flagged. Labour
 journalled to a job is listed and not counted, so a payroll run cannot double the
 hours. A subcontractor's labour is not hours on this company's clock, so it is
 booked to account 5000 to be counted.

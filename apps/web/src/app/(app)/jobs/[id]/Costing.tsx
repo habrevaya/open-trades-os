@@ -1,4 +1,12 @@
 import { Chip, Money } from "@opentradesos/ui";
+import { ActionForm, TextField } from "@/components/ActionForm";
+import type { FormState } from "@/lib/actions";
+
+/** The two server actions behind "Not the same cost", handed in by the page so this component imports no server module. */
+export interface NotTheSameActions {
+  mark: (previous: FormState, form: FormData) => Promise<FormState>;
+  unmark: (previous: FormState, form: FormData) => Promise<FormState>;
+}
 
 export interface CostingData {
   revenue: string;
@@ -13,7 +21,10 @@ export interface CostingData {
   labourBurden?: string;
   overhead?: string;
   /** The overhead part by part, when the company charges it as a mix. */
-  overheadParts?: { perHour: string; perJob: string; revenueShare: string };
+  overheadParts?: {
+    perHour: string; perJob: string; revenueShare: string;
+    materialShare?: string; perVisit?: string; perTruck?: string;
+  };
   fullyLoadedMargin?: string;
   fullyLoadedMarginPercent?: number | null;
   scheduledHours: string;
@@ -31,6 +42,12 @@ export interface CostingData {
   journalLines: {
     transactionId: string; journalNumber: number; accountCode: string; direction: string; amount: string;
     memo: string | null; countedIn: "revenue" | "material" | "fees" | null;
+  }[];
+  /** A cost journalled to the job that may also be on one of its lines, open and marked. */
+  doubleCounts?: {
+    ledgerEntryId: string; journalNumber: number; journalOn: string; journalMemo: string | null;
+    jobLineId: string; lineName: string; lineOn: string; amount: string; reason: string;
+    notTheSame: { id: string; note: string | null; markedAt: Date | string; markedBy: string | null } | null;
   }[];
 }
 
@@ -60,6 +77,8 @@ function OverheadParts({ parts }: { parts: CostingData["overheadParts"] }) {
   if (!parts) return null;
   const shown = ([
     ["by the hour", parts.perHour], ["for the job", parts.perJob], ["of revenue", parts.revenueShare],
+    ["of material cost", parts.materialShare ?? "0"], ["for the visits", parts.perVisit ?? "0"],
+    ["for the trucks", parts.perTruck ?? "0"],
   ] as const).filter(([, value]) => Number(value) !== 0);
   if (shown.length < 2) return null;
   return (
@@ -71,7 +90,72 @@ function OverheadParts({ parts }: { parts: CostingData["overheadParts"] }) {
   );
 }
 
-export function Costing({ data }: { data: CostingData }) {
+/**
+ * A COST THAT MAY BE COUNTED TWICE: a journal line and a job line with the
+ * same amount and the same vendor or dates close. Said above the figures,
+ * because the material cost below includes both. Nothing here changes a
+ * figure; whoever posts journals can say a pair is two different costs.
+ */
+function DoubleCounts({ jobId, pairs, actions }: {
+  jobId: string; pairs: NonNullable<CostingData["doubleCounts"]>; actions: NotTheSameActions | null;
+}) {
+  const canMark = actions !== null;
+  if (pairs.length === 0) return null;
+  const open = pairs.filter((p) => p.notTheSame === null);
+  return (
+    <div className="mt-3 rounded-md border border-amber-700 bg-amber-tint p-3 text-sm" data-testid="double-counts">
+      <p className="font-medium text-ink-900">
+        {open.length === 0
+          ? "Checked: these look alike but are different costs."
+          : open.length === 1
+            ? "This cost may be counted twice."
+            : `${open.length} costs may be counted twice.`}
+      </p>
+      {open.length > 0 ? (
+        <p className="mt-1 max-w-prose text-ink-700">
+          A cost journalled to this job matches a line on it. Both are in the materials figure. If they are the same
+          bill, take one of them off. If they are two different costs, say so here. Neither figure changes.
+        </p>
+      ) : null}
+      <ul className="mt-2 space-y-2" aria-label="Possible double counts">
+        {pairs.map((pair) => (
+          <li key={`${pair.ledgerEntryId}-${pair.jobLineId}`} className="border-t border-amber-700/30 pt-2 first:border-0 first:pt-0">
+            <span className="block">
+              <a href="/books" className="underline underline-offset-4">Journal {pair.journalNumber}</a>
+              {pair.journalMemo ? `, ${pair.journalMemo}` : ""} and the line {pair.lineName}: <Money value={pair.amount} />
+            </span>
+            <span className="block text-xs text-ink-700">{pair.reason}</span>
+            {pair.notTheSame ? (
+              <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-700">
+                <Chip tone="neutral">Not the same cost</Chip>
+                {pair.notTheSame.markedBy ? `Marked by ${pair.notTheSame.markedBy}.` : "Marked."}
+                {pair.notTheSame.note ? ` ${pair.notTheSame.note}` : ""}
+                {actions ? (
+                  <ActionForm action={actions.unmark} submit="Take back" tone="quiet" className="inline-flex"
+                              hidden={{ jobId, markId: pair.notTheSame.id }} />
+                ) : null}
+              </span>
+            ) : actions ? (
+              <ActionForm action={actions.mark} submit="Not the same cost" tone="quiet" className="mt-1 flex flex-wrap items-end gap-2"
+                          hidden={{ jobId, jobLineId: pair.jobLineId, ledgerEntryId: pair.ledgerEntryId }}>
+                <TextField label="Why (optional)" name="note" placeholder="Two separate bills" />
+              </ActionForm>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {!canMark && open.length > 0 ? (
+        <p className="mt-2 text-xs text-ink-700">Whoever posts journals can mark these as different costs.</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function Costing({ data, jobId, notTheSame = null }: {
+  data: CostingData; jobId?: string;
+  /** Present for whoever posts journals, who can mark a possible double count as two different costs. */
+  notTheSame?: NotTheSameActions | null;
+}) {
   const negative = Number(data.grossMargin) < 0;
   const over = Number(data.hoursOverPlan) > 0;
   return (
@@ -87,6 +171,7 @@ export function Costing({ data }: { data: CostingData }) {
           {data.provisional.map((reason) => <li key={reason}>{reason}</li>)}
         </ul>
       )}
+      {jobId && data.doubleCounts ? <DoubleCounts jobId={jobId} pairs={data.doubleCounts} actions={notTheSame} /> : null}
 
       <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 rounded-md border border-steel-200 bg-canvas p-4 text-sm sm:grid-cols-3">
         <Figure label="Revenue"><Money value={data.revenue} /></Figure>

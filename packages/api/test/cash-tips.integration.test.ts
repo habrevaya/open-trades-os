@@ -341,7 +341,7 @@ run("a tip left with a payment is shared by the company's rule", () => {
   it("is chosen by whoever declares what people are owed", async () => {
     await expect(payExtras.set(office(), { tipSplit: "lead" })).rejects.toThrow(/payroll:configure/);
     expect((await payExtras.set(owner(), { tipSplit: "hours" })).tipSplit).toBe("hours");
-    expect((await payExtras.get(office())).rules.map((r) => r.rule)).toEqual(["even", "hours", "lead"]);
+    expect((await payExtras.get(office())).rules.map((r) => r.rule)).toEqual(["even", "hours", "lead", "visit_hours"]);
   });
 });
 

@@ -31,6 +31,8 @@ const ORDER = [
    * for and the pay period that paid it, so it goes before all three.
    */
   "tip_share",
+  /** A job's or a person's own rule for sharing tips points at the job or the technician. */
+  "tip_split_override",
   /** A cash tip a technician kept points at the technician, the job and the visit. */
   "cash_tip_correction", "cash_tip",
   /** What a person spent for the company and a day away both point at the technician and the job. */
@@ -52,7 +54,10 @@ const ORDER = [
    * headers point only at the company, and sit here with the money they are
    * about.
    */
-  "financing_application", "costing_rate", "budget_line", "budget", "journal_entry",
+  "financing_application", "costing_rate", "budget_line", "budget",
+  /** A "not the same cost" mark points at a job, a job line and a ledger entry, so it goes before all three. */
+  "job_cost_not_same",
+  "journal_entry",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "credit_note_payout", "credit_note_application", "credit_note_line", "credit_note",
