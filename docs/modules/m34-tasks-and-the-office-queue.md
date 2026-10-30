@@ -334,6 +334,23 @@ same list is `GET /v1/reporting-lines/loops` (`user:read`, like the lines): `loo
 each with its `people` (`userId`, `name`, `active`) in reporting order and its
 `sentence`. The rule is core's `reportingLoopsInData`, with unit tests.
 
+THE DAILY SCAN. Nobody has to open the page to find a loop. Once a day for each company, in
+the company's own calendar, a worker pass scans the reporting lines (`app.reporting_loop_organizations`
+lists the companies with a line recorded that have not been scanned today; the claim is the day
+kept in `organization.settings.reportingLoopScan.on`, so two workers scan a company once). When
+there is a loop it raises ONE task in the office queue for the company, about "reporting lines"
+(it opens `/tasks/escalation`), titled "There is a loop in who answers to whom" (or "There are 3
+loops ..."), with every loop named in the same words as the page and the line "Nothing was
+changed. Open Tasks, then Escalation, and change one line in each loop." It is raised once while
+it is open, and the scan never changes a line. When the task is closed as done and a loop is still
+there, it is raised again on the next scan, because done was not true. When it is dismissed and the
+same loops are still there, it is left alone, because the company decided; different loops raise it
+again (the scan keeps a mark of the people in the loops it last raised for). When no loop is left an
+open task closes itself as done, "No loop is left in who answers to whom." The task is not given to
+anybody and nobody is told on the bell, the same as every task that lands in the office queue
+unassigned. The audit log has `task.reporting_loops_raised` (with the loops) and
+`task.reporting_loops_cleared`.
+
 ### Notices to the company's own people
 
 The bell sits at the top of the menu (in the bar beside "Menu" on a phone). It
@@ -668,10 +685,11 @@ Reporting lines are read by escalation and by the licence notice, and shown on t
 person's own page, where they can also be set; nothing else in the product reads them.
 They are one manager per person, with no limit on how long a chain is. A new line that
 would make a loop is refused, and a loop already in the data from before the check is
-found and named in words on `/tasks/escalation`, but never repaired: which line is wrong
-is the company's to say, and escalation looks one step up and no further, so a loop does
-no harm while it waits. Nothing runs the scan on a schedule or tells anybody: it is what
-the page shows when somebody opens it.
+found and named in words on `/tasks/escalation` and by a daily scan that raises one office
+task, but never repaired: which line is wrong is the company's to say, and escalation looks
+one step up and no further, so a loop does no harm while it waits. The scan tells nobody by
+the bell or a text: the task waits in the office queue like any other, and the loop is
+named on the page when somebody opens it.
 
 Obligations are raised by work finished on a cancelled visit, by a contract's
 clocks on a job (respond by, on site by, finished by, invoice by and claim by,

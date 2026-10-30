@@ -21,7 +21,7 @@ import { askPass as reviewAskPass } from "./review-asks";
 import { releasePass as chatNoticePass } from "./portal-chat-notice";
 import { idleClosePass as chatIdleClosePass } from "./portal-chat";
 import { reminderPass as appRequestReminderPass } from "./app-request-reminders";
-import { taskPass } from "./task-rules";
+import { taskPass, loopScanPass } from "./task-rules";
 import { expiryPass } from "./estimate-expiry";
 import { nightlyPass as truckFillPass } from "./truck-fills";
 import { purgePass } from "./retention";
@@ -434,6 +434,18 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] tasks:", (error as Error).message);
+    }
+    /**
+     * Once a day for each company: its reporting lines scanned for a loop, and one office
+     * task raised when there is one. It only reads and raises; it never repairs a line. Its
+     * own try, for the reason the task pass has one.
+     */
+    try {
+      for (const result of await loopScanPass(options.db, scope)) {
+        if (result.failed) console.error(`[worker] reporting loops ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] reporting loops:", (error as Error).message);
     }
     /**
      * Review asks the office queued for later, whose time has come: each is put

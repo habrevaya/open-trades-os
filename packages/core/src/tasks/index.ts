@@ -686,3 +686,35 @@ export function describeExistingLoop(names: readonly string[]): string {
   const last = steps.pop();
   return steps.length === 0 ? `${last}.` : `${steps.join(", ")}${steps.length > 1 ? "," : ""} and ${last}.`;
 }
+
+/**
+ * THE TASK THE DAILY LOOP SCAN RAISES
+ *
+ * One task for the whole company, whatever the number of loops, naming each in
+ * words. It says nothing was changed and where to change it, because which line
+ * in a loop is the wrong one is the company's to say. It never says who is at
+ * fault.
+ */
+export function reportingLoopTaskTitle(loops: number): string {
+  return loops === 1 ? "There is a loop in who answers to whom" : `There are ${loops} loops in who answers to whom`;
+}
+
+export function reportingLoopTaskBody(sentences: readonly string[]): string {
+  return `${sentences.join(" ")} `
+    + "While a loop stands, a late task is told to somebody who answers to the person it would tell. "
+    + "Nothing was changed. Open Tasks, then Escalation, and change one line in each loop. "
+    + "This task closes itself when no loop is left.";
+}
+
+/**
+ * A short mark of which loops there are, so a task somebody dismissed is not
+ * raised again for the same loops. The people in each loop in order of their
+ * ids, the loops in order of their first, so the mark does not change when the
+ * scan starts from a different person.
+ */
+export function reportingLoopsMark(loops: readonly (readonly string[])[]): string {
+  return loops
+    .map((loop) => [...loop].sort().join("+"))
+    .sort()
+    .join("|");
+}

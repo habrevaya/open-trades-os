@@ -1931,6 +1931,32 @@ returns table (organization_id uuid)
 revoke all on function app.task_rule_organizations(int) from public;
 grant execute on function app.task_rule_organizations(int) to background;
 
+-- ---- Companies whose reporting lines have not been scanned today ----------
+-- The worker scans each company's reporting lines for a loop once a day, in
+-- the company's own calendar (settings.reportingLoopScan.on is the day it last
+-- did). The worker has no tenant until it picks one, so it asks here which
+-- companies have at least one reporting line recorded and have not been
+-- scanned today, as ids and nothing else. A suspended or demo company is left
+-- alone. Whether there is a loop, and what to say about it, is the service's.
+create or replace function app.reporting_loop_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id from public.organization o
+     where o.suspended_at is null
+       and o.demo_user_id is null
+       and exists (
+         select 1 from public.membership m
+          where m.organization_id = o.id and m.reports_to_user_id is not null
+       )
+       and coalesce(o.settings -> 'reportingLoopScan' ->> 'on', '')
+         < to_char((now() at time zone coalesce(nullif(o.timezone, ''), 'UTC'))::date, 'YYYY-MM-DD')
+     limit p_limit
+  $$;
+
+revoke all on function app.reporting_loop_organizations(int) from public;
+grant execute on function app.reporting_loop_organizations(int) to background;
+
 -- ---- Companies with toolbox talks to raise ---------------------------------
 -- The talk pass raises a scheduled toolbox talk on its day, across every
 -- tenant, as the task pass raises a recurring task. This answers only WHICH

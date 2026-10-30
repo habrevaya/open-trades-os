@@ -153,22 +153,24 @@ export interface ReportingLoop {
  * company's to say. `user:read`, as the lines themselves are read.
  */
 export async function reportingLoops(ctx: ServiceContext): Promise<ReportingLoop[]> {
-  return guardedRead(ctx, "user:read", async (tx) => {
-    const people = await directory(tx, ctx.actor.organizationId);
-    /** In name order, so a loop is named from the same person every time. */
-    const ordered = [...people.values()].sort((a, b) =>
-      (a.name ?? a.email).localeCompare(b.name ?? b.email) || a.userId.localeCompare(b.userId));
-    const loops = taskRules.reportingLoopsInData(new Map(ordered.map((p) => [p.userId, p.reportsToUserId])));
-    return loops.map((ids) => {
-      const members = ids.map((id) => {
-        const p = people.get(id)!;
-        return { userId: id, name: p.name ?? p.email, active: p.active };
-      });
-      return {
-        people: members,
-        sentence: taskRules.describeExistingLoop(members.map((m) => (m.active ? m.name : `${m.name} (no longer works here)`))),
-      };
+  return guardedRead(ctx, "user:read", (tx) => loopsIn(tx, ctx.actor.organizationId));
+}
+
+async function loopsIn(tx: Database, organizationId: string): Promise<ReportingLoop[]> {
+  const people = await directory(tx, organizationId);
+  /** In name order, so a loop is named from the same person every time. */
+  const ordered = [...people.values()].sort((a, b) =>
+    (a.name ?? a.email).localeCompare(b.name ?? b.email) || a.userId.localeCompare(b.userId));
+  const loops = taskRules.reportingLoopsInData(new Map(ordered.map((p) => [p.userId, p.reportsToUserId])));
+  return loops.map((ids) => {
+    const members = ids.map((id) => {
+      const p = people.get(id)!;
+      return { userId: id, name: p.name ?? p.email, active: p.active };
     });
+    return {
+      people: members,
+      sentence: taskRules.describeExistingLoop(members.map((m) => (m.active ? m.name : `${m.name} (no longer works here)`))),
+    };
   });
 }
 
@@ -994,6 +996,115 @@ export async function taskPass(
     results.push(result);
   }
   return results;
+}
+
+/* --------------------------------------------- the daily scan for a loop */
+
+/**
+ * THE DAILY SCAN FOR A LOOP IN WHO ANSWERS TO WHOM
+ *
+ * A line that would make a loop is refused when it is saved, but a loop from
+ * before that check is still in the data, and until now it was found only when
+ * somebody opened `/tasks/escalation`. Once a day, in the company's own
+ * calendar, the worker scans the company's reporting lines and, when there is a
+ * loop, raises ONE task in the office queue naming every loop in words.
+ *
+ * It never repairs. Which line in a loop is the wrong one is the company's to
+ * say, so the task says what to do and nothing is changed.
+ *
+ * The task is raised once while it is open. When it is closed:
+ *   done        and a loop is still there: raised again on the next scan,
+ *               because "done" was not true
+ *   dismissed   and the same loops are still there: left alone, because the
+ *               company decided; raised again if the loops are different
+ * When no loop is left the open task closes itself as done.
+ *
+ * What the scan remembers lives in `organization.settings.reportingLoopScan`:
+ * the day it last ran (the claim, so two workers scan a company once a day),
+ * the mark of the loops it last raised a task for, and that task.
+ */
+export interface LoopScanResult { organizationId: string; loops: number; raisedTaskId: string | null; closedTaskId: string | null }
+
+export async function scanLoopsFor(db: Database, organizationId: string, now: Date = new Date()): Promise<LoopScanResult | null> {
+  const ctx: ServiceContext = { actor: workerActor(organizationId), db };
+  return inTenant(ctx, async (tx) => {
+    const zone = await timezoneOf(tx, organizationId);
+    const today = time.dateIn(now, zone);
+    /** The claim: only the pass that moves the day forward scans. */
+    const [claimed] = await tx.update(schema.organization).set({
+      settings: sql`jsonb_set(coalesce(${schema.organization.settings}, '{}'::jsonb), '{reportingLoopScan}',
+        coalesce(${schema.organization.settings} -> 'reportingLoopScan', '{}'::jsonb) || ${JSON.stringify({ on: today })}::jsonb)`,
+    }).where(and(
+      eq(schema.organization.id, organizationId),
+      sql`coalesce(${schema.organization.settings} -> 'reportingLoopScan' ->> 'on', '') < ${today}`,
+    )).returning({ settings: schema.organization.settings });
+    if (!claimed) return null;
+    const memory = ((claimed.settings as Record<string, unknown> | null)?.["reportingLoopScan"] ?? {}) as
+      { raisedMark?: string; taskId?: string };
+
+    const loops = await loopsIn(tx, organizationId);
+    const [open] = await tx.select({ id: schema.task.id }).from(schema.task).where(and(
+      eq(schema.task.organizationId, organizationId),
+      eq(schema.task.entityType, "reporting_lines"),
+      inArray(schema.task.status, ["open", "in_progress"]),
+    )).limit(1);
+
+    if (loops.length === 0) {
+      if (!open) return { organizationId, loops: 0, raisedTaskId: null, closedTaskId: null };
+      await tx.update(schema.task).set({
+        status: "done", outcome: "No loop is left in who answers to whom.", completedAt: now, updatedAt: now,
+      }).where(eq(schema.task.id, open.id));
+      await audit(tx, ctx, "task.reporting_loops_cleared", "task", open.id, null, { on: today });
+      return { organizationId, loops: 0, raisedTaskId: null, closedTaskId: open.id };
+    }
+    if (open) return { organizationId, loops: loops.length, raisedTaskId: null, closedTaskId: null };
+
+    const mark = taskRules.reportingLoopsMark(loops.map((l) => l.people.map((p) => p.userId)));
+    if (memory.raisedMark === mark && memory.taskId) {
+      const [last] = await tx.select({ status: schema.task.status }).from(schema.task)
+        .where(eq(schema.task.id, memory.taskId)).limit(1);
+      if (last?.status === "dismissed") return { organizationId, loops: loops.length, raisedTaskId: null, closedTaskId: null };
+    }
+    const [task] = await tx.insert(schema.task).values({
+      organizationId,
+      title: taskRules.reportingLoopTaskTitle(loops.length),
+      body: taskRules.reportingLoopTaskBody(loops.map((l) => l.sentence)),
+      priority: "normal",
+      entityType: "reporting_lines",
+      entityId: organizationId,
+      queue: "office",
+    }).returning({ id: schema.task.id });
+    await tx.update(schema.organization).set({
+      settings: sql`jsonb_set(${schema.organization.settings}, '{reportingLoopScan}',
+        (${schema.organization.settings} -> 'reportingLoopScan') || ${JSON.stringify({ raisedMark: mark, taskId: task!.id })}::jsonb)`,
+    }).where(eq(schema.organization.id, organizationId));
+    await audit(tx, ctx, "task.reporting_loops_raised", "task", task!.id, null, {
+      loops: loops.map((l) => ({ people: l.people.map((p) => p.userId), sentence: l.sentence })),
+    });
+    return { organizationId, loops: loops.length, raisedTaskId: task!.id, closedTaskId: null };
+  });
+}
+
+/**
+ * Every company with a reporting line that has not been scanned today, once.
+ * One company's failure is kept to that company.
+ */
+export async function loopScanPass(
+  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean; only?: readonly string[] } = {},
+): Promise<{ organizationId: string; result: LoopScanResult | null; failed: string | null }[]> {
+  const rows = within(options.only, await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.reporting_loop_organizations(${options.limit ?? 200})`,
+  ));
+  const out: { organizationId: string; result: LoopScanResult | null; failed: string | null }[] = [];
+  for (const row of rows) {
+    if (options.shouldStop?.()) break;
+    try {
+      out.push({ organizationId: row.organization_id, result: await scanLoopsFor(db, row.organization_id, options.now), failed: null });
+    } catch (error) {
+      out.push({ organizationId: row.organization_id, result: null, failed: (error as Error).message });
+    }
+  }
+  return out;
 }
 
 /* --------------------------------------------------------------- the API */
