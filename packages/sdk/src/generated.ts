@@ -18769,6 +18769,17 @@ export interface ListVendorsOutput {
   }>;
 }
 
+export interface ListVisitChangeNextTimesOutput {
+  slots: Array<{
+    date: string;
+    arrivalWindowId: string;
+    label: string;
+    startsAt: string;
+    endsAt: string;
+    remaining: number;
+  }>;
+}
+
 export interface ListVisitChangeRequestsOutput {
   requests: Array<{
     id: string;
@@ -33343,6 +33354,11 @@ export interface ListVendorReturnsInput {
 
 export type ListVendorsInput = Record<string, never>;
 
+export interface ListVisitChangeNextTimesInput {
+  id: string;
+  count?: number;
+}
+
 export interface ListVisitChangeRequestsInput {
   status?: "pending" | "approved" | "declined" | "superseded" | "proposed" | "accepted" | "turned_down" | "withdrawn";
   jobId?: string;
@@ -35520,6 +35536,7 @@ export interface OperationTypes {
   listVendorItems: { input: ListVendorItemsInput; output: ListVendorItemsOutput };
   listVendorReturns: { input: ListVendorReturnsInput; output: ListVendorReturnsOutput };
   listVendors: { input: ListVendorsInput; output: ListVendorsOutput };
+  listVisitChangeNextTimes: { input: ListVisitChangeNextTimesInput; output: ListVisitChangeNextTimesOutput };
   listVisitChangeRequests: { input: ListVisitChangeRequestsInput; output: ListVisitChangeRequestsOutput };
   listVisitChangeTimes: { input: ListVisitChangeTimesInput; output: ListVisitChangeTimesOutput };
   listWageScales: { input: ListWageScalesInput; output: ListWageScalesOutput };
@@ -36754,6 +36771,7 @@ export const OPERATIONS = {
   listVendorItems: { method: "GET", path: "/v1/vendor-items", pathParams: [], queryParams: ["itemId","vendorId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVendorReturns: { method: "GET", path: "/v1/vendor-returns", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listVendors: { method: "GET", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
+  listVisitChangeNextTimes: { method: "GET", path: "/v1/visit-change-requests/{id}/next-times", pathParams: ["id"], queryParams: ["count"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listVisitChangeRequests: { method: "GET", path: "/v1/visit-change-requests", pathParams: [], queryParams: ["status","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listVisitChangeTimes: { method: "GET", path: "/v1/visit-change-requests/{id}/times", pathParams: ["id"], queryParams: ["from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listWageScales: { method: "GET", path: "/v1/payroll/wage-scales", pathParams: [], queryParams: ["classification"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
@@ -43723,6 +43741,15 @@ export abstract class GeneratedOperations {
    */
   listVendors(input: ListVendorsInput = {} as ListVendorsInput, options?: CallOptions): Promise<ListVendorsOutput> {
     return this.call("listVendors", input, options);
+  }
+
+  /**
+   * The next free times to offer after a no, soonest first.
+   *
+   * GET /v1/visit-change-requests/{id}/next-times. Needs visit:read.
+   */
+  listVisitChangeNextTimes(input: ListVisitChangeNextTimesInput, options?: CallOptions): Promise<ListVisitChangeNextTimesOutput> {
+    return this.call("listVisitChangeNextTimes", input, options);
   }
 
   /**

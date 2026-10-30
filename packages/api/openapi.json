@@ -146108,6 +146108,125 @@
         ]
       }
     },
+    "/v1/visit-change-requests/{id}/next-times": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listVisitChangeNextTimes",
+        "summary": "The next free times to offer after a no, soonest first",
+        "description": "The first few windows online booking would sell for the visit's work (`count`, three when left out), soonest first, without the time the customer turned down or the office took back. It only lists them: nothing is offered and nobody is told until a person sends one with `POST /v1/visit-change-requests/{id}/propose`, and a customer's no never offers another time by itself. Empty where `/times` is.\n\nRequires a session holding: visit:read.",
+        "tags": [
+          "M05"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The next free times to offer after a no, soonest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListVisitChangeNextTimesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "visit:read"
+        ]
+      }
+    },
     "/v1/visit-change-requests/{id}/propose": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -249548,6 +249667,50 @@
         },
         "required": [
           "vendors"
+        ]
+      },
+      "ListVisitChangeNextTimesOutput": {
+        "type": "object",
+        "properties": {
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "arrivalWindowId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": "string"
+                },
+                "remaining": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "date",
+                "arrivalWindowId",
+                "label",
+                "startsAt",
+                "endsAt",
+                "remaining"
+              ]
+            }
+          }
+        },
+        "required": [
+          "slots"
         ]
       },
       "ListVisitChangeRequestsOutput": {

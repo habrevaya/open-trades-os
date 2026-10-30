@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
@@ -504,13 +504,67 @@ async function viewsWhere(tx: Database, where: ReturnType<typeof and>): Promise<
 /** Requests waiting for an answer, oldest visit first is not the order: newest asked first. */
 export async function list(
   ctx: ServiceContext,
-  input: { status?: ChangeStatus | undefined; jobId?: string | undefined; ids?: string[] | undefined } = {},
+  input: {
+    status?: ChangeStatus | undefined; jobId?: string | undefined; ids?: string[] | undefined;
+    /** The requests whose office task is one of these: the queue asks by the tasks it shows. */
+    taskIds?: string[] | undefined;
+  } = {},
 ) {
   return guardedRead(ctx, "visit:read", (tx) => viewsWhere(tx, and(
     input.status ? eq(schema.visitChangeRequest.status, input.status) : undefined,
     input.jobId ? eq(schema.visitChangeRequest.jobId, input.jobId) : undefined,
     input.ids ? (input.ids.length ? inArray(schema.visitChangeRequest.id, input.ids) : sql`false`) : undefined,
+    input.taskIds ? (input.taskIds.length ? inArray(schema.visitChangeRequest.taskId, input.taskIds) : sql`false`) : undefined,
   )));
+}
+
+/** How long a time taken back stays in the queue waiting for another offer. */
+const TAKEN_BACK_STAYS_DAYS = 14;
+
+/**
+ * THE OFFERS THE OFFICE IS STILL HOLDING, FOR THE QUEUE.
+ *
+ * A time offered to a customer closes the request's task (the office has
+ * answered), and taking it back leaves no task at all, so from the queue an
+ * offer waiting for a yes or no, or one taken back that nobody replaced, had
+ * nowhere to be withdrawn or offered again from but the job's page. These are:
+ *
+ *   offers waiting for the customer (`proposed`), to take back;
+ *   times taken back (`withdrawn`) in the last two weeks with nothing newer
+ *   asked about the visit, to offer another from; and
+ *   requests whose offer the customer turned down, but ONLY those whose
+ *   "said no" task the caller names (`taskIds`, the tasks the queue shows):
+ *   that task is where the office sees the no, and one the office closed
+ *   without offering again is a decision, not a leftover to bring back.
+ *
+ * All on a visit still to come. A request the customer has asked something
+ * new about is left out, because the new request is the one to answer.
+ */
+export async function openOffers(
+  ctx: ServiceContext, input: { taskIds?: string[] | undefined } = {},
+): Promise<ChangeRequestView[]> {
+  return guardedRead(ctx, "visit:read", async (tx) => {
+    const since = new Date(Date.now() - TAKEN_BACK_STAYS_DAYS * 864e5);
+    const rows = await viewsWhere(tx, and(
+      eq(schema.visitChangeRequest.kind, "reschedule"),
+      inArray(schema.visit.status, ["unassigned", "scheduled", "dispatched"]),
+      or(
+        eq(schema.visitChangeRequest.status, "proposed"),
+        and(eq(schema.visitChangeRequest.status, "withdrawn"), gte(schema.visitChangeRequest.updatedAt, since)),
+        input.taskIds?.length
+          ? and(eq(schema.visitChangeRequest.status, "turned_down"), inArray(schema.visitChangeRequest.taskId, input.taskIds))
+          : undefined,
+      ),
+    ));
+    if (rows.length === 0) return [];
+    const all = await tx.select({
+      visitId: schema.visitChangeRequest.visitId, createdAt: schema.visitChangeRequest.createdAt,
+    }).from(schema.visitChangeRequest).where(
+      inArray(schema.visitChangeRequest.visitId, [...new Set(rows.map((r) => r.visitId))]),
+    );
+    return rows.filter((r) => r.status === "proposed"
+      || !all.some((o) => o.visitId === r.visitId && o.createdAt.getTime() > new Date(r.createdAt).getTime()));
+  });
 }
 
 /**
@@ -826,18 +880,47 @@ export async function decline(ctx: ServiceContext, input: { id: string; response
 export async function proposalTimes(
   ctx: ServiceContext, input: { id: string; from?: string | undefined; days?: number | undefined },
 ): Promise<OpenSlot[]> {
+  return guardedRead(ctx, "visit:read", (tx) => timesWithin(tx, ctx, input));
+}
+
+async function timesWithin(
+  tx: Database, ctx: ServiceContext, input: { id: string; from?: string | undefined; days?: number | undefined },
+): Promise<OpenSlot[]> {
+  const { request: req, visit } = await pendingFor(tx, input.id);
+  if (req.kind !== "reschedule" || !OFFERABLE.includes(req.status)) return [];
+  const { service, job, timezone } = await offerContext(tx, ctx.actor.organizationId, visit.jobId, req);
+  if (!service) return [];
+  return openSlots(tx, {
+    organizationId: ctx.actor.organizationId, timezone, service,
+    from: input.from ?? time.dateIn(new Date(), timezone),
+    days: Math.min(input.days ?? 21, 60),
+    exceptRequestId: req.id, exceptVisitId: visit.id,
+    member: await memberTest(tx, ctx.actor.organizationId, job.customerId, job.propertyId),
+  });
+}
+
+/**
+ * THE NEXT FREE TIMES, FOR THE ONE PRESS OFFER.
+ *
+ * After a customer says no to the time offered, the office's next move is
+ * nearly always "then how about the next free morning". These are the first
+ * few windows online booking would sell for the work, soonest first, left
+ * without the one the customer just turned down (or the office took back):
+ * offering that again would be the same answer twice. They are only a list.
+ * NOTHING IS OFFERED BY LOOKING: a person presses one (`propose`), which is
+ * what tells the customer, and the customer's no does not offer another time
+ * by itself.
+ */
+export async function nextTimes(
+  ctx: ServiceContext, input: { id: string; count?: number | undefined },
+): Promise<OpenSlot[]> {
   return guardedRead(ctx, "visit:read", async (tx) => {
-    const { request: req, visit } = await pendingFor(tx, input.id);
-    if (req.kind !== "reschedule" || !OFFERABLE.includes(req.status)) return [];
-    const { service, job, timezone } = await offerContext(tx, ctx.actor.organizationId, visit.jobId, req);
-    if (!service) return [];
-    return openSlots(tx, {
-      organizationId: ctx.actor.organizationId, timezone, service,
-      from: input.from ?? time.dateIn(new Date(), timezone),
-      days: Math.min(input.days ?? 21, 60),
-      exceptRequestId: req.id, exceptVisitId: visit.id,
-      member: await memberTest(tx, ctx.actor.organizationId, job.customerId, job.propertyId),
-    });
+    const { request: req } = await pendingFor(tx, input.id);
+    const all = await timesWithin(tx, ctx, { id: input.id });
+    const refused = req.status === "pending" ? null : { date: req.proposedDate, window: req.proposedArrivalWindowId };
+    return all
+      .filter((s) => !(refused && s.date === refused.date && s.arrivalWindowId === refused.window))
+      .slice(0, Math.min(Math.max(input.count ?? 3, 1), 10));
   });
 }
 
@@ -1126,6 +1209,8 @@ export const handlers = {
     decline(ctx, input),
   listVisitChangeTimes: async (ctx: ServiceContext, input: { id: string; from?: string | undefined; days?: number | undefined }) =>
     ({ slots: await proposalTimes(ctx, input) }),
+  listVisitChangeNextTimes: async (ctx: ServiceContext, input: { id: string; count?: number | undefined }) =>
+    ({ slots: await nextTimes(ctx, input) }),
   proposeVisitChangeTime: (ctx: ServiceContext, input: {
     id: string; date: string; arrivalWindowId: string; response?: string | undefined;
   }) => propose(ctx, input),

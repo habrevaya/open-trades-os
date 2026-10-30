@@ -206,12 +206,18 @@ export function OfferWaiting({
  * another time from the same request, from the same windows.
  */
 export function OfferAgain({
-  request, timezone, propose, times,
+  request, timezone, propose, times, next,
 }: {
   request: { id: string; customerName: string; status: string; proposedStart: string | null; proposedEnd: string | null; answer: string | null };
   timezone: string;
   propose: Action;
   times: OfferableTime[];
+  /**
+   * The next free windows, soonest first (the office queue passes them):
+   * each is a button that offers that time with one press. Never sent by
+   * itself: a customer's no only puts this in front of somebody.
+   */
+  next?: OfferableTime[];
 }) {
   return (
     <section
@@ -224,6 +230,26 @@ export function OfferAgain({
           : `${request.customerName} said no to ${when(request.proposedStart, request.proposedEnd, timezone)}.`}
       </p>
       {request.answer ? <p className="mt-1 text-sm text-ink-700">In their words: {request.answer}</p> : null}
+      {next && next.length > 0 ? (
+        <div className="mt-3" role="group" aria-label="The next free times">
+          <p className="text-xs text-ink-700">
+            The next free times. One press sends that time to {request.customerName} with a link to say yes or no.
+            The visit stays where it is until they say yes.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {next.map((t) => (
+              <ActionForm
+                key={`${t.date}|${t.arrivalWindowId}`}
+                action={propose}
+                submit={`Offer ${offerLabel(t)}`}
+                tone="quiet"
+                hidden={{ id: request.id, time: `${t.date}|${t.arrivalWindowId}` }}
+                className="flex"
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
       {times.length === 0 ? (
         <p className="mt-3 text-xs text-ink-700">No other times are open online to offer. Call them to find one.</p>
       ) : (

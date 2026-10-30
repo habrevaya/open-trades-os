@@ -9,8 +9,10 @@ import { Empty, PageHeader } from "@/components/Table";
 import { TASK_PRIORITY, label } from "@/lib/labels";
 import { TaskActions } from "./TaskActions";
 import { ObligationActions } from "./ObligationActions";
-import { VisitChangeDecision } from "@/components/VisitChangeDecision";
-import { approveVisitChange, declineVisitChange, proposeVisitChange } from "../jobs/[id]/actions";
+import { OfferAgain, OfferWaiting, VisitChangeDecision } from "@/components/VisitChangeDecision";
+import {
+  approveVisitChange, declineVisitChange, proposeVisitChange, withdrawVisitChangeOffer,
+} from "../jobs/[id]/actions";
 import { ActionForm, TextField, TextArea, Select } from "@/components/ActionForm";
 import { addTask } from "./rule-actions";
 
@@ -85,6 +87,28 @@ export default async function TasksPage({
     ? await Promise.all([...changes.values()].filter((r) => r.status === "pending" && r.kind === "reschedule")
       .map(async (r) => [r.id, await visitChanges.proposalTimes(ctx, { id: r.id })] as const))
     : []);
+
+  /**
+   * THE TIMES OFFERED, FROM THE QUEUE. An offer waiting for the customer can
+   * be taken back here, a time taken back can be offered again, and the task
+   * raised when a customer said no to a time offers the next free times with
+   * one press each. Nothing is offered by itself: each is a button.
+   */
+  const mayOffer = can(user.actor, "visit:reschedule");
+  const offers = mayOffer
+    ? await visitChanges.openOffers(ctx, {
+      taskIds: page.data.filter((t) => t.entityType === "visit").map((t) => t.id),
+    })
+    : [];
+  const saidNo = new Map(offers.filter((o) => o.status === "turned_down" && o.taskId).map((o) => [o.taskId!, o] as const));
+  const waitingOffers = view === "mine" || view === "all" ? offers.filter((o) => o.status === "proposed") : [];
+  const takenBack = view === "mine" || view === "all" ? offers.filter((o) => o.status === "withdrawn") : [];
+  const againIds = [...saidNo.values(), ...takenBack].map((o) => o.id);
+  const againTimes = new Map(await Promise.all(againIds.map(async (id) =>
+    [id, {
+      all: await visitChanges.proposalTimes(ctx, { id }),
+      next: await visitChanges.nextTimes(ctx, { id, count: 3 }),
+    }] as const)));
 
   /**
    * Deadlines, above the queue.
@@ -180,6 +204,47 @@ export default async function TasksPage({
         ))}
       </div>
 
+      {waitingOffers.length > 0 && (
+        <section className="mt-6" aria-label="Times offered to customers">
+          <h2 className="text-base font-semibold">Waiting for a customer to answer</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            Times you offered. Nothing has moved. You can take one back here.
+          </p>
+          <div className="mt-3 space-y-3">
+            {waitingOffers.map((offer) => (
+              <OfferWaiting
+                key={offer.id}
+                offer={offer}
+                timezone={user.organizationTimezone}
+                withdraw={withdrawVisitChangeOffer}
+                canDecide={mayOffer}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {takenBack.length > 0 && (
+        <section className="mt-6" aria-label="Times taken back">
+          <h2 className="text-base font-semibold">Times you took back</h2>
+          <p className="mt-1 text-sm text-ink-700">
+            These customers still need a time. They stay here for two weeks, or until the visit has passed.
+          </p>
+          <div className="mt-3 space-y-3">
+            {takenBack.map((request) => (
+              <OfferAgain
+                key={request.id}
+                request={request}
+                timezone={user.organizationTimezone}
+                propose={proposeVisitChange}
+                times={againTimes.get(request.id)?.all ?? []}
+                next={againTimes.get(request.id)?.next ?? []}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {page.data.length === 0 ? (
         <Empty title={view === "overdue" ? "Nothing is late" : "Nothing in this queue"}>
           {view === "overdue"
@@ -258,6 +323,18 @@ export default async function TasksPage({
                       canDecide={can(user.actor, "visit:reschedule")}
                       propose={proposeVisitChange}
                       times={offerable.get(change.id) ?? []}
+                    />
+                  </div>
+                ) : null}
+
+                {saidNo.get(task.id) ? (
+                  <div className="mt-3">
+                    <OfferAgain
+                      request={saidNo.get(task.id)!}
+                      timezone={user.organizationTimezone}
+                      propose={proposeVisitChange}
+                      times={againTimes.get(saidNo.get(task.id)!.id)?.all ?? []}
+                      next={againTimes.get(saidNo.get(task.id)!.id)?.next ?? []}
                     />
                   </div>
                 ) : null}

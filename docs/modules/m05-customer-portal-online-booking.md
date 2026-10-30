@@ -861,6 +861,36 @@ it as they answered the first. An old request is not offered on once the
 customer has asked something new about the visit: the new request is the one
 to answer.
 
+### Answer a no, and manage offers, from the office queue
+
+The office queue (`/tasks`, M34) is where a no is answered, so the offers are
+managed from it as well as from the job's page.
+
+- **The task raised when a customer says no** ("{name} said no to {time}") shows
+  the next free times as buttons, soonest first, three of them, each a time
+  online booking would sell for that work, left without the one the customer
+  turned down: **Offer Thu, Nov 5, 8:00 AM to 12:00 PM**. One press sends that
+  time to the customer with a link to say yes or no, exactly as **Offer this
+  time** does, closes the task, and nothing moves until they say yes.
+  **Nothing is offered by itself.** The customer's no only puts the task in
+  front of somebody, and looking at the times tells nobody. Under the buttons
+  the same box as the job's page chooses any other time and adds words.
+  `GET /v1/visit-change-requests/{id}/next-times` (`visit:read`, `count` up to
+  ten, three when left out) is the list; offering is the `propose` route.
+  Only somebody who holds `visit:reschedule` sees the buttons. The task is not
+  shown again once the office closed it without offering, since closing it is
+  a decision.
+- **An offer waiting for the customer** is listed on the queue under "Waiting
+  for a customer to answer", on the views that show everything (Mine and
+  unclaimed, Everything), with **Take this time back** and a box for words,
+  the same act and the same message as on the job's page. The request's own
+  task is closed the moment a time is offered, which is why the queue lists
+  the offer itself.
+- **A time taken back** has no task, so it is listed under "Times you took
+  back" with the same next times, for two weeks or until the visit has passed,
+  and leaves once another is offered, the customer asks something new about
+  the visit, or the visit is no longer to come.
+
 ### Take a booking from the website
 
 `GET /v1/public/services` and `GET /v1/public/availability` are read by a
@@ -1032,10 +1062,12 @@ customer does from a link moves a visit by itself. Windows are offered by the
 online booking service for the job's type, so a company that takes no online
 bookings for that work cannot offer moves for it. The office can offer a
 different time only for a request to move and only from the windows online
-booking offers. Taking an offer back and offering again are done from the
-job's page, not from the office queue, whose task after a no points at the
-visit; a customer who turns an offer down is not offered another by the
-product on its own, the office chooses it. Only one offer waits at a time,
+booking offers. A customer who turns an offer down is not offered another by the
+product on its own: the queue's task puts the next free times in front of the
+office, and the office presses one. The next times are the first three the
+visit's work would be sold at, not the customer's own preference (a day they
+said they cannot do is in their words on the task, and nothing reads it).
+Only one offer waits at a time,
 and an offer the customer took cannot be taken back, only the visit moved
 again on the board. Capacity lays a route's stops end to end from the start
 of the day, so a route that starts later is counted as starting then; a

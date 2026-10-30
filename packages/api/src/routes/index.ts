@@ -787,6 +787,7 @@ export const handlers = {
   declineVisitChangeRequest: visitChanges.handlers.declineVisitChangeRequest,
   answerPortalVisitChangeProposal: visitChanges.handlers.answerPortalVisitChangeProposal,
   listVisitChangeTimes: visitChanges.handlers.listVisitChangeTimes,
+  listVisitChangeNextTimes: visitChanges.handlers.listVisitChangeNextTimes,
   proposeVisitChangeTime: visitChanges.handlers.proposeVisitChangeTime,
   withdrawVisitChangeOffer: visitChanges.handlers.withdrawVisitChangeOffer,
   installWorkflowTemplate: workflows.handlers.installWorkflowTemplate,
