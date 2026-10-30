@@ -254,7 +254,7 @@ run("the sweep for estimates nobody answered", () => {
     (await dwell.sweep(db(), { only: [ORG], now: at })).filter((r) => r.organizationId === ORG);
   const days = (n: number) => new Date(Date.now() + n * 86_400_000);
   /** An unanswered estimate whose send is 20 days old, already chased once by the sweep. */
-  async function oldAndChased(workflowId: string) {
+  async function oldAndChased() {
     const { id } = await sentEstimate(plus(2));
     await raw`update public.estimate set sent_at = now() - interval '20 days' where id = ${id}`;
     const [first] = await sweepAt(new Date());
@@ -263,8 +263,8 @@ run("the sweep for estimates nobody answered", () => {
   }
 
   it("counts its days from the day it was started again, and chases once more", async () => {
-    const flow = await defineDwell(3);
-    const id = await oldAndChased(flow);
+    await defineDwell(3);
+    const id = await oldAndChased();
     await expiry.extend(owner(), { id, expiresOn: plus(20), reason: "Holding.", restartFollowUp: true });
 
     // Two days on it is too soon; three days on it is chased again, once.
@@ -277,8 +277,8 @@ run("the sweep for estimates nobody answered", () => {
   });
 
   it("chases once for each time it is started again", async () => {
-    const flow = await defineDwell(3);
-    const id = await oldAndChased(flow);
+    await defineDwell(3);
+    const id = await oldAndChased();
     await expiry.extend(owner(), { id, expiresOn: plus(20), reason: "One.", restartFollowUp: true });
     expect((await sweepAt(days(4)))[0]!.runs).toHaveLength(1);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -289,15 +289,15 @@ run("the sweep for estimates nobody answered", () => {
   });
 
   it("leaves it alone when the office said to, however long it waits", async () => {
-    const flow = await defineDwell(3);
-    const id = await oldAndChased(flow);
+    await defineDwell(3);
+    const id = await oldAndChased();
     await expiry.extend(owner(), { id, expiresOn: plus(20), reason: "Leave them be." });
     expect((await sweepAt(days(30)))[0]!.matched).toBe(0);
   });
 
   it("is left alone again when the date moves a second time without asking", async () => {
-    const flow = await defineDwell(3);
-    const id = await oldAndChased(flow);
+    await defineDwell(3);
+    const id = await oldAndChased();
     await expiry.extend(owner(), { id, expiresOn: plus(20), reason: "Restart.", restartFollowUp: true });
     await new Promise((resolve) => setTimeout(resolve, 20));
     await expiry.extend(owner(), { id, expiresOn: plus(40), reason: "Now leave them be." });
