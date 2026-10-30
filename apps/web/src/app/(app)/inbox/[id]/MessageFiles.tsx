@@ -2,8 +2,9 @@
  * WHAT CAME WITH A MESSAGE, IN THE THREAD
  *
  * A picture kept here is shown from this product's own copy, so nobody needs
- * a login at the carrier or the mail provider; a PDF on an email is a link to
- * download it, by the name it came with. Both are served by the thread's own
+ * a login at the carrier or the mail provider; a PDF, a Word document, a
+ * spreadsheet, a text file or a zip on an email is a link to download it, by
+ * the name it came with (a download only: the route never draws the last four). Both are served by the thread's own
  * route, which checks the reader may see this conversation. Anything not
  * kept says what it was and why, rather than leaving a gap.
  *
@@ -25,6 +26,17 @@ const size = (bytes: number | undefined) => {
   if (!bytes) return "";
   return bytes >= 1024 * 1024 ? `, ${(bytes / (1024 * 1024)).toFixed(1)} MB` : `, ${Math.max(1, Math.round(bytes / 1024))} KB`;
 };
+
+/** What a kept file is, in the words the thread uses beside its download. */
+const kindOf = (contentType: string) =>
+  contentType === "application/pdf" ? "PDF"
+    : contentType.startsWith("image/") ? "photo"
+      : contentType.includes("wordprocessingml") ? "Word document"
+        : contentType.includes("spreadsheetml") ? "spreadsheet"
+          : contentType === "text/csv" ? "spreadsheet text"
+            : contentType === "text/plain" ? "text file"
+              : contentType === "application/zip" ? "zip"
+                : "file";
 
 export function MessageFiles({
   conversationId, media, outbound, htmlText, body,
@@ -55,7 +67,7 @@ export function MessageFiles({
               <a href={`${href(item)}?download=1`} className="underline underline-offset-4">
                 Download {item.name ?? "the file"}
               </a>
-              <span className="text-xs opacity-75">{item.contentType === "application/pdf" ? " (PDF" : " (photo"}{size(item.bytes)})</span>
+              <span className="text-xs opacity-75"> ({kindOf(item.contentType)}{size(item.bytes)})</span>
             </p>
           );
         }

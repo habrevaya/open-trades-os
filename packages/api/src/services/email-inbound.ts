@@ -36,10 +36,12 @@ import type { InboundAttachment, InboundEmail, InboundFeedback, WebhookRequest }
  *      would be running whatever they sent.
  *   6. THE FILES, fetched from the provider before the transaction (an HTTP
  *      call never holds a database connection open) and kept in the
- *      company's own file store, attached to the message: only the types
- *      kept everywhere here, decided from the bytes, never a program, and no
- *      more than core's `EMAIL_ATTACHMENTS` limits. The rest are named in the
- *      thread with the reason.
+ *      company's own file store, attached to the message: the types kept
+ *      everywhere here (pictures and PDF) and a Word document, a
+ *      spreadsheet, a text file and a zip, decided from the bytes, never a
+ *      program, and no more than core's `EMAIL_ATTACHMENTS` limits. The rest
+ *      are named in the thread with the reason. A delivery already stored
+ *      is recognised before any file is fetched.
  *   7. AN AUTOMATIC REPLY is kept in the thread and announced to nothing. An
  *      out of office answering an invoice is not the customer writing back,
  *      and a workflow that answered it would start two machines emailing
@@ -114,6 +116,14 @@ export async function receiveByToken(
           outcome: { kind: "lead_email", outcome: await leadEmails.receive(db, connection.organizationId, message) },
         };
       }
+      /**
+       * A DELIVERY ALREADY STORED IS RECOGNISED BEFORE ANY FILE IS FETCHED. The provider posts a reply again when
+       * it did not hear an answer in time, and downloading up to twenty five megabytes of files only to find the
+       * message already kept is what a provider having a bad minute would turn into a bill. `store` checks again
+       * under a lock, which is what two deliveries arriving together meet.
+       */
+      const already = await storedInbound(db, connection.organizationId, message.providerMessageId);
+      if (already) return { kind: "recorded", outcome: { kind: "duplicate", messageId: already } };
       /** A lead email's files are not wanted, so they are fetched only for a reply. */
       message = { ...message, attachments: await fetchAttachments(inbound, message) };
       return {
@@ -123,6 +133,21 @@ export async function receiveByToken(
     }
   }
   return email.receive(db, connection, request);
+}
+
+/** The reply already stored for this provider message id, if there is one. */
+async function storedInbound(db: Database, organizationId: string, providerMessageId: string): Promise<string | null> {
+  const ctx: ServiceContext = { actor: inboundActor(organizationId), db };
+  return inTenant(ctx, async (tx) => {
+    const [seen] = await tx.select({ id: schema.message.id }).from(schema.message)
+      .where(and(
+        eq(schema.message.organizationId, organizationId),
+        eq(schema.message.channel, "email"),
+        eq(schema.message.direction, "inbound"),
+        eq(schema.message.providerMessageId, providerMessageId),
+      )).limit(1);
+    return seen?.id ?? null;
+  });
 }
 
 /**
@@ -138,11 +163,14 @@ async function fetchAttachments(
   const out: InboundAttachment[] = [];
   for (const [i, attachment] of message.attachments.entries()) {
     if (!plan[i]!.fetch || !inbound.fetchAttachment) { out.push(attachment); continue; }
-    const fetched = await inbound.fetchAttachment(message.providerMessageId, attachment, fileRules.EMAIL_ATTACHMENTS.maxFileBytes);
+    /** A Word document, spreadsheet, text file or zip has a smaller limit than a picture, so it is not downloaded past it. */
+    const limit = fileRules.isDocumentName(attachment.fileName)
+      ? fileRules.EMAIL_ATTACHMENTS.maxDocumentBytes : fileRules.EMAIL_ATTACHMENTS.maxFileBytes;
+    const fetched = await inbound.fetchAttachment(message.providerMessageId, attachment, limit);
     out.push(fetched.ok
       ? { ...attachment, bytes: fetched.bytes, size: fetched.size ?? fetched.bytes.length }
       : fetched.tooLarge
-        ? { ...attachment, size: fileRules.EMAIL_ATTACHMENTS.maxFileBytes + 1 }
+        ? { ...attachment, size: limit + 1 }
         : { ...attachment, unavailable: fetched.message });
   }
   return out;
@@ -184,6 +212,7 @@ async function keepAttachments(
     try {
       const { file } = await files.put(tx, organizationId, {
         bytes: attachment.bytes, claimedType: attachment.contentType, maxBytes: fileRules.EMAIL_ATTACHMENTS.maxFileBytes,
+        accept: "email", fileName: attachment.fileName,
       });
       bytesKept += file.sizeBytes;
       media.push({ url: "", contentType: file.contentType, bytes: file.sizeBytes, storageKey: file.storageKey, name });

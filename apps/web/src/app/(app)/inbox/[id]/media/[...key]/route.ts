@@ -18,6 +18,8 @@ export const dynamic = "force-dynamic";
  * `?download=1` saves it rather than showing it (a PDF that came with an
  * email), under the name the email carried with the extension of what the
  * bytes ARE, so nothing can be saved as a program whatever it was called.
+ * A Word document, a spreadsheet, a text file or a zip is ALWAYS a download,
+ * as `application/octet-stream`, whether or not the request said so.
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string; key: string[] }> }) {
   const user = await getCurrentUser();
@@ -27,11 +29,16 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     /** A storage key is a path (`org/ab/cd/hash.jpg`), so it arrives as segments. */
     const storageKey = key.map((part) => decodeURIComponent(part)).join("/");
     const file = await comms.picture({ actor: user.actor, db: getDb() }, { conversationId: id, storageKey });
-    const download = new URL(request.url).searchParams.get("download") === "1";
+    /**
+     * Only a picture or a PDF may be shown in a page. A Word document, a spreadsheet, a text file or a zip is
+     * always sent as a download under a type that runs nothing, whatever the request asked for.
+     */
+    const how = fileRules.serving(file.contentType);
+    const download = !how.inline || new URL(request.url).searchParams.get("download") === "1";
     const extension = /\.([a-z0-9]+)$/.exec(storageKey)?.[1] ?? "bin";
     return new NextResponse(new Uint8Array(file.bytes), {
       headers: {
-        "Content-Type": file.contentType,
+        "Content-Type": how.contentType,
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "default-src 'none'; sandbox",

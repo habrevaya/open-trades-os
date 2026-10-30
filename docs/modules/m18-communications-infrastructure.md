@@ -451,7 +451,7 @@ that pass are kept in the company's own file store, in Postgres or the bucket
 (`FILE_STORAGE`), attached to the message as an `email_attachment` with the
 name it came with. What passes is decided by core's `files` module and checked
 again when the message is written: the types every upload here is held to,
-decided from the bytes (pictures and PDF); never a program or a script, refused
+decided from the bytes (pictures and PDF, and a Word document, a spreadsheet, a text file and a zip, below); never a program or a script, refused
 by its name or claimed type before a byte is downloaded (`.exe`, `.js`, `.bat`,
 `.html`, `.svg` and the rest) and by its bytes whatever it was called (a
 Windows, Linux or Mac program, or a script starting `#!`); ten megabytes a
@@ -464,6 +464,40 @@ a file only to somebody who may read that conversation (`message:read` and the
 conversation scope) and only when a message in that thread points at it; with
 `?download=1` it is saved under its own name with the extension of what the
 bytes are. `GET /v1/conversations/{id}` gives each file's `name`.
+
+**Word, spreadsheet, text and zip.** A reply may also bring a Word document, a
+spreadsheet, a text file or a zip, which are kept the same way (a stored file attached to the
+message as an `email_attachment`, and a "Download" link in the thread saying "Word
+document", "spreadsheet", "spreadsheet text", "text file" or "zip" beside its size). Each is decided from
+its bytes by core's `files.sniffEmailDocument`, never from the name or the type the email
+claimed: a `.docx` is a zip with `[Content_Types].xml` and a `word/` folder, a `.xlsx` the same
+with `xl/`, a zip is any other zip whose table of contents can be read to the end, and a text file
+is text with no NUL or control bytes (a high byte is allowed, so a spreadsheet saved as Windows
+text keeps its accents), called a CSV only when its name says `.csv`. Refused, in words, in the
+thread: a macro project (`vbaProject.bin`, which is what a `.docm` is whatever it was called);
+a zip holding a program or a script by name; a zip that cannot be read to the end (no end
+record, a table outside the file, the zip64 kind); text that looks like a web page or a script;
+and, by name and before a byte is fetched, the older Word, Excel and PowerPoint formats and RTF
+(`.doc`, `.xls`, `.ppt`, `.rtf`), because they can carry macros or embedded objects under their
+ordinary extension and there is no telling the safe one from the other. These four kinds have a
+smaller limit than a picture, five megabytes a file (`EMAIL_ATTACHMENTS.maxDocumentBytes`), applied
+from the name before the download, from the size the provider gives, and again on the bytes; they
+count toward the same ten files and twenty five megabytes. They are accepted only from an
+email reply: every other upload here still takes pictures and PDFs alone.
+
+**They are only ever downloads.** Core's `files.serving` is asked by both routes that serve a
+stored file, `/inbox/{id}/media/...` and `/files/{key}`: a picture or a PDF is drawn in a page as it
+always was, and every other type is sent as `application/octet-stream` with `Content-Disposition:
+attachment`, `nosniff` and a sandbox policy, whatever it is stored as and whether or not the request
+said `?download=1`. The saved name keeps its own stem with the extension of what the bytes are
+(`.docx`, `.xlsx`, `.csv`, `.txt`, `.zip`), so a file is never saved under an extension that runs.
+Nothing in this product opens, unpacks or previews one; a person who downloads a spreadsheet and
+opens it in Excel meets whatever formulas the customer wrote, as with the same file in any inbox.
+
+**A delivery sent again is recognised before any file is fetched.** The provider posts a reply
+again when it did not hear an answer in time. The message is looked up by the provider's id first
+and, if it is already stored, answered as a duplicate with no file fetched at all; the lock inside
+`store` still catches two deliveries arriving together.
 
 The reply's HTML is kept only as text (`htmlText` on the message): its tags,
 scripts, styles and comments are dropped and its entities read as characters,
@@ -639,10 +673,12 @@ over plain SMTP still goes to the From mailbox. Attachments are fetched only
 from Resend, and tested against a fake of its received emails API, not a live
 account; another provider's reply files are named and not kept. A file that
 could not be fetched is not fetched again later: the thread says it is still at
-the provider. Only pictures and PDFs are kept, so a Word document, a
-spreadsheet or a zip that came with a reply is named and not kept. A retried
-delivery of a reply already stored downloads its files again before it is
-recognised and dropped. The reply's HTML is kept only as text, never as HTML.
+the provider. Only pictures, PDFs, Word documents (.docx), spreadsheets (.xlsx), CSV and text
+files and zips are kept; an older .doc, .xls or .ppt, a macro enabled file, a zip holding a
+program, and anything over five megabytes (ten for a picture or PDF) is named and not kept, and a
+file kept is never previewed: a zip is not unpacked or scanned beyond the names in its table of
+contents, and no virus scanner reads any of it. A text file or CSV in a non Latin script
+saved as UTF-16 has control bytes and is not kept. The reply's HTML is kept only as text, never as HTML.
 
 Pictures: JustCall's are kept as the carrier's link only. The carrier keeps its
 own copy of a picture texted in until it is deleted at Twilio.

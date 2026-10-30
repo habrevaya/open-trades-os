@@ -346,8 +346,9 @@ call text back, the website snippet with number insertion, hosted lead forms and
 referrals; phone menus, ring groups and the on call rota by the week answering
 the company's own number, call transcripts through a speech to text seam and
 searchable on the call log, email replies landing in their thread with
-their pictures and PDFs kept (never a program, within limits on size and count,
-downloaded only by somebody who may read the thread) and their HTML kept only
+their pictures, PDFs, Word documents (.docx), spreadsheets (.xlsx, .csv), text files and zips kept (never a
+program, a macro or a script, within limits on size and count, a delivery sent twice recognised before any
+file is fetched; a picture or PDF shown, the rest only ever downloaded, by somebody who may read the thread) and their HTML kept only
 as text, and pictures by text both ways; Google Ads, Local Services, Meta and Google
 Analytics connected with a sign in, spend pulled and mapped, conversions sent
 back under consent and restated when a job changes, and a return on spend view;
