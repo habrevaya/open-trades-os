@@ -501,21 +501,6 @@ async function laterPasses(db: Database, organizationId: string, now: Date, limi
   return sent;
 }
 
-/** The three columns a later message keeps on the request, written by name for the one it is. */
-function laterSet(kind: rv.LaterMessage, values: { at?: Date; messageId?: string; detail?: string }) {
-  return kind === "follow_up"
-    ? {
-      ...(values.at ? { followUpAt: values.at } : {}),
-      ...(values.messageId ? { followUpMessageId: values.messageId } : {}),
-      ...(values.detail ? { followUpDetail: values.detail } : {}),
-    }
-    : {
-      ...(values.at ? { secondReminderAt: values.at } : {}),
-      ...(values.messageId ? { secondReminderMessageId: values.messageId } : {}),
-      ...(values.detail ? { secondReminderDetail: values.detail } : {}),
-    };
-}
-
 async function laterOne(
   tx: Database, ctx: ServiceContext, row: RequestRow, kind: rv.LaterMessage,
   policy: Policy, style: { channel: AskChannel; wording: AskWording }, now: Date,
@@ -548,15 +533,19 @@ async function laterOne(
 
   if (!decision.remind) {
     if (decision.clearsOnItsOwn) return false;
-    await tx.update(schema.reviewRequest).set({
-      ...laterSet(kind, { at: now, detail: `Not sent: ${decision.explanation}` }), updatedAt: now,
-    }).where(and(eq(schema.reviewRequest.id, row.id), isNull(column)));
+    const detail = `Not sent: ${decision.explanation}`;
+    const settled = kind === "follow_up"
+      ? { followUpAt: now, followUpDetail: detail, updatedAt: now }
+      : { secondReminderAt: now, secondReminderDetail: detail, updatedAt: now };
+    await tx.update(schema.reviewRequest).set(settled)
+      .where(and(eq(schema.reviewRequest.id, row.id), isNull(column)));
     return false;
   }
   if (!decision.readyNow) return false;
 
   /** The claim comes first: only the pass that lands it sends. */
-  const [claimed] = await tx.update(schema.reviewRequest).set({ ...laterSet(kind, { at: now }), updatedAt: now })
+  const claim = kind === "follow_up" ? { followUpAt: now, updatedAt: now } : { secondReminderAt: now, updatedAt: now };
+  const [claimed] = await tx.update(schema.reviewRequest).set(claim)
     .where(and(eq(schema.reviewRequest.id, row.id), eq(schema.reviewRequest.state, "sent"), isNull(column)))
     .returning({ id: schema.reviewRequest.id });
   if (!claimed) return false;
@@ -566,13 +555,17 @@ async function laterOne(
     ? { channel: "email", wording: style.wording }
     : { channel: style.channel, wording: { ...automation.REVIEW_SECOND_REMINDER_WORDING } });
   if (outcome.kind === "sent") {
-    await tx.update(schema.reviewRequest).set({ ...laterSet(kind, { messageId: outcome.messageId }), updatedAt: new Date() })
-      .where(eq(schema.reviewRequest.id, row.id));
+    const carried = kind === "follow_up"
+      ? { followUpMessageId: outcome.messageId, updatedAt: new Date() }
+      : { secondReminderMessageId: outcome.messageId, updatedAt: new Date() };
+    await tx.update(schema.reviewRequest).set(carried).where(eq(schema.reviewRequest.id, row.id));
     return true;
   }
   const why = outcome.kind === "refused" ? outcome.refused : outcome.reason;
-  await tx.update(schema.reviewRequest).set({ ...laterSet(kind, { detail: `Not sent: ${why}` }), updatedAt: new Date() })
-    .where(eq(schema.reviewRequest.id, row.id));
+  const refused = kind === "follow_up"
+    ? { followUpDetail: `Not sent: ${why}`, updatedAt: new Date() }
+    : { secondReminderDetail: `Not sent: ${why}`, updatedAt: new Date() };
+  await tx.update(schema.reviewRequest).set(refused).where(eq(schema.reviewRequest.id, row.id));
   return false;
 }
 
