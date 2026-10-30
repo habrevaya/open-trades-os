@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db";
 import { contracts, rateCards, payerDelivery, priceBook } from "@opentradesos/api/services";
 import { attempt, field, refused, refusalOf, type FormState } from "@/lib/actions";
 import { cardLinesFromText, cardTermsFromForm, fractionOf, risesFromForm, slaTermsFromForm } from "@/lib/contract-forms";
-import { contractEscalation, contractBilling } from "@opentradesos/api/services";
+import { contractEscalation, contractBilling, contractLateRise } from "@opentradesos/api/services";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 const reader = (form: FormData) => (name: string) => {
@@ -254,6 +254,33 @@ export async function waiveFeeDifference(_previous: FormState, form: FormData): 
   const contractId = field(form, "contractId") ?? "";
   const result = await attempt(form, async () => {
     await contractBilling.waiveDifference(await ctx(), { contractId, periodIds: [field(form, "periodId") ?? ""] });
+    return undefined;
+  });
+  revalidatePath(`/contracts/${contractId}`);
+  return result;
+}
+
+/** What a late card rise left short on the job work ticked, on one draft invoice. */
+export async function draftWorkDifference(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  const invoiceLineIds = form.getAll("invoiceLineId").filter((v): v is string => typeof v === "string" && v !== "");
+  const result = await attempt(form, async () => {
+    const done = await contractLateRise.draft(await ctx(), { contractId, anniversary: field(form, "anniversary") ?? "", invoiceLineIds });
+    return {
+      message: `Draft invoice ${done.invoiceNumber} made for ${done.lines === 1 ? "one line" : `${done.lines} lines`}. It is not sent until somebody issues it.`,
+    };
+  });
+  revalidatePath(`/contracts/${contractId}`);
+  return result;
+}
+
+/** What a late card rise left short on one line of job work, written down as not billed. */
+export async function waiveWorkDifference(_previous: FormState, form: FormData): Promise<FormState> {
+  const contractId = field(form, "contractId") ?? "";
+  const result = await attempt(form, async () => {
+    await contractLateRise.waive(await ctx(), {
+      contractId, anniversary: field(form, "anniversary") ?? "", invoiceLineIds: [field(form, "invoiceLineId") ?? ""],
+    });
     return undefined;
   });
   revalidatePath(`/contracts/${contractId}`);

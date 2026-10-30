@@ -488,6 +488,63 @@ pressed it. So a price changed on the old card after the draft was made is
 risen too, and a change made to the draft itself is not kept: change the new
 card after applying it.
 
+### Job work billed before a late rise
+
+A card prices the work billed on a day by the card in force that day, and until
+somebody applies the rise last year's card is still in force. So a job billed
+between the anniversary and the day the rise was applied was charged last
+year's prices. Its invoice stays as it is. On the contract's page, a section
+**Job work billed before the rise from 2026-11-01** lists, for each rise
+applied late, every line on those invoices that last year's card priced: the
+work, the invoice and job, the price it was billed at, the new card's price,
+and what it is short (`GET /v1/contracts/{contractId}/work-differences`,
+`contract:read` and `invoice:read`, invoices read in the caller's own scope).
+
+What the new card makes a line is the rise and nothing else
+(`core/rates.lateRiseOn`): a listed price is the new card's listing of the same
+item; an hourly rate is worked out again from the work as recorded, in the same
+time band and trade, and the line is left out if the new card counts the time
+differently; a trip charge is the new card's. Each is the same quantity at the
+new price, rounded to the cent. Which lines count: the line's `rate_card_id`
+is the card the rise replaced, it was priced on or after the anniversary in
+the company's calendar and before the new card was written, and its invoice
+was not voided.
+
+Every other line on those invoices is listed under **Left out**, with why,
+and is never offered:
+
+- priced from our price book, typed in by hand, recorded from another system,
+  or one payer's share of a split line;
+- a markup on our cost, which a rise keeps as it was;
+- a line with a discount, typed or from a plan, because what to charge on top
+  of a price somebody already lowered is a decision;
+- a line on an invoice with a credit note against it, or written off;
+- a line on a draft not yet issued, whose price can still change;
+- a line the new card no longer lists, prices some other way, or prices no
+  higher.
+
+Nothing bills it by itself. The office ticks the lines and presses **Make a
+draft invoice for the ticked work** (`POST
+/v1/contracts/{contractId}/work-differences`, `invoice:write`, idempotent):
+one draft invoice per rise, to the contract's customer with its PO number, one
+line for each ("Run capacitor, card price rise from 2026-11-01": "1.00 at
+180.25 on Pier schedule (year 2), less 175.00 billed on invoice 1042 for job
+311"), recording the new card as its price authority. Each line is taxed at
+the rate the line it adds to was taxed at, and no plan discount comes off it.
+The draft names no job, so a job's limit is not checked against it: the memo
+names the invoices, and the office reads it before issuing. Or, under **Do not
+bill the difference**, a line is written down as not billed (`POST
+/v1/contracts/{contractId}/work-differences/waive`, `invoice:write`), with who
+decided on the audit line.
+
+Each decision is a row (`contract_work_difference`) claimed under a unique
+index on the invoice line in the same transaction as the draft, so a line is
+never on two drafts and a second press is refused in words; a line from
+another rise, or one left out, is refused with its reason. Deleting the draft
+deletes its rows and offers the lines again.
+
+
+
 ## Billing a job in parts
 
 `GET /v1/jobs/{id}/billing` prices every unbilled line on the job, plus a
@@ -689,7 +746,10 @@ fixed fee it rises with it; saying whether the fee rises is one of the
 schedule's terms, under `contract:write`. Billing what a late rise left short on a
 draft, or writing it down as not billed, needs `invoice:write`, because not
 billing money owed is the same decision as billing it; seeing what is short is
-part of the schedule, under `contract:read`. Raising what a fixed fee owes now needs
+part of the schedule, under `contract:read`. Job work a late rise left short is
+the same for billing or waiving it, `invoice:write`; seeing it needs both
+`contract:read` and `invoice:read`, because it lists invoices, and reads them in
+the caller's own scope. Raising what a fixed fee owes now needs
 `invoice:write`, because it raises invoices; the worker raises them as the
 system with only that. Previewing how a job would be billed needs `invoice:read`,
 and billing it `invoice:write`. Exporting a payer's invoices needs
@@ -801,8 +861,19 @@ billed whole at the old fee: charging part of a period at each fee is a decision
 nobody has made, so a late rise offers no difference on it either. Applied after
 periods from the anniversary were billed, the rise offers what each is short as a
 draft a person asks for, and never rebills or credits anything by itself; the
-draft has no due date until it is issued. Only the fixed fee is offered this way:
-work on a job billed by last year's card after the anniversary, because the rise
-was applied late, keeps its price, and charging the difference on it is an
-ordinary invoice somebody writes. The invoice is raised and not sent; it goes out
-the way any invoice does.
+draft has no due date until it is issued. The invoice is raised and not sent; it
+goes out the way any invoice does.
+
+**Job work billed before a late rise is offered for what the rise changed, and
+nothing else.** A listed price, an hourly rate and a trip charge are offered at
+the new card's price; a markup on our cost is not risen, so it has nothing to
+offer. A line with a discount, on a credited, written off or still draft
+invoice, or priced by anything but last year's card is named as left out and
+never offered, because each is a decision about money a person has to make;
+charging something on it is an ordinary invoice somebody writes. The draft
+names no job, so a job's not to exceed is not checked against it, and the
+difference is taxed at the rate the original line carried rather than at the
+rate in force today. Work billed before the anniversary is never offered: last
+year's card was the right price then. A line counts as priced on the day its
+invoice line was written, in the company's calendar, which for a job billed
+straight away is the day it was billed.

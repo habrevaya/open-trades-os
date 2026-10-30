@@ -801,3 +801,91 @@ export function priceBeyondAllowance(cards: readonly CardTerms[], input: {
       + (priced.outOfScope ? " Their card has no hourly rate, so agree it with them before this goes out." : ""),
   };
 }
+
+/* ------------------------------------------------- a card risen late */
+
+/** One invoice line priced by last year's card, as it was billed. */
+export interface BilledCardLine {
+  basis: string;
+  /** What it was billed: how many, and at what each, before tax. */
+  quantity: string;
+  unitPrice: Money;
+  /** Whether anybody, or a plan, took something off it. */
+  discounted: boolean;
+  /** The listed price it was billed at, for a line priced from the card's list. */
+  listed: { priceBookItemId: string | null; externalCode: string | null; description: string } | null;
+  /** The work as it was recorded, for a line priced by an hourly rate. */
+  work: WorkLine | null;
+}
+
+/**
+ * What the risen card makes a line, or why it is left out.
+ *
+ * `offered` carries the line's total at the new card's price and the
+ * difference from what it was billed, both before tax, rounded to the cent.
+ */
+export type LateRise =
+  | { kind: "offered"; quantity: string; unitPrice: Money; billed: Money; risen: Money; difference: Money }
+  | { kind: "left_out"; reason: string };
+
+/** Why a line priced some way a rise does not reach is not offered, by how it was priced. */
+export const LATE_RISE_LEFT_OUT: Record<string, string> = {
+  material_markup: "A markup on our cost, which a rise keeps as it was.",
+  price_book: "Priced from our price book, not the card.",
+  entered: "A price typed in by hand, not the card's.",
+  history: "Recorded from another system as it was charged.",
+  share: "One payer's share of a line split between payers.",
+  contract_fee: "The contract's fixed fee, which is offered under the schedule.",
+};
+
+/**
+ * A line billed by last year's card after the anniversary, because the rise
+ * was applied late, compared with the card that replaced it.
+ *
+ * Only what a rise changes is compared: a listed price is looked up on the
+ * new card by what the old one listed it as, an hourly rate is worked out
+ * again from the work as recorded (the same time band and trade), and a trip
+ * charge is the new card's. Each is the same quantity at the new price, so
+ * the difference is the rise and nothing else. A line with a discount is left
+ * out, because what to charge on top of a price somebody already lowered is a
+ * decision; so is a line the new card prices some other way, or no higher.
+ */
+export function lateRiseOn(card: CardTerms, line: BilledCardLine): LateRise {
+  const left = (reason: string): LateRise => ({ kind: "left_out", reason });
+  if (LATE_RISE_LEFT_OUT[line.basis]) return left(LATE_RISE_LEFT_OUT[line.basis]!);
+  if (line.discounted) return left("It was billed with a discount, so what to charge on top is for a person to decide.");
+
+  const quantity = line.quantity;
+  let unitPrice: Money;
+  if (line.basis === "card_line") {
+    if (!line.listed) return left("The card's listing it was billed from has gone.");
+    const listed = line.listed;
+    const found = card.lines.find((l) => l.priceBookItemId === listed.priceBookItemId
+      && l.externalCode === listed.externalCode && l.description === listed.description);
+    if (!found) return left(`${card.name} does not list it.`);
+    unitPrice = found.price;
+  } else if (line.basis === "labour_rate") {
+    if (!line.work) return left("There is no record of the work to read the time band from.");
+    const priced = priceWork([card], line.work);
+    if (priced.basis !== "labour_rate") return left(`${card.name} has no hourly rate for this work.`);
+    if (Number(priced.quantity) !== Number(line.quantity)) {
+      return left(`${card.name} counts the time differently, so the two prices are not for the same thing.`);
+    }
+    unitPrice = priced.unitPrice;
+  } else if (line.basis === "trip_charge") {
+    if (!card.tripCharge) return left(`${card.name} has no trip charge.`);
+    unitPrice = card.tripCharge;
+  } else {
+    return left("It was not priced from the card.");
+  }
+
+  const billed = round(multiply(line.unitPrice, quantity), 2);
+  const risen = round(multiply(unitPrice, quantity), 2);
+  const difference = subtract(risen, billed);
+  if (!isPositive(difference)) {
+    return left(compare(difference, zero("USD")) === 0
+      ? "The rise left its price as it was."
+      : `${card.name} prices it lower, which is not a rise to bill.`);
+  }
+  return { kind: "offered", quantity, unitPrice, billed, risen, difference };
+}

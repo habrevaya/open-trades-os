@@ -6221,6 +6221,20 @@ export interface DraftContractFeeDifferenceOutput {
   periods: number;
 }
 
+export interface DraftContractWorkDifferenceInput {
+  anniversary: string;
+  invoiceLineIds: string[];
+}
+
+export interface DraftContractWorkDifferenceOutput {
+  contractId: string;
+  anniversary: string;
+  invoiceId: string;
+  invoiceNumber: number;
+  total: string;
+  lines: number;
+}
+
 export interface DrillMarketingFunnelOutput {
   key: string;
   label: string;
@@ -7782,6 +7796,45 @@ export interface GetContractBillingOutput {
     status: "offered" | "drafted" | "waived";
     draftInvoiceId: string | null;
     draftInvoiceNumber: number | null;
+  }>;
+}
+
+export interface GetContractWorkDifferencesOutput {
+  contractId: string;
+  rises: Array<{
+    anniversary: string;
+    appliedOn: string;
+    cards: Array<{
+      fromRateCardId: string;
+      fromName: string;
+      rateCardId: string;
+      name: string;
+    }>;
+    lines: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      issuedOn: string | null;
+      jobId: string | null;
+      jobNumber: number | null;
+      name: string;
+      quantity: string;
+      billedPrice: string;
+      risenPrice: string;
+      billed: string;
+      risen: string;
+      difference: string;
+      status: "offered" | "drafted" | "waived";
+      draftInvoiceId: string | null;
+      draftInvoiceNumber: number | null;
+    }>;
+    leftOut: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      name: string;
+      reason: string;
+    }>;
   }>;
 }
 
@@ -30267,6 +30320,50 @@ export interface WaiveContractFeeDifferenceOutput {
   }>;
 }
 
+export interface WaiveContractWorkDifferenceInput {
+  anniversary: string;
+  invoiceLineIds: string[];
+}
+
+export interface WaiveContractWorkDifferenceOutput {
+  contractId: string;
+  rises: Array<{
+    anniversary: string;
+    appliedOn: string;
+    cards: Array<{
+      fromRateCardId: string;
+      fromName: string;
+      rateCardId: string;
+      name: string;
+    }>;
+    lines: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      issuedOn: string | null;
+      jobId: string | null;
+      jobNumber: number | null;
+      name: string;
+      quantity: string;
+      billedPrice: string;
+      risenPrice: string;
+      billed: string;
+      risen: string;
+      difference: string;
+      status: "offered" | "drafted" | "waived";
+      draftInvoiceId: string | null;
+      draftInvoiceNumber: number | null;
+    }>;
+    leftOut: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      name: string;
+      reason: string;
+    }>;
+  }>;
+}
+
 export interface WaiveObligationInput {
   reason: string;
 }
@@ -31033,6 +31130,10 @@ export interface DraftContractFeeDifferenceParams {
   contractId: string;
 }
 
+export interface DraftContractWorkDifferenceParams {
+  contractId: string;
+}
+
 export interface DrillMarketingFunnelInput {
   from: string;
   to: string;
@@ -31239,6 +31340,10 @@ export interface GetConsumptionInput {
 }
 
 export interface GetContractBillingInput {
+  contractId: string;
+}
+
+export interface GetContractWorkDifferencesInput {
   contractId: string;
 }
 
@@ -34296,6 +34401,10 @@ export interface WaiveContractFeeDifferenceParams {
   contractId: string;
 }
 
+export interface WaiveContractWorkDifferenceParams {
+  contractId: string;
+}
+
 export interface WaiveObligationParams {
   id: string;
 }
@@ -34566,6 +34675,7 @@ export interface OperationTypes {
   dismissIntakeDraft: { input: DismissIntakeDraftParams & DismissIntakeDraftInput; output: DismissIntakeDraftOutput };
   dismissTruckFill: { input: DismissTruckFillParams & DismissTruckFillInput; output: DismissTruckFillOutput };
   draftContractFeeDifference: { input: DraftContractFeeDifferenceParams & DraftContractFeeDifferenceInput; output: DraftContractFeeDifferenceOutput };
+  draftContractWorkDifference: { input: DraftContractWorkDifferenceParams & DraftContractWorkDifferenceInput; output: DraftContractWorkDifferenceOutput };
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
   dropJobSkill: { input: DropJobSkillParams & DropJobSkillInput; output: DropJobSkillOutput };
@@ -34627,6 +34737,7 @@ export interface OperationTypes {
   getConsent: { input: GetConsentInput; output: GetConsentOutput };
   getConsumption: { input: GetConsumptionInput; output: GetConsumptionOutput };
   getContractBilling: { input: GetContractBillingInput; output: GetContractBillingOutput };
+  getContractWorkDifferences: { input: GetContractWorkDifferencesInput; output: GetContractWorkDifferencesOutput };
   getConversation: { input: GetConversationInput; output: GetConversationOutput };
   getConversions: { input: GetConversionsInput; output: GetConversionsOutput };
   getCreditNote: { input: GetCreditNoteInput; output: GetCreditNoteOutput };
@@ -35535,6 +35646,7 @@ export interface OperationTypes {
   voidCreditNote: { input: VoidCreditNoteParams & VoidCreditNoteInput; output: VoidCreditNoteOutput };
   voidInvoice: { input: VoidInvoiceParams & VoidInvoiceInput; output: VoidInvoiceOutput };
   waiveContractFeeDifference: { input: WaiveContractFeeDifferenceParams & WaiveContractFeeDifferenceInput; output: WaiveContractFeeDifferenceOutput };
+  waiveContractWorkDifference: { input: WaiveContractWorkDifferenceParams & WaiveContractWorkDifferenceInput; output: WaiveContractWorkDifferenceOutput };
   waiveObligation: { input: WaiveObligationParams & WaiveObligationInput; output: WaiveObligationOutput };
   withdrawChangeOrder: { input: WithdrawChangeOrderParams & WithdrawChangeOrderInput; output: WithdrawChangeOrderOutput };
   withdrawComplianceDocument: { input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput; output: WithdrawComplianceDocumentOutput };
@@ -35781,6 +35893,7 @@ export const OPERATIONS = {
   dismissIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide"] },
   dismissTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/dismissal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   draftContractFeeDifference: { method: "POST", path: "/v1/contracts/{contractId}/billing/differences", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  draftContractWorkDifference: { method: "POST", path: "/v1/contracts/{contractId}/work-differences", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   dropJobSkill: { method: "POST", path: "/v1/jobs/{id}/dropped-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","visit:assign_unqualified"] },
@@ -35842,6 +35955,7 @@ export const OPERATIONS = {
   getConsent: { method: "GET", path: "/v1/consent", pathParams: [], queryParams: ["address"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getConsumption: { method: "GET", path: "/v1/deliveries/consumption", pathParams: [], queryParams: ["propertyId","product"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getContractBilling: { method: "GET", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
+  getContractWorkDifferences: { method: "GET", path: "/v1/contracts/{contractId}/work-differences", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read","invoice:read"] },
   getConversation: { method: "GET", path: "/v1/conversations/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getConversions: { method: "GET", path: "/v1/marketing/conversions", pathParams: [], queryParams: ["from","to","model","format"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getCreditNote: { method: "GET", path: "/v1/credit-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -36750,6 +36864,7 @@ export const OPERATIONS = {
   voidCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   voidInvoice: { method: "POST", path: "/v1/invoices/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:void"] },
   waiveContractFeeDifference: { method: "POST", path: "/v1/contracts/{contractId}/billing/differences/waive", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  waiveContractWorkDifference: { method: "POST", path: "/v1/contracts/{contractId}/work-differences/waive", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   waiveObligation: { method: "POST", path: "/v1/obligations/{id}/waive", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   withdrawChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   withdrawComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
@@ -38862,6 +38977,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Bill what a late rise left short on job work, on a draft invoice.
+   *
+   * POST /v1/contracts/{contractId}/work-differences. Needs invoice:write.
+   */
+  draftContractWorkDifference(input: DraftContractWorkDifferenceParams & DraftContractWorkDifferenceInput, options?: CallOptions): Promise<DraftContractWorkDifferenceOutput> {
+    return this.call("draftContractWorkDifference", input, options);
+  }
+
+  /**
    * The calls, people, jobs or spend lines behind one cell of the funnel.
    *
    * GET /v1/marketing/funnel/rows. Needs adspend:read.
@@ -39408,6 +39532,15 @@ export abstract class GeneratedOperations {
    */
   getContractBilling(input: GetContractBillingInput, options?: CallOptions): Promise<GetContractBillingOutput> {
     return this.call("getContractBilling", input, options);
+  }
+
+  /**
+   * Job work billed at last year's card because the rise was applied late.
+   *
+   * GET /v1/contracts/{contractId}/work-differences. Needs contract:read, invoice:read.
+   */
+  getContractWorkDifferences(input: GetContractWorkDifferencesInput, options?: CallOptions): Promise<GetContractWorkDifferencesOutput> {
+    return this.call("getContractWorkDifferences", input, options);
   }
 
   /**
@@ -47580,6 +47713,15 @@ export abstract class GeneratedOperations {
    */
   waiveContractFeeDifference(input: WaiveContractFeeDifferenceParams & WaiveContractFeeDifferenceInput, options?: CallOptions): Promise<WaiveContractFeeDifferenceOutput> {
     return this.call("waiveContractFeeDifference", input, options);
+  }
+
+  /**
+   * Decide not to bill what a late rise left short on job work.
+   *
+   * POST /v1/contracts/{contractId}/work-differences/waive. Needs invoice:write.
+   */
+  waiveContractWorkDifference(input: WaiveContractWorkDifferenceParams & WaiveContractWorkDifferenceInput, options?: CallOptions): Promise<WaiveContractWorkDifferenceOutput> {
+    return this.call("waiveContractWorkDifference", input, options);
   }
 
   /**
