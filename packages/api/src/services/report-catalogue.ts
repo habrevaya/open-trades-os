@@ -1,4 +1,4 @@
-import { work, type reporting } from "@opentradesos/core";
+import { costing, work, type reporting } from "@opentradesos/core";
 
 /**
  * JOB COSTING, AS SQL FRAGMENTS, WRITTEN ONCE
@@ -70,6 +70,59 @@ function overheadSql(bases: readonly ("per_hour" | "per_job" | "percent_of_reven
       )
   ), 0) end)`;
 }
+
+/**
+ * A COST THAT MAY BE COUNTED TWICE, as pairs: a journal's debit to cost of
+ * goods sold on the job against a line on the job that cost the same, to the
+ * cent, with either a vendor named on both or the two days within
+ * `costing.DOUBLE_COUNT_DAYS` of each other. The rule in words, and in
+ * TypeScript, is `costing.possibleDoubleCount` in core.
+ *
+ * A select of rows correlated against `job`, read whole by the job's
+ * statement (which lists each pair and how it was marked) and counted by the
+ * `possibleDoubleCounts` measure below, so the warning on the job and the
+ * number on the margin report are one query. Neither changes a figure: both
+ * costs stay in material cost until a person removes one of them.
+ *
+ * A journal that was reversed, and the reversal, are left out: together they
+ * net to nothing. `mark_id` is the "not the same cost" mark, when somebody
+ * has looked and said so.
+ */
+const LINE_DAY = `(jl.occurred_at at time zone ${COMPANY_ZONE})::date`;
+export const DOUBLE_COUNT_PAIRS_SQL = `
+  select le.id as ledger_entry_id, je.id as journal_id, je.number as journal_number, je.occurred_on as journal_on,
+         coalesce(nullif(le.memo, ''), je.memo) as journal_memo,
+         jl.id as job_line_id, jl.name as line_name, ${LINE_DAY} as line_on,
+         le.amount as amount, (je.occurred_on - ${LINE_DAY}) as days_apart,
+         vm.name as same_vendor, ns.id as mark_id, ns.note as mark_note, ns.created_at as marked_at,
+         ns.marked_by_user_id as marked_by_user_id
+  from public.ledger_entry le
+  join public.journal_entry je on je.id = le.source_id
+  join public.job_line jl on jl.job_id = job.id and jl.kind <> 'labor' and jl.unit_cost is not null
+  left join lateral (
+    select v.name from public.vendor v
+    where v.organization_id = job.organization_id and v.deleted_at is null and length(trim(v.name)) >= 3
+      and position(lower(trim(v.name)) in lower(je.memo || ' ' || coalesce(le.memo, ''))) > 0
+      and (
+        position(lower(trim(v.name)) in lower(jl.name || ' ' || coalesce(jl.description, ''))) > 0
+        or exists (
+          select 1 from public.price_book_item_version piv
+          join public.vendor_item vi on vi.item_id = piv.item_id and vi.vendor_id = v.id
+          where piv.id = jl.price_book_item_version_id
+        )
+      )
+    order by length(v.name) desc, v.name
+    limit 1
+  ) vm on true
+  left join public.job_cost_not_same ns on ns.job_line_id = jl.id and ns.ledger_entry_id = le.id
+  where le.job_id = job.id and le.source_type = 'journal'
+    and le.account_code = '5000' and le.direction = 'debit'
+    and je.reverses_journal_id is null
+    and not exists (select 1 from public.journal_entry r where r.reverses_journal_id = je.id)
+    and round(jl.quantity * jl.unit_cost, 2) = round(le.amount, 2)
+    and round(le.amount, 2) <> 0
+    and (vm.name is not null or abs(je.occurred_on - ${LINE_DAY}) <= ${costing.DOUBLE_COUNT_DAYS})
+`;
 
 export const JOB_COSTING_SQL = {
   /**
@@ -356,6 +409,15 @@ export const JOB_COSTING_SQL = {
   overheadPerHour: overheadSql(["per_hour"]),
   overheadPerJob: overheadSql(["per_job"]),
   overheadRevenueShare: overheadSql(["percent_of_revenue"]),
+
+  /**
+   * Costs journalled to the job that may also be on one of its lines, not yet
+   * marked as two different costs: how many journal lines, each once however
+   * many lines it matches. A warning, never a change to material cost.
+   */
+  possibleDoubleCounts: `(
+    select count(distinct p.ledger_entry_id) from (${DOUBLE_COUNT_PAIRS_SQL}) p where p.mark_id is null
+  )`,
 
   labourNotRecorded: `(case when not exists (
     select 1 from public.timeclock_entry tc
@@ -671,6 +733,15 @@ export const PROFITABILITY_DATASET: reporting.Dataset = {
     {
       key: "fully_loaded_margin", label: "Fully loaded margin", kind: "sum", type: "money",
       permission: "job.cost:read", sql: FULLY_LOADED_MARGIN_SQL,
+    },
+    {
+      key: "possible_double_counts", label: "Possible double counts", kind: "sum", type: "number",
+      /**
+       * A cost journalled to a job that matches a cost on its lines. Counted
+       * here so a margin report says how many of its jobs may carry a cost
+       * twice; the job's own page lists the pairs and takes the mark.
+       */
+      permission: "job.cost:read", sql: JOB_COSTING_SQL.possibleDoubleCounts,
     },
     {
       key: "unbilled_cost", label: "Unbilled cost", kind: "sum", type: "money",

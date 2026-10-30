@@ -432,7 +432,7 @@ export default async function JobPage({ params, searchParams }: {
       <ContractAndDeadlines jobId={id} clocks={clocks} options={contractOptions} writes={writes}
                             timezone={user.organizationTimezone} />
 
-      {costing && <Costing data={costing} />}
+      {costing && <Costing data={costing} jobId={id} canMark={can(user.actor, "ledger:post")} />}
 
       {paidOut && (paidOut.reimbursements.length > 0 || paidOut.perDiems.length > 0) ? (
         <section aria-labelledby="paid-out" className="mt-6">

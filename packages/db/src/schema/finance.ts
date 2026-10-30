@@ -3,8 +3,8 @@ import { pgTable, pgEnum, uuid, text, integer, jsonb, index, uniqueIndex, timest
 import { pk, money, currency } from "./_shared";
 import { organization, user, businessUnit } from "./tenancy";
 import { customer } from "./crm";
-import { estimate, invoice, payment } from "./billing";
-import { jobType } from "./work";
+import { estimate, invoice, payment, ledgerEntry } from "./billing";
+import { job, jobLine, jobType } from "./work";
 import { integrationConnection } from "./integrations";
 
 /**
@@ -128,6 +128,36 @@ export const costingRate = pgTable("costing_rate", {
    * has one basis a day is checked by the service, in words.
    */
   partDayIdx: uniqueIndex("costing_rate_part_day_idx").on(t.organizationId, t.component, t.basis, t.effectiveFrom),
+}));
+
+/**
+ * "NOT THE SAME COST": SOMEBODY LOOKED AT A POSSIBLE DOUBLE COUNT AND SAID SO.
+ *
+ * Job costing warns when a cost journalled to a job (a debit to cost of goods
+ * sold on a line of a manual journal) matches a cost already on one of the
+ * job's own lines: the same amount, and the same vendor named or dates close
+ * together (`DOUBLE_COUNT_PAIRS_SQL` in report-catalogue.ts). Only the
+ * bookkeeper can tell whether they are one cost or two, so the warning stays
+ * until somebody who posts journals marks the pair as two different costs.
+ *
+ * A mark changes no figure. Both costs were counted before it and both are
+ * counted after it; it only stops the warning. Removing a mark brings the
+ * warning back. Both are audited.
+ */
+export const jobCostNotSame = pgTable("job_cost_not_same", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id").notNull().references(() => job.id, { onDelete: "cascade" }),
+  jobLineId: uuid("job_line_id").notNull().references(() => jobLine.id, { onDelete: "cascade" }),
+  /** The journal's cost of goods sold line, as the ledger holds it. */
+  ledgerEntryId: uuid("ledger_entry_id").notNull().references(() => ledgerEntry.id, { onDelete: "cascade" }),
+  note: text("note"),
+  markedByUserId: uuid("marked_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /** One mark per pair. Marking it again is the same answer, read first and returned. */
+  pairIdx: uniqueIndex("job_cost_not_same_pair_idx").on(t.organizationId, t.jobLineId, t.ledgerEntryId),
+  jobIdx: index("job_cost_not_same_job_idx").on(t.jobId),
 }));
 
 /* -------------------------------------------------------------- budget */

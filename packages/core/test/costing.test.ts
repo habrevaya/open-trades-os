@@ -150,3 +150,28 @@ describe("overhead as a mix", () => {
     expect(c.checkOverheadMix({ perJob: "0", effectiveFrom: "2026-07-01" }).ok).toBe(true);
   });
 });
+
+describe("a cost that may be counted twice", () => {
+  const pair = (over: Partial<c.DoubleCountCandidate>): c.DoubleCountCandidate => ({
+    lineCost: "480", journalAmount: "480.00", daysApart: 4, sameVendor: null, ...over,
+  });
+
+  it("is the same amount to the cent, with dates close or a vendor on both", () => {
+    expect(c.possibleDoubleCount(pair({}))).toBe(true);
+    expect(c.possibleDoubleCount(pair({ daysApart: -30 }))).toBe(true);
+    expect(c.possibleDoubleCount(pair({ daysApart: 31 }))).toBe(false);
+    expect(c.possibleDoubleCount(pair({ daysApart: 200, sameVendor: "Ferguson" }))).toBe(true);
+    expect(c.possibleDoubleCount(pair({ journalAmount: "480.01" }))).toBe(false);
+    expect(c.possibleDoubleCount(pair({ lineCost: "479.999" }))).toBe(true);
+  });
+
+  it("never flags nothing against nothing", () => {
+    expect(c.possibleDoubleCount(pair({ lineCost: "0", journalAmount: "0" }))).toBe(false);
+  });
+
+  it("says why in a sentence", () => {
+    expect(c.doubleCountReason({ daysApart: 0, sameVendor: null })).toBe("Same amount, on the same day.");
+    expect(c.doubleCountReason({ daysApart: -1, sameVendor: null })).toBe("Same amount, 1 day apart.");
+    expect(c.doubleCountReason({ daysApart: 12, sameVendor: "Ferguson" })).toBe("Same amount, and both name Ferguson (12 days apart).");
+  });
+});

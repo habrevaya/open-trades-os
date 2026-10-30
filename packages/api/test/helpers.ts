@@ -52,7 +52,10 @@ const ORDER = [
    * headers point only at the company, and sit here with the money they are
    * about.
    */
-  "financing_application", "costing_rate", "budget_line", "budget", "journal_entry",
+  "financing_application", "costing_rate", "budget_line", "budget",
+  /** A "not the same cost" mark points at a job, a job line and a ledger entry, so it goes before all three. */
+  "job_cost_not_same",
+  "journal_entry",
   // Money, since it references almost everything.
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "credit_note_payout", "credit_note_application", "credit_note_line", "credit_note",

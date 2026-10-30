@@ -149,6 +149,11 @@ export const BUILT_IN: BuiltInReport[] = [
       measures: [
         "revenue", "material_cost", "labour_cost", "processing_fees", "gross_margin",
         "labour_burden", "overhead", "fully_loaded_margin",
+        /**
+         * How many costs journalled to the job may also be on its lines. A
+         * warning beside the material cost, which it never changes.
+         */
+        "possible_double_counts",
       ],
       filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
       /**
@@ -167,7 +172,7 @@ export const BUILT_IN: BuiltInReport[] = [
     definition: {
       dataset: "profitability",
       dimensions: ["job_type"],
-      measures: ["revenue", "material_cost", "labour_cost", "gross_margin", "fully_loaded_margin", "count"],
+      measures: ["revenue", "material_cost", "labour_cost", "gross_margin", "fully_loaded_margin", "possible_double_counts", "count"],
       filters: [{ dimension: "settled", op: "eq", value: "Settled" }],
       orderBy: "gross_margin",
       limit: 25,

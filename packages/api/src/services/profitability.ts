@@ -1,8 +1,12 @@
-import { sql } from "drizzle-orm";
-import { assertCan, costing as costingRules, permissionsFor, type reporting } from "@opentradesos/core";
-import { guardedRead, NotFoundError, type ServiceContext } from "./context";
-import { JOB_COSTING_SQL, GROSS_MARGIN_SQL, FULLY_LOADED_MARGIN_SQL, SETTLEMENT_SQL, PROFITABILITY_DATASET } from "./report-catalogue";
+import { and, eq, sql } from "drizzle-orm";
+import { schema, type Database } from "@opentradesos/db";
+import { assertCan, costing as costingRules, permissionsFor, SYSTEM_USER_ID, type reporting } from "@opentradesos/core";
+import { audit, guardedRead, guardedWrite, NotFoundError, UnprocessableError, type ServiceContext } from "./context";
+import {
+  JOB_COSTING_SQL, GROSS_MARGIN_SQL, FULLY_LOADED_MARGIN_SQL, SETTLEMENT_SQL, PROFITABILITY_DATASET, DOUBLE_COUNT_PAIRS_SQL,
+} from "./report-catalogue";
 import { run, scopeFilterFor, type ReportResult } from "./reports";
+import { remember, replayed } from "./once";
 
 /**
  * M15. WHICH WORK MAKES MONEY.
@@ -96,6 +100,33 @@ export interface JournalOnJob {
   countedIn: costingRules.JournalCounts;
 }
 
+/**
+ * A COST THAT MAY BE ON THE JOB TWICE: a journal's debit to cost of goods
+ * sold on it, and a line that cost the same with the same vendor named or
+ * dates close (`costing.possibleDoubleCount`). Listed whether or not somebody
+ * has marked it, so the mark is visible and can be taken back. Neither figure
+ * is changed by the warning or by the mark.
+ */
+export interface DoubleCount {
+  ledgerEntryId: string;
+  journalId: string;
+  journalNumber: number;
+  /** The journal's day, in the company's calendar. */
+  journalOn: string;
+  journalMemo: string | null;
+  jobLineId: string;
+  lineName: string;
+  /** The day the line was recorded, in the company's calendar. */
+  lineOn: string;
+  amount: string;
+  daysApart: number;
+  sameVendor: string | null;
+  /** Why it was flagged, in a sentence. */
+  reason: string;
+  /** Somebody looked and said these are two different costs. Null while the warning stands. */
+  notTheSame: { id: string; note: string | null; markedAt: Date; markedBy: string | null } | null;
+}
+
 export interface CostedLine {
   id: string;
   kind: string;
@@ -173,6 +204,9 @@ export interface JobProfitability {
   journalLines: JournalOnJob[];
   lines: CostedLine[];
   labour: LabourRow[];
+  /** Possible double counts, open and marked. `possibleDoubleCounts` is how many journal lines are still open. */
+  doubleCounts: DoubleCount[];
+  possibleDoubleCounts: number;
 }
 
 /** A ledger row as the query returns it, in the database's own column names. */
@@ -223,6 +257,7 @@ type StatementRow = {
   open_time_entries: string;
   uncosted_lines: string;
   labour_not_recorded: string;
+  possible_double_counts: string;
   settlement: string;
 };
 
@@ -277,6 +312,7 @@ export async function statement(
         ${sql.raw(`${JOB_COSTING_SQL.openTimeEntries}::text as "open_time_entries"`)},
         ${sql.raw(`${JOB_COSTING_SQL.uncostedLines}::text as "uncosted_lines"`)},
         ${sql.raw(`${JOB_COSTING_SQL.labourNotRecorded}::text as "labour_not_recorded"`)},
+        ${sql.raw(`${JOB_COSTING_SQL.possibleDoubleCounts}::text as "possible_double_counts"`)},
         ${sql.raw(`${SETTLEMENT_SQL} as "settlement"`)}
       from public.job
       where job.id = ${input.jobId}::uuid
@@ -412,6 +448,8 @@ export async function statement(
       group by tc.technician_id, t.display_name
       order by t.display_name
     `);
+
+    const doubleCounts = await doubleCountsOn(tx, input.jobId);
 
     const settled = row.settlement === "Settled";
     const openEntries = Number(row.open_time_entries);
@@ -562,7 +600,166 @@ export async function statement(
         cost: l.cost,
         unpricedHours: l.unpriced_hours,
       })),
+      doubleCounts,
+      possibleDoubleCounts: Number(row.possible_double_counts),
     };
+  });
+}
+
+type PairRow = {
+  ledger_entry_id: string; journal_id: string; journal_number: number; journal_on: string; journal_memo: string | null;
+  job_line_id: string; line_name: string; line_on: string; amount: string; days_apart: number;
+  same_vendor: string | null; mark_id: string | null; mark_note: string | null; marked_at: Date | null;
+  marked_by_user_id: string | null;
+};
+
+/** The pairs on one job, through the same SQL the margin report counts. */
+async function pairsOn(tx: Database, jobId: string): Promise<PairRow[]> {
+  return tx.execute<PairRow>(sql`
+    select p.ledger_entry_id, p.journal_id, p.journal_number, p.journal_on::text as journal_on, p.journal_memo,
+           p.job_line_id, p.line_name, p.line_on::text as line_on, p.amount::numeric(14,4)::text as amount,
+           p.days_apart::int as days_apart, p.same_vendor, p.mark_id, p.mark_note, p.marked_at, p.marked_by_user_id
+    from public.job, lateral (${sql.raw(DOUBLE_COUNT_PAIRS_SQL)}) p
+    where job.id = ${jobId}::uuid
+    order by p.journal_on, p.journal_number, p.line_on, p.line_name
+  `);
+}
+
+async function doubleCountsOn(tx: Database, jobId: string): Promise<DoubleCount[]> {
+  const pairs = await pairsOn(tx, jobId);
+  const names = new Map<string, string | null>();
+  if (pairs.some((p) => p.marked_by_user_id)) {
+    const people = await tx.execute<{ user_id: string; name: string | null; email: string }>(
+      sql`select user_id, name, email from app.organization_people()`,
+    );
+    for (const person of people) names.set(person.user_id, person.name ?? person.email);
+  }
+  return pairs.map((p) => ({
+    ledgerEntryId: p.ledger_entry_id,
+    journalId: p.journal_id,
+    journalNumber: p.journal_number,
+    journalOn: p.journal_on,
+    journalMemo: p.journal_memo,
+    jobLineId: p.job_line_id,
+    lineName: p.line_name,
+    lineOn: p.line_on,
+    amount: p.amount,
+    daysApart: p.days_apart,
+    sameVendor: p.same_vendor,
+    reason: costingRules.doubleCountReason({ daysApart: p.days_apart, sameVendor: p.same_vendor }),
+    notTheSame: p.mark_id ? {
+      id: p.mark_id,
+      note: p.mark_note,
+      markedAt: p.marked_at!,
+      markedBy: p.marked_by_user_id ? names.get(p.marked_by_user_id) ?? null : null,
+    } : null,
+  }));
+}
+
+/**
+ * The job, if the caller may read its cost. The same scope the statement
+ * reads with, and the same "not found" for a job out of scope as for one
+ * that does not exist.
+ */
+async function jobInScope(ctx: ServiceContext, tx: Database, jobId: string): Promise<void> {
+  const scoped = scopeFilterFor(ctx, PROFITABILITY_DATASET);
+  const [row] = await tx.execute<{ id: string }>(sql`
+    select job.id from public.job
+    where job.id = ${jobId}::uuid and job.deleted_at is null
+      ${scoped ? sql` and ${scoped}` : sql``}
+    limit 1
+  `);
+  if (!row) throw new NotFoundError("Job");
+}
+
+export interface NotTheSameMark {
+  id: string;
+  jobId: string;
+  jobLineId: string;
+  ledgerEntryId: string;
+  note: string | null;
+  markedAt: Date;
+}
+
+/**
+ * "THESE ARE TWO DIFFERENT COSTS." Takes the warning off one pair and
+ * changes no figure: both costs were in material cost before and are after.
+ *
+ * WHO. Whoever posts journals (`ledger:post`), because the warning is about a
+ * journal and the bookkeeper is the one person who can say whether the bill
+ * they journalled is the part on the line. Reading the job's cost as well
+ * (`job.cost:read`), in the caller's scope, because the pair is a cost.
+ *
+ * Only a pair the job is warning about can be marked, so a mark cannot be
+ * left in advance on a pair that does not match. Marking a pair already
+ * marked returns that mark, and a retried request with the same idempotency
+ * key returns the first answer. Audited.
+ */
+export async function markNotTheSame(
+  ctx: ServiceContext,
+  input: { jobId: string; jobLineId: string; ledgerEntryId: string; note?: string | undefined },
+): Promise<NotTheSameMark> {
+  assertCan(ctx.actor, "job.cost:read");
+  return guardedWrite(ctx, "ledger:post", async (tx) => {
+    const again = await replayed<NotTheSameMark>(tx, ctx, "job_cost_not_same");
+    if (again) return { ...again, markedAt: new Date(again.markedAt) };
+    await jobInScope(ctx, tx, input.jobId);
+
+    const pair = (await pairsOn(tx, input.jobId))
+      .find((p) => p.job_line_id === input.jobLineId && p.ledger_entry_id === input.ledgerEntryId);
+    if (!pair) {
+      throw new UnprocessableError("Nothing to mark", [{
+        path: "ledgerEntryId",
+        message: "That journal line and job line are not flagged as a possible double count on this job.",
+      }]);
+    }
+    const toMark = (row: typeof schema.jobCostNotSame.$inferSelect): NotTheSameMark => ({
+      id: row.id, jobId: row.jobId, jobLineId: row.jobLineId, ledgerEntryId: row.ledgerEntryId,
+      note: row.note, markedAt: row.createdAt,
+    });
+    if (pair.mark_id) {
+      const [there] = await tx.select().from(schema.jobCostNotSame).where(eq(schema.jobCostNotSame.id, pair.mark_id));
+      return toMark(there!);
+    }
+
+    const [row] = await tx.insert(schema.jobCostNotSame).values({
+      organizationId: ctx.actor.organizationId,
+      jobId: input.jobId,
+      jobLineId: input.jobLineId,
+      ledgerEntryId: input.ledgerEntryId,
+      note: input.note?.trim() || null,
+      markedByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+    }).returning();
+    await audit(tx, ctx, "job_cost.marked_not_the_same", "job_cost_not_same", row!.id, null, {
+      ...row, amount: pair.amount, journalNumber: pair.journal_number, lineName: pair.line_name,
+    });
+    const answer = toMark(row!);
+    await remember(tx, ctx, "job_cost_not_same", row!.id, answer);
+    return answer;
+  });
+}
+
+/**
+ * Take a mark back, for one made by mistake: the warning shows again. The
+ * same people as marking, and audited. Taking back a mark already gone
+ * answers as though it had just been taken back, so a retry is harmless.
+ */
+export async function unmarkNotTheSame(
+  ctx: ServiceContext,
+  input: { jobId: string; markId: string },
+): Promise<{ id: string; removed: true }> {
+  assertCan(ctx.actor, "job.cost:read");
+  return guardedWrite(ctx, "ledger:post", async (tx) => {
+    await jobInScope(ctx, tx, input.jobId);
+    const [row] = await tx.delete(schema.jobCostNotSame)
+      .where(and(
+        eq(schema.jobCostNotSame.id, input.markId),
+        eq(schema.jobCostNotSame.jobId, input.jobId),
+        eq(schema.jobCostNotSame.organizationId, ctx.actor.organizationId),
+      ))
+      .returning();
+    if (row) await audit(tx, ctx, "job_cost.not_the_same_removed", "job_cost_not_same", row.id, row, null);
+    return { id: input.markId, removed: true };
   });
 }
 
@@ -603,7 +800,7 @@ export async function summary(
     measures: [
       "revenue", "material_cost", "labour_cost", "processing_fees", "gross_margin",
       "labour_burden", "overhead", "overhead_per_hour", "overhead_per_job", "overhead_revenue_share",
-      "fully_loaded_margin", "scheduled_hours", "actual_hours", "hours_over", "count",
+      "fully_loaded_margin", "scheduled_hours", "actual_hours", "hours_over", "possible_double_counts", "count",
     ],
     ...(input.includeInProgress
       ? {}
@@ -621,6 +818,15 @@ export async function summary(
 export const handlers = {
   getJobProfitability: (ctx: ServiceContext, input: { id: string }): Promise<JobProfitability> =>
     statement(ctx, { jobId: input.id }),
+
+  markJobCostNotTheSame: (ctx: ServiceContext, input: {
+    id: string; jobLineId: string; ledgerEntryId: string; note?: string | undefined;
+  }): Promise<NotTheSameMark> => markNotTheSame(ctx, {
+    jobId: input.id, jobLineId: input.jobLineId, ledgerEntryId: input.ledgerEntryId, note: input.note,
+  }),
+
+  unmarkJobCostNotTheSame: (ctx: ServiceContext, input: { id: string; markId: string }) =>
+    unmarkNotTheSame(ctx, { jobId: input.id, markId: input.markId }),
 
   getProfitabilitySummary: (ctx: ServiceContext, input: {
     by: string;

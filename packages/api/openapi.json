@@ -104492,6 +104492,283 @@
         ]
       }
     },
+    "/v1/profitability/jobs/{id}/not-the-same": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "markJobCostNotTheSame",
+        "summary": "Say a flagged journal cost and a job line are two different costs",
+        "description": "Takes the possible double count warning off one pair on the job: a journal line debiting cost of goods sold (`ledgerEntryId`) and a line on the job (`jobLineId`), as listed in the statement's `doubleCounts`. Changes no figure: both costs were in material cost and stay there. Only a pair the job is flagging can be marked; marking one already marked returns that mark. Needs `ledger:post`, because the bookkeeper is who can tell, and `job.cost:read`. Audited.\n\nRequires a session holding: ledger:post, job.cost:read.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkJobCostNotTheSameInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Say a flagged journal cost and a job line are two different costs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkJobCostNotTheSameOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:post",
+          "job.cost:read"
+        ]
+      }
+    },
+    "/v1/profitability/jobs/{id}/not-the-same/{markId}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "unmarkJobCostNotTheSame",
+        "summary": "Take back a \"not the same cost\" mark",
+        "description": "The possible double count warning shows again. Changes no figure. Audited.\n\nRequires a session holding: ledger:post, job.cost:read.",
+        "tags": [
+          "M15"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "markId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnmarkJobCostNotTheSameInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take back a \"not the same cost\" mark",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnmarkJobCostNotTheSameOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "ledger:post",
+          "job.cost:read"
+        ]
+      }
+    },
     "/v1/profitability/summary": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -203050,6 +203327,114 @@
                 "unpricedHours"
               ]
             }
+          },
+          "doubleCounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ledgerEntryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "journalId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "journalNumber": {
+                  "type": "integer"
+                },
+                "journalOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "journalMemo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobLineId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "lineName": {
+                  "type": "string"
+                },
+                "lineOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "daysApart": {
+                  "type": "integer"
+                },
+                "sameVendor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "notTheSame": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "note": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "markedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "markedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "note",
+                    "markedAt",
+                    "markedBy"
+                  ]
+                }
+              },
+              "required": [
+                "ledgerEntryId",
+                "journalId",
+                "journalNumber",
+                "journalOn",
+                "journalMemo",
+                "jobLineId",
+                "lineName",
+                "lineOn",
+                "amount",
+                "daysApart",
+                "sameVendor",
+                "reason",
+                "notTheSame"
+              ]
+            }
+          },
+          "possibleDoubleCounts": {
+            "type": "integer"
           }
         },
         "required": [
@@ -203088,7 +203473,9 @@
           "feeEntries",
           "journalLines",
           "lines",
-          "labour"
+          "labour",
+          "doubleCounts",
+          "possibleDoubleCounts"
         ]
       },
       "GetJobRateOffersOutput": {
@@ -252571,6 +252958,66 @@
           "weMayMoveTo"
         ]
       },
+      "MarkJobCostNotTheSameInput": {
+        "type": "object",
+        "properties": {
+          "jobLineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ledgerEntryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "jobLineId",
+          "ledgerEntryId"
+        ]
+      },
+      "MarkJobCostNotTheSameOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobLineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ledgerEntryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "markedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "jobId",
+          "jobLineId",
+          "ledgerEntryId",
+          "note",
+          "markedAt"
+        ]
+      },
       "MarkJobLineBilledBackInput": {
         "type": "object",
         "properties": {
@@ -293720,6 +294167,29 @@
           "filledCleared",
           "filledKept",
           "tagsRemoved"
+        ]
+      },
+      "UnmarkJobCostNotTheSameInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "UnmarkJobCostNotTheSameOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
         ]
       },
       "UnpinDisposalFacilityInput": {

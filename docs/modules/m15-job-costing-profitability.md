@@ -199,7 +199,38 @@ the one that matters is labour: hours come from the timeclock at the rate frozen
 on each punch, so a payroll journal to the same job would count the same hours
 twice. The commission expense stays out of margin, as it always has. The one
 way left to count a cost twice is to journal to a job a cost that is already on
-one of its lines, which the statement and the journal screen both say.
+one of its lines, which the statement and the journal screen both say, and
+which job costing now warns about (below).
+
+**A cost that may be counted twice is flagged, never changed.** A journal's
+debit to cost of goods sold (5000) on a job is matched against the job's own
+lines (every kind but labour, each at quantity times unit cost). A pair is
+flagged when the amounts are the same to the cent and either the same vendor
+is named on both, or the two days are within 30 days of each other. "The same
+vendor" is one of the company's vendors whose name is in the journal's memo or
+the journal line's note, and also in the line's name or description, or who
+sells the line's price book item. Thirty days because a supplier's or
+subcontractor's bill often arrives weeks after the work, and a warning that can
+be dismissed in one click is cheaper than a cost counted twice. A reversed
+journal and its reversal are never flagged, because together they are nothing.
+The rule is core's `costing.possibleDoubleCount`, with unit tests, and the SQL
+is `DOUBLE_COUNT_PAIRS_SQL` in report-catalogue.ts, held to it by an
+integration test. The job page says "This cost may be counted twice", lists
+each pair with why it was flagged ("Same amount, 4 days apart."), and leaves
+both costs in the materials figure. The margin reports carry a "Possible
+double counts" measure (`possible_double_counts`) from the same SQL, on the job
+costing report and margin by job type. Whoever posts journals can say a pair is
+"Not the same cost", with a note: the warning becomes a line saying who checked
+it, and can be taken back. Neither the warning nor the mark changes a figure,
+and both the mark and taking it back are audited.
+
+**Two judgements the product owner has not made, and the conservative
+reading taken.** The warning never removes or adjusts a cost by itself,
+because only the bookkeeper knows whether a $480 bill and a $480 line are one
+cost, and a margin that quietly dropped one would be wrong half the time in
+the direction nobody checks. And marking a pair is for whoever holds
+`ledger:post` (the owner and the finance role), not for everyone who reads
+job cost, because the mark is a statement about a journal.
 
 **Revenue is read from the ledger, not from the invoice total.** That is what
 makes the job costing report agree with the trial balance to the cent, and it is
@@ -214,6 +245,17 @@ figures to whoever may read both sides, and under them lists "Booked to this job
 by journal": each journal line that names the job, with the journal's number, and
 whether it is counted in revenue, materials or card fees or not counted here. Over
 the API those are `journalLines`, and the ledger rows carry the journal's number.
+
+Above the figures, a journalled cost that matches one of the job's lines is
+shown as "This cost may be counted twice", with the journal, the line, the
+amount and why. Somebody holding `ledger:post` sees a "Not the same cost"
+button with an optional note under each pair, and "Take back" on a pair
+already marked. Over the API the pairs are `doubleCounts` on the statement
+(each with `notTheSame`, null while the warning stands) and
+`possibleDoubleCounts` is how many journal lines are still flagged;
+`POST /v1/profitability/jobs/{id}/not-the-same` marks a pair (idempotent, and
+marking one already marked returns the mark) and
+`DELETE /v1/profitability/jobs/{id}/not-the-same/{markId}` takes it back.
 
 ### The roll up
 
@@ -300,6 +342,11 @@ lines with no shape last year and the assumption in words. `PUT
 
 `job.cost:read` and `report.financial:read` are both on the sensitive list.
 
+Marking a possible double count as two different costs, or taking that back,
+needs `ledger:post` and `job.cost:read`, in the caller's scope: the owner and
+the finance role. The administrator and the office manager read the warning
+and cannot mark it.
+
 Setting burden and overhead rates, the budget and how its forecast is made needs `finance:configure`,
 which the owner, the administrator and the accountant hold and the office
 manager does not: a rate changes what every fully loaded margin says. The rates
@@ -311,6 +358,8 @@ are read with `job.cost:read`, the budget with `report.financial:read`.
 |---|---|
 | `GET /v1/profitability/jobs/{id}` | `report.financial:read`, `job.cost:read` |
 | `GET /v1/profitability/summary` | `report.financial:read`, `job.cost:read` |
+| `POST /v1/profitability/jobs/{id}/not-the-same` | `ledger:post`, `job.cost:read` |
+| `DELETE /v1/profitability/jobs/{id}/not-the-same/{markId}` | `ledger:post`, `job.cost:read` |
 | `GET /v1/jobs/{jobId}/material-cost` | `inventory:read` |
 | `POST /v1/reports/drill` | `report:read`, and the report's own permissions |
 | `GET /v1/costing/rates` | `job.cost:read` |
@@ -357,9 +406,15 @@ the second of February waits a year more, which is the conservative reading. A b
 own branch automatically: the report is a company financial report under
 `report.financial:read`, and whoever holds that chooses the branch. Labour and materials actuals depend on journals, because
 nothing here posts wages or supplier bills. A journal can now put a supplier
-bill or a subcontractor's cost on a job, and the margin counts it, but nothing
-checks it against the job's own lines: a cost entered on a line and journalled to
-the job as well is counted twice, and only the bookkeeper can tell. Labour
+bill or a subcontractor's cost on a job, and the margin counts it; a journalled
+cost that matches one of the job's lines (the same amount, and a vendor named on
+both or within 30 days) is flagged on the job and counted on the margin reports,
+but never taken out: until somebody removes one of the two, both are in the
+margin. A cost that was split (one bill journalled as two lines, or a line for
+part of a bill) is not matched, because only the same amount is; nor is a cost
+on the ledger by any other route than a manual journal, such as late freight. A
+vendor is matched by name in the words, so a bill whose memo does not name the
+vendor and that arrived more than 30 days after the line is not flagged. Labour
 journalled to a job is listed and not counted, so a payroll run cannot double the
 hours. A subcontractor's labour is not hours on this company's clock, so it is
 booked to account 5000 to be counted.

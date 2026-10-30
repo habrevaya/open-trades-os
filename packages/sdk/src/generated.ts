@@ -9980,6 +9980,27 @@ export interface GetJobProfitabilityOutput {
     cost: string;
     unpricedHours: string;
   }>;
+  doubleCounts: Array<{
+    ledgerEntryId: string;
+    journalId: string;
+    journalNumber: number;
+    journalOn: string;
+    journalMemo: string | null;
+    jobLineId: string;
+    lineName: string;
+    lineOn: string;
+    amount: string;
+    daysApart: number;
+    sameVendor: string | null;
+    reason: string;
+    notTheSame: {
+      id: string;
+      note: string | null;
+      markedAt: string;
+      markedBy: string | null;
+    } | null;
+  }>;
+  possibleDoubleCounts: number;
 }
 
 export interface GetJobRateOffersOutput {
@@ -19358,6 +19379,21 @@ export interface MarkExternalWorkOrderPushedOutput {
   weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
 }
 
+export interface MarkJobCostNotTheSameInput {
+  jobLineId: string;
+  ledgerEntryId: string;
+  note?: string;
+}
+
+export interface MarkJobCostNotTheSameOutput {
+  id: string;
+  jobId: string;
+  jobLineId: string;
+  ledgerEntryId: string;
+  note: string | null;
+  markedAt: string;
+}
+
 export interface MarkJobLineBilledBackInput {
   billedBack: boolean;
 }
@@ -27830,6 +27866,13 @@ export interface UndoCustomerMergeOutput {
   tagsRemoved: string[];
 }
 
+export type UnmarkJobCostNotTheSameInput = Record<string, unknown>;
+
+export interface UnmarkJobCostNotTheSameOutput {
+  id: string;
+  removed: true;
+}
+
 export type UnpinDisposalFacilityInput = Record<string, unknown>;
 
 export interface UnpinDisposalFacilityOutput {
@@ -33423,6 +33466,10 @@ export interface MarkExternalWorkOrderPushedParams {
   id: string;
 }
 
+export interface MarkJobCostNotTheSameParams {
+  id: string;
+}
+
 export interface MarkJobLineBilledBackParams {
   id: string;
 }
@@ -34478,6 +34525,11 @@ export interface TurnPluginOnParams {
 
 export interface UndoCustomerMergeParams {
   id: string;
+}
+
+export interface UnmarkJobCostNotTheSameParams {
+  id: string;
+  markId: string;
 }
 
 export interface UnpinDisposalFacilityParams {
@@ -35540,6 +35592,7 @@ export interface OperationTypes {
   markConversationRead: { input: MarkConversationReadParams & MarkConversationReadInput; output: MarkConversationReadOutput };
   markExternalWorkOrderPushFailed: { input: MarkExternalWorkOrderPushFailedParams & MarkExternalWorkOrderPushFailedInput; output: MarkExternalWorkOrderPushFailedOutput };
   markExternalWorkOrderPushed: { input: MarkExternalWorkOrderPushedParams & MarkExternalWorkOrderPushedInput; output: MarkExternalWorkOrderPushedOutput };
+  markJobCostNotTheSame: { input: MarkJobCostNotTheSameParams & MarkJobCostNotTheSameInput; output: MarkJobCostNotTheSameOutput };
   markJobLineBilledBack: { input: MarkJobLineBilledBackParams & MarkJobLineBilledBackInput; output: MarkJobLineBilledBackOutput };
   markRequestSent: { input: MarkRequestSentParams & MarkRequestSentInput; output: MarkRequestSentOutput };
   markReviewRecovered: { input: MarkReviewRecoveredParams & MarkReviewRecoveredInput; output: MarkReviewRecoveredOutput };
@@ -35942,6 +35995,7 @@ export interface OperationTypes {
   turnPluginOff: { input: TurnPluginOffParams & TurnPluginOffInput; output: TurnPluginOffOutput };
   turnPluginOn: { input: TurnPluginOnParams & TurnPluginOnInput; output: TurnPluginOnOutput };
   undoCustomerMerge: { input: UndoCustomerMergeParams & UndoCustomerMergeInput; output: UndoCustomerMergeOutput };
+  unmarkJobCostNotTheSame: { input: UnmarkJobCostNotTheSameParams & UnmarkJobCostNotTheSameInput; output: UnmarkJobCostNotTheSameOutput };
   unpinDisposalFacility: { input: UnpinDisposalFacilityParams & UnpinDisposalFacilityInput; output: UnpinDisposalFacilityOutput };
   unpinLocation: { input: UnpinLocationParams & UnpinLocationInput; output: UnpinLocationOutput };
   unpinProperty: { input: UnpinPropertyParams & UnpinPropertyInput; output: UnpinPropertyOutput };
@@ -36774,6 +36828,7 @@ export const OPERATIONS = {
   markConversationRead: { method: "POST", path: "/v1/conversations/{id}/read", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   markExternalWorkOrderPushFailed: { method: "POST", path: "/v1/external-work-orders/{id}/push-failed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   markExternalWorkOrderPushed: { method: "POST", path: "/v1/external-work-orders/{id}/pushed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  markJobCostNotTheSame: { method: "POST", path: "/v1/profitability/jobs/{id}/not-the-same", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post","job.cost:read"] },
   markJobLineBilledBack: { method: "POST", path: "/v1/job-lines/{id}/billed-back", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   markRequestSent: { method: "POST", path: "/v1/reviews/requests/{id}/sent", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   markReviewRecovered: { method: "POST", path: "/v1/reviews/{id}/recovered", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
@@ -37176,6 +37231,7 @@ export const OPERATIONS = {
   turnPluginOff: { method: "POST", path: "/v1/app-plugins/{id}/turn-off", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   turnPluginOn: { method: "POST", path: "/v1/app-plugins/{id}/turn-on", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   undoCustomerMerge: { method: "POST", path: "/v1/customer-merges/{id}/undo", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
+  unmarkJobCostNotTheSame: { method: "DELETE", path: "/v1/profitability/jobs/{id}/not-the-same/{markId}", pathParams: ["id","markId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post","job.cost:read"] },
   unpinDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   unpinLocation: { method: "DELETE", path: "/v1/locations/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   unpinProperty: { method: "DELETE", path: "/v1/properties/{id}/pin", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
@@ -43962,6 +44018,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Say a flagged journal cost and a job line are two different costs.
+   *
+   * POST /v1/profitability/jobs/{id}/not-the-same. Needs ledger:post, job.cost:read.
+   */
+  markJobCostNotTheSame(input: MarkJobCostNotTheSameParams & MarkJobCostNotTheSameInput, options?: CallOptions): Promise<MarkJobCostNotTheSameOutput> {
+    return this.call("markJobCostNotTheSame", input, options);
+  }
+
+  /**
    * Mark a supply as billed back to the customer at cost, or take the mark off.
    *
    * POST /v1/job-lines/{id}/billed-back. Needs job:write.
@@ -47577,6 +47642,15 @@ export abstract class GeneratedOperations {
    */
   undoCustomerMerge(input: UndoCustomerMergeParams & UndoCustomerMergeInput, options?: CallOptions): Promise<UndoCustomerMergeOutput> {
     return this.call("undoCustomerMerge", input, options);
+  }
+
+  /**
+   * Take back a "not the same cost" mark.
+   *
+   * DELETE /v1/profitability/jobs/{id}/not-the-same/{markId}. Needs ledger:post, job.cost:read.
+   */
+  unmarkJobCostNotTheSame(input: UnmarkJobCostNotTheSameParams & UnmarkJobCostNotTheSameInput, options?: CallOptions): Promise<UnmarkJobCostNotTheSameOutput> {
+    return this.call("unmarkJobCostNotTheSame", input, options);
   }
 
   /**

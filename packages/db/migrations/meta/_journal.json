@@ -1170,6 +1170,13 @@
       "when": 1793365736879,
       "tag": "0166_aspiring_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1793370134755,
+      "tag": "0167_simple_radioactive_man",
+      "breakpoints": true
     }
   ]
 }

@@ -510,6 +510,8 @@ export const handlers = {
 
   getJobProfitability: profitability.handlers.getJobProfitability,
   getProfitabilitySummary: profitability.handlers.getProfitabilitySummary,
+  markJobCostNotTheSame: profitability.handlers.markJobCostNotTheSame,
+  unmarkJobCostNotTheSame: profitability.handlers.unmarkJobCostNotTheSame,
   /** Consumer financing (M13), the costing rates and the budget (M15), manual journals (M14). */
   ...financing.handlers,
   ...costing.handlers,

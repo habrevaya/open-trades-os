@@ -84,6 +84,30 @@ export const CostedJobLine = z.object({
   nonBillableReason: z.string().nullable(),
 });
 
+/**
+ * A cost that may be on the job twice: a journal's debit to cost of goods sold
+ * and a line that cost the same, with a vendor named on both or the days
+ * within thirty of each other. Neither figure is changed by it.
+ */
+export const DoubleCountOnJob = z.object({
+  ledgerEntryId: Uuid,
+  journalId: Uuid,
+  journalNumber: z.number().int(),
+  journalOn: z.string().date(),
+  journalMemo: z.string().nullable(),
+  jobLineId: Uuid,
+  lineName: z.string(),
+  lineOn: z.string().date(),
+  amount: MoneyString,
+  daysApart: z.number().int(),
+  sameVendor: z.string().nullable(),
+  reason: z.string(),
+  /** Marked as two different costs, by whom and when. Null while the warning stands. */
+  notTheSame: z.object({
+    id: Uuid, note: z.string().nullable(), markedAt: z.string().datetime(), markedBy: z.string().nullable(),
+  }).nullable(),
+});
+
 export const JobLabourRow = z.object({
   /** Null unless the caller holds `payroll:read`. Hours beside a name are a wage. */
   technicianId: Uuid.nullable(),
@@ -164,7 +188,53 @@ export const getJobProfitability = defineRoute({
     journalLines: z.array(JournalLineOnJob),
     lines: z.array(CostedJobLine),
     labour: z.array(JobLabourRow),
+    /**
+     * Costs journalled to the job that may also be on one of its lines, open and marked.
+     * A warning only: both stay in `materialCost` until somebody removes one.
+     */
+    doubleCounts: z.array(DoubleCountOnJob),
+    /** How many journal lines on the job are still flagged and not marked as different costs. */
+    possibleDoubleCounts: z.number().int(),
   }),
+});
+
+const NotTheSameMark = z.object({
+  id: Uuid,
+  jobId: Uuid,
+  jobLineId: Uuid,
+  ledgerEntryId: Uuid,
+  note: z.string().nullable(),
+  markedAt: z.string().datetime(),
+});
+
+export const markJobCostNotTheSame = defineRoute({
+  method: "post",
+  path: "/v1/profitability/jobs/{id}/not-the-same",
+  summary: "Say a flagged journal cost and a job line are two different costs",
+  description:
+    "Takes the possible double count warning off one pair on the job: a journal line debiting cost of goods sold (`ledgerEntryId`) and a line on the job (`jobLineId`), as listed in the statement's `doubleCounts`. Changes no figure: both costs were in material cost and stay there. Only a pair the job is flagging can be marked; marking one already marked returns that mark. Needs `ledger:post`, because the bookkeeper is who can tell, and `job.cost:read`. Audited.",
+  module: "M15",
+  permissions: ["ledger:post", "job.cost:read"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    jobLineId: Uuid,
+    ledgerEntryId: Uuid,
+    note: z.string().max(500).optional(),
+  }),
+  output: NotTheSameMark,
+});
+
+export const unmarkJobCostNotTheSame = defineRoute({
+  method: "delete",
+  path: "/v1/profitability/jobs/{id}/not-the-same/{markId}",
+  summary: "Take back a \"not the same cost\" mark",
+  description: "The possible double count warning shows again. Changes no figure. Audited.",
+  module: "M15",
+  permissions: ["ledger:post", "job.cost:read"],
+  idempotent: true,
+  input: z.object({ id: Uuid, markId: Uuid }),
+  output: z.object({ id: Uuid, removed: z.literal(true) }),
 });
 
 /**
@@ -210,5 +280,5 @@ export const getProfitabilitySummary = defineRoute({
 });
 
 export const profitabilityRoutes = {
-  getJobProfitability, getProfitabilitySummary,
+  getJobProfitability, getProfitabilitySummary, markJobCostNotTheSame, unmarkJobCostNotTheSame,
 } as const;

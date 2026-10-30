@@ -329,3 +329,60 @@ export function journalCounts(accountCode: string): JournalCounts {
     default: return null;
   }
 }
+
+/**
+ * A COST THAT MAY BE COUNTED TWICE.
+ *
+ * Material cost on a job is its lines plus what was journalled to cost of
+ * goods sold on it (above), so the one way left to count a cost twice is to
+ * put it on a line and journal it to the job as well. Nothing can tell for
+ * certain whether a $480 line and a $480 journal are one bill or two; a
+ * person can. So job costing flags a pair that looks like one cost and leaves
+ * both figures exactly as they are:
+ *
+ *   the same amount, to the cent: the line's quantity times its unit cost
+ *   against the journal's debit to cost of goods sold, and
+ *
+ *   either the same vendor named on both (a vendor of the company whose name
+ *   is in the journal's memo and in the line's name, or who sells the line's
+ *   price book item), or dates close together: the journal's day within
+ *   `DOUBLE_COUNT_DAYS` of the day the line was recorded, either way.
+ *
+ * Thirty days because a subcontractor's or supplier's bill often arrives
+ * weeks after the work, and a warning somebody can dismiss in one click is
+ * cheaper than a cost counted twice in every margin report. A reversed
+ * journal, and a reversal, never match: together they net to nothing.
+ *
+ * The SQL that finds the pairs is `DOUBLE_COUNT_PAIRS_SQL` in
+ * report-catalogue.ts; this is the same rule in TypeScript, and an
+ * integration test holds the two to each other.
+ */
+export const DOUBLE_COUNT_DAYS = 30;
+
+export interface DoubleCountCandidate {
+  /** The line's quantity times its unit cost. */
+  lineCost: string;
+  /** The journal's debit to cost of goods sold on the job. */
+  journalAmount: string;
+  /** Days between the journal's day and the line's, either way. */
+  daysApart: number;
+  /** A vendor named on both, or null. */
+  sameVendor: string | null;
+}
+
+const cents = (value: string) => Math.round(Number(value) * 100);
+
+export function possibleDoubleCount(candidate: DoubleCountCandidate): boolean {
+  if (cents(candidate.lineCost) !== cents(candidate.journalAmount)) return false;
+  if (cents(candidate.lineCost) === 0) return false;
+  return candidate.sameVendor !== null || Math.abs(candidate.daysApart) <= DOUBLE_COUNT_DAYS;
+}
+
+/** Why a pair was flagged, in a sentence an owner reads on the job. */
+export function doubleCountReason(candidate: { daysApart: number; sameVendor: string | null }): string {
+  const days = Math.abs(candidate.daysApart);
+  const when = days === 0 ? "on the same day" : `${days} ${days === 1 ? "day" : "days"} apart`;
+  return candidate.sameVendor !== null
+    ? `Same amount, and both name ${candidate.sameVendor} (${when}).`
+    : `Same amount, ${when}.`;
+}
