@@ -328,12 +328,36 @@ out sooner; a link that was withdrawn (by a later send, or a send nobody
 received) or used up is never brought back, and the page says to send the
 estimate again for a new one.
 
-The follow up does not start again by itself. The "estimate nobody answered"
-sweep (M29) leaves out an estimate given longer since it was sent, and the
-recommended follow up waiting from the send stops at its question rather than
-chasing ("given longer by the office since it was sent"). No event is raised.
-Sending the estimate again starts both again, because that is the office
-choosing to chase.
+**The follow up starts again from the new date, unless the office says not to.**
+On the form, "Leave the follow up alone" is a box that is not ticked. Left
+unticked, the follow up counts from the day the customer was given longer, with
+the same wait it had at the send, and the page says so ("The follow up counts
+its days from today."). Ticked, nothing is sent to the customer about this
+estimate until it is sent again ("The follow up was left alone."). Through the
+API it is `restartFollowUp` on `POST /v1/estimates/{id}/expiry`, and there it is
+off when left out: a program that moves a hundred dates must ask, or it would
+text a hundred customers because it forgot a flag. Two things restart, both
+through the runner and the sweep that already do the chasing:
+
+- The company's recommended follow up (M29), if it is switched on, is started
+  again by the extension itself, with its own wait, the way the send started it
+  the first time. The run still waiting from the send stops at its question
+  ("given longer by the office since it was sent") and the new one takes its
+  place. Only that follow up is started: an automation of the company's own that
+  begins at a send is not run again for a date that moved. The new run stops, too,
+  if the date is moved again without asking for a restart ("given longer again
+  since this follow up started"), or if the estimate is sent again, answered or
+  expired. `estimate.follow_up_restarted` is raised for it; it is not offered as
+  a trigger on the canvas.
+- The "estimate nobody answered" sweep (M29) counts its days from the day it was
+  started again (`follow_up_from` on the estimate) instead of the send, and
+  chases once more however many times it chased before, once for each time the
+  office asks for a restart. A date moved later without asking leaves the sweep
+  stopped, as it always was.
+
+A retry of the same change starts it once. The audit line for the change
+(`estimate.expiry_extended`) says whether the follow up was restarted and how
+many runs it started.
 
 ### Price it for a member
 
@@ -436,7 +460,10 @@ a company created since it was; an older company still turns it on. Only the goo
 until date of a sent estimate can be changed, and only later: an estimate has no
 other edit, so a different price or option is a new estimate. Giving longer does
 not tell the customer by itself (the office tells them, or sends the estimate
-again), does not bring back a link that was withdrawn or used up, and the follow
-up does not chase an estimate given longer until it is sent again. A draft
+again), and does not bring back a link that was withdrawn or used up. Starting the follow up again is
+the company's recommended follow up and the sweep: an automation of the company's own that waits
+from a send is not run again, and a company that deleted or switched off the recommended follow up
+gets only the sweep's restart.
+A draft
 is never marked expired, so one written with a date in the past is not either until
 it is sent.

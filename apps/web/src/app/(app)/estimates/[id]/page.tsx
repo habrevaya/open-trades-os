@@ -98,10 +98,21 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
             <ActionForm action={extendEstimate} submit="Move the date" hidden={{ estimateId: id }} className="mt-3 space-y-3">
               <p className="text-sm text-ink-700">
                 Only the good until date changes. The prices, the options and the terms stay as they were sent. The link
-                they were sent works until the new date, and the follow up does not chase them again unless you send it again.
+                they were sent works until the new date.
+                The follow up starts again from today, so the customer is chased after the same wait as when it was
+                first sent. Tick the box below if you would rather it left them alone.
               </p>
               <TextField label="New good until date" name="expiresOn" type="date" required min={todayIn(user.organizationTimezone)} />
               <TextField label="Why" name="reason" required maxLength={500} placeholder="They asked us to hold the price until their insurer replies." />
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="leaveFollowUpAlone" className="mt-1" />
+                <span>
+                  Leave the follow up alone.
+                  <span className="block text-xs text-ink-500">
+                    Nobody is texted or emailed about this estimate until you send it again.
+                  </span>
+                </span>
+              </label>
             </ActionForm>
           </details>
         ) : null}

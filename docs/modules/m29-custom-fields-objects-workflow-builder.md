@@ -264,7 +264,9 @@ a database client.
 event, so three days after "an estimate was sent" it can only ever say it was
 sent. `stop_unless` asks the database one declared question (today, whether
 the estimate is still waiting for an answer, has not been sent again since and
-has not been given longer by the office since it was sent)
+has not been given longer by the office since it was sent, unless the office asked for the
+follow up to start again from that day, in which case it is a run of its own, started by the
+extension, that stops only if the date is moved again)
 and, when the answer is no, ends the run as finished with the steps after it
 written down as skipped. A customer who approved on day two is the follow up
 working, not failing. The questions are a catalogue in core, like the dwell

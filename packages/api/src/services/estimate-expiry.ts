@@ -4,6 +4,8 @@ import { SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
   audit, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { emit } from "./events";
+import { fire } from "./workflow-runner";
 
 /**
  * AN ESTIMATE PAST ITS DATE IS MARKED EXPIRED, BY THE WORKER
@@ -168,14 +170,26 @@ export interface ExtendedEstimate {
  * send nobody received) or used up, and never the one day links a customer
  * opens from their own sign in: those are theirs to open again.
  *
- * THE FOLLOW UP DOES NOT START AGAIN BY ITSELF. The "estimate nobody
- * answered" sweep counts from when it was sent, so an old estimate given
- * longer would be chased the minute it was open again. It is left alone
- * (`expiry_extended_at`) until somebody sends it again, and no event is
- * raised, so no automation waiting on a send fires either.
+ * THE FOLLOW UP DOES NOT START AGAIN BY ITSELF, BUT THE OFFICE CAN ASK FOR IT.
+ * The "estimate nobody answered" sweep counts from when it was sent, so an
+ * old estimate given longer would be chased the minute it was open again, on
+ * the old send date. Left alone (`expiry_extended_at`) until somebody sends it
+ * again, unless the office says to start it again from this day
+ * (`restartFollowUp`, which the form offers by default and an API caller has
+ * to ask for: a program moving a hundred dates should not text a hundred
+ * customers because it forgot a flag). Then:
+ *   the sweep counts its days from today (`follow_up_from`) and chases once
+ *   more, however many times it chased before;
+ *   the company's recommended follow up, if it has one switched on, is started
+ *   afresh from today by the same runner that started it at the send, with its
+ *   own wait, so the old run still waiting stops at its question and this one
+ *   takes its place. Only that follow up: other automations that start from a
+ *   send are not run again for a date that moved;
+ *   `estimate.follow_up_restarted` is raised (not offered as a trigger).
+ * A date moved again later without asking leaves the follow up stopped.
  */
 export async function extend(
-  ctx: ServiceContext, input: { id: string; expiresOn: string; reason: string },
+  ctx: ServiceContext, input: { id: string; expiresOn: string; reason: string; restartFollowUp?: boolean | undefined },
 ): Promise<ExtendedEstimate> {
   return guardedWrite(ctx, "estimate:write", async (tx) => {
     const reason = input.reason.trim();
@@ -212,8 +226,10 @@ export async function extend(
 
     const now = new Date();
     const status = row.status === "expired" ? (row.viewedAt ? "viewed" : "sent") : row.status;
+    const restart = input.restartFollowUp === true;
     const [after] = await tx.update(schema.estimate).set({
       expiresOn: input.expiresOn, status, expiryExtendedAt: now, updatedAt: now,
+      ...(restart ? { followUpFrom: now } : {}),
     }).where(and(eq(schema.estimate.id, row.id), inArray(schema.estimate.status, ["sent", "viewed", "expired"])))
       .returning();
     if (!after) throw new ConflictError(`Estimate ${row.number} was answered a moment ago.`);
@@ -228,12 +244,69 @@ export async function extend(
       linkBefore = link.expiresAt;
     }
 
+    const restarted = restart ? await restartFollowUp(tx, ctx, after, now) : [];
+
     await audit(tx, ctx, "estimate.expiry_extended", "estimate", row.id,
       { expiresOn: row.expiresOn, status: row.status, linkExpiresAt: linkBefore?.toISOString() ?? null },
-      { expiresOn: input.expiresOn, status, reason, linkExpiresAt: link ? (link.expiresAt < endOfDay ? endOfDay : link.expiresAt).toISOString() : null });
+      {
+        expiresOn: input.expiresOn, status, reason,
+        linkExpiresAt: link ? (link.expiresAt < endOfDay ? endOfDay : link.expiresAt).toISOString() : null,
+        followUpRestarted: restart, followUpRuns: restarted.length,
+      });
 
     return { ...(await shapeExtended(tx, after)), previousExpiresOn: row.expiresOn };
   });
+}
+
+/**
+ * Start the follow up again from today.
+ *
+ * The event carries what `estimate.sent` carries (the estimate, the customer)
+ * and `restartedAt`, which is what tells the "still undecided?" question this
+ * is a restart and not the first run. Only the company's recommended follow up
+ * is started, by its template key, with a key of its own so a retry of the
+ * same change starts it once. A company that switched it off, deleted it or
+ * never had one starts nothing here: the sweep above still counts from today
+ * for any automation of that kind it has.
+ */
+async function restartFollowUp(
+  tx: Database, ctx: ServiceContext, estimate: typeof schema.estimate.$inferSelect, now: Date,
+): Promise<string[]> {
+  const [customer] = await tx.select({ name: schema.customer.name }).from(schema.customer)
+    .where(eq(schema.customer.id, estimate.customerId)).limit(1);
+  const event = await emit(tx, ctx, {
+    name: "estimate.follow_up_restarted",
+    entityType: "estimate",
+    entityId: estimate.id,
+    payload: {
+      estimate: {
+        id: estimate.id,
+        number: estimate.number,
+        title: estimate.title,
+        customerId: estimate.customerId,
+        sentAt: estimate.sentAt?.toISOString() ?? null,
+        restartedAt: now.toISOString(),
+        expiresOn: estimate.expiresOn,
+      },
+      customer: { id: estimate.customerId, name: customer?.name ?? "" },
+    },
+  });
+  const followUps = await tx.select({ id: schema.workflow.id }).from(schema.workflow)
+    .where(and(
+      eq(schema.workflow.templateKey, "estimate_follow_up"),
+      eq(schema.workflow.enabled, true),
+      isNull(schema.workflow.deletedAt),
+    ));
+  const started: string[] = [];
+  for (const workflow of followUps) {
+    const run = await fire(tx, ctx, {
+      workflowId: workflow.id,
+      eventId: event.id,
+      idempotencyKey: `follow-up-restart:${workflow.id}:${estimate.id}:${now.getTime()}`,
+    });
+    if (run.runId) started.push(run.runId);
+  }
+  return started;
 }
 
 /** The link the estimate was last sent with, while it can still be used. */
@@ -262,5 +335,5 @@ async function shapeExtended(
 }
 
 export const handlers = {
-  extendEstimateExpiry: (ctx: ServiceContext, input: { id: string; expiresOn: string; reason: string }) => extend(ctx, input),
+  extendEstimateExpiry: (ctx: ServiceContext, input: Parameters<typeof extend>[1]) => extend(ctx, input),
 } as const;

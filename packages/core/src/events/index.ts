@@ -194,6 +194,20 @@ export const EVENTS = {
     emitted: true,
   },
   /**
+   * The office gave the customer longer to answer and asked for the follow up
+   * to count from that day. Emitted by the extension itself, which starts the
+   * company's recommended follow up straight away; it is not offered as a
+   * trigger, because "an estimate was sent" is still the only moment a
+   * follow up waits from, and a second way to start one would let a
+   * company chase the same customer twice about one date.
+   */
+  "estimate.follow_up_restarted": {
+    summary: "The office gave a customer longer to answer an estimate and started the follow up again",
+    entity: "estimate",
+    emitted: true,
+    subscribable: false,
+  },
+  /**
    * A decision, from the customer's own link or recorded by the office
    * (`capturedVia` says which and how). Not emitted for an outcome loaded
    * from another system's history, so a migration starts no automation.

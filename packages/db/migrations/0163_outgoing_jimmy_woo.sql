@@ -1,0 +1,1 @@
+ALTER TABLE "estimate" ADD COLUMN "follow_up_from" timestamp with time zone;

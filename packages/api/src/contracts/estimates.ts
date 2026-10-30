@@ -617,7 +617,7 @@ export const extendEstimateExpiry = defineRoute({
   path: "/v1/estimates/{id}/expiry",
   summary: "Move a sent estimate's good until date later, with a reason",
   description:
-    "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, and no event is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made.",
+    "Only an estimate the customer has and has not answered (sent, opened or expired) that has a date, only later, from today on and within a year. Nothing else on it changes. An expired one is open again (opened if the customer had opened it, sent if not). The link it was last sent with works until the end of the new day where the company is, unless it was withdrawn or used up. The follow up for estimates nobody answered does not chase it again until it is sent again, unless `restartFollowUp` is true (leave it out and nothing starts, so a program moving many dates texts nobody): then the follow up counts its days from today and chases once more, the company's recommended follow up is started again with its own wait, and `estimate.follow_up_restarted` is raised. The reason and both dates are in the audit log as `estimate.expiry_extended`. The same date again is the change already made.",
   module: "M07",
   permissions: ["estimate:write"],
   idempotent: true,
@@ -625,6 +625,8 @@ export const extendEstimateExpiry = defineRoute({
     id: Uuid,
     expiresOn: z.string().date(),
     reason: z.string().min(1).max(500),
+    /** Start the follow up again from today. Off when left out. */
+    restartFollowUp: z.boolean().optional(),
   }),
   output: z.object({
     id: Uuid,
