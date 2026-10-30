@@ -260,6 +260,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One digest switch per person, written with on conflict do update: turning it on twice is the same switch.",
   staff_notice_setting_kind_idx:
     "One row of switches per person per kind, written with on conflict do update: saving a person's switches again replaces them.",
+  office_on_call_turn_idx:
+    "One turn per person per first and last day on the office's on call rota. Adding inserts with on conflict do nothing and answers with the turn already there, so adding the same turn twice is the same rota.",
   staff_notice_default_kind_idx:
     "One company default per kind, written with on conflict do update: saving the company's defaults again replaces them.",
   certification_renewals_keeper_person_idx:

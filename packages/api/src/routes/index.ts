@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
-  me, staffDocuments, staffNotices, noticeUpkeep, noticeDefaults, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills, mileageOverrides,
+  me, staffDocuments, staffNotices, noticeUpkeep, noticeDefaults, officeOnCall, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills, mileageOverrides,
   plugins,
 } from "../services/index";
 
@@ -1273,6 +1273,7 @@ export const handlers = {
   ...staffNotices.handlers,
   ...noticeUpkeep.handlers,
   ...noticeDefaults.handlers,
+  ...officeOnCall.handlers,
   ...staffDocuments.handlers,
 } as const satisfies { [N in RouteName]?: HandlerFor<N> };
 

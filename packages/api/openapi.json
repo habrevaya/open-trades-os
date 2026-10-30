@@ -87646,6 +87646,485 @@
         ]
       }
     },
+    "/v1/office-on-call": {
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PATCH"
+      ],
+      "get": {
+        "operationId": "getOfficeOnCall",
+        "summary": "The office's on call rota, and which notices go to it",
+        "description": "A deadline about to be missed, a customer asking to change a visit and an automatic payment that failed tell everybody who handles them, unless the company sends that kind to whoever is on call. Off for each kind until switched on. Not the technicians' rota for customers' calls after hours (`/v1/on-call`).\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M34"
+        ],
+        "responses": {
+          "200": {
+            "description": "The office's on call rota, and which notices go to it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetOfficeOnCallOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "patch": {
+        "operationId": "setOfficeOnCallKinds",
+        "summary": "Choose which notices go to whoever is on call",
+        "description": "The kinds listed go to the people on call that day who can answer them and open the record; the rest go to everybody who handles them. When nobody on call today can be told, everybody who handles it is told instead. An empty list is everybody for every kind, where every company starts. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetOfficeOnCallKindsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Choose which notices go to whoever is on call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetOfficeOnCallKindsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/office-on-call/turns": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addOfficeOnCallTurn",
+        "summary": "Put somebody on call for the office",
+        "description": "A person who works here and can answer at least one of the three kinds, from a first to a last company day, both included, at most 366 days, not over already. Two people on one day are both told. The same person for the same days again is the first answer. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddOfficeOnCallTurnInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put somebody on call for the office",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddOfficeOnCallTurnOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/office-on-call/turns/{id}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeOfficeOnCallTurn",
+        "summary": "Take a turn off the office's on call rota",
+        "description": "The audit log keeps what it was. Removing one already gone answers `removed: false`.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveOfficeOnCallTurnInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a turn off the office's on call rota",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveOfficeOnCallTurnOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/on-call": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -153498,6 +153977,75 @@
           "hours"
         ]
       },
+      "AddOfficeOnCallTurnInput": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startsOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "endsOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "userId",
+          "startsOn",
+          "endsOn"
+        ]
+      },
+      "AddOfficeOnCallTurnOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startsOn": {
+            "type": "string"
+          },
+          "endsOn": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "today": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "name",
+          "startsOn",
+          "endsOn",
+          "note",
+          "today"
+        ]
+      },
       "AddOnboardingTemplateItemInput": {
         "type": "object",
         "properties": {
@@ -206769,6 +207317,28 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -206776,7 +207346,8 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "onCall"
         ]
       },
       "GetMyPayStatementsOutput": {
@@ -208398,6 +208969,132 @@
           "ownWeek",
           "ownHolidays",
           "routedBy"
+        ]
+      },
+      "GetOfficeOnCallOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "task_deadline",
+                    "visit_change_requested",
+                    "autopay_failed"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "label",
+                "description",
+                "on"
+              ]
+            }
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "userId",
+                "name",
+                "startsOn",
+                "endsOn",
+                "note",
+                "today"
+              ]
+            }
+          },
+          "onCallToday": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "answers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "task_deadline",
+                      "visit_change_requested",
+                      "autopay_failed"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "userId",
+                "name",
+                "answers"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "kinds",
+          "turns",
+          "onCallToday",
+          "people"
         ]
       },
       "GetOnCallNowOutput": {
@@ -268514,6 +269211,26 @@
           "removed"
         ]
       },
+      "RemoveOfficeOnCallTurnInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveOfficeOnCallTurnOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
       "RemoveOnboardingTemplateItemInput": {
         "type": "object",
         "properties": {}
@@ -283277,6 +283994,28 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -283284,7 +284023,8 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "onCall"
         ]
       },
       "SetMyNoticeSettingsInput": {
@@ -283460,6 +284200,28 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -283467,7 +284229,8 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "onCall"
         ]
       },
       "SetMyNoticeTextsInput": {
@@ -283612,6 +284375,28 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -283619,7 +284404,8 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "onCall"
         ]
       },
       "SetMyOnboardingLineInput": {
@@ -284345,6 +285131,152 @@
           "menuId",
           "adopted",
           "businessUnitId"
+        ]
+      },
+      "SetOfficeOnCallKindsInput": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "task_deadline",
+                "visit_change_requested",
+                "autopay_failed"
+              ]
+            },
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "kinds"
+        ]
+      },
+      "SetOfficeOnCallKindsOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "task_deadline",
+                    "visit_change_requested",
+                    "autopay_failed"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "label",
+                "description",
+                "on"
+              ]
+            }
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "userId",
+                "name",
+                "startsOn",
+                "endsOn",
+                "note",
+                "today"
+              ]
+            }
+          },
+          "onCallToday": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "answers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "task_deadline",
+                      "visit_change_requested",
+                      "autopay_failed"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "userId",
+                "name",
+                "answers"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "kinds",
+          "turns",
+          "onCallToday",
+          "people"
         ]
       },
       "SetOnboardingLineInput": {

@@ -557,3 +557,74 @@ export function sweepable(
   if (now.getTime() - readAt.getTime() < keepDays * day) return false;
   return now.getTime() - notice.createdAt.getTime() >= raisedAgainWithinDays(notice.kind) * day;
 }
+
+/* ---------------------------------------------------------------- on call */
+
+/**
+ * WHO IS ON CALL FOR THE OFFICE QUEUE'S NOTICES.
+ *
+ * The three kinds the office queue raises (a deadline about to be missed, a
+ * customer asking to change a visit, an automatic payment that failed) tell
+ * everybody who holds the permission that answers them. A company with six
+ * people in the office tells six, at night as well. A company can instead keep
+ * an on call rota (a person and the days they cover) and switch any of these
+ * three kinds to it, one by one. Off for every kind until the company switches
+ * one on.
+ *
+ * NEVER NOBODY. When a kind goes to the rota and nobody on it today can be told
+ * (nobody is on call, or the person on call cannot answer it or open the
+ * record), it goes to everybody who could, as before. A rota with a gap in it
+ * must not be how a failed payment goes unheard.
+ */
+export const ON_CALL_KINDS = ["task_deadline", "visit_change_requested", "autopay_failed"] as const;
+export type OnCallKind = typeof ON_CALL_KINDS[number];
+
+export const isOnCallKind = (value: string): value is OnCallKind =>
+  (ON_CALL_KINDS as readonly string[]).includes(value);
+
+/** The kinds a company sends to its rota, from what it saved. Anything that is not one of the three is ignored. */
+export function onCallKinds(saved: unknown): OnCallKind[] {
+  const kinds = (saved as { kinds?: unknown } | null | undefined)?.kinds;
+  if (!Array.isArray(kinds)) return [];
+  return ON_CALL_KINDS.filter((kind) => kinds.includes(kind));
+}
+
+/** The longest one turn on the rota can be, in days. A year, so a typo of a year is caught. */
+export const ON_CALL_MOST_DAYS = 366;
+
+/** Why a turn on the rota cannot be added, in words, or null. Dates are company days, YYYY-MM-DD. */
+export function onCallShiftProblem(input: { startsOn: string; endsOn: string; today: string }): string | null {
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(input.startsOn) || !iso.test(input.endsOn)) return "Give the first and last day as dates.";
+  if (compareDates(input.endsOn, input.startsOn) < 0) return "The last day is before the first day.";
+  if (compareDates(input.endsOn, input.today) < 0) return "That turn is over already. Give days from today on.";
+  if (compareDates(addDays(input.startsOn, ON_CALL_MOST_DAYS), input.endsOn) <= 0) {
+    return `One turn can be at most ${ON_CALL_MOST_DAYS} days. Add a longer stretch as two turns.`;
+  }
+  return null;
+}
+
+/** The people on call on a company day: every turn that covers it. Two turns on one day are two people on call. */
+export function onCallOn(
+  shifts: readonly { userId: string; startsOn: string; endsOn: string }[], day: string,
+): string[] {
+  const out: string[] = [];
+  for (const s of shifts) {
+    if (compareDates(s.startsOn, day) <= 0 && compareDates(day, s.endsOn) <= 0 && !out.includes(s.userId)) out.push(s.userId);
+  }
+  return out;
+}
+
+/**
+ * Who a queue notice goes to: the people on call today where the company sends
+ * this kind to its rota and somebody is on it, otherwise everybody who handles
+ * it. The caller still holds each person to the permission and to opening the
+ * record, and falls back to everybody when nobody on call could be told.
+ */
+export function onCallAudience(input: {
+  kind: NoticeKind; routed: readonly OnCallKind[]; onCallToday: readonly string[];
+}): { to: "on_call"; userIds: string[] } | { to: "everyone" } {
+  if (!isOnCallKind(input.kind) || !input.routed.includes(input.kind)) return { to: "everyone" };
+  if (input.onCallToday.length === 0) return { to: "everyone" };
+  return { to: "on_call", userIds: [...input.onCallToday] };
+}

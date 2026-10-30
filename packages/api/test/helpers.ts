@@ -172,6 +172,8 @@ const ORDER = [
    * notice, a person's switches and their text consent point at the person.
    */
   "staff_notice_delivery", "staff_notice", "staff_notice_setting", "staff_notice_default", "staff_notice_digest", "staff_text_consent",
+  /** A turn on the office's on call rota points at the company and the person, and nothing points at it. */
+  "office_on_call",
   /** The people named to keep the renewals list point at the company and the person, and nothing points at them. */
   "certification_renewals_keeper",
   "route_day", "technician_position", "push_delivery", "field_upload", "field_operation", "device_snapshot", "device",

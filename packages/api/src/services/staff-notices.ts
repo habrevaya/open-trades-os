@@ -17,6 +17,7 @@ import { publicBaseUrl } from "./setup-tokens";
 import * as email from "./email";
 import { forgetToken } from "./push";
 import { within } from "./workflow-schedule";
+import { myTurns, onCallToday } from "./office-on-call";
 import { readerFor } from "../secrets/store";
 import { ExpoPushProvider, type PushProvider, type PushTicket } from "../push/provider";
 import type { MessagingProvider } from "../comms/provider";
@@ -219,7 +220,8 @@ export interface RaiseInput {
 
 export type RaiseOutcome =
   | { told: true; noticeId: string; channels: ("in_app" | "push" | "text" | "email")[] }
-  | { told: false; reason: string };
+  /** `already` when this person was told about this before: not told now, and not a reason to tell somebody else instead. */
+  | { told: false; reason: string; already?: true };
 
 /**
  * Tell one person one thing, inside the caller's transaction.
@@ -239,7 +241,7 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
       eq(schema.staffNotice.userId, input.userId),
       eq(schema.staffNotice.sourceKey, input.key),
     )).limit(1);
-  if (already) return { told: false, reason: "They were told already." };
+  if (already) return { told: false, reason: "They were told already.", already: true };
 
   const actor = await memberActor(tx, input.organizationId, input.userId);
   if (!actor || actor.readOnly) return { told: false, reason: "They do not work here now." };
@@ -264,7 +266,7 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
     href,
     inApp: switches.inApp,
   }).onConflictDoNothing().returning({ id: schema.staffNotice.id });
-  if (!notice) return { told: false, reason: "They were told already." };
+  if (!notice) return { told: false, reason: "They were told already.", already: true };
 
   const channels: ("in_app" | "push" | "text" | "email")[] = switches.inApp ? ["in_app"] : [];
 
@@ -324,23 +326,48 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
  * notice each, and a retry or a second look tells nobody twice. Returns how
  * many people were told.
  *
+ * WHOEVER IS ON CALL, WHERE THE COMPANY SAYS SO. A company that sends this
+ * kind to its office rota (`office-on-call.ts`) tells only the people on call
+ * today who hold the permission and can open the record. When none of them
+ * can be told (nobody is on call, or the person on call cannot answer it),
+ * everybody who handles it is told instead, so a gap in the rota never leaves
+ * it unheard. A person on call who was told already counts as told, so a
+ * second look does not spill over to everybody.
+ *
  * Inside the caller's transaction, so the notices exist if and only if the
  * task they are about does.
  */
 export async function raiseToHolders(
   tx: Database,
-  input: Omit<RaiseInput, "userId"> & { kind: "task_deadline" | "visit_change_requested" | "autopay_failed" },
+  input: Omit<RaiseInput, "userId"> & { kind: "task_deadline" | "visit_change_requested" | "autopay_failed"; now?: Date | undefined },
 ): Promise<number> {
   const permission = rules.QUEUE_KIND_HANDLER[input.kind];
   if (!permission) return 0;
+  const { now, ...raise } = input;
   const members = await tx.select({ userId: schema.membership.userId }).from(schema.membership)
     .where(and(eq(schema.membership.organizationId, input.organizationId), eq(schema.membership.active, true)))
     .orderBy(asc(schema.membership.createdAt));
-  let told = 0;
+  const holders: string[] = [];
   for (const member of members) {
     const actor = await memberActor(tx, input.organizationId, member.userId);
-    if (!actor || !can(actor, permission)) continue;
-    const outcome = await raiseWithin(tx, { ...input, userId: member.userId });
+    if (actor && can(actor, permission)) holders.push(member.userId);
+  }
+
+  const onCall = await onCallToday(tx, input.organizationId, input.kind, now ?? new Date());
+  if (onCall) {
+    let told = 0;
+    let reached = false;
+    for (const userId of holders.filter((h) => onCall.includes(h))) {
+      const outcome = await raiseWithin(tx, { ...raise, userId });
+      if (outcome.told) told += 1;
+      if (outcome.told || outcome.already) reached = true;
+    }
+    if (reached) return told;
+  }
+
+  let told = 0;
+  for (const userId of holders) {
+    const outcome = await raiseWithin(tx, { ...raise, userId });
     if (outcome.told) told += 1;
   }
   return told;
@@ -500,6 +527,8 @@ export interface NoticeSettingsView {
     lastOn: string | null;
     lastOutcome: string | null;
   };
+  /** The person's own turns on the office's on call rota, from today on (`office-on-call.ts`). */
+  onCall: { startsOn: string; endsOn: string; today: boolean }[];
 }
 
 async function consentWithin(tx: Database, userId: string) {
@@ -546,6 +575,7 @@ async function settingsWithin(tx: Database, ctx: ServiceContext): Promise<Notice
       lastOn: digest?.lastOn ?? null,
       lastOutcome: digest?.lastOutcome ?? null,
     },
+    onCall: await myTurns(tx, ctx.actor.organizationId, ctx.actor.userId),
   };
 }
 

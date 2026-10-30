@@ -376,6 +376,23 @@ export interface AddNumberHolidayOutput {
   hours: string;
 }
 
+export interface AddOfficeOnCallTurnInput {
+  userId: string;
+  startsOn: string;
+  endsOn: string;
+  note?: string | null;
+}
+
+export interface AddOfficeOnCallTurnOutput {
+  id: string;
+  userId: string;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  note: string | null;
+  today: boolean;
+}
+
 export interface AddOnboardingTemplateItemInput {
   role?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
   roleId?: string | null;
@@ -10697,6 +10714,11 @@ export interface GetMyNoticeSettingsOutput {
     lastOn: string | null;
     lastOutcome: string | null;
   };
+  onCall: Array<{
+    startsOn: string;
+    endsOn: string;
+    today: boolean;
+  }>;
 }
 
 export interface GetMyPayStatementsOutput {
@@ -10991,6 +11013,31 @@ export interface GetNumberHoursOutput {
       closed: boolean;
     }>;
   };
+}
+
+export interface GetOfficeOnCallOutput {
+  today: string;
+  kinds: Array<{
+    kind: "task_deadline" | "visit_change_requested" | "autopay_failed";
+    label: string;
+    description: string;
+    on: boolean;
+  }>;
+  turns: Array<{
+    id: string;
+    userId: string;
+    name: string;
+    startsOn: string;
+    endsOn: string;
+    note: string | null;
+    today: boolean;
+  }>;
+  onCallToday: string[];
+  people: Array<{
+    userId: string;
+    name: string;
+    answers: Array<"task_deadline" | "visit_change_requested" | "autopay_failed">;
+  }>;
 }
 
 export interface GetOnCallNowOutput {
@@ -22576,6 +22623,13 @@ export interface RemoveNumberHolidayOutput {
   removed: boolean;
 }
 
+export type RemoveOfficeOnCallTurnInput = Record<string, unknown>;
+
+export interface RemoveOfficeOnCallTurnOutput {
+  id: string;
+  removed: boolean;
+}
+
 export type RemoveOnboardingTemplateItemInput = Record<string, unknown>;
 
 export interface RemoveOnboardingTemplateItemOutput {
@@ -25680,6 +25734,11 @@ export interface SetMyNoticeDigestOutput {
     lastOn: string | null;
     lastOutcome: string | null;
   };
+  onCall: Array<{
+    startsOn: string;
+    endsOn: string;
+    today: boolean;
+  }>;
 }
 
 export interface SetMyNoticeSettingsInput {
@@ -25716,6 +25775,11 @@ export interface SetMyNoticeSettingsOutput {
     lastOn: string | null;
     lastOutcome: string | null;
   };
+  onCall: Array<{
+    startsOn: string;
+    endsOn: string;
+    today: boolean;
+  }>;
 }
 
 export interface SetMyNoticeTextsInput {
@@ -25748,6 +25812,11 @@ export interface SetMyNoticeTextsOutput {
     lastOn: string | null;
     lastOutcome: string | null;
   };
+  onCall: Array<{
+    startsOn: string;
+    endsOn: string;
+    today: boolean;
+  }>;
 }
 
 export interface SetMyOnboardingLineInput {
@@ -25882,6 +25951,35 @@ export interface SetNumberRoutingOutput {
   menuId: string | null;
   adopted: boolean;
   businessUnitId: string | null;
+}
+
+export interface SetOfficeOnCallKindsInput {
+  kinds: Array<"task_deadline" | "visit_change_requested" | "autopay_failed">;
+}
+
+export interface SetOfficeOnCallKindsOutput {
+  today: string;
+  kinds: Array<{
+    kind: "task_deadline" | "visit_change_requested" | "autopay_failed";
+    label: string;
+    description: string;
+    on: boolean;
+  }>;
+  turns: Array<{
+    id: string;
+    userId: string;
+    name: string;
+    startsOn: string;
+    endsOn: string;
+    note: string | null;
+    today: boolean;
+  }>;
+  onCallToday: string[];
+  people: Array<{
+    userId: string;
+    name: string;
+    answers: Array<"task_deadline" | "visit_change_requested" | "autopay_failed">;
+  }>;
 }
 
 export interface SetOnboardingLineInput {
@@ -31991,6 +32089,8 @@ export interface GetNumberHoursInput {
   id: string;
 }
 
+export type GetOfficeOnCallInput = Record<string, never>;
+
 export interface GetOnCallNowInput {
   at?: string;
   businessUnitId?: string | null;
@@ -33825,6 +33925,10 @@ export interface RemoveNumberHolidayParams {
   holidayId: string;
 }
 
+export interface RemoveOfficeOnCallTurnParams {
+  id: string;
+}
+
 export interface RemoveOnboardingTemplateItemParams {
   id: string;
 }
@@ -34816,6 +34920,7 @@ export interface OperationTypes {
   addMileageRate: { input: AddMileageRateInput; output: AddMileageRateOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
   addNumberHoliday: { input: AddNumberHolidayParams & AddNumberHolidayInput; output: AddNumberHolidayOutput };
+  addOfficeOnCallTurn: { input: AddOfficeOnCallTurnInput; output: AddOfficeOnCallTurnOutput };
   addOnboardingTemplateItem: { input: AddOnboardingTemplateItemInput; output: AddOnboardingTemplateItemOutput };
   addPerDiemPlace: { input: AddPerDiemPlaceInput; output: AddPerDiemPlaceOutput };
   addPerDiemPlaceRate: { input: AddPerDiemPlaceRateParams & AddPerDiemPlaceRateInput; output: AddPerDiemPlaceRateOutput };
@@ -35173,6 +35278,7 @@ export interface OperationTypes {
   getNetworkRollup: { input: GetNetworkRollupInput; output: GetNetworkRollupOutput };
   getNoticeDefaults: { input: GetNoticeDefaultsInput; output: GetNoticeDefaultsOutput };
   getNumberHours: { input: GetNumberHoursInput; output: GetNumberHoursOutput };
+  getOfficeOnCall: { input: GetOfficeOnCallInput; output: GetOfficeOnCallOutput };
   getOnCallNow: { input: GetOnCallNowInput; output: GetOnCallNowOutput };
   getPayExtras: { input: GetPayExtrasInput; output: GetPayExtrasOutput };
   getPaymentsStatus: { input: GetPaymentsStatusInput; output: GetPaymentsStatusOutput };
@@ -35677,6 +35783,7 @@ export interface OperationTypes {
   removeMileageRate: { input: RemoveMileageRateParams & RemoveMileageRateInput; output: RemoveMileageRateOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
   removeNumberHoliday: { input: RemoveNumberHolidayParams & RemoveNumberHolidayInput; output: RemoveNumberHolidayOutput };
+  removeOfficeOnCallTurn: { input: RemoveOfficeOnCallTurnParams & RemoveOfficeOnCallTurnInput; output: RemoveOfficeOnCallTurnOutput };
   removeOnboardingTemplateItem: { input: RemoveOnboardingTemplateItemParams & RemoveOnboardingTemplateItemInput; output: RemoveOnboardingTemplateItemOutput };
   removePerDiem: { input: RemovePerDiemParams & RemovePerDiemInput; output: RemovePerDiemOutput };
   removePerDiemPlaceRate: { input: RemovePerDiemPlaceRateParams & RemovePerDiemPlaceRateInput; output: RemovePerDiemPlaceRateOutput };
@@ -35844,6 +35951,7 @@ export interface OperationTypes {
   setNoticeDefaults: { input: SetNoticeDefaultsInput; output: SetNoticeDefaultsOutput };
   setNumberHours: { input: SetNumberHoursParams & SetNumberHoursInput; output: SetNumberHoursOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
+  setOfficeOnCallKinds: { input: SetOfficeOnCallKindsInput; output: SetOfficeOnCallKindsOutput };
   setOnboardingLine: { input: SetOnboardingLineParams & SetOnboardingLineInput; output: SetOnboardingLineOutput };
   setOverheadMix: { input: SetOverheadMixInput; output: SetOverheadMixOutput };
   setPayExtras: { input: SetPayExtrasInput; output: SetPayExtrasOutput };
@@ -36050,6 +36158,7 @@ export const OPERATIONS = {
   addMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   addNumberHoliday: { method: "POST", path: "/v1/phone-numbers/{id}/holidays", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  addOfficeOnCallTurn: { method: "POST", path: "/v1/office-on-call/turns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   addOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addPerDiemPlace: { method: "POST", path: "/v1/payroll/per-diem-places", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addPerDiemPlaceRate: { method: "POST", path: "/v1/payroll/per-diem-places/{id}/rates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
@@ -36407,6 +36516,7 @@ export const OPERATIONS = {
   getNetworkRollup: { method: "GET", path: "/v1/network/rollup", pathParams: [], queryParams: ["aggregate","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getNoticeDefaults: { method: "GET", path: "/v1/notice-defaults", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getNumberHours: { method: "GET", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  getOfficeOnCall: { method: "GET", path: "/v1/office-on-call", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getOnCallNow: { method: "GET", path: "/v1/on-call", pathParams: [], queryParams: ["at","businessUnitId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getPayExtras: { method: "GET", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   getPaymentsStatus: { method: "GET", path: "/v1/payments/connection", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -36911,6 +37021,7 @@ export const OPERATIONS = {
   removeMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates/{from}/removal", pathParams: ["from"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   removeNumberHoliday: { method: "DELETE", path: "/v1/phone-numbers/{id}/holidays/{holidayId}", pathParams: ["id","holidayId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  removeOfficeOnCallTurn: { method: "DELETE", path: "/v1/office-on-call/turns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeOnboardingTemplateItem: { method: "POST", path: "/v1/onboarding-checklist/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removePerDiem: { method: "POST", path: "/v1/per-diem/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   removePerDiemPlaceRate: { method: "POST", path: "/v1/payroll/per-diem-places/{id}/rates/{from}/removal", pathParams: ["id","from"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
@@ -37078,6 +37189,7 @@ export const OPERATIONS = {
   setNoticeDefaults: { method: "PATCH", path: "/v1/notice-defaults", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberHours: { method: "PUT", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setOfficeOnCallKinds: { method: "PATCH", path: "/v1/office-on-call", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setOnboardingLine: { method: "POST", path: "/v1/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setOverheadMix: { method: "POST", path: "/v1/costing/overhead", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setPayExtras: { method: "POST", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
@@ -37443,6 +37555,15 @@ export abstract class GeneratedOperations {
    */
   addNumberHoliday(input: AddNumberHolidayParams & AddNumberHolidayInput, options?: CallOptions): Promise<AddNumberHolidayOutput> {
     return this.call("addNumberHoliday", input, options);
+  }
+
+  /**
+   * Put somebody on call for the office.
+   *
+   * POST /v1/office-on-call/turns. Needs settings:write.
+   */
+  addOfficeOnCallTurn(input: AddOfficeOnCallTurnInput, options?: CallOptions): Promise<AddOfficeOnCallTurnOutput> {
+    return this.call("addOfficeOnCallTurn", input, options);
   }
 
   /**
@@ -40656,6 +40777,15 @@ export abstract class GeneratedOperations {
    */
   getNumberHours(input: GetNumberHoursInput, options?: CallOptions): Promise<GetNumberHoursOutput> {
     return this.call("getNumberHours", input, options);
+  }
+
+  /**
+   * The office's on call rota, and which notices go to it.
+   *
+   * GET /v1/office-on-call. Needs settings:read.
+   */
+  getOfficeOnCall(input: GetOfficeOnCallInput = {} as GetOfficeOnCallInput, options?: CallOptions): Promise<GetOfficeOnCallOutput> {
+    return this.call("getOfficeOnCall", input, options);
   }
 
   /**
@@ -45195,6 +45325,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a turn off the office's on call rota.
+   *
+   * DELETE /v1/office-on-call/turns/{id}. Needs settings:write.
+   */
+  removeOfficeOnCallTurn(input: RemoveOfficeOnCallTurnParams & RemoveOfficeOnCallTurnInput, options?: CallOptions): Promise<RemoveOfficeOnCallTurnOutput> {
+    return this.call("removeOfficeOnCallTurn", input, options);
+  }
+
+  /**
    * Take a line off a role's checklist.
    *
    * POST /v1/onboarding-checklist/{id}/remove. Needs user:write.
@@ -46695,6 +46834,15 @@ export abstract class GeneratedOperations {
    */
   setNumberRouting(input: SetNumberRoutingParams & SetNumberRoutingInput, options?: CallOptions): Promise<SetNumberRoutingOutput> {
     return this.call("setNumberRouting", input, options);
+  }
+
+  /**
+   * Choose which notices go to whoever is on call.
+   *
+   * PATCH /v1/office-on-call. Needs settings:write.
+   */
+  setOfficeOnCallKinds(input: SetOfficeOnCallKindsInput, options?: CallOptions): Promise<SetOfficeOnCallKindsOutput> {
+    return this.call("setOfficeOnCallKinds", input, options);
   }
 
   /**

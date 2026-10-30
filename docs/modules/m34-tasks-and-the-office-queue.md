@@ -370,12 +370,14 @@ What raises one, each in the same transaction as the thing it is about:
 - **A deadline about to be missed**, when a clock reaches its warning time and its
   task lands in the office queue (a contract's clock on a job, a warranty to
   register, a filing falling due). It goes to everybody who may deal with it
-  (`task:write`) and may open the task, and opens `/tasks/{id}`. It is raised
+  (`task:write`) and may open the task, or to whoever of them is on call (see "On
+  call for the office" below), and opens `/tasks/{id}`. It is raised
   beside the task, once, by the pass that raises the task, so a deadline already
   past its warning when this was built is not announced afterwards.
 - **A customer asking to change a visit**, when a customer asks from their link
   to move or cancel one. It goes to everybody who may answer it
-  (`visit:reschedule`) and can open the job under their own scope, and opens the
+  (`visit:reschedule`) and can open the job under their own scope, or to whoever of
+  them is on call, and opens the
   job at `/jobs/{id}`, where the request and its buttons are. A dispatcher, who
   holds no `task:read`, is told all the same, because the job is where it is
   answered. It says who asked, which visit, what they ask for and what they said.
@@ -384,7 +386,8 @@ What raises one, each in the same transaction as the thing it is about:
 - **An automatic payment that failed**, when the worker charges a customer's saved
   card for a bill and it does not go through (declined at once, or the processor
   says no later). It goes to everybody who may charge a saved card
-  (`payment:charge_saved`) and can open the invoice, and opens `/invoices/{id}`.
+  (`payment:charge_saved`) and can open the invoice, or to whoever of them is on
+  call, and opens `/invoices/{id}`.
   The second try the next day that fails is told as its own failure, so the people
   who handle it hear that it will not be tried again. A failed bank payment keeps
   the task it already raised and no notice, as before. A failed charge the office
@@ -430,6 +433,35 @@ a person's own choice on `/me` is never replaced; and a later change to the defa
 reaches only people added after it. There is no text setting, deliberately: a text
 goes to somebody's own mobile and only because they turned it on with their own
 number, so the copied row always says text is off.
+
+ON CALL FOR THE OFFICE ("On call for the office"). The three kinds the office queue raises (a deadline about
+to be missed, a customer asking to change a visit, an automatic payment that failed)
+tell everybody who holds the permission that answers them. A company can instead keep
+an office rota on Settings, "Office on call" (`/settings/office-on-call`): a person
+and the first and last company day they cover, both included, with a note. It then
+ticks which of the three kinds go to whoever is on call that day, one by one; every
+kind starts off, so nothing changes for a company that never opens the page. For a
+ticked kind, only the people on call today who hold the permission and can open the
+record are told, each where they chose on `/me`. Two people on call on one day are
+both told. When nobody is on call, or nobody on call can answer that kind or open the
+record, everybody who handles it is told instead, as before, so a gap in the rota is
+never how a failed payment goes unheard. A person on call who was told already counts
+as told, so a second look at the same thing does not spill over to everybody. The day
+is the company's day when the notice is raised. A turn must be for somebody who works
+here and can answer at least one of the three kinds (somebody who could never be told
+would be a gap that looks covered), at most 366 days long, and not over already; the
+same person for the same days again is the turn already there. A person sees their
+own next turn on `/me`, under "What you are told, and where". This is not the
+technicians' after hours rota for customers' calls (`/v1/on-call`, M09), which names a
+technician and a branch by the minute: the people who answer the office queue mostly
+have no technician record. `GET /v1/office-on-call` with `settings:read`;
+`PATCH /v1/office-on-call` (which kinds), `POST /v1/office-on-call/turns` and
+`DELETE /v1/office-on-call/turns/{id}` with `settings:write`, each audited
+(`office_on_call.kinds_changed`, `office_on_call.turn_added`,
+`office_on_call.turn_removed`). The rota is kept with `settings:write`, which an office
+manager does not hold by default, deliberately: who hears about a failed payment is a
+company setting like what new people are told, and the owner gives it to an office
+manager by name where they want them to keep it.
 
 BY EMAIL, only for a licence or skill running out, to the person's address on
 the company's own email, through the company's email outbox, as one more delivery
@@ -558,6 +590,10 @@ them use the task permissions, because an obligation is work in the same queue.
 | `PATCH /v1/notice-keeping` | `settings:write` |
 | `GET /v1/notice-defaults` | `settings:read` |
 | `PATCH /v1/notice-defaults` | `settings:write` |
+| `GET /v1/office-on-call` | `settings:read` |
+| `PATCH /v1/office-on-call` | `settings:write` |
+| `POST /v1/office-on-call/turns` | `settings:write` |
+| `DELETE /v1/office-on-call/turns/{id}` | `settings:write` |
 
 Claiming, ticking your own task's checklist and marking your own task done need only
 `task:read`, and they are the writes in the module guarded by a read. Each is acting
@@ -626,10 +662,14 @@ tasks, as before, and so does a customer taking or turning down a time the offic
 offered for their visit, and a failed bank payment. A deadline's notice is raised
 when its task is, so a deadline that was already past its warning time before the
 notice existed is not announced after the fact. These three tell everybody who
-holds the permission that answers them and may open the record, not a person
-chosen for the job: a company with six people in the office tells six, and a
-person who finds that too many switches the kind off on `/me`; there is no
-"on call" choice yet. A text goes from whichever registered number the company
+holds the permission that answers them and may open the record, unless the company
+sends the kind to its office rota, and then whoever is on call that day. The rota is
+whole company days, not hours: a turn from six in the evening to eight in the morning
+is two days, and there is no rule for the night apart from the day. It is one rota for
+the company, not one per branch, and it reads the person's permissions and scope, not
+which branch the record is in. Nobody is told that it is their turn when it starts;
+they see it on `/me`. A person on leave who is on the rota is still on call, because
+the rota does not read time off. A text goes from whichever registered number the company
 sends customer texts from, in the company's quiet hours (not the person's own), and a reply to it
 lands in the inbox like any text from a number nobody recognises; a STOP is
 honoured. There is no notice by email one at a time beyond a licence or skill running

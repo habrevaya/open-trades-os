@@ -243,6 +243,7 @@ export * as me from "./me";
 export * as staffNotices from "./staff-notices";
 export * as noticeUpkeep from "./notice-upkeep";
 export * as noticeDefaults from "./notice-defaults";
+export * as officeOnCall from "./office-on-call";
 export * as invites from "./invites";
 export * as documents from "./documents";
 export * as visits from "./visits";

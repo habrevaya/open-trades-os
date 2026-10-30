@@ -307,6 +307,15 @@ function NoticeSettings({ told, zone }: { told: Awaited<ReturnType<typeof staffN
       <p className="mt-1 text-sm text-ink-700">
         The bell at the top of the menu, the phone app{told.phones > 0 ? "" : " (you are not signed in to it on a phone)"}, a text to your own mobile, and for a licence or skill running out, an email to the address you sign in with.
       </p>
+      {told.onCall[0] ? (
+        <p className="mt-2 text-sm text-ink-700">
+          {told.onCall[0].today ? "You are on call for the office today" : "You are next on call for the office"}
+          {told.onCall[0].startsOn === told.onCall[0].endsOn
+            ? ` (${told.onCall[0].startsOn}).`
+            : ` (${told.onCall[0].startsOn} to ${told.onCall[0].endsOn}).`}
+          {" "}On those days the notices the company sends to whoever is on call come to you.
+        </p>
+      ) : null}
       <ActionForm action={saveNoticeSwitches} submit="Save what I am told" className="mt-3 space-y-3">
         <Table head={<><Th>Notice</Th><Th>In the app</Th><Th>Phone app</Th><Th>Text</Th><Th>Email</Th></>}>
           {told.kinds.map((k) => (

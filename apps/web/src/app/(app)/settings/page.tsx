@@ -199,7 +199,8 @@ export default async function SettingsPage() {
           <p className="mt-1 max-w-prose text-sm text-ink-500">
             Where each kind of notice reaches a person you add from now on. They can change their own on their page.
             People already here keep what they have. Texts are not here: a person turns those on themselves, with
-            their own number.
+            their own number. Who hears about deadlines, visit changes and failed automatic payments is on{" "}
+            <a href="/settings/office-on-call" className="underline underline-offset-4">Office on call</a>.
           </p>
           <ActionForm action={saveNoticeDefaults} submit="Save" className="mt-3 space-y-3">
             <Table head={<><Th>Notice</Th><Th>In the app</Th><Th>Phone app</Th><Th>Email</Th></>}>

@@ -58,6 +58,8 @@ const Settings = z.object({
     /** What happened then, in words: how many it listed, nothing unread, or why it could not go. */
     lastOutcome: z.string().nullable(),
   }),
+  /** Your own turns on the office's on call rota, from today on. */
+  onCall: z.array(z.object({ startsOn: z.string(), endsOn: z.string(), today: z.boolean() })),
 });
 
 export const listMyNotices = defineRoute({
@@ -238,7 +240,96 @@ export const setNoticeDefaults = defineRoute({
   output: z.object({ kinds: z.array(DefaultKind) }),
 });
 
+/* --------------------------------------------- on call for the office */
+
+const OnCallKind = z.enum(notices.ON_CALL_KINDS);
+const CompanyDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date");
+
+const OnCallTurn = z.object({
+  id: Uuid,
+  userId: Uuid,
+  name: z.string(),
+  /** The first and last company day of the turn, both included. */
+  startsOn: z.string(),
+  endsOn: z.string(),
+  note: z.string().nullable(),
+  /** Whether this turn covers the company's today. */
+  today: z.boolean(),
+});
+
+const OfficeOnCall = z.object({
+  today: z.string(),
+  kinds: z.array(z.object({ kind: OnCallKind, label: z.string(), description: z.string(), on: z.boolean() })),
+  /** Turns that cover today or a later day, soonest first. */
+  turns: z.array(OnCallTurn),
+  /** Who is on call today, by name. Empty means nobody, so everybody who handles a kind is told. */
+  onCallToday: z.array(z.string()),
+  /** Who can be put on the rota: working here and able to answer at least one of the three kinds. */
+  people: z.array(z.object({ userId: Uuid, name: z.string(), answers: z.array(OnCallKind) })),
+});
+
+export const getOfficeOnCall = defineRoute({
+  method: "get",
+  path: "/v1/office-on-call",
+  summary: "The office's on call rota, and which notices go to it",
+  description:
+    "A deadline about to be missed, a customer asking to change a visit and an automatic payment that failed tell everybody who handles them, "
+    + "unless the company sends that kind to whoever is on call. Off for each kind until switched on. "
+    + "Not the technicians' rota for customers' calls after hours (`/v1/on-call`).",
+  module: "M34",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: OfficeOnCall,
+});
+
+export const setOfficeOnCallKinds = defineRoute({
+  method: "patch",
+  path: "/v1/office-on-call",
+  summary: "Choose which notices go to whoever is on call",
+  description:
+    "The kinds listed go to the people on call that day who can answer them and open the record; the rest go to everybody who handles them. "
+    + "When nobody on call today can be told, everybody who handles it is told instead. An empty list is everybody for every kind, where every company starts. Audited.",
+  module: "M34",
+  permissions: ["settings:write"],
+  /** Setting a state. */
+  idempotent: true,
+  input: z.object({ kinds: z.array(OnCallKind).max(notices.ON_CALL_KINDS.length) }),
+  output: OfficeOnCall,
+});
+
+export const addOfficeOnCallTurn = defineRoute({
+  method: "post",
+  path: "/v1/office-on-call/turns",
+  summary: "Put somebody on call for the office",
+  description:
+    "A person who works here and can answer at least one of the three kinds, from a first to a last company day, both included, at most "
+    + `${notices.ON_CALL_MOST_DAYS} days, not over already. Two people on one day are both told. The same person for the same days again is the first answer. Audited.`,
+  module: "M34",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({
+    userId: Uuid,
+    startsOn: CompanyDay,
+    endsOn: CompanyDay,
+    note: z.string().max(300).nullable().optional(),
+  }),
+  output: OnCallTurn,
+});
+
+export const removeOfficeOnCallTurn = defineRoute({
+  method: "delete",
+  path: "/v1/office-on-call/turns/{id}",
+  summary: "Take a turn off the office's on call rota",
+  description: "The audit log keeps what it was. Removing one already gone answers `removed: false`.",
+  module: "M34",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, removed: z.boolean() }),
+});
+
 export const staffNoticeRoutes = {
+  getOfficeOnCall, setOfficeOnCallKinds, addOfficeOnCallTurn, removeOfficeOnCallTurn,
   getNoticeDefaults, setNoticeDefaults,
   listMyNotices, readMyNotices, getMyNoticeSettings, setMyNoticeSettings, setMyNoticeTexts, setMyNoticeDigest,
   getReadNoticeKeeping, setReadNoticeKeeping,
