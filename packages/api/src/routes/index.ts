@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
-  me, staffDocuments, staffNotices, noticeUpkeep, noticeDefaults, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills, mileageOverrides,
+  me, staffDocuments, staffNotices, noticeUpkeep, noticeDefaults, expenses, payExtras, tipRules, cashTips, purchaseAcknowledgements, truckFills, mileageOverrides,
   plugins,
 } from "../services/index";
 
@@ -1166,6 +1166,7 @@ export const handlers = {
     ({ perDiems: await expenses.listPerDiem(ctx, input) }),
   removePerDiem: expenses.handlers.removePerDiem,
   getJobExpenses: expenses.handlers.getJobExpenses,
+  ...tipRules.handlers,
   getPayExtras: payExtras.handlers.getPayExtras,
   setPayExtras: payExtras.handlers.setPayExtras,
   addMileageRate: payExtras.handlers.addMileageRate,

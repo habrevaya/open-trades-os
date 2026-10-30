@@ -645,8 +645,11 @@ and days away" (`POST /v1/payroll/pay-extras`, `payroll:configure`;
 `GET /v1/payroll/pay-extras` reads it, `timesheet:read`): evenly to the cent, as it
 always was and what a company that never chose gets; by the hours each person was
 clocked in on the job (closed, paid punches against that job, in proportion, to the
-cent, the odd cent to the largest share; somebody with no hours has no share); or all
-to the lead, the person marked lead on any of the job's visits that were not
+cent, the odd cent to the largest share; somebody with no hours has no share); by the
+hours each person was clocked in on the visit the tip was for (`visit_hours`: the
+visit it was taken on, when it was taken on the phone; otherwise the job's visit
+finished most recently, which is the work the customer had just seen when they paid);
+or all to the lead, the person marked lead on any of the job's visits that were not
 cancelled (several leads share it evenly). A rule with nothing to go on, no hours
 recorded or no lead marked, shares the tip evenly and says so in a sentence kept on
 the share and shown on the invoice's tips. **It applies to tips from then on:** a
@@ -654,6 +657,23 @@ tip is shared the moment the money arrives with the rule in force then, the rule
 kept on each share, and a change never re-splits one already shared. The arithmetic
 is core's (`payExtras.splitTipByRule`), with unit tests, and the portal, the
 phone's cash payment and the office's card and cash screens all go through it.
+
+**A rule for one job, or for one person.** On `/payroll/pay-rules`, under "Tips on
+one job, or for one person", whoever holds `payroll:configure` gives a job (by its
+number) or a technician a rule of their own, with a reason, and takes it off again
+(`GET /v1/payroll/tip-rules`, `timesheet:read`; `POST /v1/payroll/tip-rules` with a
+`jobId` or a `technicianId`, and `DELETE /v1/payroll/tip-rules/{id}`, both
+`payroll:configure`, idempotent and audited). A job or a person has one at most, and
+setting it again changes it in place, with the audit row keeping what it was. When a
+tip is shared, the job's own rule is read first; then the people's own, when
+everybody on the job who has one has the same one; then the company's. **The
+conservative reading taken:** when two people on a job have different rules of their
+own, neither can be followed without going against the other, so the company's rule
+is used and the tip says so on the share. Each share keeps the rule it was shared by
+and where it came from (`ruleSource`: `company`, `job` or `technician`), and the
+invoice's tips say "this job's own rule" or "their own rule". Setting, changing or
+taking off a rule applies from the next tip: a tip already shared is never shared
+again. The choice is core's (`payExtras.chooseTipRule`), with unit tests.
 
 **The office and a cash tip.** A tip the technician kept normally comes from their
 phone. When they did not record it, or got the amount wrong, whoever holds `tip:record`
@@ -748,6 +768,9 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `POST /v1/commissions/settle-on-payment` | `commission:configure` |
 | `POST /v1/payroll/commission-payments` | `payroll:export` |
 | `POST /v1/payroll/tip-payments` | `payroll:export` |
+| `GET /v1/payroll/tip-rules` | `timesheet:read` |
+| `POST /v1/payroll/tip-rules` | `payroll:configure` |
+| `DELETE /v1/payroll/tip-rules/{id}` | `payroll:configure` |
 | `GET /v1/payroll/overtime-policies` | `timesheet:read` |
 | `POST /v1/payroll/overtime-policies` | `payroll:configure` |
 | `GET /v1/payroll/wage-scales` | `timesheet:read` |
@@ -804,9 +827,15 @@ screen afterwards; a scale cannot be corrected in place: a wrong one is retired 
 the right one loaded. Tips given through the portal or with a payment on site are paid through
 payroll; a cash tip a technician kept is recorded on the phone and on `/my-day` by
 the technician, and by the office when they did not or got it wrong, on
-`/timesheets/tips`. A tip is shared evenly, by hours on the job or to the lead, one
-rule for the whole company: there is no rule per job or per technician, and "hours" is
-the hours clocked against the job, not against one visit of it. Reimbursements and per diem
+`/timesheets/tips`. A tip is shared evenly, by hours on the job, by hours on the visit
+it was for, or to the lead, by the company's rule, a job's own or a person's own. A
+person's own rule is not dated: it applies from when it is set until it is taken off,
+and there is no rule per job type or per crew. A job's rule is set from Pay rules by
+the job's number, not from the job's own page. A tip from the portal or the office
+names no visit, so sharing by the hours on the visit reads the job's visit finished
+most recently, which can be the wrong one when the customer is thanking the crew of
+an earlier day; the office can give that job a rule of its own before the tip
+arrives, but a tip already shared is not shared again. Reimbursements and per diem
 are recorded, decided and exported, but not posted to the ledger, only for people on
 the board, and a decision on a reimbursement cannot be taken back. A mileage rate is the
 company's from a day, or a person's or a vehicle's own from a day: there is no rate per kind of

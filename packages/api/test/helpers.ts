@@ -31,6 +31,8 @@ const ORDER = [
    * for and the pay period that paid it, so it goes before all three.
    */
   "tip_share",
+  /** A job's or a person's own rule for sharing tips points at the job or the technician. */
+  "tip_split_override",
   /** A cash tip a technician kept points at the technician, the job and the visit. */
   "cash_tip_correction", "cash_tip",
   /** What a person spent for the company and a day away both point at the technician and the job. */

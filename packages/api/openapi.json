@@ -91683,7 +91683,7 @@
       "post": {
         "operationId": "setPayExtras",
         "summary": "Set the rate for a day away, or how tips are shared",
-        "description": "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job) or `lead` (all to the lead on the job's visits): it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.\n\nRequires a session holding: payroll:configure.",
+        "description": "What is not named stays as it was. `perDiemRate` is dollars and cents, or null to stop paying one; it is kept on each day when the day is recorded, so a change does not reprice days already recorded. `tipSplit` is `even` (the default), `hours` (by the hours each person was clocked in on the job), `visit_hours` (by the hours each was clocked in on the visit the tip was for: the one it was taken on, or else the job's visit finished most recently) or `lead` (all to the lead on the job's visits); a job's or a person's own rule (`/v1/payroll/tip-rules`) is read before it: it applies to tips from then on, because a tip is shared the moment it is paid and the rule is kept on each share; a rule with nothing to go on (no hours, no lead) shares evenly and says so on the share. A statement about what people are owed, so `payroll:configure`. A per diem is paid without tax taken from it, which is only right when it is within the rates the tax authority allows for the place and the day, and that is the company's to check.\n\nRequires a session holding: payroll:configure.",
         "tags": [
           "M17"
         ],
@@ -93071,6 +93071,356 @@
         "x-authorization": "session",
         "x-permissions": [
           "payroll:export"
+        ]
+      }
+    },
+    "/v1/payroll/tip-rules": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "get": {
+        "operationId": "listTipRules",
+        "summary": "The jobs and people with a tip rule of their own",
+        "description": "A job's own rule is read first when a tip on it is shared; then a person's own, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.\n\nRequires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "responses": {
+          "200": {
+            "description": "The jobs and people with a tip rule of their own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTipRulesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
+        ]
+      },
+      "post": {
+        "operationId": "setTipRule",
+        "summary": "Give one job, or one person, a tip rule of its own",
+        "description": "Exactly one of `jobId` and `technicianId`. A job or person that has one already has it changed, and the audit log keeps what it was. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so `payroll:configure`. Audited.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTipRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give one job, or one person, a tip rule of its own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetTipRuleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
+        ]
+      }
+    },
+    "/v1/payroll/tip-rules/{id}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeTipRule",
+        "summary": "Take a job's or a person's own tip rule off",
+        "description": "The job or person goes back to the company's rule from the next tip. Tips already shared keep theirs. Audited.\n\nRequires a session holding: payroll:configure.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveTipRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a job's or a person's own tip rule off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveTipRuleOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "payroll:configure"
         ]
       }
     },
@@ -153310,7 +153660,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -153323,7 +153674,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -153947,7 +154299,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -153960,7 +154313,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -154106,7 +154460,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -154119,7 +154474,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -208903,7 +209259,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -208916,7 +209273,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -235364,6 +235722,9 @@
                 "splitNote": {
                   "type": "string"
                 },
+                "ruleSource": {
+                  "type": "string"
+                },
                 "shares": {
                   "type": "array",
                   "items": {
@@ -235403,6 +235764,7 @@
                 "amount",
                 "splitRule",
                 "splitNote",
+                "ruleSource",
                 "shares"
               ]
             }
@@ -248515,6 +248877,100 @@
         },
         "required": [
           "timeOff"
+        ]
+      },
+      "ListTipRulesOutput": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "job",
+                    "technician"
+                  ]
+                },
+                "jobId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "technicianId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "technicianName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "even",
+                    "hours",
+                    "lead",
+                    "visit_hours"
+                  ]
+                },
+                "ruleLabel": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "setAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "jobId",
+                "jobNumber",
+                "jobSummary",
+                "technicianId",
+                "technicianName",
+                "rule",
+                "ruleLabel",
+                "note",
+                "setAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "rules"
         ]
       },
       "ListTouchesOutput": {
@@ -268796,7 +269252,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -268809,7 +269266,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -269060,7 +269518,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -269073,7 +269532,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -269487,6 +269947,29 @@
         "properties": {}
       },
       "RemoveTaskChecklistItemOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
+      "RemoveTipRuleInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveTipRuleOutput": {
         "type": "object",
         "properties": {
           "id": {
@@ -273001,7 +273484,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -273014,7 +273498,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -285114,7 +285599,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           }
         }
@@ -285134,7 +285620,8 @@
             "enum": [
               "even",
               "hours",
-              "lead"
+              "lead",
+              "visit_hours"
             ]
           },
           "rules": {
@@ -285147,7 +285634,8 @@
                   "enum": [
                     "even",
                     "hours",
-                    "lead"
+                    "lead",
+                    "visit_hours"
                   ]
                 },
                 "label": {
@@ -288839,6 +289327,118 @@
           "current",
           "orphaned",
           "ended"
+        ]
+      },
+      "SetTipRuleInput": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead",
+              "visit_hours"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "rule"
+        ]
+      },
+      "SetTipRuleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "job",
+              "technician"
+            ]
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "jobSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "technicianName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "even",
+              "hours",
+              "lead",
+              "visit_hours"
+            ]
+          },
+          "ruleLabel": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "jobId",
+          "jobNumber",
+          "jobSummary",
+          "technicianId",
+          "technicianName",
+          "rule",
+          "ruleLabel",
+          "note",
+          "setAt"
         ]
       },
       "SetTravelSettingsInput": {

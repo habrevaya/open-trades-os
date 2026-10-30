@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, index, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, uuid, text, index, uniqueIndex, timestamp, check } from "drizzle-orm/pg-core";
 import { pk, money } from "./_shared";
 import { organization, technician, user } from "./tenancy";
 import { invoice, payment } from "./billing";
@@ -44,6 +45,12 @@ export const tipShare = pgTable("tip_share", {
    */
   splitRule: text("split_rule").notNull().default("even"),
   splitNote: text("split_note"),
+  /**
+   * Where that rule came from: the company's (`company`), the job's own
+   * (`job`) or the people's own (`technician`). Every share written before
+   * rules of a job's or a person's own existed was by the company's.
+   */
+  ruleSource: text("rule_source").notNull().default("company"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -112,4 +119,39 @@ export const cashTipCorrection = pgTable("cash_tip_correction", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tipIdx: index("cash_tip_correction_tip_idx").on(t.organizationId, t.cashTipId, t.createdAt),
+}));
+
+/**
+ * HOW A TIP IS SHARED ON ONE JOB, OR FOR ONE PERSON, INSTEAD OF THE COMPANY'S RULE.
+ *
+ * The company's rule is on Pay rules. A job can have its own (a crew job
+ * where the lead did the selling, a two day install where the second day's
+ * crew did the work the customer saw), and so can a person (an apprentice
+ * who shares by the hours they put in). Read when a tip is shared: the job's
+ * own first, then the people's own when everybody on the job who has one
+ * agrees, then the company's (`payExtras.chooseTipRule` in core).
+ *
+ * Exactly one of a job and a person, held by a check. One per job and one per
+ * person, held by the indexes, because "which rule does this job use" must
+ * have one answer. Changing one never re-splits a tip already shared: each
+ * share keeps the rule it was shared by and where it came from.
+ */
+export const tipSplitOverride = pgTable("tip_split_override", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id").references(() => job.id, { onDelete: "cascade" }),
+  technicianId: uuid("technician_id").references(() => technician.id, { onDelete: "cascade" }),
+  /** One of `payExtras.TIP_SPLIT_RULES`, which the service checks. */
+  rule: text("rule").notNull(),
+  /** Why, in the office's words. */
+  note: text("note"),
+  setByUserId: uuid("set_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  jobIdx: uniqueIndex("tip_split_override_job_idx").on(t.organizationId, t.jobId)
+    .where(sql`${t.jobId} is not null`),
+  technicianIdx: uniqueIndex("tip_split_override_technician_idx").on(t.organizationId, t.technicianId)
+    .where(sql`${t.technicianId} is not null`),
+  subject: check("tip_split_override_subject", sql`(${t.jobId} is not null) <> (${t.technicianId} is not null)`),
 }));

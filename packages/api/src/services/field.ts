@@ -675,7 +675,7 @@ async function collect(tx: Database, ctx: ServiceContext, op: field.FieldOperati
     if (m.isPositive(tip.tip)) {
       await fieldSales.writeTipShares(tx, ctx, {
         paymentId: paid.id, invoiceId: allocations[0]?.invoiceId ?? null, jobId: visit.jobId,
-        tip: tip.tip, occurredAt: op.occurredAt,
+        tip: tip.tip, occurredAt: op.occurredAt, visitId: op.subjectId,
       });
     }
     return null;

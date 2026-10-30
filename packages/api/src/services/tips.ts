@@ -5,6 +5,7 @@ import { guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceCo
 import * as billing from "./billing";
 import { settingsWithin } from "./portal-settings";
 import { settingsWithin as payExtrasWithin } from "./pay-extras";
+import { ruleWithin } from "./tip-rules";
 
 /**
  * TIPS
@@ -29,11 +30,14 @@ import { settingsWithin as payExtrasWithin } from "./pay-extras";
  *
  * HOW IT IS SHARED is the company's rule (`payroll:configure`, on Pay rules):
  * evenly to the cent, as it always was; by the hours each person was clocked
- * in on the job; or all to the lead on the job's visits. The rule in force
- * when the money arrives is the one used and is kept on each share, so a
- * change of rule applies to tips from then on and never re-splits one already
- * shared. A rule with nothing to go on (no hours recorded, no lead marked)
- * shares evenly and says so on the share.
+ * in on the job; by the hours each was clocked in on the visit the tip was
+ * for; or all to the lead on the job's visits. A job can have a rule of its
+ * own, and so can a person (`tip-rules.ts`), read before the company's. The
+ * rule in force when the money arrives is the one used and is kept on each
+ * share with where it came from, so a change of rule applies to tips from
+ * then on and never re-splits one already shared. A rule with nothing to go
+ * on (no hours recorded, no lead marked) shares evenly and says so on the
+ * share.
  */
 
 /** Everybody who came out for this invoice's work. Empty when nobody is recorded. */
@@ -98,11 +102,11 @@ export async function offerFor(
  * whether any of the job's visits that were not cancelled marks them lead.
  */
 async function tipPeople(
-  tx: Database, jobId: string | null, technicianIds: readonly string[],
+  tx: Database, jobId: string | null, technicianIds: readonly string[], visitId: string | null = null,
 ): Promise<px.TipPerson[]> {
   const people = [...new Set(technicianIds)];
   if (people.length === 0) return [];
-  if (jobId === null) return people.map((technicianId) => ({ technicianId, seconds: 0, isLead: false }));
+  if (jobId === null) return people.map((technicianId) => ({ technicianId, seconds: 0, isLead: false, visitSeconds: 0 }));
 
   const worked = await tx.select({
     technicianId: schema.timeclockEntry.technicianId,
@@ -125,11 +129,45 @@ async function tipPeople(
       eq(schema.visitAssignment.isLead, true),
       inArray(schema.visitAssignment.technicianId, people),
     ));
+  const onVisit = visitId === null ? [] : await tx.select({
+    technicianId: schema.timeclockEntry.technicianId,
+    minutes: sql<number>`coalesce(sum(${schema.timeclockEntry.minutes}), 0)::int`,
+  }).from(schema.timeclockEntry)
+    .where(and(
+      eq(schema.timeclockEntry.visitId, visitId),
+      isNotNull(schema.timeclockEntry.endedAt),
+      ne(schema.timeclockEntry.kind, "unpaid_break"),
+      inArray(schema.timeclockEntry.technicianId, people),
+    ))
+    .groupBy(schema.timeclockEntry.technicianId);
   const minutes = new Map(worked.map((r) => [r.technicianId, r.minutes]));
+  const visitMinutes = new Map(onVisit.map((r) => [r.technicianId, r.minutes]));
   const lead = new Set(leads.map((r) => r.technicianId));
   return people.map((technicianId) => ({
     technicianId, seconds: (minutes.get(technicianId) ?? 0) * 60, isLead: lead.has(technicianId),
+    visitSeconds: (visitMinutes.get(technicianId) ?? 0) * 60,
   }));
+}
+
+/**
+ * THE VISIT A TIP WAS FOR, for sharing by the hours on it: the visit it was
+ * taken on, when it was taken on site; otherwise the job's visit finished most
+ * recently, which is the work the customer had just seen when they paid. Null
+ * when the job has no finished visit, and the tip is then shared evenly and
+ * says so.
+ */
+async function visitOfTip(tx: Database, jobId: string | null, visitId: string | null): Promise<string | null> {
+  if (visitId) return visitId;
+  if (jobId === null) return null;
+  const [last] = await tx.select({ id: schema.visit.id }).from(schema.visit)
+    .where(and(
+      eq(schema.visit.jobId, jobId),
+      eq(schema.visit.status, "completed"),
+      eq(schema.visit.fromHistory, false),
+    ))
+    .orderBy(sql`${schema.visit.completedAt} desc nulls last`, sql`${schema.visit.windowStart} desc nulls last`)
+    .limit(1);
+  return last?.id ?? null;
 }
 
 /**
@@ -147,13 +185,18 @@ export async function writeShares(tx: Database, input: {
   tip: m.Money;
   technicianIds: string[];
   occurredAt: Date;
+  /** The visit the tip was taken on, when it was taken on site. */
+  visitId?: string | null | undefined;
 }): Promise<number> {
   const existing = await tx.select({ id: schema.tipShare.id }).from(schema.tipShare)
     .where(eq(schema.tipShare.paymentId, input.paymentId)).limit(1);
   if (existing.length > 0) return 0;
-  const rule = (await payExtrasWithin(tx, input.organizationId)).tipSplit;
-  const split = px.splitTipByRule(rule, input.tip, await tipPeople(tx, input.jobId, input.technicianIds));
+  const company = (await payExtrasWithin(tx, input.organizationId)).tipSplit;
+  const chosen = await ruleWithin(tx, input.organizationId, company, input.jobId, input.technicianIds);
+  const visitId = chosen.rule === "visit_hours" ? await visitOfTip(tx, input.jobId, input.visitId ?? null) : null;
+  const split = px.splitTipByRule(chosen.rule, input.tip, await tipPeople(tx, input.jobId, input.technicianIds, visitId));
   if (split.shares.length === 0) return 0;
+  const note = [chosen.note, split.note].filter((n) => n !== "").join(" ");
   await tx.insert(schema.tipShare).values(split.shares.map((share) => ({
     organizationId: input.organizationId,
     paymentId: input.paymentId,
@@ -164,7 +207,8 @@ export async function writeShares(tx: Database, input: {
     currency: share.amount.currency,
     occurredAt: input.occurredAt,
     splitRule: split.rule,
-    splitNote: split.note === "" ? null : split.note,
+    splitNote: note === "" ? null : note,
+    ruleSource: chosen.source,
   })));
   return split.shares.length;
 }
@@ -177,6 +221,8 @@ export interface InvoiceTip {
   splitRule: string;
   /** Said when the chosen rule could not be followed, empty otherwise. */
   splitNote: string;
+  /** Where the rule came from: the company's, the job's own or the people's own. */
+  ruleSource: string;
   shares: { technicianId: string; technicianName: string; amount: string; paidAt: Date | null }[];
 }
 
@@ -197,7 +243,7 @@ export async function forInvoiceWithin(tx: Database, invoiceId: string): Promise
   for (const row of rows) {
     const current = byPayment.get(row.share.paymentId) ?? {
       paymentId: row.share.paymentId, receivedAt: row.receivedAt, amount: "0", shares: [], total: m.zero("USD"),
-      splitRule: row.share.splitRule, splitNote: row.share.splitNote ?? "",
+      splitRule: row.share.splitRule, splitNote: row.share.splitNote ?? "", ruleSource: row.share.ruleSource,
     };
     current.total = m.add(current.total, m.money(row.share.amount, "USD"));
     current.amount = m.toString(current.total);
