@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { schema, type Database } from "@opentradesos/db";
 import {
-  SYSTEM_USER_ID, branding as brand, money as m, reporting, type Actor, type Permission,
+  SYSTEM_USER_ID, branding as brand, can, money as m, reporting, type Actor, type Permission,
 } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
@@ -663,7 +663,23 @@ function sendByHand(ctx: ServiceContext, input: {
         throw new ConflictError("Each copy goes to one of this customer's people or to one address you type, not both and not neither.");
       }
       if (one.contactId) await assertCopyable(tx, customer.id, one.contactId, one.channel);
-      else assertTypedCopy(one.address!.trim(), one.channel);
+      else {
+        /**
+         * AN ADDRESS NOBODY ON THE CUSTOMER RECORD OWNS is handed the link to
+         * the customer's account page, which is access to their account. That
+         * is the portal's own permission (`portal:grant`, as telling a
+         * customer an estimate was extended needs), not only the right to send
+         * a statement. Refused before anything is recorded or sent.
+         */
+        if (!can(ctx.actor, "portal:grant")) {
+          throw new ConflictError(
+            "A copy to an address you type gives that address a link to this customer's account, "
+            + "which needs the right to give customers links (portal:grant). Copy one of the customer's own "
+            + "people instead, or ask somebody who can.",
+          );
+        }
+        assertTypedCopy(one.address!.trim(), one.channel);
+      }
     }
 
     const result = await sendOne(tx, ctx, {

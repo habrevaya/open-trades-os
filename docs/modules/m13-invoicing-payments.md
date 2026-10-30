@@ -502,8 +502,12 @@ text can go to; nothing else is known about it. It is marked as typed on its row
 in the list ("typed by the office"). And it is audited twice over: the line for the
 send lists every copy with where it went, and each typed copy has a line of its own
 (`statement.copied_to_typed_address`, with the address, the channel and whether it
-went), whether or not it went. Sending a copy needs `invoice:send` like the
-statement itself.
+went), whether or not it went. Copying one of the customer's own people needs
+`invoice:send` like the statement itself. **Copying a typed address needs
+`portal:grant` as well**, because that address is handed the link to the customer's
+account page: without it the send is refused in words before anything is recorded or
+sent (a typed copy among copies to the customer's people stops the whole send), and
+the statement page does not show the box for an address to somebody who lacks it.
 
 **Text statement**, beside it (`POST /v1/customers/{id}/statement/text`), sends
 the same link by text, with no amounts, to the customer's main contact's mobile,
@@ -727,7 +731,7 @@ invoice email itself goes to the customer as before. A bill is addressed to one
 person. A statement sent by hand can be copied to five people at most, and every
 copy carries the link the statement itself went with: a copy to an address that
 was typed gives that address the same link to the customer's account page, so it
-is audited and the office is told so on the screen, and there is no way yet to
+needs `portal:grant` as well as `invoice:send`, is audited, and the office is told so on the screen, and there is no way yet to
 send a copy a link that opens only the statement. The monthly run copies one
 person, the one the customer record names, by email and never by text, and copies
 nobody whom the record does not name. An old statement's single copy stays in the

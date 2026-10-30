@@ -302,3 +302,44 @@ run("a copy to an address the office types", () => {
       .rejects.toBeInstanceOf(ConflictError);
   });
 });
+
+run("a typed address needs the right to give customers links", () => {
+  /** May send statements and text and email people, but not hand out links to an account. */
+  const sender = () => as([], ["invoice:read", "invoice:send", "customer:read"]);
+  const both = () => as([], ["invoice:read", "invoice:send", "customer:read", "portal:grant"]);
+
+  it("refuses a typed copy, in words and before anything is recorded or sent, when the sender lacks portal:grant", async () => {
+    const before = await deliveryCount(manager);
+    const messages = (await raw`select 1 from public.message where organization_id = ${ORG}`).length;
+    for (const copies of [
+      [{ address: "boss@harbor-owners.test", channel: "email" as const }],
+      [{ address: "(512) 555-0199", channel: "sms" as const }],
+      // Mixed with one of the customer's own people: the typed one still stops the whole send.
+      [{ contactId: clerk, channel: "email" as const }, { address: "boss@harbor-owners.test", channel: "email" as const }],
+    ]) {
+      await expect(statementDelivery.emailStatement(sender(), { id: manager, copies }))
+        .rejects.toThrow(/needs the right to give customers links \(portal:grant\)/);
+      await expect(statementDelivery.textStatement(sender(), { id: manager, copies }))
+        .rejects.toBeInstanceOf(ConflictError);
+    }
+    expect(await deliveryCount(manager)).toBe(before);
+    expect((await raw`select 1 from public.message where organization_id = ${ORG}`).length).toBe(messages);
+  });
+
+  it("still lets the same sender copy the customer's own people on invoice:send alone", async () => {
+    const sent = await statementDelivery.emailStatement(sender(), {
+      id: manager, copies: [{ contactId: ownerPerson, channel: "email" }, { contactId: clerk, channel: "sms" }],
+    });
+    expect(sent.copies.map((c) => [c.typed, c.state])).toEqual([[false, "queued"], [false, "queued"]]);
+  });
+
+  it("sends to a typed address for a sender who holds both, and audits it", async () => {
+    const sent = await statementDelivery.emailStatement(both(), {
+      id: manager, copies: [{ address: "accounts@harbor-owners.test", channel: "email" }],
+    });
+    expect(sent.copies[0]).toMatchObject({ typed: true, state: "queued", destination: "accounts@harbor-owners.test" });
+    expect(await raw`select 1 from public.audit_log where entity_id = ${manager}
+      and action = 'statement.copied_to_typed_address' and after ->> 'deliveryId' = ${sent.deliveryId}`).toHaveLength(1);
+  });
+});
+

@@ -51,6 +51,8 @@ export default async function StatementPage({ params, searchParams }: {
   const onFile = record?.email ?? null;
   const sent = await statementDelivery.deliveries(ctx, { customerId: id, limit: 5 });
   const sends = can(user.actor, "invoice:send");
+  /** A typed address is handed the link to the customer's account, which is the portal's own permission. */
+  const mayTypeCopy = can(user.actor, "portal:grant");
   /** The customer's own people a copy can go to, and who every monthly statement is copied to now. */
   const copies = await statementDelivery.statementCopies(ctx, { id });
   const copyChoices = [
@@ -92,12 +94,16 @@ export default async function StatementPage({ params, searchParams }: {
       ) : (
         <p className="text-sm text-ink-500">Nobody on this customer has an email address or a mobile number yet.</p>
       )}
-      <TextField label="Another address or number" name="copyTyped" className="mt-3 block w-96" maxLength={320}
-                 placeholder="name@company.com, or a mobile number to text" />
+      {mayTypeCopy ? (
+        <TextField label="Another address or number" name="copyTyped" className="mt-3 block w-96" maxLength={320}
+                   placeholder="name@company.com, or a mobile number to text" />
+      ) : null}
       <p className="mt-1 text-xs text-ink-500">
-        Up to five copies. Each goes as a message of its own and only once the statement itself has gone. An address you
-        type reaches somebody who is not on this customer&apos;s record, so it is kept in the history with who sent it.
+        Up to five copies. Each goes as a message of its own and only once the statement itself has gone.
         Every copy carries the same link to this customer&apos;s account page.
+        {mayTypeCopy
+          ? " An address you type reaches somebody who is not on this customer's record, so it is kept in the history with who sent it."
+          : " Copying an address that is not one of this customer's people needs the right to give customers links."}
       </p>
     </fieldset>
   );
