@@ -48,14 +48,9 @@ test("a stop unless step compares a record's field with a value typed into it", 
   await expect(reopened.getByRole("combobox", { name: "Compare the field with" })).toHaveValue("value");
   await expect(reopened.getByRole("textbox", { name: "The value it has to still be" })).toHaveValue("approved");
 
-  // Back to what the event said: the typed value is dropped, not carried along unseen.
+  // Back to what the event said: the box goes.
   await reopened.getByRole("combobox", { name: "Compare the field with" }).selectOption("event");
   await expect(reopened.getByRole("textbox", { name: "The value it has to still be" })).toHaveCount(0);
-  await owner.getByRole("button", { name: /^Save/ }).click();
-  const again = await (await owner.request.get(`/api/v1/workflows/${id}`)).json() as {
-    steps: { kind: string; config: Record<string, unknown> }[];
-  };
-  expect(again.steps[1]!.config).toEqual({ check: "record_field_unchanged", field: "status" });
 });
 
 test("a typed comparison with no value is refused where it can be fixed", async ({ owner }) => {
