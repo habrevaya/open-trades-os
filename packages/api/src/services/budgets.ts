@@ -306,6 +306,14 @@ export interface BudgetReportLine {
     unbudgetedMonths: number;
     /** True only on a line shaped like last year that had nothing last year to follow, so it is at its budget. */
     noShape?: true;
+    /**
+     * The year month by month, January to December: a month over at its
+     * actual, a month to come at what the forecast takes it at. They add up
+     * to `forecast`. Shown, never stored as the budget.
+     */
+    months: string[];
+    /** For a blend: what each of the three would make the months to come on its own. */
+    parts?: { budget: string; runRate: string; seasonal: string };
   };
 }
 
@@ -338,8 +346,12 @@ export interface BudgetReport {
     chosen: b.ForecastMethod;
     /** What was used: the budget when the run rate or last year's shape was chosen and no month is over yet. */
     method: b.ForecastMethod;
-    /** With last year's shape chosen, how many lines had none and were taken at their budget. */
+    /** With last year's shape chosen (or weighed in a blend), how many lines had none and were taken at their budget. */
     linesWithoutShape?: number;
+    /** For a blend: the whole percentages of the budget, the run rate and the seasonal shape. Null otherwise. */
+    weights: b.ForecastWeights | null;
+    /** How many past years the seasonal shape is the average of. */
+    seasonalYears: number;
     /** Months of the year already over, read at their actual. */
     closed: number;
     fellBack: boolean;
@@ -358,8 +370,29 @@ const CAVEAT =
 /** The sentence beside the forecast: what it assumed, so nobody reads it as a promise. */
 function assumption(
   method: b.ForecastMethod, chosen: b.ForecastMethod, closed: number, year: number, future: boolean, unshaped = 0,
+  weights: b.ForecastWeights | null = null, years = 1,
 ): string {
   const estimate = "This is an estimate, not a promise.";
+  /** "2025", or "the average of 2023 to 2025". */
+  const past = years <= 1 ? `${year - 1}` : `the average of ${year - years} to ${year - 1}`;
+  if (chosen === "blend" && closed < 12) {
+    const w = weights ?? { budget: 100, runRate: 0, seasonal: 0 };
+    const parts = [
+      w.budget > 0 ? `${w.budget}% at their budget` : null,
+      w.runRate > 0 ? `${w.runRate}% at the run rate so far` : null,
+      w.seasonal > 0 ? `${w.seasonal}% shaped like ${past}` : null,
+    ].filter((x): x is string => x !== null);
+    const said = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)!}`;
+    const over = future ? `${year} has not started.`
+      : closed === 0 ? "No month of the year is over yet."
+        : `${closed === 1 ? "January is" : `January to ${MONTH_NAMES[closed - 1]} are`} read at what the books say happened.`;
+    const fell = (w.runRate > 0 || w.seasonal > 0) && closed === 0
+      ? " Until a month is over there is no run rate and nothing to shape, so those parts are at the budget for now."
+      : w.seasonal > 0 && unshaped > 0
+        ? ` ${unshaped === 1 ? "One line had" : `${unshaped} lines had`} nothing in ${past} to follow, so its shaped part is at its budget.`
+        : "";
+    return `${over} This month and the months after it are a blend: ${said}.${fell} A month with no budget counts as nothing in the budget's part. ${estimate}`;
+  }
   if (closed >= 12) return `${year} is over, so the forecast is what the books say happened. ${estimate}`;
   if (future) {
     const how = chosen === "run_rate"
@@ -382,10 +415,10 @@ function assumption(
   const rest = method === "run_rate"
     ? " This month and the months after it are each taken at the average of the months already over, which reads a seasonal year wrongly."
     : method === "seasonal"
-      ? ` This month and the months after it are shaped like ${year - 1}: the months already over are taken as the same share of the year`
-        + ` they were in ${year - 1}, and the rest of the year follows in proportion.`
+      ? ` This month and the months after it are shaped like ${past}: the months already over are taken as the same share of the year`
+        + ` they were in ${past}, and the rest of the year follows in proportion.`
         + (unshaped > 0
-          ? ` ${unshaped === 1 ? "One line had" : `${unshaped} lines had`} nothing in ${year - 1} to follow and ${unshaped === 1 ? "is" : "are"} taken at ${unshaped === 1 ? "its" : "their"} budget.`
+          ? ` ${unshaped === 1 ? "One line had" : `${unshaped} lines had`} nothing in ${past} to follow and ${unshaped === 1 ? "is" : "are"} taken at ${unshaped === 1 ? "its" : "their"} budget.`
           : "")
       : " This month and the months after it are taken at their budget, and a month with no budget counts as nothing.";
   return `${over}${fell}${rest} ${estimate}`;
@@ -473,17 +506,30 @@ export async function report(
     const through = year < thisYear ? 12 : year > thisYear ? 0 : thisMonth;
     const closed = b.closedMonths(year, today);
     const chosen: b.ForecastMethod = budgetRow?.forecastMethod ?? "budget";
+    const weights: b.ForecastWeights | null = chosen === "blend"
+      ? budgetRow?.forecastWeights ?? { budget: 100, runRate: 0, seasonal: 0 }
+      : null;
+    const years = Math.max(1, Math.min(b.MAX_SEASONAL_YEARS, budgetRow?.seasonalYears ?? 1));
+    const shapes = chosen === "seasonal" || (chosen === "blend" && (weights?.seasonal ?? 0) > 0);
 
     const keys = [...new Set(cells.map((cell) => cell.line))]
       .map((line) => b.parseLine(line))
       .filter((key): key is b.LineKey => key !== null)
       .sort((x, y) => order(x) - order(y) || (x < y ? -1 : 1));
 
-    let used: b.ForecastMethod = chosen !== "budget" && closed === 0 ? "budget" : chosen;
-    /** Last year's months in the same branch and job type, for a forecast shaped like it. */
-    const lastYear = chosen === "seasonal" && closed > 0 && closed < 12
-      ? await sumsByMonth(tx, ctx.actor.organizationId, tz, scope, year - 1)
+    let used: b.ForecastMethod = chosen !== "budget" && chosen !== "blend" && closed === 0 ? "budget" : chosen;
+    /**
+     * The past years' months in the same branch and job type, for a forecast
+     * shaped like them: last year alone, or several added together month by
+     * month, which is their average as a shape.
+     */
+    const pastYears = shapes && closed > 0 && closed < 12
+      ? await Promise.all(Array.from({ length: years }, (_, i) => sumsByMonth(tx, ctx.actor.organizationId, tz, scope, year - 1 - i)))
       : null;
+    const shapeOf = (key: b.LineKey): m.Money[] | undefined => (pastYears
+      ? Array.from({ length: 12 }, (_, i) => pastYears.reduce(
+        (sum, past) => m.add(sum, b.actualFor(key, past.get(i + 1) ?? new Map())), m.zero()))
+      : undefined);
     let unshaped = 0;
     const lines: BudgetReportLine[] = keys.map((key) => {
       let budgetToDate = m.zero();
@@ -511,13 +557,10 @@ export async function report(
         };
       });
       const v = b.variance(key, budgetToDate, actualToDate);
-      const f = b.forecastLine({
-        key, months: raw, closed, method: chosen,
-        lastYear: lastYear ? Array.from({ length: 12 }, (_, i) => b.actualFor(key, lastYear.get(i + 1) ?? new Map())) : undefined,
-      });
-      /** A line with no shape in last year is taken at its budget; the report still says it was shaped where it could be. */
-      if (chosen === "seasonal" && closed > 0 && closed < 12 && f.fellBack) unshaped += 1;
-      else used = f.method;
+      const f = b.forecastLine({ key, months: raw, closed, method: chosen, lastYear: shapeOf(key), weights: weights ?? undefined });
+      /** A line with no shape in the past years is taken at its budget; the report still says it was shaped where it could be. */
+      if (f.noShape) unshaped += 1;
+      else if (chosen !== "blend") used = f.method;
       return {
         line: key,
         label: b.lineLabel(key),
@@ -532,7 +575,11 @@ export async function report(
           variance: m.toString(f.variance.variance), percent: f.variance.percent, favourable: f.variance.favourable,
           unbudgetedMonths: f.unbudgetedMonths,
           /** Present and true only for a line taken at its budget because last year gave it no shape. */
-          ...(chosen === "seasonal" && closed > 0 && closed < 12 && f.fellBack ? { noShape: true as const } : {}),
+          ...(f.noShape ? { noShape: true as const } : {}),
+          months: f.months.map((month) => m.toString(month)),
+          ...(f.parts ? {
+            parts: { budget: m.toString(f.parts.budget), runRate: m.toString(f.parts.runRate), seasonal: m.toString(f.parts.seasonal) },
+          } : {}),
         },
       };
     });
@@ -565,9 +612,12 @@ export async function report(
         }
         : null,
       forecast: {
-        chosen, method: used, closed, fellBack: chosen !== used,
-        ...(chosen === "seasonal" ? { linesWithoutShape: unshaped } : {}),
-        assumption: assumption(used, chosen, closed, year, year > thisYear, unshaped),
+        chosen, method: used, closed,
+        fellBack: chosen === "blend" ? closed === 0 && ((weights?.runRate ?? 0) > 0 || (weights?.seasonal ?? 0) > 0) : chosen !== used,
+        ...(shapes ? { linesWithoutShape: unshaped } : {}),
+        weights,
+        seasonalYears: years,
+        assumption: assumption(used, chosen, closed, year, year > thisYear, unshaped, weights, years),
         net: hasRevenue
           ? { forecast: m.toString(netOf((l) => l.forecast.forecast)), budget: m.toString(netOf((l) => l.year.budget)) }
           : null,
@@ -578,51 +628,92 @@ export async function report(
 
 /**
  * How the year's forecast takes the months to come: at their budget, at the
- * run rate of the months already over, or shaped like last year. One choice
- * per year, for every reader and every branch's and job type's report, made
- * by whoever sets the budget. Setting the one already chosen is a no op, so a
- * retry is harmless.
+ * run rate of the months already over, shaped like the past year or the
+ * average of several, or a blend of the three by whole percentages adding up
+ * to 100. One choice per year, for every reader and every branch's and job
+ * type's report, made by whoever sets the budget. Sending the choice already
+ * made is a no op, so a retry is harmless. The choice is all that is kept:
+ * the forecast itself is worked out on every read and never stored as the
+ * budget.
  *
- * SHAPED LIKE LAST YEAR NEEDS LAST YEAR. Refused, in words, unless the books
- * hold the whole of the year before: their first entry is in its January or
- * earlier. A company four months old has no shape of a year to follow, and a
- * forecast drawn from part of one would read its first months as its year.
+ * A SHAPE NEEDS ITS YEARS. Shaping (on its own, or weighed in a blend) is
+ * refused, in words, unless the books hold the whole of every year the shape
+ * is drawn from: their first entry is in the January of the earliest of them,
+ * or before. A company four months old has no shape of a year to follow, and
+ * a forecast drawn from part of one would read its first months as its year.
  */
 export async function setForecastMethod(
-  ctx: ServiceContext, input: { year: number; method: b.ForecastMethod },
-): Promise<{ year: number; method: b.ForecastMethod }> {
+  ctx: ServiceContext,
+  input: {
+    year: number; method: b.ForecastMethod;
+    weights?: { budget?: unknown; runRate?: unknown; seasonal?: unknown } | undefined;
+    seasonalYears?: number | undefined;
+  },
+): Promise<{ year: number; method: b.ForecastMethod; weights?: b.ForecastWeights; seasonalYears?: number }> {
   return guardedWrite(ctx, "finance:configure", async (tx) => {
     const year = YEAR(input.year);
     if (!(b.FORECAST_METHODS as readonly string[]).includes(input.method)) {
-      throw new UnprocessableError("Not a way to forecast", [{ path: "method", message: "The months to come are taken at their budget, at the run rate, or shaped like last year." }]);
+      throw new UnprocessableError("Not a way to forecast", [{ path: "method", message: "The months to come are taken at their budget, at the run rate, shaped like last year, or a blend of the three." }]);
     }
-    if (input.method === "seasonal") {
+    let weights: b.ForecastWeights | null = null;
+    if (input.method === "blend") {
+      const checked = b.checkWeights(input.weights ?? {});
+      if (!checked.ok) throw new UnprocessableError("That blend cannot be used", [{ path: `weights.${checked.field}`, message: checked.reason }]);
+      weights = checked.weights;
+    }
+    if (input.seasonalYears !== undefined
+      && (!Number.isInteger(input.seasonalYears) || input.seasonalYears < 1 || input.seasonalYears > b.MAX_SEASONAL_YEARS)) {
+      throw new UnprocessableError("Not a number of years", [{
+        path: "seasonalYears", message: `A shape is the average of 1 to ${b.MAX_SEASONAL_YEARS} past years.`,
+      }]);
+    }
+    const budgetId = await budgetFor(tx, ctx.actor.organizationId, year);
+    const [before] = await tx.select({
+      method: schema.budget.forecastMethod, weights: schema.budget.forecastWeights, years: schema.budget.seasonalYears,
+    }).from(schema.budget).where(eq(schema.budget.id, budgetId)).limit(1);
+    const years = input.seasonalYears ?? before?.years ?? 1;
+
+    if (input.method === "seasonal" || (weights !== null && weights.seasonal > 0)) {
       const tz = await timezoneOf(tx, ctx.actor.organizationId);
       const [first] = await tx.execute<{ day: string | null }>(sql`
         select to_char(min(le.occurred_at) at time zone ${tz}, 'YYYY-MM-DD') as day
         from public.ledger_entry le where le.organization_id = ${ctx.actor.organizationId}
       `);
       const day = first?.day ?? null;
-      if (day === null || day > `${year - 1}-01-31`) {
-        throw new UnprocessableError("Not a year of history", [{
-          path: "method",
-          message: `Shaping ${year} like ${year - 1} needs all of ${year - 1} in your books, and `
-            + (day === null ? "there is nothing in them yet." : `the first entry in them is on ${day}, so ${year - 1} is not whole.`)
-            + " Take the months to come at their budget or at the run rate until it is.",
+      const from = year - years;
+      if (day === null || day > `${from}-01-31`) {
+        const span = years === 1 ? `${year - 1}` : `${from} to ${year - 1}`;
+        throw new UnprocessableError("Not enough years of history", [{
+          path: input.method === "blend" ? "weights.seasonal" : "method",
+          message: (years === 1
+            ? `Shaping ${year} like ${year - 1} needs all of ${year - 1} in your books, and `
+            : `Shaping ${year} like the average of ${span} needs all of ${span} in your books, and `)
+            + (day === null ? "there is nothing in them yet." : `the first entry in them is on ${day}, so ${years === 1 ? `${year - 1} is` : `${span} are`} not whole.`)
+            + (years > 1
+              ? " Use fewer years, or take the months to come at their budget or at the run rate until they are."
+              : " Take the months to come at their budget or at the run rate until it is."),
         }]);
       }
     }
-    const budgetId = await budgetFor(tx, ctx.actor.organizationId, year);
-    const [before] = await tx.select({ method: schema.budget.forecastMethod }).from(schema.budget)
-      .where(eq(schema.budget.id, budgetId)).limit(1);
-    if (before?.method !== input.method) {
-      await tx.update(schema.budget).set({ forecastMethod: input.method, updatedAt: new Date() })
-        .where(eq(schema.budget.id, budgetId));
-      await audit(tx, ctx, "budget.forecast_method_set", "budget", budgetId, { forecastMethod: before?.method ?? null }, {
-        year, forecastMethod: input.method,
+
+    const same = before?.method === input.method && before.years === years
+      && JSON.stringify(before.weights ?? null) === JSON.stringify(weights);
+    if (!same) {
+      await tx.update(schema.budget).set({
+        forecastMethod: input.method, forecastWeights: weights, seasonalYears: years, updatedAt: new Date(),
+      }).where(eq(schema.budget.id, budgetId));
+      await audit(tx, ctx, "budget.forecast_method_set", "budget", budgetId, {
+        forecastMethod: before?.method ?? null, forecastWeights: before?.weights ?? null, seasonalYears: before?.years ?? null,
+      }, {
+        year, forecastMethod: input.method, forecastWeights: weights, seasonalYears: years,
       });
     }
-    return { year, method: input.method };
+    /** The weights only for a blend, and the years only when the shape is more than last year's, as they were set. */
+    return {
+      year, method: input.method,
+      ...(weights ? { weights } : {}),
+      ...(years !== 1 ? { seasonalYears: years } : {}),
+    };
   });
 }
 
@@ -636,5 +727,8 @@ export const handlers = {
   setBudgetLine: (ctx: ServiceContext, input: { year: number; line: string; amounts: (string | null)[] } & ScopeInput) => setLine(ctx, input),
   removeBudgetLine: (ctx: ServiceContext, input: { year: number; line: string } & ScopeInput) => removeLine(ctx, input),
   importBudget: (ctx: ServiceContext, input: { year: number; csv: string } & ScopeInput) => importCsv(ctx, input),
-  setBudgetForecastMethod: (ctx: ServiceContext, input: { year: number; method: b.ForecastMethod }) => setForecastMethod(ctx, input),
+  setBudgetForecastMethod: (ctx: ServiceContext, input: {
+    year: number; method: b.ForecastMethod;
+    weights?: { budget: number; runRate: number; seasonal: number } | undefined; seasonalYears?: number | undefined;
+  }) => setForecastMethod(ctx, input),
 } as const;

@@ -139,7 +139,7 @@ branch. The company's report does not add a job type's lines in.
 forecast: the months already over (every month before the one the company is
 in) at what the ledger says, and this month and the rest at their budget, at
 the run rate of the months already over, or shaped like last year, as the
-company chooses. The
+company chooses, or a blend of the three. The
 month in progress is not read at its actual so far, because ten days of
 October are not October. The budget is the default because it is the figure
 the company already wrote down; a month with no budget counts as nothing, and
@@ -152,7 +152,13 @@ of the year they were last year, and the rest of the year follows in proportion:
 a company that did a third of last year by May, and has done 40,000 by May this
 year, is forecast 120,000. Each line is shaped by its own last year, in the same
 branch and job type, read from the ledger the same way as the actuals, and rounded
-once, to the cent (`budget.seasonalToCome`). A line with nothing last year, or
+once, to the cent (`budget.seasonalToCome`). The shape can be the average of
+up to five past years instead of last year alone: their months are added
+together, month by month, and the year is shaped like that ("shaped like the
+average of 2023 to 2025"), so a big one off job in one March counts for a
+fraction of what it would alone. Choosing it is refused, in words, unless the
+books hold all of those years ("Use fewer years, or take the months to come
+at their budget or at the run rate until they are."). A line with nothing last year, or
 with nothing or less by this point of last year, has no shape to follow and is
 taken at its budget; the line says so ("Nothing last year to follow, so at its
 budget", `noShape`), and the assumption counts those lines. With no month over
@@ -165,6 +171,28 @@ like the other two. The assumption is written above the table every time,
 with "This is an estimate, not a promise." Nothing about it posts or is stored
 but the choice. The rule is core's `budget.forecastLine` and
 `budget.closedMonths`, with unit tests.
+
+**A blend of the three.** The owner sets whole percentages of the budget, the
+run rate and the seasonal shape that add up to 100 ("70% at their budget and
+30% at the run rate so far"); anything else is refused in words. Each part is
+worked out exactly as it would be on its own, falling back to the budget where
+it would (no month over yet, nothing to shape), and the months to come are the
+weighted sum, so 50 budget and 50 run rate is halfway between the two
+forecasts. Each line says what each part alone would make the months to come
+(`forecast.parts`). A blend that weighs the shape needs the shape's years in
+the books, like the seasonal choice. It is the same one choice for the year as
+the other three, set with `finance:configure`.
+
+**The forecast by month.** Every line also gives the year month by month
+(`forecast.months`): a month already over at its actual, a month to come at its
+budget, at an even part of the run rate, at its share of the past years'
+shape, or at the weighted mix of those for a blend, to the cent, adding up to
+the year end figure. The rule is core's `budget.forecastLine`, with unit tests.
+**The conservative reading taken:** the forecast, by month or for the year, is
+never stored, as the budget or anywhere else; it is worked out each time the
+report is read. Only the choice (the method, the weights and the number of
+years) is kept, so the budget the company wrote down is never quietly replaced
+by an estimate.
 
 **Three judgements the product owner has not made, and the conservative reading
 taken.** The forecast's default is the budget rather than the run rate, because
@@ -335,7 +363,10 @@ counted as nothing. Above the table, "How the forecast is made" says what was
 assumed. "The forecast" section, for whoever sets the budget, chooses how the
 months to come are taken: at their budget, at the run rate so far, or shaped
 like last year, for the whole year, which every branch's and job type's report
-uses too.
+uses too. A blend takes three boxes of percentages, and "Shape from" chooses
+last year alone or the average of up to five past years. Under the table, "The
+forecast by month" opens each line's year month by month, saying it is never
+saved as the budget.
 
 `GET /v1/budgets/{year}` is the report, `PUT /v1/budgets/{year}/lines` sets a
 line, `DELETE /v1/budgets/{year}/lines/{line}` removes one and
@@ -345,9 +376,12 @@ branch, and the report
 then carries `branch` with the count of entries that carry no branch, or
 `jobType` with the count on no job (both, for a job type in a branch). Every
 line carries `forecast` and the report carries `forecast` with the method chosen
-(`budget`, `run_rate` or `seasonal`), the one used, the months already over, the
-lines with no shape last year and the assumption in words. `PUT
-/v1/budgets/{year}/forecast` chooses the method.
+(`budget`, `run_rate`, `seasonal` or `blend`), the one used, the months already
+over, the lines with no shape last year, the blend's `weights`, the
+`seasonalYears` the shape is averaged over and the assumption in words; each
+line's `forecast` has `months` (twelve figures adding up to it) and, for a
+blend, `parts`. `PUT /v1/budgets/{year}/forecast` chooses the method, with
+`weights` for a blend and `seasonalYears` (1 to 5).
 
 ## Permissions
 
@@ -416,13 +450,17 @@ visit nobody worked included. The overtime
 premium is still not on a job, for the reason above. Burden and overhead are
 applied in reporting only; nothing posts them to the ledger, which keeps them
 as the company's choice rather than an entry in its books. A job type's actuals, in a branch or not, are only what was booked to its jobs,
-and a branch's only what carries the branch. The forecast is one method for the
-whole year (the budget, the run rate, or shaped like last year), with no forecast
-by month, no weighting of recent months and no blend of the three; it is shown,
-never stored or posted. Shaped like last year follows one year, the one before:
-two or more years averaged into a shape is not offered, and a year with one odd
-month (a big one-off job last March) shapes this year with it. Whether a company
-has a whole last year is read from the first entry in its books, for the whole
+and a branch's only what carries the branch. The forecast is one choice for the
+whole year (the budget, the run rate, shaped like past years, or a blend of the
+three by whole percentages), by month and for the year; it is shown, never
+stored or posted. The run rate weighs every month over the same: there is no
+weighting of recent months. The months to come of the run rate are even, not
+shaped. A blend's weights are the same for every line and every month: a line
+cannot be weighted differently, nor the months late in the year. A shape is
+the plain average of the years chosen, each counted the same, the most recent
+no more than the oldest, and a year with a one off month still shapes the
+year, by a share of it. Whether a company
+has the years a shape needs is read from the first entry in its books, for the whole
 company: a branch or a job type that is newer is not refused, its lines simply
 have nothing to follow and are at their budget, saying so. The history needed is
 the whole calendar year before, from its January; a company whose books start on

@@ -7302,6 +7302,12 @@ export interface GetBudgetReportOutput {
       favourable: boolean | null;
       unbudgetedMonths: number;
       noShape?: true;
+      months: string[];
+      parts?: {
+        budget: string;
+        runRate: string;
+        seasonal: string;
+      };
     };
   }>;
   net: {
@@ -7322,11 +7328,17 @@ export interface GetBudgetReportOutput {
     withoutJobDebits: string;
   } | null;
   forecast: {
-    chosen: "budget" | "run_rate" | "seasonal";
-    method: "budget" | "run_rate" | "seasonal";
+    chosen: "budget" | "run_rate" | "seasonal" | "blend";
+    method: "budget" | "run_rate" | "seasonal" | "blend";
     closed: number;
     fellBack: boolean;
     linesWithoutShape?: number;
+    weights: {
+      budget: number;
+      runRate: number;
+      seasonal: number;
+    } | null;
+    seasonalYears: number;
     assumption: string;
     net: {
       forecast: string;
@@ -24971,12 +24983,24 @@ export interface SetBranchNumberingOutput {
 }
 
 export interface SetBudgetForecastMethodInput {
-  method: "budget" | "run_rate" | "seasonal";
+  method: "budget" | "run_rate" | "seasonal" | "blend";
+  weights?: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  };
+  seasonalYears?: number;
 }
 
 export interface SetBudgetForecastMethodOutput {
   year: number;
-  method: "budget" | "run_rate" | "seasonal";
+  method: "budget" | "run_rate" | "seasonal" | "blend";
+  weights?: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  };
+  seasonalYears?: number;
 }
 
 export interface SetBudgetLineInput {

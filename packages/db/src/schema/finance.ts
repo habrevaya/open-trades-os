@@ -164,7 +164,7 @@ export const jobCostNotSame = pgTable("job_cost_not_same", {
 /* -------------------------------------------------------------- budget */
 
 /** Mirrors `budget.FORECAST_METHODS` in core, which says what each does. */
-export const budgetForecastMethod = pgEnum("budget_forecast_method", ["budget", "run_rate", "seasonal"]);
+export const budgetForecastMethod = pgEnum("budget_forecast_method", ["budget", "run_rate", "seasonal", "blend"]);
 
 /** A company's budget for one calendar year. */
 export const budget = pgTable("budget", {
@@ -180,6 +180,16 @@ export const budget = pgTable("budget", {
    * forecast, and it applies to a branch's and a job type's report too.
    */
   forecastMethod: budgetForecastMethod("forecast_method").notNull().default("budget"),
+  /**
+   * For a blend (`blend`): whole percentages of the budget, the run rate and
+   * the seasonal shape, adding up to 100. Null for any other method.
+   */
+  forecastWeights: jsonb("forecast_weights").$type<{ budget: number; runRate: number; seasonal: number }>(),
+  /**
+   * How many past years the seasonal shape is the average of: 1 is last year
+   * alone, as it always was. Read by `seasonal` and by a blend that weighs it.
+   */
+  seasonalYears: integer("seasonal_years").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

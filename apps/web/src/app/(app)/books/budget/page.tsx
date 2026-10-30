@@ -213,6 +213,37 @@ export default async function BudgetPage(
               ))}
             </tbody>
           </table>
+          <details className="mt-4" data-testid="budget-forecast-months">
+            <summary className="cursor-pointer text-sm font-medium">The forecast by month</summary>
+            <p className="mt-1 max-w-3xl text-xs text-ink-500">
+              Months already over are what the books say. The rest are the forecast, worked out each time you look and
+              never saved as the budget.
+            </p>
+            <table className="mt-2 w-full min-w-[60rem] text-sm" aria-label={`Forecast by month, ${year}`}>
+              <thead>
+                <tr className="border-b border-steel-200 text-left text-ink-500">
+                  <th className="py-2 pr-3 font-medium">Line</th>
+                  {MONTHS.map((m, i) => (
+                    <th key={m} className="py-2 pr-2 text-right font-medium">{m}{i < report.forecast.closed ? "" : " (forecast)"}</th>
+                  ))}
+                  <th className="py-2 text-right font-medium">Year end</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.lines.map((line) => (
+                  <tr key={line.line} className="border-b border-steel-200">
+                    <td className="py-2 pr-3 font-medium">{line.label}</td>
+                    {line.forecast.months.map((amount, i) => (
+                      <td key={MONTHS[i]} className={`py-2 pr-2 text-right ${i < report.forecast.closed ? "" : "text-ink-700"}`}>
+                        <Money value={amount} />
+                      </td>
+                    ))}
+                    <td className="py-2 text-right font-medium"><Money value={line.forecast.forecast} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
           <p className="mt-2 text-xs text-ink-500">
             Each month: the budget above, what the ledger says below, and the difference under that.
             {report.net ? <> Revenue less costs, year to date: budget <Money value={report.net.budget} />, actual <Money value={report.net.actual} />.</> : null}
@@ -233,12 +264,28 @@ export default async function BudgetPage(
               summer is still a busy summer; it needs all of {year - 1} in your books. This choice is for the whole
               of {year}, and every branch and job type uses it too, each by its own {year - 1}.
             </p>
+            <p className="mt-2 text-sm text-ink-700">
+              A blend takes some of each: say how much of the months to come is at their budget, at the run rate and
+              shaped like past years, in whole percentages that add up to 100. A shape can be the average of up to five
+              past years, so one odd month in one of them counts for less; it needs all of those years in your books.
+            </p>
             <ActionForm action={chooseForecast} submit="Use this" hidden={{ year: String(year) }} className="mt-3 flex flex-wrap items-end gap-3">
               <Select label="The months to come" name="method" defaultValue={report.forecast.chosen} options={[
                 { value: "budget", label: "At their budget" },
                 { value: "run_rate", label: "At the run rate so far" },
                 { value: "seasonal", label: "Shaped like last year" },
+                { value: "blend", label: "A blend of the three" },
               ]} />
+              <TextField label="Blend: at their budget (%)" name="weightBudget" inputMode="numeric" className="block w-40"
+                         defaultValue={String(report.forecast.weights?.budget ?? 100)} />
+              <TextField label="Blend: at the run rate (%)" name="weightRunRate" inputMode="numeric" className="block w-40"
+                         defaultValue={String(report.forecast.weights?.runRate ?? 0)} />
+              <TextField label="Blend: shaped (%)" name="weightSeasonal" inputMode="numeric" className="block w-40"
+                         defaultValue={String(report.forecast.weights?.seasonal ?? 0)} />
+              <Select label="Shape from" name="seasonalYears" defaultValue={String(report.forecast.seasonalYears)}
+                      options={[1, 2, 3, 4, 5].map((n) => ({
+                        value: String(n), label: n === 1 ? `${year - 1} alone` : `The average of ${year - n} to ${year - 1}`,
+                      }))} />
             </ActionForm>
           </section>
 

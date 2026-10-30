@@ -257,7 +257,8 @@ export function parseBudgetCsv(text: string): ParsedBudget {
  * would make every forecast read worst on the first of the month. It is a
  * month still to come, taken like the rest.
  *
- * THE MONTHS TO COME are taken one of three ways, and the company chooses:
+ * THE MONTHS TO COME are taken one of three ways, or a blend of them, and
+ * the company chooses:
  *
  *   budget     each month at its own budget. The default, because it is the
  *              figure the company already wrote down for that month, and a
@@ -270,6 +271,16 @@ export function parseBudgetCsv(text: string): ParsedBudget {
  *              over that share, and the months to come are the rest. A
  *              company that does a third of its year by May, as it did last
  *              year, is forecast to do three times May's year to date.
+ *              The shape can be the average of several past years (their
+ *              months added together), so one odd month in one year counts
+ *              for less.
+ *   blend      the three above, weighted by whole percentages the company
+ *              sets that add up to 100.
+ *
+ * MONTH BY MONTH as well as for the year: each month to come is given its
+ * part of the months to come (its budget, an even part of the run rate, its
+ * share of last year's shape, or the weighted mix of those), to the cent, so
+ * the months add up to the year end figure. Shown, never stored as the budget.
  *
  * With no month closed yet (January, or a year not begun) there is no run
  * rate and nothing to scale last year by, so the budget is used and the
@@ -278,14 +289,66 @@ export function parseBudgetCsv(text: string): ParsedBudget {
  * follow, and is taken at its budget the same way (`fellBack`). Choosing it at
  * all needs a whole year in the books, which the service checks.
  */
-export const FORECAST_METHODS = ["budget", "run_rate", "seasonal"] as const;
+export const FORECAST_METHODS = ["budget", "run_rate", "seasonal", "blend"] as const;
 export type ForecastMethod = (typeof FORECAST_METHODS)[number];
 
 export const FORECAST_LABEL: Record<ForecastMethod, string> = {
   budget: "The months to come at their budget",
   run_rate: "The months to come at the run rate so far",
   seasonal: "The months to come shaped like last year",
+  blend: "The months to come as a blend of the three",
 };
+
+/**
+ * A BLEND OF THE THREE, BY WEIGHTS THE OWNER SETS.
+ *
+ * Whole percentages of the budget, the run rate and the seasonal shape, adding
+ * up to 100. Each of the three is worked out exactly as it would be on its own,
+ * falling back to the budget where it would on its own (no month over yet, no
+ * shape last year), and the months to come are the weighted sum. A blend of 50
+ * budget and 50 run rate is the point halfway between the two forecasts.
+ */
+export interface ForecastWeights {
+  budget: number;
+  runRate: number;
+  seasonal: number;
+}
+
+export type WeightsCheck = { ok: true; weights: ForecastWeights } | { ok: false; field: string; reason: string };
+
+/** Whether a blend can be saved: three whole percentages, none negative, adding up to 100. */
+export function checkWeights(input: { budget?: unknown; runRate?: unknown; seasonal?: unknown }): WeightsCheck {
+  const read = (value: unknown): number | null => {
+    const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+    if (text === "") return 0;
+    return /^\d{1,3}$/.test(text) ? Number(text) : null;
+  };
+  const fields: [keyof ForecastWeights, unknown][] = [["budget", input.budget], ["runRate", input.runRate], ["seasonal", input.seasonal]];
+  const weights: ForecastWeights = { budget: 0, runRate: 0, seasonal: 0 };
+  for (const [field, value] of fields) {
+    const n = read(value);
+    if (n === null || n > 100) return { ok: false, field, reason: "Each part of a blend is a whole percentage from 0 to 100." };
+    weights[field] = n;
+  }
+  const total = weights.budget + weights.runRate + weights.seasonal;
+  if (total !== 100) return { ok: false, field: "budget", reason: `The three parts of a blend add up to 100, and these add up to ${total}.` };
+  return { ok: true, weights };
+}
+
+/** The most past years a seasonal shape can be averaged over. */
+export const MAX_SEASONAL_YEARS = 5;
+
+/**
+ * THE MONTHS TO COME, MONTH BY MONTH, adding up to `total` to the cent: in
+ * proportion to `weights` when none is negative and they are not all
+ * nothing, otherwise evenly. The run rate is even; a seasonal shape is
+ * last year's months; a blend is the weighted months of its parts.
+ */
+function spread(total: m.Money, weights: readonly m.Money[]): m.Money[] {
+  if (weights.length === 0) return [];
+  const usable = weights.every((w) => w.amount >= 0n) && weights.some((w) => w.amount > 0n);
+  return usable ? m.allocate(total, weights.map((w) => m.toString(w)), 2) : m.split(total, weights.length, 2);
+}
 
 /**
  * What the months to come of one line come to when they are shaped like last
@@ -327,15 +390,67 @@ export interface Forecast {
   closedActual: m.Money;
   /** What the months to come are taken at. */
   toCome: m.Money;
+  /**
+   * The year month by month, January to December: a closed month at its
+   * actual, a month to come at what the method takes it at. They add up to
+   * `forecast` to the cent.
+   */
+  months: m.Money[];
   closed: number;
   /** The way the months to come were taken: the one asked for, or the budget when there was no run rate or no shape yet. */
   method: ForecastMethod;
+  /** For a blend, true when a part it gives any weight to fell back to the budget. */
   fellBack: boolean;
-  /** Months to come with no budget, counted as nothing. Only when they were taken at the budget. */
+  /** Months to come with no budget, counted as nothing. Only when they were taken at the budget (or a blend gives the budget weight). */
   unbudgetedMonths: number;
+  /** For a blend, what each of the three would make the months to come on its own. */
+  parts?: { budget: m.Money; runRate: m.Money; seasonal: m.Money };
+  /**
+   * The seasonal shape was asked for (on its own, or weighed in a blend), some
+   * months are over and some to come, and the past year gave this line none,
+   * so that part is at its budget.
+   */
+  noShape: boolean;
   /** The forecast against the whole year's budget, signed and judged as a variance is. */
   yearBudget: m.Money;
   variance: Variance;
+}
+
+/** The months to come by one of the three single methods, with its fallback. */
+function toComeBy(
+  method: "budget" | "run_rate" | "seasonal",
+  remaining: readonly { month: number; budget: m.Money | null }[],
+  closedActual: m.Money, closed: number, lastYear: readonly m.Money[] | undefined, currency: string,
+): {
+  method: "budget" | "run_rate" | "seasonal"; fellBack: boolean; total: m.Money; months: m.Money[]; unbudgeted: number;
+  /** Seasonal, with months over and to come, and last year gave no shape. */
+  noShape: boolean;
+} {
+  const shaped = method === "seasonal" && closed > 0 && closed < 12 && lastYear?.length === 12
+    ? seasonalToCome(closedActual, lastYear, closed)
+    : null;
+  const fellBack = (method === "run_rate" && closed === 0) || (method === "seasonal" && closed < 12 && shaped === null);
+  const used = fellBack ? "budget" : method;
+  const noShape = method === "seasonal" && closed > 0 && closed < 12 && shaped === null;
+  if (used === "seasonal") {
+    const total = m.round(shaped ?? m.zero(currency));
+    return {
+      method: used, fellBack, total, months: spread(total, remaining.map((r) => lastYear![r.month - 1]!)), unbudgeted: 0, noShape,
+    };
+  }
+  if (used === "run_rate") {
+    /** Multiplied before it is divided, so the average is not rounded on its way in. */
+    const total = m.round(m.divide(m.multiply(closedActual, String(remaining.length)), String(closed)));
+    return { method: used, fellBack, total, months: spread(total, remaining.map(() => m.money("1", currency))), unbudgeted: 0, noShape };
+  }
+  let total = m.zero(currency);
+  let unbudgeted = 0;
+  const months = remaining.map((r) => {
+    if (r.budget) total = m.add(total, r.budget);
+    else unbudgeted += 1;
+    return m.round(r.budget ?? m.zero(currency));
+  });
+  return { method: used, fellBack, total: m.round(total), months, unbudgeted, noShape };
 }
 
 /**
@@ -347,8 +462,14 @@ export function forecastLine(input: {
   months: readonly { month: number; budget: m.Money | null; actual: m.Money }[];
   closed: number;
   method: ForecastMethod;
-  /** Last year's actual, January to December, for `seasonal`. Without it a seasonal line falls back to its budget. */
+  /**
+   * The past year's actual (or several past years' added together, month by
+   * month), January to December, for `seasonal` and a blend that weighs it.
+   * Without it a seasonal line falls back to its budget.
+   */
   lastYear?: readonly m.Money[] | undefined;
+  /** For `blend`: the weights. Left out, a blend is all budget. */
+  weights?: ForecastWeights | undefined;
   currency?: string;
 }): Forecast {
   const currency = input.currency ?? "USD";
@@ -359,30 +480,49 @@ export function forecastLine(input: {
     if (month.budget) yearBudget = m.add(yearBudget, month.budget);
     if (month.month <= closed) closedActual = m.add(closedActual, month.actual);
   }
-
-  const shaped = input.method === "seasonal" && closed > 0 && closed < 12 && input.lastYear?.length === 12
-    ? seasonalToCome(closedActual, input.lastYear, closed)
-    : null;
-  const fellBack = (input.method === "run_rate" && closed === 0) || (input.method === "seasonal" && closed < 12 && shaped === null);
-  const method: ForecastMethod = fellBack ? "budget" : input.method;
   const remaining = input.months.filter((month) => month.month > closed);
-  let toCome = m.zero(currency);
-  let unbudgetedMonths = 0;
-  if (method === "seasonal") {
-    toCome = shaped ?? m.zero(currency);
-  } else if (method === "run_rate") {
-    /** Multiplied before it is divided, so the average is not rounded on its way in. */
-    toCome = m.divide(m.multiply(closedActual, String(remaining.length)), String(closed));
+  const by = (method: "budget" | "run_rate" | "seasonal") =>
+    toComeBy(method, remaining, closedActual, closed, input.lastYear, currency);
+
+  let method: ForecastMethod;
+  let fellBack: boolean;
+  let toCome: m.Money;
+  let toComeMonths: m.Money[];
+  let unbudgetedMonths: number;
+  let parts: Forecast["parts"];
+  let noShape: boolean;
+  if (input.method === "blend") {
+    const weights = input.weights ?? { budget: 100, runRate: 0, seasonal: 0 };
+    const budget = by("budget");
+    const runRate = by("run_rate");
+    const seasonal = by("seasonal");
+    const weighed: [number, ReturnType<typeof by>][] = [[weights.budget, budget], [weights.runRate, runRate], [weights.seasonal, seasonal]];
+    const mix = (pick: (part: ReturnType<typeof by>) => m.Money) => weighed.reduce(
+      (sum, [w, part]) => (w === 0 ? sum : m.add(sum, m.multiply(pick(part), String(w / 100)))), m.zero(currency));
+    toCome = m.round(mix((part) => part.total));
+    toComeMonths = spread(toCome, remaining.map((_, i) => mix((part) => part.months[i] ?? m.zero(currency))));
+    method = "blend";
+    fellBack = weighed.some(([w, part]) => w > 0 && part.fellBack);
+    unbudgetedMonths = weighed.some(([w, part]) => w > 0 && part.method === "budget") ? budget.unbudgeted : 0;
+    parts = { budget: budget.total, runRate: runRate.total, seasonal: seasonal.total };
+    noShape = weights.seasonal > 0 && seasonal.noShape;
   } else {
-    for (const month of remaining) {
-      if (month.budget) toCome = m.add(toCome, month.budget);
-      else unbudgetedMonths += 1;
-    }
+    const single = by(input.method);
+    method = single.method;
+    fellBack = single.fellBack;
+    toCome = single.total;
+    toComeMonths = single.months;
+    unbudgetedMonths = single.method === "budget" ? single.unbudgeted : 0;
+    noShape = single.noShape;
   }
-  toCome = m.round(toCome);
+
+  const months = input.months.map((month) => (month.month <= closed
+    ? month.actual
+    : toComeMonths[remaining.findIndex((r) => r.month === month.month)] ?? m.zero(currency)));
   const forecast = m.add(closedActual, toCome);
   return {
-    forecast, closedActual, toCome, closed, method, fellBack, unbudgetedMonths,
+    forecast, closedActual, toCome, months, closed, method, fellBack, unbudgetedMonths, noShape,
+    ...(parts ? { parts } : {}),
     yearBudget, variance: variance(input.key, yearBudget, forecast),
   };
 }

@@ -109,11 +109,24 @@ export async function importBudgetFile(_previous: FormState, form: FormData): Pr
 /** How the year end forecast takes the months to come, for the whole year. */
 export async function chooseForecast(_previous: FormState, form: FormData): Promise<FormState> {
   const result = await attempt(form, async () => {
-    const input = parsed(setBudgetForecastMethod.input, { year: field(form, "year"), method: field(form, "method") });
+    const method = field(form, "method");
+    /** A box left empty is 0. Anything else that is not a whole number is refused by the contract in words. */
+    const part = (name: string) => {
+      const typed = (field(form, name) ?? "0").replace(/%/g, "").trim();
+      return /^\d+$/.test(typed) ? Number(typed) : typed;
+    };
+    const years = field(form, "seasonalYears");
+    const input = parsed(setBudgetForecastMethod.input, {
+      year: field(form, "year"),
+      method,
+      ...(method === "blend" ? { weights: { budget: part("weightBudget"), runRate: part("weightRunRate"), seasonal: part("weightSeasonal") } } : {}),
+      ...(years ? { seasonalYears: Number(years) } : {}),
+    });
     await budgets.setForecastMethod(await ctx(), input);
     return {
       message: input.method === "run_rate" ? "The forecast now uses the run rate."
-        : input.method === "seasonal" ? "The forecast is now shaped like last year." : "The forecast now uses the budget.",
+        : input.method === "seasonal" ? "The forecast is now shaped like last year."
+          : input.method === "blend" ? "The forecast is now a blend." : "The forecast now uses the budget.",
     };
   });
   revalidatePath("/books/budget");
