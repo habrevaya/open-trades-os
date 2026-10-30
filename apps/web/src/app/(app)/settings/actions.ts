@@ -485,3 +485,24 @@ export async function saveNoticeDefaults(_previous: FormState, form: FormData): 
   revalidatePath("/settings");
   return result;
 }
+
+/**
+ * The company's notice defaults given to everybody already here, for every
+ * kind they never chose themselves. Only once the box saying yes is ticked;
+ * the service refuses it otherwise.
+ */
+export async function applyNoticeDefaults(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    if (form.get("confirmed") !== "yes") throw new ConflictError("Tick the box to say yes first.");
+    const done = await noticeDefaults.applyToEverybody(await ctx(), { confirmed: true });
+    return {
+      message: done.changed === 0
+        ? "Done. Nobody needed changing."
+        : `Done. ${done.changed} ${done.changed === 1 ? "person has" : "people have"} the company's defaults now.`
+          + (done.keptOwn > 0 ? ` ${done.keptOwn} kept choices of their own.` : ""),
+    };
+  });
+  revalidatePath("/settings");
+  revalidatePath("/me");
+  return result;
+}

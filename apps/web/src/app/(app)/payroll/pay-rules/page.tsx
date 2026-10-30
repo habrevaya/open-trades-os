@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { assets, laborSettings, mileageOverrides, payExtras, tipRules } from "@opentradesos/api/services";
+import { assets, jobs, laborSettings, mileageOverrides, payExtras, tipRules } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
@@ -57,7 +57,7 @@ export default async function PayRulesPage() {
     );
   }
 
-  const [policies, scales, people, extras, overrides, fleet, ownTipRules] = await Promise.all([
+  const [policies, scales, people, extras, overrides, fleet, ownTipRules, kindsOfWork] = await Promise.all([
     laborSettings.policies(ctx),
     laborSettings.scales(ctx, {}),
     laborSettings.crewRates(ctx),
@@ -66,6 +66,8 @@ export default async function PayRulesPage() {
     /** The picker of vehicles needs the fleet register, which not everybody who reads pay rules may read. */
     can(user.actor, "asset:read") ? assets.listAssets(ctx, { kind: "vehicle" }) : Promise.resolve({ on: "", assets: [] }),
     tipRules.list(ctx),
+    /** The kinds of work (job types) a rate can be set for, which needs `job:read`. */
+    can(user.actor, "job:read") ? jobs.listTypes(ctx, { includeInactive: false }) : Promise.resolve({ data: [] }),
   ]);
   const configures = can(user.actor, "payroll:configure");
   const current = policies.find((p) => p.active) ?? null;
@@ -420,9 +422,10 @@ export default async function PayRulesPage() {
       <section className="mt-10" aria-labelledby="mileage-own-heading">
         <h2 id="mileage-own-heading" className="text-base font-semibold">A mile for one person or one vehicle</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
-          Leave this empty and everybody is paid the company rate above. A line here is for one person or one
-          vehicle, from a day. A claim in miles uses the vehicle&apos;s line first, if the person names that vehicle,
-          then the person&apos;s line, then the company rate, each as it stood on the day they drove. The claim keeps
+          Leave this empty and everybody is paid the company rate above. A line here is for one person, one
+          vehicle or one kind of work, from a day. A claim in miles uses the vehicle&apos;s line first, if the person
+          names that vehicle, then the line for the kind of work of the job the claim is for, then the person&apos;s
+          line, then the company rate, each as it stood on the day they drove. The claim keeps
           the rate and says whose it was. Adding or taking off a line never changes a claim already made. As with
           the company rate, keeping it within what the tax authority allows without tax is yours to check.
         </p>
@@ -433,7 +436,9 @@ export default async function PayRulesPage() {
               <tr key={line.id}>
                 <Td className="font-medium">
                   {line.subjectName}
-                  <span className="block text-xs font-normal text-ink-500">{line.kind === "person" ? "Person" : "Vehicle"}</span>
+                  <span className="block text-xs font-normal text-ink-500">
+                    {line.kind === "person" ? "Person" : line.kind === "vehicle" ? "Vehicle" : "Kind of work"}
+                  </span>
                 </Td>
                 <Td className="whitespace-nowrap">
                   {formatDay(line.from, zone)}
@@ -466,6 +471,15 @@ export default async function PayRulesPage() {
                     options={fleet.assets.map((v) => ({ value: v.id, label: v.label }))} />
             <TextField label="Vehicle's rate starts on" name="from" type="date" required defaultValue={today} />
             <TextField label="Dollars for one mile, for this vehicle" name="perMile" inputMode="decimal" required placeholder="0.500" />
+          </ActionForm>
+        ) : null}
+        {configures && kindsOfWork.data.length > 0 ? (
+          <ActionForm action={act} submit="Add the rate for this kind of work" hidden={{ op: "mileageOverrideAdd" }}
+                      className="mt-4 grid max-w-xl gap-3 sm:grid-cols-3">
+            <Select label="Pick the kind of work" name="jobTypeId" required
+                    options={kindsOfWork.data.map((t) => ({ value: t.id, label: t.name }))} />
+            <TextField label="Kind of work's rate starts on" name="from" type="date" required defaultValue={today} />
+            <TextField label="Dollars for one mile, for this kind of work" name="perMile" inputMode="decimal" required placeholder="0.800" />
           </ActionForm>
         ) : null}
       </section>

@@ -33,11 +33,16 @@ export interface ExpenseDraft {
   description: string;
   /** The job it was for, or null for the shop. */
   jobId: string | null;
+  /**
+   * A company vehicle with a rate of its own, from the list the server gave (`abilities.mileageVehicles`), on a
+   * claim in miles. Empty or absent for the person's own vehicle. Never with an amount paid.
+   */
+  vehicleId?: string | null | undefined;
 }
 
 export type CheckedExpense =
-  | { ok: true; amount: string; miles?: undefined; spentOn: string; description: string; jobId: string | null }
-  | { ok: true; miles: string; amount?: undefined; spentOn: string; description: string; jobId: string | null }
+  | { ok: true; amount: string; miles?: undefined; vehicleId?: undefined; spentOn: string; description: string; jobId: string | null }
+  | { ok: true; miles: string; amount?: undefined; vehicleId?: string | undefined; spentOn: string; description: string; jobId: string | null }
   | { ok: false; reason: string };
 
 /** The most miles one claim may be, as the server holds it. */
@@ -52,14 +57,18 @@ export function checkExpenseDraft(draft: ExpenseDraft, today: string): CheckedEx
   if (typedMiles !== "" && draft.amount.trim() !== "") {
     return { ok: false, reason: "Fill in the miles you drove or what you paid, not both." };
   }
-  let paid: { amount: string } | { miles: string };
+  const vehicleId = draft.vehicleId?.trim() || undefined;
+  if (vehicleId && typedMiles === "") {
+    return { ok: false, reason: "A vehicle goes with the miles you drove, not with what you paid. Fill in the miles." };
+  }
+  let paid: { amount: string } | { miles: string; vehicleId?: string };
   if (typedMiles !== "") {
     if (!/^\d+(\.\d)?$/.test(typedMiles)) return { ok: false, reason: "Say the miles driven, to a tenth, like 18 or 18.4." };
     const [whole = "0", tenth = "0"] = typedMiles.split(".");
     const tenths = BigInt(whole) * 10n + BigInt(tenth);
     if (tenths === 0n) return { ok: false, reason: "The miles have to be more than nothing." };
     if (tenths > MAX_MILES_TENTHS) return { ok: false, reason: "That is more than 2000 miles for one claim. Check the number, or ask the office." };
-    paid = { miles: `${whole}.${tenth}` };
+    paid = { miles: `${whole}.${tenth}`, ...(vehicleId ? { vehicleId } : {}) };
   } else {
     const amount = parseAmount(draft.amount);
     if (!amount) return { ok: false, reason: "Say what you paid in dollars and cents, like 42.50." };
@@ -73,6 +82,32 @@ export function checkExpenseDraft(draft: ExpenseDraft, today: string): CheckedEx
   if (description === "") return { ok: false, reason: "Say what it was for, so the office knows what it is paying back." };
   if (description.length > 300) return { ok: false, reason: "Say what it was for in a few words." };
   return { ok: true, ...paid, spentOn: draft.spentOn, description, jobId: draft.jobId } as CheckedExpense;
+}
+
+/**
+ * The vehicle choices for a claim in miles, from what the server said: "My own vehicle" first when the person or
+ * the company has a rate, then each company vehicle with a rate of its own and what it pays today. Empty when no
+ * vehicle has a rate of its own, and the screen shows no picker. Whether miles are offered at all is
+ * `milesOffered`.
+ */
+export function vehicleChoices(abilities: {
+  mileageRate?: string | null | undefined;
+  mileageVehicles?: ReadonlyArray<{ id: string; label: string; rateToday: string | null }> | undefined;
+}): { value: string; label: string }[] {
+  const vehicles = abilities.mileageVehicles ?? [];
+  if (vehicles.length === 0) return [];
+  return [
+    { value: "", label: abilities.mileageRate != null ? "My own vehicle" : "Pick one" },
+    ...vehicles.map((v) => ({ value: v.id, label: v.rateToday ? `${v.label}, $${v.rateToday} a mile` : v.label })),
+  ];
+}
+
+/** Whether a claim in miles is offered: a rate for the person or the company, or a vehicle with its own. */
+export function milesOffered(abilities: {
+  mileageRate?: string | null | undefined;
+  mileageVehicles?: ReadonlyArray<unknown> | undefined;
+}): boolean {
+  return abilities.mileageRate != null || (abilities.mileageVehicles?.length ?? 0) > 0;
 }
 
 /**
@@ -115,8 +150,13 @@ export async function recordExpense(phone: Phone, input: {
     subjectId: input.expenseId,
     occurredAt: at,
     payload: {
-      /** Miles go as miles: the server works them out at the company's rate on the day of the drive. */
-      ...(input.expense.miles !== undefined ? { miles: input.expense.miles } : { amount: input.expense.amount }),
+      /**
+       * Miles go as miles, with the vehicle when one was picked: the server works them out at the rate on the day
+       * of the drive (the vehicle's, the job's kind of work's, the person's, then the company's).
+       */
+      ...(input.expense.miles !== undefined
+        ? { miles: input.expense.miles, ...(input.expense.vehicleId ? { vehicleId: input.expense.vehicleId } : {}) }
+        : { amount: input.expense.amount }),
       spentOn: input.expense.spentOn,
       description: input.expense.description,
       ...(input.expense.jobId ? { jobId: input.expense.jobId } : {}),

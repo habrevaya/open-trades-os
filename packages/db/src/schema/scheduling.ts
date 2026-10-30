@@ -182,6 +182,15 @@ export const crew = pgTable("crew", {
   requiredAssetIds: jsonb("required_asset_ids").$type<string[]>().notNull().default([]),
   skills: jsonb("skills").$type<string[]>().notNull().default([]),
   color: text("color"),
+  /**
+   * The hours of this crew's working day, local time, when they are not the
+   * company's: a crew that starts at six to beat the heat, or works a short
+   * day. The rebalance (one day and several) plans the crew's day inside
+   * these and counts anything past `endsAt` as overtime, and a route's fit
+   * for a date measures the crew against them. Null is the company's day, as
+   * for a person (`technician.workday`).
+   */
+  workday: jsonb("workday").$type<{ startsAt: string; endsAt: string } | null>(),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({ orgIdx: index("crew_org_idx").on(t.organizationId) }));

@@ -51,13 +51,24 @@ const Settings = z.object({
   companyCanText: z.boolean(),
   digest: z.object({
     on: z.boolean(),
-    /** The company's morning hour, 0 to 23, when the digest goes: when its quiet hours end, or 8. */
+    /** The hour it goes, 0 to 23 in the company's time zone: your own where you chose one, else the company's morning hour. */
     hour: z.number().int(),
     /** The company day it was last decided on. */
     lastOn: z.string().nullable(),
     /** What happened then, in words: how many it listed, nothing unread, or why it could not go. */
     lastOutcome: z.string().nullable(),
   }),
+  /** Your own hour for the daily email. */
+  digestHour: z.object({
+    /** The hour you chose, or null for the company's morning hour. */
+    own: z.number().int().nullable(),
+    /** The company's morning hour: when its quiet hours end, or 8. */
+    company: z.number().int(),
+    /** The hours you may choose: from the company's morning hour, never inside its quiet hours. */
+    choices: z.array(z.number().int()),
+  }),
+  /** Your own turns on the office's on call rota, from today on. */
+  onCall: z.array(z.object({ startsOn: z.string(), endsOn: z.string(), today: z.boolean() })),
 });
 
 export const listMyNotices = defineRoute({
@@ -150,13 +161,14 @@ export const setMyNoticeDigest = defineRoute({
   path: "/v1/me/notice-digest",
   summary: "Turn your daily email of unread notices on or off",
   description:
-    "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8), an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. "
-    + "It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on.",
+    "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8) or at your own `hour`, an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. "
+    + "It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on. "
+    + "`hour` is your own hour of the company's day (one of `digestHour.choices`: from its morning hour, never inside its quiet hours); null goes back to the morning hour, and left out keeps what you had.",
   module: "M34",
   permissions: ["profile:own"],
   /** Setting a state: on twice is on. */
   idempotent: true,
-  input: z.object({ on: z.boolean() }),
+  input: z.object({ on: z.boolean(), hour: z.number().int().min(0).max(23).nullable().optional() }),
   output: Settings,
 });
 
@@ -238,7 +250,135 @@ export const setNoticeDefaults = defineRoute({
   output: z.object({ kinds: z.array(DefaultKind) }),
 });
 
+/* --------------------------------------------- on call for the office */
+
+const OnCallKind = z.enum(notices.ON_CALL_KINDS);
+const CompanyDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date");
+
+const OnCallTurn = z.object({
+  id: Uuid,
+  userId: Uuid,
+  name: z.string(),
+  /** The first and last company day of the turn, both included. */
+  startsOn: z.string(),
+  endsOn: z.string(),
+  note: z.string().nullable(),
+  /** Whether this turn covers the company's today. */
+  today: z.boolean(),
+});
+
+const OfficeOnCall = z.object({
+  today: z.string(),
+  kinds: z.array(z.object({ kind: OnCallKind, label: z.string(), description: z.string(), on: z.boolean() })),
+  /** Turns that cover today or a later day, soonest first. */
+  turns: z.array(OnCallTurn),
+  /** Who is on call today, by name. Empty means nobody, so everybody who handles a kind is told. */
+  onCallToday: z.array(z.string()),
+  /** Who can be put on the rota: working here and able to answer at least one of the three kinds. */
+  people: z.array(z.object({ userId: Uuid, name: z.string(), answers: z.array(OnCallKind) })),
+});
+
+export const getOfficeOnCall = defineRoute({
+  method: "get",
+  path: "/v1/office-on-call",
+  summary: "The office's on call rota, and which notices go to it",
+  description:
+    "A deadline about to be missed, a customer asking to change a visit and an automatic payment that failed tell everybody who handles them, "
+    + "unless the company sends that kind to whoever is on call. Off for each kind until switched on. "
+    + "Not the technicians' rota for customers' calls after hours (`/v1/on-call`).",
+  module: "M34",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: OfficeOnCall,
+});
+
+export const setOfficeOnCallKinds = defineRoute({
+  method: "patch",
+  path: "/v1/office-on-call",
+  summary: "Choose which notices go to whoever is on call",
+  description:
+    "The kinds listed go to the people on call that day who can answer them and open the record; the rest go to everybody who handles them. "
+    + "When nobody on call today can be told, everybody who handles it is told instead. An empty list is everybody for every kind, where every company starts. Audited.",
+  module: "M34",
+  permissions: ["settings:write"],
+  /** Setting a state. */
+  idempotent: true,
+  input: z.object({ kinds: z.array(OnCallKind).max(notices.ON_CALL_KINDS.length) }),
+  output: OfficeOnCall,
+});
+
+export const addOfficeOnCallTurn = defineRoute({
+  method: "post",
+  path: "/v1/office-on-call/turns",
+  summary: "Put somebody on call for the office",
+  description:
+    "A person who works here and can answer at least one of the three kinds, from a first to a last company day, both included, at most "
+    + `${notices.ON_CALL_MOST_DAYS} days, not over already. Two people on one day are both told. The same person for the same days again is the first answer. Audited.`,
+  module: "M34",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({
+    userId: Uuid,
+    startsOn: CompanyDay,
+    endsOn: CompanyDay,
+    note: z.string().max(300).nullable().optional(),
+  }),
+  output: OnCallTurn,
+});
+
+export const removeOfficeOnCallTurn = defineRoute({
+  method: "delete",
+  path: "/v1/office-on-call/turns/{id}",
+  summary: "Take a turn off the office's on call rota",
+  description: "The audit log keeps what it was. Removing one already gone answers `removed: false`.",
+  module: "M34",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, removed: z.boolean() }),
+});
+
+const Applied = z.object({
+  /** People who work here now. */
+  people: z.number().int(),
+  /** People at least one of whose kinds changes. */
+  changed: z.number().int(),
+  /** Kinds changed across everybody. */
+  kinds: z.number().int(),
+  /** People who keep at least one kind they chose themselves. */
+  keptOwn: z.number().int(),
+});
+
+export const previewNoticeDefaultsApplied = defineRoute({
+  method: "get",
+  path: "/v1/notice-defaults/apply",
+  summary: "What giving everybody the company's notice defaults would change",
+  description:
+    "Counts only, for the question asked before `POST /v1/notice-defaults/apply`: how many people would change, how many kinds, and how many keep a choice of their own.",
+  module: "M34",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: Applied,
+});
+
+export const applyNoticeDefaults = defineRoute({
+  method: "post",
+  path: "/v1/notice-defaults/apply",
+  summary: "Give everybody already here the company's notice defaults",
+  description:
+    "For every kind a person never chose on their own page, they get the company's defaults now: a kind copied onto them when they joined, or one they never had a row for. "
+    + "A kind they chose themselves is kept, and texts are never touched. `confirmed` must be true: ask first. Running it again changes nothing more. Audited.",
+  module: "M34",
+  permissions: ["settings:write"],
+  /** Applying twice is the same state. */
+  idempotent: true,
+  input: z.object({ confirmed: z.literal(true) }),
+  output: Applied,
+});
+
 export const staffNoticeRoutes = {
+  previewNoticeDefaultsApplied, applyNoticeDefaults,
+  getOfficeOnCall, setOfficeOnCallKinds, addOfficeOnCallTurn, removeOfficeOnCallTurn,
   getNoticeDefaults, setNoticeDefaults,
   listMyNotices, readMyNotices, getMyNoticeSettings, setMyNoticeSettings, setMyNoticeTexts, setMyNoticeDigest,
   getReadNoticeKeeping, setReadNoticeKeeping,

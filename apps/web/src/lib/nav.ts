@@ -547,6 +547,13 @@ export const NAV: NavGroup[] = [
            */
           { href: "/settings/holidays", label: "Holidays and rates" },
           /**
+           * Who hears about a deadline about to be missed, a visit change a
+           * customer asked for and a failed automatic payment: everybody who
+           * handles them, or whoever is on call that day. Inherits
+           * `settings:read` to be shown; changing it needs `settings:write`.
+           */
+          { href: "/settings/office-on-call", label: "Office on call" },
+          /**
            * How the company asks for reviews and how soon it answers them, and
            * the one reminder's words. Inherits `settings:read` to be shown;
            * saving needs `settings:write`, as `PUT /v1/reviews/policy` does.

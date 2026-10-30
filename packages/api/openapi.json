@@ -38623,8 +38623,8 @@
       ],
       "patch": {
         "operationId": "updateCrew",
-        "summary": "Change a crew's rate, kit or skills",
-        "description": "The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
+        "summary": "Change a crew's rate, kit, skills or hours",
+        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -38660,7 +38660,7 @@
         },
         "responses": {
           "200": {
-            "description": "Change a crew's rate, kit or skills",
+            "description": "Change a crew's rate, kit, skills or hours",
             "content": {
               "application/json": {
                 "schema": {
@@ -83364,7 +83364,7 @@
       "post": {
         "operationId": "recordExpense",
         "summary": "Record what you paid for the company",
-        "description": "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the rate in force on `spentOn`, to the cent: the line of the vehicle named in `vehicleId` first (`POST /v1/payroll/mileage-overrides`), then the person's own line, then the company's (`POST /v1/payroll/mileage-rates`), and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.\n\nRequires a session holding: expense:own.",
+        "description": "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the rate in force on `spentOn`, to the cent: the line of the vehicle named in `vehicleId` first (`POST /v1/payroll/mileage-overrides`), then the line for the kind of work (job type) of the job in `jobId`, then the person's own line, then the company's (`POST /v1/payroll/mileage-rates`), and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.\n\nRequires a session holding: expense:own.",
         "tags": [
           "M17"
         ],
@@ -83631,7 +83631,7 @@
       "post": {
         "operationId": "setMyNoticeDigest",
         "summary": "Turn your daily email of unread notices on or off",
-        "description": "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8), an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on.\n\nRequires a session holding: profile:own.",
+        "description": "Off until you turn it on. Once a day, at the company's morning hour (when its quiet hours end, or 8) or at your own `hour`, an email to the address you sign in with lists the notices on your bell you have not read and can still open, up to twenty and a count of the rest. Nothing is sent on a day nothing is unread. It goes through the company's own email, so with no email connected nothing goes and `digest.lastOutcome` says so. Only you can turn yours on. `hour` is your own hour of the company's day (one of `digestHour.choices`: from its morning hour, never inside its quiet hours); null goes back to the morning hour, and left out keeps what you had.\n\nRequires a session holding: profile:own.",
         "tags": [
           "M34"
         ],
@@ -87380,6 +87380,228 @@
         ]
       }
     },
+    "/v1/notice-defaults/apply": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "applyNoticeDefaults",
+        "summary": "Give everybody already here the company's notice defaults",
+        "description": "For every kind a person never chose on their own page, they get the company's defaults now: a kind copied onto them when they joined, or one they never had a row for. A kind they chose themselves is kept, and texts are never touched. `confirmed` must be true: ask first. Running it again changes nothing more. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyNoticeDefaultsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Give everybody already here the company's notice defaults",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyNoticeDefaultsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "get": {
+        "operationId": "previewNoticeDefaultsApplied",
+        "summary": "What giving everybody the company's notice defaults would change",
+        "description": "Counts only, for the question asked before `POST /v1/notice-defaults/apply`: how many people would change, how many kinds, and how many keep a choice of their own.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M34"
+        ],
+        "responses": {
+          "200": {
+            "description": "What giving everybody the company's notice defaults would change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewNoticeDefaultsAppliedOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
     "/v1/notice-keeping": {
       "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -88264,6 +88486,485 @@
         "x-authorization": "session",
         "x-permissions": [
           "task:write"
+        ]
+      }
+    },
+    "/v1/office-on-call": {
+      "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PATCH"
+      ],
+      "get": {
+        "operationId": "getOfficeOnCall",
+        "summary": "The office's on call rota, and which notices go to it",
+        "description": "A deadline about to be missed, a customer asking to change a visit and an automatic payment that failed tell everybody who handles them, unless the company sends that kind to whoever is on call. Off for each kind until switched on. Not the technicians' rota for customers' calls after hours (`/v1/on-call`).\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M34"
+        ],
+        "responses": {
+          "200": {
+            "description": "The office's on call rota, and which notices go to it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetOfficeOnCallOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "patch": {
+        "operationId": "setOfficeOnCallKinds",
+        "summary": "Choose which notices go to whoever is on call",
+        "description": "The kinds listed go to the people on call that day who can answer them and open the record; the rest go to everybody who handles them. When nobody on call today can be told, everybody who handles it is told instead. An empty list is everybody for every kind, where every company starts. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetOfficeOnCallKindsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Choose which notices go to whoever is on call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetOfficeOnCallKindsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/office-on-call/turns": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addOfficeOnCallTurn",
+        "summary": "Put somebody on call for the office",
+        "description": "A person who works here and can answer at least one of the three kinds, from a first to a last company day, both included, at most 366 days, not over already. Two people on one day are both told. The same person for the same days again is the first answer. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddOfficeOnCallTurnInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put somebody on call for the office",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddOfficeOnCallTurnOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/office-on-call/turns/{id}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeOfficeOnCallTurn",
+        "summary": "Take a turn off the office's on call rota",
+        "description": "The audit log keeps what it was. Removing one already gone answers `removed: false`.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M34"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveOfficeOnCallTurnInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a turn off the office's on call rota",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveOfficeOnCallTurnOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -91342,8 +92043,8 @@
       ],
       "post": {
         "operationId": "addMileageOverride",
-        "summary": "Set what one person or one vehicle is paid for a mile, from a day",
-        "description": "Exactly one of `technicianId` and `assetId` (a vehicle in the fleet that is not retired), then `from`, the first day it applies, and `perMile`, dollars to three decimals, at most 3.000. It works like the company's own rate: a claim made from then on for a drive on or after `from` is worked out at it, the vehicle's first, then the person's, then the company's, and a claim already made keeps the rate it was worked out at. A day that already has a rate for that person or vehicle is refused: take it off first. The same line sent again is the first answer back. A statement about what a person is owed, so `payroll:configure`. The rate is the company's choice; whether it is within what the tax authority allows without tax is the company's to check. Not posted to the ledger.\n\nRequires a session holding: payroll:configure.",
+        "summary": "Set what one person, one vehicle or one kind of work is paid for a mile, from a day",
+        "description": "Exactly one of `technicianId`, `assetId` (a vehicle in the fleet that is not retired) and `jobTypeId` (a kind of work in use, for claims for a job of that type), then `from`, the first day it applies, and `perMile`, dollars to three decimals, at most 3.000. It works like the company's own rate: a claim made from then on for a drive on or after `from` is worked out at it, the vehicle's first, then the kind of work's, then the person's, then the company's, and a claim already made keeps the rate it was worked out at. A day that already has a rate for that person, vehicle or kind of work is refused: take it off first. The same line sent again is the first answer back. A statement about what a person is owed, so `payroll:configure`. The rate is the company's choice; whether it is within what the tax authority allows without tax is the company's to check. Not posted to the ledger.\n\nRequires a session holding: payroll:configure.",
         "tags": [
           "M17"
         ],
@@ -91370,7 +92071,7 @@
         },
         "responses": {
           "201": {
-            "description": "Set what one person or one vehicle is paid for a mile, from a day",
+            "description": "Set what one person, one vehicle or one kind of work is paid for a mile, from a day",
             "content": {
               "application/json": {
                 "schema": {
@@ -91465,8 +92166,8 @@
       },
       "get": {
         "operationId": "listMileageOverrides",
-        "summary": "The mileage rates set for one person or one vehicle",
-        "description": "Every line, by person or vehicle and then oldest first. A claim in miles is worked out at the named vehicle's line in force on the day of the drive, else the person's, else the company's (`GET /v1/payroll/pay-extras`). A person's lines are shown to those whose timesheet scope reaches that person. Filter to one person or one vehicle with `technicianId` or `assetId`.\n\nRequires a session holding: timesheet:read.",
+        "summary": "The mileage rates set for one person, one vehicle or one kind of work",
+        "description": "Every line, by person, vehicle or kind of work and then oldest first. A claim in miles is worked out at the named vehicle's line in force on the day of the drive, else the line for the kind of work (job type) of the claim's job, else the person's, else the company's (`GET /v1/payroll/pay-extras`). A person's lines are shown to those whose timesheet scope reaches that person. Filter with `technicianId`, `assetId` or `jobTypeId`.\n\nRequires a session holding: timesheet:read.",
         "tags": [
           "M17"
         ],
@@ -91488,11 +92189,20 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "jobTypeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "The mileage rates set for one person or one vehicle",
+            "description": "The mileage rates set for one person, one vehicle or one kind of work",
             "content": {
               "application/json": {
                 "schema": {
@@ -91583,7 +92293,7 @@
       ],
       "post": {
         "operationId": "removeMileageOverride",
-        "summary": "Take a person's or a vehicle's mileage rate off",
+        "summary": "Take a person's, a vehicle's or a kind of work's mileage rate off",
         "description": "Claims already made keep the rate they were worked out at; claims made from then on fall to the next rate in line. Taking off a line that is not there changes nothing. `payroll:configure`.\n\nRequires a session holding: payroll:configure.",
         "tags": [
           "M17"
@@ -91620,7 +92330,7 @@
         },
         "responses": {
           "201": {
-            "description": "Take a person's or a vehicle's mileage rate off",
+            "description": "Take a person's, a vehicle's or a kind of work's mileage rate off",
             "content": {
               "application/json": {
                 "schema": {
@@ -154689,6 +155399,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "jobTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "from": {
             "type": "string",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
@@ -154719,7 +155433,8 @@
                   "type": "string",
                   "enum": [
                     "person",
-                    "vehicle"
+                    "vehicle",
+                    "work"
                   ]
                 },
                 "technicianId": {
@@ -154730,6 +155445,13 @@
                   "format": "uuid"
                 },
                 "assetId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobTypeId": {
                   "type": [
                     "string",
                     "null"
@@ -154755,6 +155477,7 @@
                 "kind",
                 "technicianId",
                 "assetId",
+                "jobTypeId",
                 "subjectName",
                 "from",
                 "perMile",
@@ -155264,6 +155987,75 @@
           "closesAt",
           "nextOn",
           "hours"
+        ]
+      },
+      "AddOfficeOnCallTurnInput": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startsOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "endsOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "userId",
+          "startsOn",
+          "endsOn"
+        ]
+      },
+      "AddOfficeOnCallTurnOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startsOn": {
+            "type": "string"
+          },
+          "endsOn": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "today": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "name",
+          "startsOn",
+          "endsOn",
+          "note",
+          "today"
         ]
       },
       "AddOnboardingTemplateItemInput": {
@@ -158856,6 +159648,43 @@
           "moved",
           "reordered",
           "told"
+        ]
+      },
+      "ApplyNoticeDefaultsInput": {
+        "type": "object",
+        "properties": {
+          "confirmed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "confirmed"
+        ]
+      },
+      "ApplyNoticeDefaultsOutput": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "integer"
+          },
+          "changed": {
+            "type": "integer"
+          },
+          "kinds": {
+            "type": "integer"
+          },
+          "keptOwn": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "people",
+          "changed",
+          "kinds",
+          "keptOwn"
         ]
       },
       "ApplyPaymentInput": {
@@ -170135,6 +170964,26 @@
               "null"
             ],
             "maxLength": 20
+          },
+          "workday": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "endsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt"
+            ]
           }
         },
         "required": [
@@ -181346,10 +182195,17 @@
             "enum": [
               "company",
               "person",
-              "vehicle"
+              "vehicle",
+              "work"
             ]
           },
           "mileageVehicle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mileageWork": {
             "type": [
               "string",
               "null"
@@ -181431,6 +182287,7 @@
           "mileageRate",
           "mileageRateSource",
           "mileageVehicle",
+          "mileageWork",
           "spentOn",
           "description",
           "status",
@@ -201108,6 +201965,35 @@
                   "string",
                   "null"
                 ]
+              },
+              "mileageVehicles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "rateToday": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "rateToday"
+                  ]
+                }
+              },
+              "mileageWork": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -201120,7 +202006,9 @@
               "financing",
               "assistant",
               "expenses",
-              "mileageRate"
+              "mileageRate",
+              "mileageVehicles",
+              "mileageWork"
             ]
           },
           "expenses": {
@@ -204526,10 +205414,17 @@
                   "enum": [
                     "company",
                     "person",
-                    "vehicle"
+                    "vehicle",
+                    "work"
                   ]
                 },
                 "mileageVehicle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mileageWork": {
                   "type": [
                     "string",
                     "null"
@@ -204611,6 +205506,7 @@
                 "mileageRate",
                 "mileageRateSource",
                 "mileageVehicle",
+                "mileageWork",
                 "spentOn",
                 "description",
                 "status",
@@ -209146,6 +210042,53 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -209153,7 +210096,9 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "digestHour",
+          "onCall"
         ]
       },
       "GetMyPayStatementsOutput": {
@@ -210775,6 +211720,132 @@
           "ownWeek",
           "ownHolidays",
           "routedBy"
+        ]
+      },
+      "GetOfficeOnCallOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "task_deadline",
+                    "visit_change_requested",
+                    "autopay_failed"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "label",
+                "description",
+                "on"
+              ]
+            }
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "userId",
+                "name",
+                "startsOn",
+                "endsOn",
+                "note",
+                "today"
+              ]
+            }
+          },
+          "onCallToday": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "answers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "task_deadline",
+                      "visit_change_requested",
+                      "autopay_failed"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "userId",
+                "name",
+                "answers"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "kinds",
+          "turns",
+          "onCallToday",
+          "people"
         ]
       },
       "GetOnCallNowOutput": {
@@ -232010,6 +233081,26 @@
                     "null"
                   ]
                 },
+                "workday": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "startsAt": {
+                      "type": "string",
+                      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                    },
+                    "endsAt": {
+                      "type": "string",
+                      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                    }
+                  },
+                  "required": [
+                    "startsAt",
+                    "endsAt"
+                  ]
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -232051,6 +233142,7 @@
                 "requiredAssetIds",
                 "skills",
                 "color",
+                "workday",
                 "active",
                 "members"
               ]
@@ -235461,10 +236553,17 @@
                   "enum": [
                     "company",
                     "person",
-                    "vehicle"
+                    "vehicle",
+                    "work"
                   ]
                 },
                 "mileageVehicle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mileageWork": {
                   "type": [
                     "string",
                     "null"
@@ -235546,6 +236645,7 @@
                 "mileageRate",
                 "mileageRateSource",
                 "mileageVehicle",
+                "mileageWork",
                 "spentOn",
                 "description",
                 "status",
@@ -240433,7 +241533,8 @@
                   "type": "string",
                   "enum": [
                     "person",
-                    "vehicle"
+                    "vehicle",
+                    "work"
                   ]
                 },
                 "technicianId": {
@@ -240444,6 +241545,13 @@
                   "format": "uuid"
                 },
                 "assetId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobTypeId": {
                   "type": [
                     "string",
                     "null"
@@ -240469,6 +241577,7 @@
                 "kind",
                 "technicianId",
                 "assetId",
+                "jobTypeId",
                 "subjectName",
                 "from",
                 "perMile",
@@ -240660,10 +241769,17 @@
                   "enum": [
                     "company",
                     "person",
-                    "vehicle"
+                    "vehicle",
+                    "work"
                   ]
                 },
                 "mileageVehicle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mileageWork": {
                   "type": [
                     "string",
                     "null"
@@ -240745,6 +241861,7 @@
                 "mileageRate",
                 "mileageRateSource",
                 "mileageVehicle",
+                "mileageWork",
                 "spentOn",
                 "description",
                 "status",
@@ -240869,6 +241986,32 @@
                 "rateToday"
               ]
             }
+          },
+          "work": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "rateToday": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "rateToday"
+              ]
+            }
           }
         },
         "required": [
@@ -240876,7 +242019,8 @@
           "expenses",
           "perDiems",
           "mileageRate",
-          "vehicles"
+          "vehicles",
+          "work"
         ]
       },
       "ListMyNoticesOutput": {
@@ -260391,6 +261535,29 @@
           "missing"
         ]
       },
+      "PreviewNoticeDefaultsAppliedOutput": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "integer"
+          },
+          "changed": {
+            "type": "integer"
+          },
+          "kinds": {
+            "type": "integer"
+          },
+          "keptOwn": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "people",
+          "changed",
+          "kinds",
+          "keptOwn"
+        ]
+      },
       "PreviewPriceChangeOutput": {
         "type": "object",
         "properties": {
@@ -265180,10 +266347,17 @@
             "enum": [
               "company",
               "person",
-              "vehicle"
+              "vehicle",
+              "work"
             ]
           },
           "mileageVehicle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mileageWork": {
             "type": [
               "string",
               "null"
@@ -265265,6 +266439,7 @@
           "mileageRate",
           "mileageRateSource",
           "mileageVehicle",
+          "mileageWork",
           "spentOn",
           "description",
           "status",
@@ -271117,7 +272292,8 @@
                   "type": "string",
                   "enum": [
                     "person",
-                    "vehicle"
+                    "vehicle",
+                    "work"
                   ]
                 },
                 "technicianId": {
@@ -271128,6 +272304,13 @@
                   "format": "uuid"
                 },
                 "assetId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobTypeId": {
                   "type": [
                     "string",
                     "null"
@@ -271153,6 +272336,7 @@
                 "kind",
                 "technicianId",
                 "assetId",
+                "jobTypeId",
                 "subjectName",
                 "from",
                 "perMile",
@@ -271385,6 +272569,26 @@
           }
         },
         "required": [
+          "removed"
+        ]
+      },
+      "RemoveOfficeOnCallTurnInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveOfficeOnCallTurnOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
           "removed"
         ]
       },
@@ -286454,6 +287658,14 @@
         "properties": {
           "on": {
             "type": "boolean"
+          },
+          "hour": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 23
           }
         },
         "required": [
@@ -286581,6 +287793,53 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -286588,7 +287847,9 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "digestHour",
+          "onCall"
         ]
       },
       "SetMyNoticeSettingsInput": {
@@ -286764,6 +288025,53 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -286771,7 +288079,9 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "digestHour",
+          "onCall"
         ]
       },
       "SetMyNoticeTextsInput": {
@@ -286916,6 +288226,53 @@
               "lastOn",
               "lastOutcome"
             ]
+          },
+          "digestHour": {
+            "type": "object",
+            "properties": {
+              "own": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "company": {
+                "type": "integer"
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "own",
+              "company",
+              "choices"
+            ]
+          },
+          "onCall": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "startsOn",
+                "endsOn",
+                "today"
+              ]
+            }
           }
         },
         "required": [
@@ -286923,7 +288280,9 @@
           "texts",
           "phones",
           "companyCanText",
-          "digest"
+          "digest",
+          "digestHour",
+          "onCall"
         ]
       },
       "SetMyOnboardingLineInput": {
@@ -287649,6 +289008,152 @@
           "menuId",
           "adopted",
           "businessUnitId"
+        ]
+      },
+      "SetOfficeOnCallKindsInput": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "task_deadline",
+                "visit_change_requested",
+                "autopay_failed"
+              ]
+            },
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "kinds"
+        ]
+      },
+      "SetOfficeOnCallKindsOutput": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "task_deadline",
+                    "visit_change_requested",
+                    "autopay_failed"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "label",
+                "description",
+                "on"
+              ]
+            }
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "today": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "userId",
+                "name",
+                "startsOn",
+                "endsOn",
+                "note",
+                "today"
+              ]
+            }
+          },
+          "onCallToday": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "answers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "task_deadline",
+                      "visit_change_requested",
+                      "autopay_failed"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "userId",
+                "name",
+                "answers"
+              ]
+            }
+          }
+        },
+        "required": [
+          "today",
+          "kinds",
+          "turns",
+          "onCallToday",
+          "people"
         ]
       },
       "SetOnboardingLineInput": {
@@ -300332,6 +301837,26 @@
               "null"
             ],
             "maxLength": 20
+          },
+          "workday": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "endsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt"
+            ]
           },
           "active": {
             "type": "boolean"

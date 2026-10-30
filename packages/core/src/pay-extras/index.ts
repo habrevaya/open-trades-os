@@ -231,20 +231,37 @@ export function mileageRateOn(rates: readonly MileageRate[], day: string): Milea
   return found;
 }
 
-/** Where the rate a claim was worked out at came from: a vehicle's own line, a person's own line, or the company's. */
-export type MileageRateSource = "vehicle" | "person" | "company";
+/**
+ * Where the rate a claim was worked out at came from: a vehicle's own line, the line for the kind of work the
+ * claim's job is (its job type), a person's own line, or the company's.
+ */
+export type MileageRateSource = "vehicle" | "work" | "person" | "company";
 
 /**
- * The rate for a mile on a day, narrowest first: the vehicle's line in force that day, else the person's, else
- * the company's. A vehicle or a person with lines but none started by the day is passed over, not refused,
- * so adding a rate from next month changes nothing before it. Null when nothing at all has started.
+ * The rate for a mile on a day, narrowest first: the vehicle's line in force that day, else the line for the kind
+ * of work the claim's job is, else the person's, else the company's.
+ *
+ * WHY THAT ORDER. The vehicle is what was driven, and a vehicle that costs more or less to run is the most
+ * particular fact about a mile. The kind of work is what the drive was for (a trailer to an install, a long run to
+ * a commercial site), particular to this claim. A person's own line is a standing arrangement for all their
+ * driving, so it gives way to both. The company's rate is everybody's, last.
+ *
+ * A vehicle, a kind of work or a person with lines but none started by the day is passed over, not refused, so
+ * adding a rate from next month changes nothing before it. Null when nothing at all has started.
  */
 export function resolveMileageRate(
   day: string,
-  lines: { vehicle?: readonly MileageRate[] | undefined; person?: readonly MileageRate[] | undefined; company: readonly MileageRate[] },
+  lines: {
+    vehicle?: readonly MileageRate[] | undefined;
+    work?: readonly MileageRate[] | undefined;
+    person?: readonly MileageRate[] | undefined;
+    company: readonly MileageRate[];
+  },
 ): { rate: MileageRate; source: MileageRateSource } | null {
   const vehicle = mileageRateOn(lines.vehicle ?? [], day);
   if (vehicle) return { rate: vehicle, source: "vehicle" };
+  const work = mileageRateOn(lines.work ?? [], day);
+  if (work) return { rate: work, source: "work" };
   const person = mileageRateOn(lines.person ?? [], day);
   if (person) return { rate: person, source: "person" };
   const company = mileageRateOn(lines.company, day);

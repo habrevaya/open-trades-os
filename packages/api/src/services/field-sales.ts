@@ -655,9 +655,11 @@ export async function recordExpense(tx: Database, ctx: ServiceContext, op: field
   const spentOn = typeof op.payload["spentOn"] === "string" ? op.payload["spentOn"] : "";
   const description = typeof op.payload["description"] === "string" ? op.payload["description"] : "";
   const jobId = uuid(op.payload["jobId"]);
+  /** The vehicle named on a claim in miles, from the list the phone was given. Checked again by the claim itself. */
+  const vehicleId = uuid(op.payload["vehicleId"]) ?? undefined;
   return savepoint(tx, async (sp) => {
     await expenses.recordWithin(sp, ctx, technicianId, {
-      id, jobId, amount, miles, spentOn, description, recordedAt: op.occurredAt,
+      id, jobId, amount, miles, spentOn, description, recordedAt: op.occurredAt, ...(vehicleId ? { vehicleId } : {}),
     });
     return null;
   });
@@ -1014,12 +1016,20 @@ export async function abilitiesFor(tx: Database, ctx: ServiceContext, technician
     expenses: can(ctx.actor, "expense:own"),
     /**
      * The rate in force today in the company's zone for this person (their own line, else the company's), so the
-     * phone offers miles only when there is one. The phone does not name a vehicle: a claim from it is worked
-     * out at the person's rate or the company's, and the office sees which on the claim.
+     * phone offers miles only when there is one, and the vehicles with a rate of their own that a claim may name.
+     * The server works a claim out at the rate on the day of the drive: the vehicle's, the job's kind of work's,
+     * the person's, then the company's, and the office sees which on the claim.
      */
-    mileageRate: (await mileageOverrides.resolveWithin(tx, ctx.actor.organizationId, {
-      day: time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)), technicianId: technicianId ?? ctx.actor.technicianId ?? null,
-    }))?.rate.perMile ?? null,
+    ...await (async () => {
+      const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+      const own = technicianId ?? ctx.actor.technicianId ?? null;
+      const work = own && can(ctx.actor, "expense:own") ? await mileageOverrides.workWithinRates(tx, ctx.actor.organizationId, today) : [];
+      return {
+        mileageRate: (await mileageOverrides.resolveWithin(tx, ctx.actor.organizationId, { day: today, technicianId: own }))?.rate.perMile ?? null,
+        mileageVehicles: own && can(ctx.actor, "expense:own") ? await mileageOverrides.vehiclesWithinRates(tx, ctx.actor.organizationId, today) : [],
+        mileageWork: work.some((w) => w.rateToday !== null),
+      };
+    })(),
   };
 }
 

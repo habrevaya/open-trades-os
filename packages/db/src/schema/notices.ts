@@ -83,6 +83,14 @@ export const staffNoticeSetting = pgTable("staff_notice_setting", {
    * ever reads it.
    */
   email: boolean("email"),
+  /**
+   * Whether the person chose these switches themselves on `/me`. False for a
+   * row the company's defaults copied onto them when they joined and they have
+   * not changed since. "Apply the defaults to everybody" replaces only rows
+   * that are false here (and fills in kinds with no row), never a choice the
+   * person made.
+   */
+  chosen: boolean("chosen").notNull().default(true),
   ...timestamps,
 }, (t) => ({
   kindIdx: uniqueIndex("staff_notice_setting_kind_idx").on(t.organizationId, t.userId, t.kind),
@@ -131,6 +139,13 @@ export const staffNoticeDigest = pgTable("staff_notice_digest", {
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
+  /**
+   * The hour of the company's day they want it, 0 to 23 in the company's time
+   * zone. Null is the company's morning hour (when its quiet hours end, or 8).
+   * Only an hour inside the company's day and outside its quiet hours is
+   * saved; one the company's quiet hours later cover goes at the morning hour.
+   */
+  hour: integer("hour"),
   /** The company day the last digest was decided on. */
   lastOn: date("last_on"),
   /** When the last one was put in the company's email outbox. */
@@ -227,4 +242,39 @@ export const staffNoticeDelivery = pgTable("staff_notice_delivery", {
 }, (t) => ({
   targetIdx: uniqueIndex("staff_notice_delivery_target_idx").on(t.noticeId, t.channel, t.target),
   statusIdx: index("staff_notice_delivery_status_idx").on(t.organizationId, t.status, t.createdAt),
+}));
+
+/**
+ * ONE TURN ON THE OFFICE'S ON CALL ROTA.
+ *
+ * Not `on_call_rotation`, which is the technicians' rota for customers'
+ * calls after hours (M09): that one names a technician and a branch by the
+ * minute, and the people who answer the office queue mostly have no
+ * technician record at all. This one is a person who works here and the
+ * company days they cover, first and last day both
+ * included. The three notices the office queue raises (a deadline about to be
+ * missed, a customer asking to change a visit, an automatic payment that
+ * failed) go to whoever is on call that day, for each kind the company sends
+ * to its rota (`organization.settings.officeOnCall.kinds`), and to everybody who
+ * handles them when nobody on call can be told. Two turns on one day are two
+ * people on call, both told.
+ *
+ * Removed outright, with the turn kept in the audit line, because the notices
+ * it sent are their own record of who was told.
+ */
+export const officeOnCall = pgTable("office_on_call", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  /** The first company day of the turn. */
+  startsOn: date("starts_on").notNull(),
+  /** The last company day of the turn, included. */
+  endsOn: date("ends_on").notNull(),
+  note: text("note"),
+  ...timestamps,
+}, (t) => ({
+  /** The same person for the same days once: adding it again is the first answer. */
+  turnIdx: uniqueIndex("office_on_call_turn_idx").on(t.organizationId, t.userId, t.startsOn, t.endsOn),
+  /** Who is on call on a day. */
+  dayIdx: index("office_on_call_day_idx").on(t.organizationId, t.endsOn, t.startsOn),
 }));

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  checkExpenseDraft, expenseFigure, recordExpense, todayIn, type DayExpense, type KeptReceipt,
+  checkExpenseDraft, expenseFigure, milesOffered, recordExpense, todayIn, vehicleChoices, type DayExpense, type KeptReceipt,
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { Button, Card, Field, Notice } from "../components/ui";
@@ -30,8 +30,13 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
 
   /** What the company pays for one mile today, or null when it has set none, which hides the claim in miles. */
   const mileageRate = field.view?.abilities?.mileageRate ?? null;
+  /** The company vehicles with a rate of their own, after "My own vehicle"; empty when there are none. */
+  const vehicles = vehicleChoices(field.view?.abilities ?? {});
+  const offerMiles = milesOffered(field.view?.abilities ?? {});
+  const workRates = field.view?.abilities?.mileageWork ?? false;
   const [amount, setAmount] = useState("");
   const [miles, setMiles] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
   const [what, setWhat] = useState("");
   const [day, setDay] = useState(today);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -51,7 +56,7 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
 
   const save = async () => {
     setSaved(false);
-    const checked = checkExpenseDraft({ amount, miles, spentOn: day, description: what, jobId }, today);
+    const checked = checkExpenseDraft({ amount, miles, vehicleId, spentOn: day, description: what, jobId }, today);
     if (!checked.ok) { setProblem(checked.reason); return; }
     setProblem(null);
     const job = jobs.find((v) => v.jobId === jobId);
@@ -61,7 +66,7 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
       jobNumber: job?.jobNumber ?? null,
       ...(receipt ? { receipt } : {}),
     }));
-    setAmount(""); setMiles(""); setWhat(""); setReceipt(null); setJobId(null); setDay(today);
+    setAmount(""); setMiles(""); setVehicleId(""); setWhat(""); setReceipt(null); setJobId(null); setDay(today);
     setSaved(true);
   };
 
@@ -76,13 +81,26 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
 
         <Card>
           <Field label="What you paid" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="42.50" />
-          {mileageRate !== null ? (
+          {offerMiles ? (
             <>
               <Field label="Or the miles you drove" value={miles} onChangeText={setMiles} keyboardType="decimal-pad" placeholder="18.4" />
               <Text style={type.soft}>
-                Your own vehicle. Fill in the miles or what you paid, not both. Miles are paid at ${mileageRate} a mile,
-                the rate for the day you drove, and the office sees the amount.
+                {mileageRate !== null
+                  ? `Your own vehicle. Fill in the miles or what you paid, not both. Miles are paid at $${mileageRate} a mile, the rate for the day you drove, and the office sees the amount.`
+                  : "Fill in the miles or what you paid, not both. Miles are paid at the rate for the vehicle you pick."}
+                {workRates ? " A job whose kind of work has its own rate is paid at that rate." : ""}
               </Text>
+              {vehicles.length > 0 ? (
+                <>
+                  <Text style={[type.label, { marginTop: space.md }]}>Which vehicle</Text>
+                  <View style={styles.chips}>
+                    {vehicles.map((v) => (
+                      <Button key={v.value || "own"} label={v.label}
+                              kind={vehicleId === v.value ? "primary" : "secondary"} onPress={() => setVehicleId(v.value)} />
+                    ))}
+                  </View>
+                </>
+              ) : null}
             </>
           ) : null}
           <Field label="What it was for" value={what} onChangeText={setWhat} placeholder="Capacitor from the supply house" />

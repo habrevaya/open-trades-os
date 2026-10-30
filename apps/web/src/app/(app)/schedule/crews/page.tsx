@@ -123,6 +123,16 @@ export default async function CrewsPage() {
                 </select>
               </ActionForm>
             )}
+            {/*
+              The crew's own working day, which the rebalance and a route's fit
+              plan it in. Both empty goes back to the company's day.
+            */}
+            <ActionForm op="hours" label="Save hours" quiet hidden={{ id: row.id }}>
+              <input type="time" name="startsAt" className={input} aria-label={`${row.name} starts at`}
+                     defaultValue={row.workday?.startsAt ?? ""} />
+              <input type="time" name="endsAt" className={input} aria-label={`${row.name} finishes at`}
+                     defaultValue={row.workday?.endsAt ?? ""} />
+            </ActionForm>
             {row.active
               ? <ActionForm op="retire" label="Retire" quiet hidden={{ id: row.id }} />
               : <ActionForm op="restore" label="Bring back" quiet hidden={{ id: row.id }} />}

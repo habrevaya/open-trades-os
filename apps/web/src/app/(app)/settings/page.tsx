@@ -18,7 +18,7 @@ import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
-import { saveNoticeDefaults, setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
+import { applyNoticeDefaults, saveNoticeDefaults, setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
 import { HoldNudgeRules, holdAssignOptions } from "./HoldNudgeRules";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +85,8 @@ export default async function SettingsPage() {
   const holdRules = holdNudge ? (await jobHolds.listRules(ctx)).data : [];
   const keeping = writes ? await noticeUpkeep.keeping(ctx) : null;
   const noticeStart = writes ? await noticeDefaults.defaults(ctx) : null;
+  /** What giving these to everybody already here would change, for the question asked before it is done. */
+  const applying = writes ? await noticeDefaults.applyPreview(ctx) : null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-6">
@@ -203,7 +205,8 @@ export default async function SettingsPage() {
           <p className="mt-1 max-w-prose text-sm text-ink-500">
             Where each kind of notice reaches a person you add from now on. They can change their own on their page.
             People already here keep what they have. Texts are not here: a person turns those on themselves, with
-            their own number.
+            their own number. Who hears about deadlines, visit changes and failed automatic payments is on{" "}
+            <a href="/settings/office-on-call" className="underline underline-offset-4">Office on call</a>.
           </p>
           <ActionForm action={saveNoticeDefaults} submit="Save" className="mt-3 space-y-3">
             <Table head={<><Th>Notice</Th><Th>In the app</Th><Th>Phone app</Th><Th>Email</Th></>}>
@@ -221,6 +224,26 @@ export default async function SettingsPage() {
               ))}
             </Table>
           </ActionForm>
+          {applying ? (
+            <div aria-label="People already here" role="group" className="mt-6 border-t border-steel-200 pt-4">
+              <h3 className="text-sm font-semibold text-ink-900">Give these to people already here</h3>
+              <p className="mt-1 max-w-prose text-sm text-ink-500">
+                {applying.changed === 0
+                  ? "Everybody already has these, or chose their own."
+                  : `${applying.changed} of ${applying.people} ${applying.people === 1 ? "person" : "people"} would change.`}
+                {" "}A choice a person made on their own page is kept
+                {applying.keptOwn > 0 ? ` (${applying.keptOwn} ${applying.keptOwn === 1 ? "person has" : "people have"} some)` : ""}.
+                {" "}Texts are not changed. Save the table above first: this gives what is saved.
+              </p>
+              {/* Always drawn, so what it did stays on screen after the page shows nobody left to change. */}
+              <ActionForm action={applyNoticeDefaults} submit="Apply to everybody" tone="quiet" className="mt-3 space-y-2">
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" name="confirmed" value="yes" required className="mt-0.5 h-4 w-4" />
+                  <span>Yes, give everybody these, except where they chose their own.</span>
+                </label>
+              </ActionForm>
+            </div>
+          ) : null}
         </section>
       )}
 

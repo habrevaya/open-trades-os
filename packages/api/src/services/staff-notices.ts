@@ -17,6 +17,7 @@ import { publicBaseUrl } from "./setup-tokens";
 import * as email from "./email";
 import { forgetToken } from "./push";
 import { within } from "./workflow-schedule";
+import { myTurns, onCallToday } from "./office-on-call";
 import { readerFor } from "../secrets/store";
 import { ExpoPushProvider, type PushProvider, type PushTicket } from "../push/provider";
 import type { MessagingProvider } from "../comms/provider";
@@ -219,7 +220,8 @@ export interface RaiseInput {
 
 export type RaiseOutcome =
   | { told: true; noticeId: string; channels: ("in_app" | "push" | "text" | "email")[] }
-  | { told: false; reason: string };
+  /** `already` when this person was told about this before: not told now, and not a reason to tell somebody else instead. */
+  | { told: false; reason: string; already?: true };
 
 /**
  * Tell one person one thing, inside the caller's transaction.
@@ -239,7 +241,7 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
       eq(schema.staffNotice.userId, input.userId),
       eq(schema.staffNotice.sourceKey, input.key),
     )).limit(1);
-  if (already) return { told: false, reason: "They were told already." };
+  if (already) return { told: false, reason: "They were told already.", already: true };
 
   const actor = await memberActor(tx, input.organizationId, input.userId);
   if (!actor || actor.readOnly) return { told: false, reason: "They do not work here now." };
@@ -264,7 +266,7 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
     href,
     inApp: switches.inApp,
   }).onConflictDoNothing().returning({ id: schema.staffNotice.id });
-  if (!notice) return { told: false, reason: "They were told already." };
+  if (!notice) return { told: false, reason: "They were told already.", already: true };
 
   const channels: ("in_app" | "push" | "text" | "email")[] = switches.inApp ? ["in_app"] : [];
 
@@ -324,23 +326,48 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
  * notice each, and a retry or a second look tells nobody twice. Returns how
  * many people were told.
  *
+ * WHOEVER IS ON CALL, WHERE THE COMPANY SAYS SO. A company that sends this
+ * kind to its office rota (`office-on-call.ts`) tells only the people on call
+ * today who hold the permission and can open the record. When none of them
+ * can be told (nobody is on call, or the person on call cannot answer it),
+ * everybody who handles it is told instead, so a gap in the rota never leaves
+ * it unheard. A person on call who was told already counts as told, so a
+ * second look does not spill over to everybody.
+ *
  * Inside the caller's transaction, so the notices exist if and only if the
  * task they are about does.
  */
 export async function raiseToHolders(
   tx: Database,
-  input: Omit<RaiseInput, "userId"> & { kind: "task_deadline" | "visit_change_requested" | "autopay_failed" },
+  input: Omit<RaiseInput, "userId"> & { kind: "task_deadline" | "visit_change_requested" | "autopay_failed"; now?: Date | undefined },
 ): Promise<number> {
   const permission = rules.QUEUE_KIND_HANDLER[input.kind];
   if (!permission) return 0;
+  const { now, ...raise } = input;
   const members = await tx.select({ userId: schema.membership.userId }).from(schema.membership)
     .where(and(eq(schema.membership.organizationId, input.organizationId), eq(schema.membership.active, true)))
     .orderBy(asc(schema.membership.createdAt));
-  let told = 0;
+  const holders: string[] = [];
   for (const member of members) {
     const actor = await memberActor(tx, input.organizationId, member.userId);
-    if (!actor || !can(actor, permission)) continue;
-    const outcome = await raiseWithin(tx, { ...input, userId: member.userId });
+    if (actor && can(actor, permission)) holders.push(member.userId);
+  }
+
+  const onCall = await onCallToday(tx, input.organizationId, input.kind, now ?? new Date());
+  if (onCall) {
+    let told = 0;
+    let reached = false;
+    for (const userId of holders.filter((h) => onCall.includes(h))) {
+      const outcome = await raiseWithin(tx, { ...raise, userId });
+      if (outcome.told) told += 1;
+      if (outcome.told || outcome.already) reached = true;
+    }
+    if (reached) return told;
+  }
+
+  let told = 0;
+  for (const userId of holders) {
+    const outcome = await raiseWithin(tx, { ...raise, userId });
     if (outcome.told) told += 1;
   }
   return told;
@@ -494,12 +521,23 @@ export interface NoticeSettingsView {
   /** The daily email of unread notices: off until the person turns it on. */
   digest: {
     on: boolean;
-    /** The company's morning hour, when it goes: the end of its quiet hours, or 8. */
+    /** The hour it goes: their own where they chose one still inside the company's day, else the company's morning hour. */
     hour: number;
     /** The company day it was last decided on, and what happened, in words. */
     lastOn: string | null;
     lastOutcome: string | null;
   };
+  /** The hour of the digest they may choose, beside `digest` so its shape stays as it was. */
+  digestHour: {
+    /** The hour they chose, or null for the company's morning hour. */
+    own: number | null;
+    /** The company's morning hour: the end of its quiet hours, or 8. */
+    company: number;
+    /** The hours they may choose: inside the company's day, outside its quiet hours. */
+    choices: number[];
+  };
+  /** The person's own turns on the office's on call rota, from today on (`office-on-call.ts`). */
+  onCall: { startsOn: string; endsOn: string; today: boolean }[];
 }
 
 async function consentWithin(tx: Database, userId: string) {
@@ -542,10 +580,16 @@ async function settingsWithin(tx: Database, ctx: ServiceContext): Promise<Notice
     companyCanText: Boolean(sender?.smsRegistered),
     digest: {
       on: digest?.enabled ?? false,
-      hour: rules.digestHour(quiet.window),
+      hour: rules.digestHourFor(digest?.hour ?? null, quiet.window),
       lastOn: digest?.lastOn ?? null,
       lastOutcome: digest?.lastOutcome ?? null,
     },
+    digestHour: {
+      own: digest?.hour ?? null,
+      company: rules.digestHour(quiet.window),
+      choices: rules.digestHourChoices(quiet.window),
+    },
+    onCall: await myTurns(tx, ctx.actor.organizationId, ctx.actor.userId),
   };
 }
 
@@ -579,15 +623,30 @@ export function setSwitches(
         throw new ConflictError("Turn on texts with your mobile number first, then choose what comes by text.");
       }
     }
+    const had = await tx.select().from(schema.staffNoticeSetting)
+      .where(eq(schema.staffNoticeSetting.userId, ctx.actor.userId));
     for (const k of input.kinds) {
+      const kind = k.kind as rules.NoticeKind;
       /** Only a kind that is emailed keeps a choice; the others never read it. */
-      const emailSwitch = rules.isEmailKind(k.kind as rules.NoticeKind) && k.email !== undefined ? { email: k.email } : {};
+      const emailSwitch = rules.isEmailKind(kind) && k.email !== undefined ? { email: k.email } : {};
+      /**
+       * A kind is the person's own choice once they change it, or once they
+       * already had. The page sends every kind at once, so a kind sent back
+       * exactly as it was is not a choice they made, and the company's
+       * defaults may still be applied to it later.
+       */
+      const row = had.find((r) => r.kind === kind);
+      const before = { ...rules.switchesFor(had, kind), email: rules.emailFor(had, kind) };
+      const differs = before.inApp !== k.inApp || before.push !== k.push || before.text !== k.text
+        || (rules.isEmailKind(kind) && k.email !== undefined && before.email !== k.email);
+      const chosen = (row?.chosen ?? false) || differs;
+      if (!row && !differs) continue;
       await tx.insert(schema.staffNoticeSetting).values({
         organizationId: ctx.actor.organizationId, userId: ctx.actor.userId,
-        kind: k.kind, inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch,
+        kind: k.kind, inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch, chosen,
       }).onConflictDoUpdate({
         target: [schema.staffNoticeSetting.organizationId, schema.staffNoticeSetting.userId, schema.staffNoticeSetting.kind],
-        set: { inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch, updatedAt: new Date() },
+        set: { inApp: k.inApp, push: k.push, text: k.text, ...emailSwitch, chosen, updatedAt: new Date() },
       });
     }
     return settingsWithin(tx, ctx);
@@ -664,20 +723,42 @@ export function setTexts(
  * already went does not send a second one that day; the next morning's does.
  * Audited, like their texts.
  */
-export function setDigest(ctx: ServiceContext, input: { on: boolean }): Promise<NoticeSettingsView> {
+export function setDigest(
+  ctx: ServiceContext, input: { on: boolean; hour?: number | null | undefined },
+): Promise<NoticeSettingsView> {
   return guardedWrite(ctx, "profile:own", async (tx) => {
     mustBePerson(ctx);
-    const [before] = await tx.select({ enabled: schema.staffNoticeDigest.enabled }).from(schema.staffNoticeDigest)
+    const [before] = await tx.select({ enabled: schema.staffNoticeDigest.enabled, hour: schema.staffNoticeDigest.hour })
+      .from(schema.staffNoticeDigest)
       .where(eq(schema.staffNoticeDigest.userId, ctx.actor.userId)).limit(1);
-    if ((before?.enabled ?? false) === input.on) return settingsWithin(tx, ctx);
+    /**
+     * THEIR OWN HOUR, when they send one: an hour of the company's day, after
+     * its morning hour and outside its quiet hours. Null goes back to the
+     * company's morning hour. Left out keeps what they had.
+     */
+    const hourSent = input.hour !== undefined;
+    if (hourSent) {
+      const quiet = await quietHoursFor(tx, ctx.actor.organizationId, new Date());
+      const problem = rules.digestHourProblem(input.hour ?? null, quiet.window);
+      if (problem) throw new ConflictError(problem);
+    }
+    const wasOn = before?.enabled ?? false;
+    const hadHour = before?.hour ?? null;
+    const hour = hourSent ? input.hour ?? null : hadHour;
+    if (wasOn === input.on && hadHour === hour) return settingsWithin(tx, ctx);
     await tx.insert(schema.staffNoticeDigest).values({
-      organizationId: ctx.actor.organizationId, userId: ctx.actor.userId, enabled: input.on,
+      organizationId: ctx.actor.organizationId, userId: ctx.actor.userId, enabled: input.on, hour,
     }).onConflictDoUpdate({
       target: [schema.staffNoticeDigest.organizationId, schema.staffNoticeDigest.userId],
-      set: { enabled: input.on, updatedAt: new Date() },
+      set: { enabled: input.on, hour, updatedAt: new Date() },
     });
-    await audit(tx, ctx, input.on ? "staff_notice_digest.on" : "staff_notice_digest.off", "user", ctx.actor.userId,
-      { on: before?.enabled ?? false }, { on: input.on });
+    if (wasOn !== input.on) {
+      await audit(tx, ctx, input.on ? "staff_notice_digest.on" : "staff_notice_digest.off", "user", ctx.actor.userId,
+        { on: wasOn }, { on: input.on });
+    }
+    if (hadHour !== hour) {
+      await audit(tx, ctx, "staff_notice_digest.hour_changed", "user", ctx.actor.userId, { hour: hadHour }, { hour });
+    }
     return settingsWithin(tx, ctx);
   });
 }
@@ -1499,5 +1580,5 @@ export const handlers = {
     setSwitches(ctx, input),
   setMyNoticeTexts: (ctx: ServiceContext, input: { on: boolean; mobilePhone?: string | null | undefined; agreed?: boolean | undefined }) =>
     setTexts(ctx, input),
-  setMyNoticeDigest: (ctx: ServiceContext, input: { on: boolean }) => setDigest(ctx, input),
+  setMyNoticeDigest: (ctx: ServiceContext, input: { on: boolean; hour?: number | null | undefined }) => setDigest(ctx, input),
 } as const;

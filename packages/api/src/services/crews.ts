@@ -65,6 +65,29 @@ export interface CrewInput {
   requiredAssetIds?: string[] | undefined;
   skills?: string[] | undefined;
   color?: string | null | undefined;
+  /** The crew's own working hours, local time, or null for the company's day. */
+  workday?: CrewWorkday | null | undefined;
+}
+
+/** A crew's own working day, local time, "06:00" to "14:30". */
+export interface CrewWorkday { startsAt: string; endsAt: string }
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const minuteOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+/**
+ * The hours a crew keeps, checked the way a person's are: two times of day,
+ * the end after the start. Null clears them, back to the company's day.
+ */
+function checkedWorkday(workday: CrewWorkday | null | undefined): CrewWorkday | null | undefined {
+  if (workday === undefined || workday === null) return workday;
+  if (!HHMM.test(workday.startsAt) || !HHMM.test(workday.endsAt)) {
+    throw new ConflictError("Working hours are two times of day, HH:MM.");
+  }
+  if (minuteOf(workday.endsAt) <= minuteOf(workday.startsAt)) {
+    throw new ConflictError("A working day has to end after it starts.");
+  }
+  return { startsAt: workday.startsAt, endsAt: workday.endsAt };
 }
 
 /**
@@ -84,6 +107,7 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
     if (name === "") throw new ConflictError("A crew needs a name.");
 
     assertRatePair(input.productionRatePerDay, input.productionUnit);
+    const workday = checkedWorkday(input.workday) ?? null;
     assertCrewPlaceable(ctx, input.businessUnitId ?? null);
     if (input.businessUnitId) await liveBranch(tx, ctx, input.businessUnitId);
 
@@ -97,6 +121,7 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
       requiredAssetIds: input.requiredAssetIds ?? [],
       skills: input.skills ?? [],
       color: input.color ?? null,
+      workday,
     }).returning();
 
     await audit(tx, ctx, "crew.created", "crew", row!.id, null, row!);
@@ -115,6 +140,8 @@ export interface CrewUpdate {
   requiredAssetIds?: string[] | undefined;
   skills?: string[] | undefined;
   color?: string | null | undefined;
+  /** The crew's own working hours, or null to go back to the company's day. Left out keeps them. */
+  workday?: CrewWorkday | null | undefined;
   active?: boolean | undefined;
 }
 
@@ -149,6 +176,7 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
     const unit = input.productionUnit === undefined
       ? before.productionUnit : input.productionUnit;
     assertRatePair(rate, unit);
+    const workday = checkedWorkday(input.workday);
 
     const [row] = await tx.update(schema.crew).set({
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
@@ -160,6 +188,7 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
       ...(input.requiredAssetIds !== undefined ? { requiredAssetIds: input.requiredAssetIds } : {}),
       ...(input.skills !== undefined ? { skills: input.skills } : {}),
       ...(input.color !== undefined ? { color: input.color } : {}),
+      ...(workday !== undefined ? { workday } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.crew.id, before.id)).returning();
@@ -231,6 +260,7 @@ export async function list(ctx: ServiceContext) {
       requiredAssetIds: crew.requiredAssetIds,
       skills: crew.skills,
       color: crew.color,
+      workday: crew.workday ?? null,
       active: crew.active,
       members: members
         .filter((m) => m.crewId === crew.id)

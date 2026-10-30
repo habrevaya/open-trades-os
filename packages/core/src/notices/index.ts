@@ -178,6 +178,28 @@ export function defaultsFor(
   return { inApp: DEFAULT_SWITCHES.inApp, push: DEFAULT_SWITCHES.push, email: emailed ? true : null };
 }
 
+/**
+ * WHAT APPLYING THE COMPANY'S DEFAULTS DOES TO ONE PERSON'S ONE KIND.
+ *
+ * A row the person chose themselves on `/me` is theirs and is kept. A row the
+ * company copied onto them when they joined, or no row at all (they have the
+ * product's own), takes the company's defaults now. Texts are never touched:
+ * a copied row says text is off, and a person's own text switch is their own
+ * choice. Returns what to write, or null when nothing changes.
+ */
+export function appliedDefault(
+  row: { inApp: boolean; push: boolean; email: boolean | null; chosen: boolean } | null,
+  target: NoticeDefault,
+  kind: NoticeKind,
+): { inApp: boolean; push: boolean; email: boolean | null } | "kept" | null {
+  if (row?.chosen) return "kept";
+  const now = row
+    ? { inApp: row.inApp, push: row.push, email: isEmailKind(kind) ? row.email ?? true : null }
+    : { inApp: DEFAULT_SWITCHES.inApp, push: DEFAULT_SWITCHES.push, email: isEmailKind(kind) ? true : null };
+  if (now.inApp === target.inApp && now.push === target.push && now.email === target.email) return null;
+  return { inApp: target.inApp, push: target.push, email: target.email };
+}
+
 /** Why a set of defaults cannot be saved, in words, or null. */
 export function defaultsProblem(kinds: readonly { kind: string; email?: boolean | null | undefined }[]): string | null {
   const seen = new Set<string>();
@@ -451,6 +473,43 @@ export function digestHour(quiet: { startHour: number; endHour: number } | null)
 }
 
 /**
+ * THE HOURS A PERSON MAY HAVE THEIR DIGEST AT.
+ *
+ * Inside the company's day: from its morning hour (when its quiet hours end,
+ * or 8) to the end of the day, and never an hour inside its quiet hours. In the
+ * company's time zone, because the company's day is the one the worker counts.
+ * So with quiet hours from 9 at night to 8 in the morning, 8 to 20; with none,
+ * 8 to 23.
+ */
+export function digestHourChoices(quiet: { startHour: number; endHour: number } | null): number[] {
+  const out: number[] = [];
+  for (let hour = digestHour(quiet); hour <= 23; hour += 1) {
+    if (!(quiet && inQuietHours(hour, quiet))) out.push(hour);
+  }
+  return out;
+}
+
+/** Why a person cannot have their digest at this hour, in words, or null. Null for the hour is the company's morning. */
+export function digestHourProblem(hour: number | null, quiet: { startHour: number; endHour: number } | null): string | null {
+  if (hour === null) return null;
+  const choices = digestHourChoices(quiet);
+  if (!Number.isInteger(hour) || !choices.includes(hour)) {
+    return `Choose an hour from ${choices[0]} to ${choices[choices.length - 1]}: inside the company's day and outside its quiet hours.`;
+  }
+  return null;
+}
+
+/**
+ * The hour a person's digest goes: their own where they chose one and it is
+ * still inside the company's day, otherwise the company's morning hour. A
+ * company that moves its quiet hours over somebody's chosen hour sends theirs
+ * in the morning rather than never.
+ */
+export function digestHourFor(own: number | null, quiet: { startHour: number; endHour: number } | null): number {
+  return own !== null && digestHourChoices(quiet).includes(own) ? own : digestHour(quiet);
+}
+
+/**
  * Whether a person's digest is due now: not yet sent on the company's today,
  * the company's morning has come, and it is not inside its quiet hours. A
  * worker that was down at eight sends it when it is back the same day; a day
@@ -463,9 +522,11 @@ export function digestDue(input: {
   /** The company day the last digest was decided on, sent or not. */
   lastOn: string | null;
   quiet: { startHour: number; endHour: number } | null;
+  /** The person's own hour, already held to `digestHourFor`. Left out, the company's morning hour. */
+  hour?: number | null | undefined;
 }): boolean {
   if (input.lastOn !== null && compareDates(input.lastOn, input.today) >= 0) return false;
-  if (input.localHour < digestHour(input.quiet)) return false;
+  if (input.localHour < digestHourFor(input.hour ?? null, input.quiet)) return false;
   return !(input.quiet && inQuietHours(input.localHour, input.quiet));
 }
 
@@ -556,4 +617,75 @@ export function sweepable(
   const day = 86_400_000;
   if (now.getTime() - readAt.getTime() < keepDays * day) return false;
   return now.getTime() - notice.createdAt.getTime() >= raisedAgainWithinDays(notice.kind) * day;
+}
+
+/* ---------------------------------------------------------------- on call */
+
+/**
+ * WHO IS ON CALL FOR THE OFFICE QUEUE'S NOTICES.
+ *
+ * The three kinds the office queue raises (a deadline about to be missed, a
+ * customer asking to change a visit, an automatic payment that failed) tell
+ * everybody who holds the permission that answers them. A company with six
+ * people in the office tells six, at night as well. A company can instead keep
+ * an on call rota (a person and the days they cover) and switch any of these
+ * three kinds to it, one by one. Off for every kind until the company switches
+ * one on.
+ *
+ * NEVER NOBODY. When a kind goes to the rota and nobody on it today can be told
+ * (nobody is on call, or the person on call cannot answer it or open the
+ * record), it goes to everybody who could, as before. A rota with a gap in it
+ * must not be how a failed payment goes unheard.
+ */
+export const ON_CALL_KINDS = ["task_deadline", "visit_change_requested", "autopay_failed"] as const;
+export type OnCallKind = typeof ON_CALL_KINDS[number];
+
+export const isOnCallKind = (value: string): value is OnCallKind =>
+  (ON_CALL_KINDS as readonly string[]).includes(value);
+
+/** The kinds a company sends to its rota, from what it saved. Anything that is not one of the three is ignored. */
+export function onCallKinds(saved: unknown): OnCallKind[] {
+  const kinds = (saved as { kinds?: unknown } | null | undefined)?.kinds;
+  if (!Array.isArray(kinds)) return [];
+  return ON_CALL_KINDS.filter((kind) => kinds.includes(kind));
+}
+
+/** The longest one turn on the rota can be, in days. A year, so a typo of a year is caught. */
+export const ON_CALL_MOST_DAYS = 366;
+
+/** Why a turn on the rota cannot be added, in words, or null. Dates are company days, YYYY-MM-DD. */
+export function onCallShiftProblem(input: { startsOn: string; endsOn: string; today: string }): string | null {
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(input.startsOn) || !iso.test(input.endsOn)) return "Give the first and last day as dates.";
+  if (compareDates(input.endsOn, input.startsOn) < 0) return "The last day is before the first day.";
+  if (compareDates(input.endsOn, input.today) < 0) return "That turn is over already. Give days from today on.";
+  if (compareDates(addDays(input.startsOn, ON_CALL_MOST_DAYS), input.endsOn) <= 0) {
+    return `One turn can be at most ${ON_CALL_MOST_DAYS} days. Add a longer stretch as two turns.`;
+  }
+  return null;
+}
+
+/** The people on call on a company day: every turn that covers it. Two turns on one day are two people on call. */
+export function onCallOn(
+  shifts: readonly { userId: string; startsOn: string; endsOn: string }[], day: string,
+): string[] {
+  const out: string[] = [];
+  for (const s of shifts) {
+    if (compareDates(s.startsOn, day) <= 0 && compareDates(day, s.endsOn) <= 0 && !out.includes(s.userId)) out.push(s.userId);
+  }
+  return out;
+}
+
+/**
+ * Who a queue notice goes to: the people on call today where the company sends
+ * this kind to its rota and somebody is on it, otherwise everybody who handles
+ * it. The caller still holds each person to the permission and to opening the
+ * record, and falls back to everybody when nobody on call could be told.
+ */
+export function onCallAudience(input: {
+  kind: NoticeKind; routed: readonly OnCallKind[]; onCallToday: readonly string[];
+}): { to: "on_call"; userIds: string[] } | { to: "everyone" } {
+  if (!isOnCallKind(input.kind) || !input.routed.includes(input.kind)) return { to: "everyone" };
+  if (input.onCallToday.length === 0) return { to: "everyone" };
+  return { to: "on_call", userIds: [...input.onCallToday] };
 }

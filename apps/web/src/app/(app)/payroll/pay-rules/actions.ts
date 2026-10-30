@@ -127,8 +127,9 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
       case "mileageOverrideAdd": {
         const technicianId = field(form, "technicianId");
         const assetId = field(form, "assetId");
+        const jobTypeId = field(form, "jobTypeId");
         await mileageOverrides.add(ctx, {
-          ...(technicianId ? { technicianId } : {}), ...(assetId ? { assetId } : {}),
+          ...(technicianId ? { technicianId } : {}), ...(assetId ? { assetId } : {}), ...(jobTypeId ? { jobTypeId } : {}),
           from: field(form, "from") ?? "", perMile: field(form, "perMile") ?? "",
         });
         return { message: "Saved. Claims in miles for days from then on are worked out at this rate for them. Claims already made keep theirs." };

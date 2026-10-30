@@ -1315,6 +1315,8 @@ export interface PlannedCrew {
   name: string;
   color: string | null;
   start: Place | null;
+  /** The crew's own working day (`crew.workday`), or null for the company's. */
+  hours: { startsAt: string; endsAt: string } | null;
 }
 
 export const CREW = "crew:";
@@ -1373,21 +1375,25 @@ export async function crewsOver(tx: Database, ctx: ServiceContext, days: Day[]):
     .filter((c) => members.some((m) => m.crewId === c.id))
     .map((c) => {
       const lead = members.find((m) => m.crewId === c.id && m.isLead);
-      return { id: c.id, name: c.name, color: c.color, start: placeOfLocation(c.homeLocationId ?? lead?.home ?? null) };
+      return {
+        id: c.id, name: c.name, color: c.color, start: placeOfLocation(c.homeLocationId ?? lead?.home ?? null),
+        hours: c.workday && HHMM.test(c.workday.startsAt) && HHMM.test(c.workday.endsAt) ? c.workday : null,
+      };
     });
 }
 
 /**
  * A crew's day as the planner plans it, the way `rebalanceTechnicians`
  * plans a person's: work under way or finished first and not planned, the
- * company's working day and lunch around the rest.
+ * crew's own hours where it keeps some (else the company's working day) and
+ * lunch around the rest.
  */
 export function crewDay(day: Day, crew: PlannedCrew, points: Points, prefix: string) {
   const stops = day.visits.filter((v) => v.crewId === crew.id && !(NOT_STOPS as readonly string[]).includes(v.status));
   const locked = stops.filter((v) =>
     (UNDER_WAY as readonly string[]).includes(v.status) || (FINISHED as readonly string[]).includes(v.status));
   const lastLocked = [...locked].reverse().find((v) => v.place !== null);
-  let departAt = departureOf(day);
+  let departAt = departureOf(day, crew.hours?.startsAt ?? day.travel.dayStartsAt);
   if (lastLocked && (UNDER_WAY as readonly string[]).includes(lastLocked.status)) {
     departAt = Math.max(departAt, minutesFrom(day.origin, lastLocked.arrivedAt ?? new Date()) + lastLocked.estimatedDurationMinutes);
   }
@@ -1403,7 +1409,7 @@ export function crewDay(day: Day, crew: PlannedCrew, points: Points, prefix: str
     end: `end:${prefix}${key}`,
     departAt,
     shift: {
-      endsAt: atLocal(day, day.workday.dayEndsAt),
+      endsAt: atLocal(day, crew.hours?.endsAt ?? day.workday.dayEndsAt),
       maxOvertimeMinutes: day.workday.maxOvertimeMinutes,
       lunch: lunch && departAt <= lunch.latest ? lunch : null,
     },

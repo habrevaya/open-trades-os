@@ -72,6 +72,7 @@ const REFUSED: Record<string, Refused> = {
   /** A second mileage rate for one person, or one vehicle, on one day: "what was a mile paid at on the 1st" would have two answers. */
   mileage_rate_override_person_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
   mileage_rate_override_asset_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
+  mileage_rate_override_work_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
   /** A second, different percentage for one rate on one day: "what did it charge on the 1st" would have two answers. */
   tax_rate_version_day_idx: { file: "tax.ts", how: "check", says: "already has a percentage from" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */
@@ -267,6 +268,8 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One digest switch per person, written with on conflict do update: turning it on twice is the same switch.",
   staff_notice_setting_kind_idx:
     "One row of switches per person per kind, written with on conflict do update: saving a person's switches again replaces them.",
+  office_on_call_turn_idx:
+    "One turn per person per first and last day on the office's on call rota. Adding inserts with on conflict do nothing and answers with the turn already there, so adding the same turn twice is the same rota.",
   staff_notice_default_kind_idx:
     "One company default per kind, written with on conflict do update: saving the company's defaults again replaces them.",
   certification_renewals_keeper_person_idx:

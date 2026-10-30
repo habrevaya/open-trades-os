@@ -4076,8 +4076,8 @@ create or replace function app.membership_notice_defaults() returns trigger
   language plpgsql volatile security definer set search_path = public, pg_temp
   as $$
   begin
-    insert into public.staff_notice_setting (organization_id, user_id, kind, in_app, push, text, email)
-    select d.organization_id, new.user_id, d.kind, d.in_app, d.push, false, d.email
+    insert into public.staff_notice_setting (organization_id, user_id, kind, in_app, push, text, email, chosen)
+    select d.organization_id, new.user_id, d.kind, d.in_app, d.push, false, d.email, false
       from public.staff_notice_default d
      where d.organization_id = new.organization_id
        and d.deleted_at is null

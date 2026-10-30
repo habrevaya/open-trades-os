@@ -8,7 +8,7 @@ import {
 import { attach, bytesOf, decode, put } from "./files";
 import { closedPeriodCovering, periodFinder } from "./payroll";
 import { settingsWithin } from "./pay-extras";
-import { vehicleForClaim, resolveWithin, vehiclesWithinRates } from "./mileage-overrides";
+import { vehicleForClaim, resolveWithin, vehiclesWithinRates, workWithinRates } from "./mileage-overrides";
 import { technicianScopeFilter } from "./scope";
 import { remember, replayed } from "./once";
 import { raiseWithin } from "./staff-notices";
@@ -55,9 +55,11 @@ export interface ExpenseView {
   miles: string | null;
   mileageRate: string | null;
   /** For a claim in miles: whose line the rate came from. Claims made before there were rates of their own are the company's. */
-  mileageRateSource: "company" | "person" | "vehicle" | null;
+  mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
   /** For a claim in miles that named a vehicle: its name as it was. */
   mileageVehicle: string | null;
+  /** For a claim in miles worked out at a kind of work's line: that kind of work's name as it was. */
+  mileageWork: string | null;
   spentOn: string;
   description: string;
   status: "pending" | "approved" | "refused";
@@ -121,8 +123,10 @@ async function viewsOf(
       amount: expense.amount,
       miles: expense.miles,
       mileageRate: expense.mileageRate,
-      mileageRateSource: expense.miles === null ? null : ((expense.mileageRateSource as "company" | "person" | "vehicle" | null) ?? "company"),
+      mileageRateSource: expense.miles === null ? null
+        : ((expense.mileageRateSource as "company" | "person" | "vehicle" | "work" | null) ?? "company"),
       mileageVehicle: expense.mileageAssetLabel,
+      mileageWork: expense.mileageJobTypeLabel,
       spentOn: expense.spentOn,
       description: expense.description,
       status: expense.status,
@@ -210,35 +214,16 @@ export async function recordWithin(
   if (input.vehicleId && input.miles === undefined) {
     throw new ConflictError("A vehicle goes with miles driven, not with an amount you paid.");
   }
-  let driven: { miles: string; rate: string; source: px.MileageRateSource; vehicle: { id: string; label: string } | null } | null = null;
-  let amountTyped = input.amount ?? "";
-  if (input.miles !== undefined) {
-    const miles = px.checkMiles(input.miles);
-    if (!miles.ok) throw new ConflictError(miles.reason);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.spentOn) || Number.isNaN(Date.parse(`${input.spentOn}T00:00:00Z`))) {
-      throw new ConflictError("Say the day you drove.");
-    }
-    /** The vehicle's line first, then the person's, then the company's, each as it stood on the day of the drive. */
-    const vehicle = input.vehicleId ? await vehicleForClaim(tx, ctx.actor.organizationId, input.vehicleId) : null;
-    const found = await resolveWithin(tx, ctx.actor.organizationId, { day: input.spentOn, technicianId, assetId: vehicle?.id ?? null });
-    const rate = found?.rate;
-    if (!found || !rate) {
-      throw new ConflictError(
-        `The company has no mileage rate for ${input.spentOn}, so miles cannot be worked out. `
-        + "Ask the office to set one, or put in what you paid.",
-      );
-    }
-    driven = { miles: miles.miles, rate: rate.perMile, source: found.source, vehicle };
-    /** Already to the cent, so the two places after the point are all there is: "9.0600" is typed as "9.06". */
-    const worked = m.toString(px.mileageAmount(miles.miles, rate.perMile));
-    amountTyped = worked.slice(0, worked.indexOf(".") + 3);
-  }
-  const checked = px.checkExpense({ amount: amountTyped, spentOn: input.spentOn, today, description: input.description });
-  if (!checked.ok) throw new ConflictError(checked.reason);
-
+  /**
+   * The job first, because a claim in miles for a job is worked out at its kind of work's line where it has one.
+   * The job's type as it is now; moving the job to another type later never reprices the claim.
+   */
   let jobId = input.jobId ?? null;
+  let work: { id: string; name: string } | null = null;
   if (jobId || input.jobNumber !== undefined) {
-    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+    const [job] = await tx.select({ id: schema.job.id, jobTypeId: schema.job.jobTypeId, jobTypeName: schema.jobType.name })
+      .from(schema.job)
+      .leftJoin(schema.jobType, eq(schema.jobType.id, schema.job.jobTypeId))
       .where(and(
         jobId ? eq(schema.job.id, jobId) : eq(schema.job.number, input.jobNumber!),
         isNull(schema.job.deletedAt),
@@ -249,7 +234,39 @@ export async function recordWithin(
         : `There is no job ${input.jobNumber}. Check the number, or leave it empty for the shop.`);
     }
     jobId = job.id;
+    work = job.jobTypeId && job.jobTypeName ? { id: job.jobTypeId, name: job.jobTypeName } : null;
   }
+  let driven: {
+    miles: string; rate: string; source: px.MileageRateSource;
+    vehicle: { id: string; label: string } | null; work: { id: string; name: string } | null;
+  } | null = null;
+  let amountTyped = input.amount ?? "";
+  if (input.miles !== undefined) {
+    const miles = px.checkMiles(input.miles);
+    if (!miles.ok) throw new ConflictError(miles.reason);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.spentOn) || Number.isNaN(Date.parse(`${input.spentOn}T00:00:00Z`))) {
+      throw new ConflictError("Say the day you drove.");
+    }
+    /** The vehicle's line first, then the kind of work's, then the person's, then the company's, each as it stood on the day of the drive. */
+    const vehicle = input.vehicleId ? await vehicleForClaim(tx, ctx.actor.organizationId, input.vehicleId) : null;
+    const found = await resolveWithin(tx, ctx.actor.organizationId, {
+      day: input.spentOn, technicianId, assetId: vehicle?.id ?? null, jobTypeId: work?.id ?? null,
+    });
+    const rate = found?.rate;
+    if (!found || !rate) {
+      throw new ConflictError(
+        `The company has no mileage rate for ${input.spentOn}, so miles cannot be worked out. `
+        + "Ask the office to set one, or put in what you paid.",
+      );
+    }
+    driven = { miles: miles.miles, rate: rate.perMile, source: found.source, vehicle, work: found.source === "work" ? work : null };
+    /** Already to the cent, so the two places after the point are all there is: "9.0600" is typed as "9.06". */
+    const worked = m.toString(px.mileageAmount(miles.miles, rate.perMile));
+    amountTyped = worked.slice(0, worked.indexOf(".") + 3);
+  }
+  const checked = px.checkExpense({ amount: amountTyped, spentOn: input.spentOn, today, description: input.description });
+  if (!checked.ok) throw new ConflictError(checked.reason);
+
   const [row] = await tx.insert(schema.expense).values({
     ...(input.id ? { id: input.id } : {}),
     organizationId: ctx.actor.organizationId,
@@ -259,6 +276,7 @@ export async function recordWithin(
     ...(driven ? {
       miles: driven.miles, mileageRate: driven.rate, mileageRateSource: driven.source,
       mileageAssetId: driven.vehicle?.id ?? null, mileageAssetLabel: driven.vehicle?.label ?? null,
+      mileageJobTypeId: driven.work?.id ?? null, mileageJobTypeLabel: driven.work?.name ?? null,
     } : {}),
     spentOn: input.spentOn,
     description: checked.description,
@@ -268,7 +286,7 @@ export async function recordWithin(
     technicianId, amount: m.toString(checked.amount), spentOn: input.spentOn, jobId,
     ...(driven ? {
       miles: driven.miles, mileageRate: driven.rate, mileageRateSource: driven.source,
-      vehicle: driven.vehicle?.label ?? null,
+      vehicle: driven.vehicle?.label ?? null, work: driven.work?.name ?? null,
     } : {}),
   });
   return { id: row!.id, created: true };
@@ -340,6 +358,8 @@ export interface OwnExpenses {
   mileageRate: string | null;
   /** Vehicles with a rate of their own that can be named on a claim, with what each pays today. */
   vehicles: { id: string; label: string; rateToday: string | null }[];
+  /** Kinds of work with a rate of their own, which a claim in miles for a job of that kind is paid at, and what each pays today. */
+  work: { id: string; name: string; rateToday: string | null }[];
 }
 
 /** How far back somebody's own list goes. */
@@ -353,12 +373,14 @@ export async function mine(ctx: ServiceContext): Promise<OwnExpenses> {
     const today = time.dateIn(new Date(), zone);
     const mileageRate = (await resolveWithin(tx, ctx.actor.organizationId, { day: today, technicianId: own?.id ?? null }))?.rate.perMile ?? null;
     const vehicles = own ? await vehiclesWithinRates(tx, ctx.actor.organizationId, today) : [];
-    if (!own) return { technician: false, expenses: [], perDiems: [], mileageRate, vehicles };
+    const work = own ? await workWithinRates(tx, ctx.actor.organizationId, today) : [];
+    if (!own) return { technician: false, expenses: [], perDiems: [], mileageRate, vehicles, work };
     const since = new Date(Date.now() - OWN_DAYS * 86_400_000);
     return {
       technician: true,
       mileageRate,
       vehicles,
+      work,
       expenses: await viewsOf(tx, ctx, and(
         eq(schema.expense.technicianId, own.id), gte(schema.expense.recordedAt, since),
       ), 200),

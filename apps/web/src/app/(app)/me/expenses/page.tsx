@@ -73,6 +73,12 @@ export default async function MyExpensesPage() {
                   ? <>Your own vehicle. Fill in the miles or the amount, not both. Miles are paid at ${own.mileageRate} a mile, the rate for the day you drove.</>
                   : <>Fill in the miles or the amount, not both. Miles are paid at the rate for the vehicle you pick, as it stood on the day you drove.</>}
               </p>
+              {own.work.some((w) => w.rateToday !== null) ? (
+                <p className="mt-1 text-xs text-ink-500">
+                  For a job of these kinds, miles are paid at its own rate:{" "}
+                  {own.work.filter((w) => w.rateToday !== null).map((w) => `${w.name} $${w.rateToday} a mile`).join(", ")}.
+                </p>
+              ) : null}
               {own.vehicles.length > 0 ? (
                 <Select label="Which vehicle (if it has its own rate)" name="vehicleId" className="mt-2 block"
                         options={[{ value: "", label: own.mileageRate !== null ? "My own vehicle" : "Pick one" },

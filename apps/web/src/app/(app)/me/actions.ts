@@ -6,7 +6,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { attempt, field, parsed, refusalOf, type FormState } from "@/lib/actions";
 import { me, timeOff, expenses, staffNotices, ConflictError } from "@opentradesos/api/services";
-import { addMyEmergencyContact, setMyNoticeSettings, setMyNoticeTexts, setMyOnboardingLine } from "@opentradesos/api/contracts";
+import { addMyEmergencyContact, setMyNoticeDigest, setMyNoticeSettings, setMyNoticeTexts, setMyOnboardingLine } from "@opentradesos/api/contracts";
 import { notices } from "@opentradesos/core";
 import { time } from "@opentradesos/core";
 import { fileAsBase64 } from "@/lib/local-time";
@@ -282,6 +282,18 @@ export async function setNoticeDigest(_previous: FormState, form: FormData): Pro
   const state = await attempt(form, async () => {
     await staffNotices.setDigest(await ctx(), { on });
     return { message: on ? "The daily email is on. It comes each morning when something is unread." : "The daily email is off." };
+  });
+  if (state?.done) revalidatePath("/me");
+  return state;
+}
+
+/** The hour of the company's day their daily email comes, or the company's morning hour when left empty. */
+export async function setNoticeDigestHour(_previous: FormState, form: FormData): Promise<FormState> {
+  const raw = field(form, "hour");
+  const state = await attempt(form, async () => {
+    const input = parsed(setMyNoticeDigest.input, { on: form.get("on") === "true", hour: raw === undefined ? null : Number(raw) });
+    await staffNotices.setDigest(await ctx(), input);
+    return { message: raw === undefined ? "Saved. It comes at the company's morning hour." : "Saved. It comes at the hour you chose." };
   });
   if (state?.done) revalidatePath("/me");
   return state;
