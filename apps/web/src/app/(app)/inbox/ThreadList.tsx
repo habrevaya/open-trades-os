@@ -1,4 +1,4 @@
-import { Chip, Phone } from "@opentradesos/ui";
+import { Chip, formatPhone } from "@opentradesos/ui";
 import { formatIn } from "@/lib/dates";
 
 export interface ThreadRow {
@@ -36,15 +36,18 @@ export function ThreadList({ threads, timezone }: { threads: ThreadRow[]; timezo
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="font-medium">
-                  {thread.customerName ?? (thread.channel === "webchat" ? "Website chat" : "Unknown number")}
+                  {thread.customerName ?? (thread.channel === "webchat" ? "Website chat" : thread.channel === "email" ? "Unknown sender" : "Unknown number")}
                 </span>
                 {/*
                   The number when we do not know who it is. An inbound text
                   from a number matching no customer is a lead, and showing it
                   as "Unknown" with nothing else would make it unanswerable.
                 */}
+                {/* The address as text, not the Phone link: the whole row is already a link, and a link inside a link is invalid HTML that breaks hydration. */}
                 {thread.customerName === null && thread.channel !== "webchat" && (
-                  <span className="text-sm text-ink-500"><Phone value={thread.externalAddress} /></span>
+                  <span className="font-mono text-sm tabular-nums text-ink-500">
+                    {thread.channel === "email" ? thread.externalAddress : formatPhone(thread.externalAddress)}
+                  </span>
                 )}
                 {thread.awaitingReply && <Chip tone="warning">Needs a reply</Chip>}
                 {thread.unread > 0 && <Chip tone="info">{thread.unread} unread</Chip>}

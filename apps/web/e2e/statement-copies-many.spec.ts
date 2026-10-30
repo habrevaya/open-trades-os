@@ -46,7 +46,9 @@ test("a statement copied to two of the customer's people, by email and by text, 
   const id = await newCustomer(owner, { name: `Harbor Management ${run}`, email: address });
 
   for (const [name, mail, phone] of [[clerk, `cora+${run}@example.test`, "512-555-0171"], [boss, `otto+${run}@example.test`, "512-555-0172"]] as const) {
-    await owner.getByRole("button", { name: "Add somebody" }).click();
+    // The form stays open after an add, with its button saying Cancel.
+    const open = owner.getByRole("button", { name: "Add somebody" });
+    if (await open.isVisible()) await open.click();
     await owner.locator("#c-name").fill(name);
     await owner.locator("#c-email").fill(mail);
     await owner.locator("#c-phone").fill(phone);
