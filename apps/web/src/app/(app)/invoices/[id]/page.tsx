@@ -331,6 +331,9 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                           : <>{", "}agreed {formatIn(card.agreedAt, tz, { dateStyle: "medium" })}{card.agreedByContact ? ` by ${card.agreedByContact}` : ""}</>}
                       </span>
                       {card.autopay && <Chip tone="recurring" className="ml-2">Pays bills automatically</Chip>}
+                      {card.autopayRank !== null && card.autopayRank > 1 && (
+                        <Chip tone="neutral" className="ml-2">Backup for paying automatically</Chip>
+                      )}
                     </span>
                     {owed && !onItsWay && !chargeWaiting && can(user.actor, "payment:charge_saved") && can(user.actor, "payment:collect") && (
                       <div className="flex flex-col items-end gap-2">
@@ -359,7 +362,9 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                 <tr key={c.id}>
                   <Td>{formatIn(c.createdAt, tz)}</Td>
                   <Td>{c.card}</Td>
-                  <Td>{c.trigger === "autopay" ? (c.attempt > 1 ? "Automatic payment, second try" : "Automatic payment") : c.requestedBy ?? "Office"}</Td>
+                  <Td>{c.trigger === "autopay"
+                    ? (c.attempt > 1 ? "Automatic payment, second try" : c.cardRank > 1 ? "Automatic payment, on a backup card" : "Automatic payment")
+                    : c.requestedBy ?? "Office"}</Td>
                   <Td className="text-ink-700">
                     {CHARGE_STATE[c.status] ?? c.status}
                     {c.failureReason && c.status !== "submitted" && c.status !== "paid" ? `: ${c.failureReason}` : ""}

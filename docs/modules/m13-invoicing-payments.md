@@ -141,7 +141,33 @@ customer told of a decline often answers by choosing another card), and not
 at all if none does any more; a bank asking the customer to confirm, a card that is expired, lost
 or wrong, and a bank payment that fails days later are not tried again at
 all, because tomorrow will not change the answer. These are the only
-retries there are.
+retries there are, apart from a backup below.
+
+**A backup card when the automatic payment fails.** Behind the card that
+pays automatically, a customer can keep up to two backups, in the order they
+choose them (`POST /v1/portal/cards/{cardId}/autopay-backup`, their own sign
+in only). A backup is only a card they already agreed may be charged, never a
+card saved to pay once, and each is agreed as a backup in its own words: it is
+charged once, the same day, for what the bill says is owed, only when the card
+paying automatically and any backup before it did not go through, and the
+customer is told which card paid. When the worker's charge on the first card
+is declined, or the bank wants the customer to confirm it, the next backup is
+tried at once, in the same run, under the same unique index on the invoice and
+the try, now with the card's place in the order (`card_rank`). Every try is
+its own charge row, and the office's panel on the invoice lists each with its
+card ("Automatic payment, on a backup card"). The tries before the last are
+written down quietly: nobody is sent a link and no task is raised while a
+backup is still to come. When a backup pays, the customer is emailed (or
+texted) which card did not go through and which paid, once the processor's
+webhook says the money moved, not before. When every card fails, the customer
+gets one link to pay, naming every card tried, and the office one task listing
+each card and its answer. The next day's one more try is on the first card
+alone, and is made when the first card's answer could change by tomorrow;
+backups are never tried on it. Turning paying automatically off, or
+withdrawing the first card's agreement, stops the backups too: a backup never
+starts a charge on its own. Card numbers never reach this product: a backup is
+the processor's reference to a card saved through its own window, as every
+saved card is.
 
 **A bank payment on its way is not money to chase.** While an ACH payment is
 processing, the invoice shows "Payment on its way" on the office's page and
@@ -610,6 +636,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/customers/{id}/card-agreements/{agreementId}/withdraw` | `payment:charge_saved` |
 | `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
+| `POST /v1/portal/cards/{cardId}/autopay-backup` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
 | `GET /v1/invoices/{id}/tips` | `invoice:read` |
 | `GET /v1/invoices/{id}/tip-offer` | `payment:collect` |
@@ -692,8 +719,15 @@ issued after it was turned on, judged by when the invoice was issued (or,
 for an invoice that was never a draft, written) and by its issue date, so a
 bill backdated before that day is not charged; nothing already owed is swept
 up when it is turned on. One card pays automatically per customer, of the
-several they may have agreed, and an automatic payment takes the whole balance
-of each bill; only the office charges part of one. No charge on file carries
+several they may have agreed, with at most two backups behind it, and an
+automatic payment takes the whole balance of each bill; only the office
+charges part of one. A backup is tried only in the run that charged the first
+card, never on the next day's try, and a backup is only ever the customer's
+choice: the office cannot set one, because the customer agrees to it in their
+own sign in, as they do to paying automatically. Backups are tried in the
+order chosen; changing the order is stopping one and choosing it again, which
+puts it last. A bank payment chosen as a backup is tried like a card and is on
+its way for days, so the customer is told it paid only when it has. No charge on file carries
 a tip. The customer is told of a
 failure by email to the address on their record, or by text when the email
 cannot go and it is not quiet hours; when neither can go, the office task

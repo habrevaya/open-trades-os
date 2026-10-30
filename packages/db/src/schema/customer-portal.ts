@@ -165,6 +165,14 @@ export const paymentAgreement = pgTable("payment_agreement", {
   autopayAt: timestamp("autopay_at", { withTimezone: true }),
   autopayWording: text("autopay_wording"),
   autopayGrantId: uuid("autopay_grant_id").references(() => portalGrant.id, { onDelete: "set null" }),
+  /**
+   * WHERE THIS CARD STANDS IN PAYING AUTOMATICALLY, while `autopay_at` is set:
+   * 1 is the card each bill is charged to, and 2 and 3 are backups the
+   * customer agreed to, in their own words (`autopay_wording`), tried once
+   * each in that order, in the same run, when the cards before them fail.
+   * Meaningless while `autopay_at` is null.
+   */
+  autopayRank: integer("autopay_rank").notNull().default(1),
   /** When it stopped: `customer` withdrew it, `office` because they told the company to stop, or `card_removed` because the card itself was taken off. */
   withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
   withdrawnReason: text("withdrawn_reason"),
@@ -177,8 +185,12 @@ export const paymentAgreement = pgTable("payment_agreement", {
   /** One live agreement per card: agreeing twice is the same agreement. */
   liveIdx: uniqueIndex("payment_agreement_live_idx").on(t.organizationId, t.savedPaymentMethodId)
     .where(sql`${t.withdrawnAt} is null`),
-  /** One card pays automatically per customer, or every bill would be charged twice. */
-  autopayIdx: uniqueIndex("payment_agreement_autopay_idx").on(t.organizationId, t.customerId)
+  /**
+   * One card in each place per customer: one first card, or every bill would
+   * be charged twice, and one card at each backup place, so the order is the
+   * customer's and never a tie.
+   */
+  autopayIdx: uniqueIndex("payment_agreement_autopay_idx").on(t.organizationId, t.customerId, t.autopayRank)
     .where(sql`${t.withdrawnAt} is null and ${t.autopayAt} is not null`),
   customerIdx: index("payment_agreement_customer_idx").on(t.organizationId, t.customerId),
   /**
@@ -224,6 +236,12 @@ export const cardOnFileCharge = pgTable("card_on_file_charge", {
   trigger: text("trigger").notNull(),
   /** 1, or 2 for the one next day try of a declined automatic payment. */
   attempt: integer("attempt").notNull().default(1),
+  /**
+   * Which of the customer's automatic payment cards this was: 1 the first,
+   * 2 and 3 a backup tried in the same run because the cards before it
+   * failed. Always 1 for the office's charge and for the next day try.
+   */
+  cardRank: integer("card_rank").notNull().default(1),
   /** The person who pressed Charge. Null for the worker. */
   requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
   /**
@@ -252,7 +270,7 @@ export const cardOnFileCharge = pgTable("card_on_file_charge", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  autopayIdx: uniqueIndex("card_on_file_charge_autopay_idx").on(t.organizationId, t.invoiceId, t.attempt)
+  autopayIdx: uniqueIndex("card_on_file_charge_autopay_idx").on(t.organizationId, t.invoiceId, t.attempt, t.cardRank)
     .where(sql`${t.trigger} = 'autopay'`),
   keyIdx: uniqueIndex("card_on_file_charge_key_idx").on(t.organizationId, t.idempotencyKey)
     .where(sql`${t.idempotencyKey} is not null`),

@@ -326,9 +326,13 @@ export const PortalCardAgreement = z.object({
   wording: z.string(),
   agreedAt: z.string().datetime(),
   agreedByContact: z.string().nullable(),
+  /** Whether this is the card each bill is charged to automatically. */
   autopay: z.boolean(),
   autopayAt: z.string().datetime().nullable(),
+  /** The words agreed to for its place in paying automatically: the first card's, or a backup's. */
   autopayWording: z.string().nullable(),
+  /** 1 for the card each bill is charged to automatically, 2 and 3 for its backups in the order they are tried. Null for neither. */
+  autopayRank: z.number().int().nullable(),
   /** `customer` when they agreed in their own account, `office` when somebody at the company recorded what they said or signed. */
   givenBy: z.enum(["customer", "office"]),
   way: z.enum(["portal_sign_in", "office_phone", "office_form"]),
@@ -356,7 +360,7 @@ export const listPortalCards = defineRoute({
       /** Whether the customer lets the company charge it without pressing Pay, and pay automatically with it. */
       agreement: PortalCardAgreement.nullable(),
       /** The words they would agree to for this card, exactly as they are checked when they do. */
-      wording: z.object({ agreement: z.string(), autopay: z.string() }),
+      wording: z.object({ agreement: z.string(), autopay: z.string(), backup: z.string() }),
     })),
     canSave: z.boolean(),
     /** Whether a bank account may be saved too: the company has to have turned bank payments on. */

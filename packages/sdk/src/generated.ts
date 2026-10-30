@@ -660,6 +660,7 @@ export interface AgreeToPortalCardChargesOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  autopayRank: number | null;
   givenBy: "customer" | "office";
   way: "portal_sign_in" | "office_phone" | "office_form";
   wayLabel: string;
@@ -15040,6 +15041,7 @@ export interface ListCustomerCardAgreementsOutput {
       autopay: boolean;
       autopayAt: string | null;
       autopayWording: string | null;
+      autopayRank: number | null;
       givenBy: "customer" | "office";
       way: "portal_sign_in" | "office_phone" | "office_form";
       wayLabel: string;
@@ -15855,6 +15857,7 @@ export interface ListInvoiceCardsOnFileOutput {
     agreedAt: string;
     agreedByContact: string | null;
     autopay: boolean;
+    autopayRank: number | null;
     givenBy: "customer" | "office";
     way: "portal_sign_in" | "office_phone" | "office_form";
     wayLabel: string;
@@ -15865,6 +15868,7 @@ export interface ListInvoiceCardsOnFileOutput {
     id: string;
     trigger: "office" | "autopay";
     attempt: number;
+    cardRank: number;
     status: string;
     amount: string | null;
     card: string;
@@ -16939,6 +16943,7 @@ export interface ListPortalCardsOutput {
       autopay: boolean;
       autopayAt: string | null;
       autopayWording: string | null;
+      autopayRank: number | null;
       givenBy: "customer" | "office";
       way: "portal_sign_in" | "office_phone" | "office_form";
       wayLabel: string;
@@ -16949,6 +16954,7 @@ export interface ListPortalCardsOutput {
     wording: {
       agreement: string;
       autopay: string;
+      backup: string;
     };
   }>;
   canSave: boolean;
@@ -21047,6 +21053,7 @@ export interface RecordCustomerCardAgreementOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  autopayRank: number | null;
   givenBy: "customer" | "office";
   way: "portal_sign_in" | "office_phone" | "office_form";
   wayLabel: string;
@@ -25714,6 +25721,30 @@ export interface SetPlanPortalLayoutOutput {
   } | null;
 }
 
+export interface SetPortalCardAutopayBackupInput {
+  token: string;
+  on: boolean;
+  wording?: string;
+}
+
+export interface SetPortalCardAutopayBackupOutput {
+  id: string;
+  cardId: string;
+  wording: string;
+  agreedAt: string;
+  agreedByContact: string | null;
+  autopay: boolean;
+  autopayAt: string | null;
+  autopayWording: string | null;
+  autopayRank: number | null;
+  givenBy: "customer" | "office";
+  way: "portal_sign_in" | "office_phone" | "office_form";
+  wayLabel: string;
+  agreedOn: string | null;
+  takenBy: string | null;
+  hasForm: boolean;
+}
+
 export interface SetPortalCardAutopayInput {
   token: string;
   on: boolean;
@@ -25729,6 +25760,7 @@ export interface SetPortalCardAutopayOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  autopayRank: number | null;
   givenBy: "customer" | "office";
   way: "portal_sign_in" | "office_phone" | "office_form";
   wayLabel: string;
@@ -33933,6 +33965,10 @@ export interface SetPortalCardAutopayParams {
   cardId: string;
 }
 
+export interface SetPortalCardAutopayBackupParams {
+  cardId: string;
+}
+
 export interface SetPriceBookItemActiveParams {
   id: string;
 }
@@ -35480,6 +35516,7 @@ export interface OperationTypes {
   setPayExtras: { input: SetPayExtrasInput; output: SetPayExtrasOutput };
   setPlanPortalLayout: { input: SetPlanPortalLayoutParams & SetPlanPortalLayoutInput; output: SetPlanPortalLayoutOutput };
   setPortalCardAutopay: { input: SetPortalCardAutopayParams & SetPortalCardAutopayInput; output: SetPortalCardAutopayOutput };
+  setPortalCardAutopayBackup: { input: SetPortalCardAutopayBackupParams & SetPortalCardAutopayBackupInput; output: SetPortalCardAutopayBackupOutput };
   setPortalLayout: { input: SetPortalLayoutInput; output: SetPortalLayoutOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
   setPriceBookItemActive: { input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput; output: SetPriceBookItemActiveOutput };
@@ -36698,6 +36735,7 @@ export const OPERATIONS = {
   setPayExtras: { method: "POST", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setPlanPortalLayout: { method: "PUT", path: "/v1/agreement-plans/{id}/portal-layout", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalCardAutopay: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  setPortalCardAutopayBackup: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay-backup", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   setPortalLayout: { method: "PUT", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPriceBookItemActive: { method: "POST", path: "/v1/pricebook/items/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -46219,6 +46257,15 @@ export abstract class GeneratedOperations {
    */
   setPortalCardAutopay(input: SetPortalCardAutopayParams & SetPortalCardAutopayInput, options?: CallOptions): Promise<SetPortalCardAutopayOutput> {
     return this.call("setPortalCardAutopay", input, options);
+  }
+
+  /**
+   * Keep a saved card as a backup for paying automatically, or stop.
+   *
+   * POST /v1/portal/cards/{cardId}/autopay-backup.
+   */
+  setPortalCardAutopayBackup(input: SetPortalCardAutopayBackupParams & SetPortalCardAutopayBackupInput, options?: CallOptions): Promise<SetPortalCardAutopayBackupOutput> {
+    return this.call("setPortalCardAutopayBackup", input, options);
   }
 
   /**

@@ -97219,7 +97219,7 @@
       "post": {
         "operationId": "setPortalCardAutopay",
         "summary": "Pay each bill automatically with a saved card, or stop",
-        "description": "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card. Turning it off needs no words.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card; the backups stay behind it, and a backup chosen here moves to the front. Turning it off needs no words, and stops the backups too.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
         "tags": [
           "M13"
         ],
@@ -97251,6 +97251,106 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetPortalCardAutopayOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
+    "/v1/portal/cards/{cardId}/autopay-backup": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setPortalCardAutopayBackup",
+        "summary": "Keep a saved card as a backup for paying automatically, or stop",
+        "description": "From a sign in only, for a card the customer already lets the company charge and that is not the card paying automatically. Turning it on needs the backup words shown for this card (`wording.backup` on `GET /v1/portal/cards`), checked as the agreement's are, and a card already paying automatically; it goes behind the backups there are, up to two. When an automatic charge on the first card does not go through, each backup is tried once, in order, in the same run, and the customer is told which card paid. Backups are never tried on the next day's try, and stop when paying automatically stops. Turning it off needs no words and leaves the other backups where they are.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPortalCardAutopayBackupInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Keep a saved card as a backup for paying automatically, or stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPortalCardAutopayBackupOutput"
                 }
               }
             }
@@ -153002,6 +153102,12 @@
               "null"
             ]
           },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "givenBy": {
             "type": "string",
             "enum": [
@@ -153045,6 +153151,7 @@
           "autopay",
           "autopayAt",
           "autopayWording",
+          "autopayRank",
           "givenBy",
           "way",
           "wayLabel",
@@ -227821,6 +227928,12 @@
                         "null"
                       ]
                     },
+                    "autopayRank": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "givenBy": {
                       "type": "string",
                       "enum": [
@@ -227890,6 +228003,7 @@
                     "autopay",
                     "autopayAt",
                     "autopayWording",
+                    "autopayRank",
                     "givenBy",
                     "way",
                     "wayLabel",
@@ -232196,6 +232310,12 @@
                 "autopay": {
                   "type": "boolean"
                 },
+                "autopayRank": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "givenBy": {
                   "type": "string",
                   "enum": [
@@ -232235,6 +232355,7 @@
                 "agreedAt",
                 "agreedByContact",
                 "autopay",
+                "autopayRank",
                 "givenBy",
                 "way",
                 "wayLabel",
@@ -232260,6 +232381,9 @@
                   ]
                 },
                 "attempt": {
+                  "type": "integer"
+                },
+                "cardRank": {
                   "type": "integer"
                 },
                 "status": {
@@ -232315,6 +232439,7 @@
                 "id",
                 "trigger",
                 "attempt",
+                "cardRank",
                 "status",
                 "amount",
                 "card",
@@ -237977,6 +238102,12 @@
                         "null"
                       ]
                     },
+                    "autopayRank": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "givenBy": {
                       "type": "string",
                       "enum": [
@@ -238020,6 +238151,7 @@
                     "autopay",
                     "autopayAt",
                     "autopayWording",
+                    "autopayRank",
                     "givenBy",
                     "way",
                     "wayLabel",
@@ -238036,11 +238168,15 @@
                     },
                     "autopay": {
                       "type": "string"
+                    },
+                    "backup": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "agreement",
-                    "autopay"
+                    "autopay",
+                    "backup"
                   ]
                 }
               },
@@ -258932,6 +259068,12 @@
               "null"
             ]
           },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "givenBy": {
             "type": "string",
             "enum": [
@@ -259001,6 +259143,7 @@
           "autopay",
           "autopayAt",
           "autopayWording",
+          "autopayRank",
           "givenBy",
           "way",
           "wayLabel",
@@ -281485,6 +281628,12 @@
               "null"
             ]
           },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "givenBy": {
             "type": "string",
             "enum": [
@@ -281528,6 +281677,126 @@
           "autopay",
           "autopayAt",
           "autopayWording",
+          "autopayRank",
+          "givenBy",
+          "way",
+          "wayLabel",
+          "agreedOn",
+          "takenBy",
+          "hasForm"
+        ]
+      },
+      "SetPortalCardAutopayBackupInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "wording": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "token",
+          "on"
+        ]
+      },
+      "SetPortalCardAutopayBackupOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "wording": {
+            "type": "string"
+          },
+          "agreedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agreedByContact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "autopay": {
+            "type": "boolean"
+          },
+          "autopayAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "autopayWording": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "givenBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "office"
+            ]
+          },
+          "way": {
+            "type": "string",
+            "enum": [
+              "portal_sign_in",
+              "office_phone",
+              "office_form"
+            ]
+          },
+          "wayLabel": {
+            "type": "string"
+          },
+          "agreedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "takenBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasForm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "wording",
+          "agreedAt",
+          "agreedByContact",
+          "autopay",
+          "autopayAt",
+          "autopayWording",
+          "autopayRank",
           "givenBy",
           "way",
           "wayLabel",

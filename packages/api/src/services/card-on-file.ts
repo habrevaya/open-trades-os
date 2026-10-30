@@ -61,6 +61,17 @@ import { sessionFor, type PortalSession } from "./portal-sign-in";
  * sends the customer the link to pay another way and puts a task in the
  * office queue. Reconciled rather than hooked into every place an invoice
  * is issued: the worker asks which bills are owed and not yet charged.
+ *
+ * BACKUPS. Behind the card that pays automatically the customer may keep up
+ * to two backups, each a card they already agreed may be charged, each agreed
+ * as a backup in its own words, in the order they chose them. When the first
+ * card fails, the next is tried once, in the same run, and so on; every try
+ * is its own charge row. Only when the last one fails is the customer sent
+ * the link and the office given the task, naming every card tried. A backup
+ * that pays is told to the customer, once the processor says the money moved:
+ * which card did not go through and which paid. Backups are never tried on the
+ * next day try, which is the first card's alone, and never start anything on
+ * their own: with no first card, nothing is charged automatically.
  */
 
 /* ---------------------------------------------------------------- shapes */
@@ -72,9 +83,12 @@ export interface AgreementView {
   agreedAt: string;
   /** The contact who agreed, when a contact signed in as the customer. */
   agreedByContact: string | null;
+  /** Whether this is the card each bill is charged to automatically. */
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  /** Where it stands in paying automatically: 1 the card each bill is charged to, 2 and 3 its backups in order. Null when it takes no part. */
+  autopayRank: number | null;
   /** `customer` from their own sign in, or `office` when somebody at the company recorded what they said or signed. */
   givenBy: "customer" | "office";
   /** `portal_sign_in`, `office_phone` or `office_form`. */
@@ -107,9 +121,10 @@ const view = (
   wording: row.wording,
   agreedAt: row.agreedAt.toISOString(),
   agreedByContact: contactName,
-  autopay: row.autopayAt !== null,
+  autopay: row.autopayAt !== null && row.autopayRank === 1,
   autopayAt: row.autopayAt?.toISOString() ?? null,
   autopayWording: row.autopayWording,
+  autopayRank: row.autopayAt !== null ? row.autopayRank : null,
   givenBy: row.givenBy === "office" ? "office" : "customer",
   way: wayOf(row),
   wayLabel: cp.agreementWayLabel(wayOf(row)),
@@ -119,7 +134,7 @@ const view = (
 });
 
 /** The words a customer would agree to for this card, now. */
-export interface CardWording { agreement: string; autopay: string }
+export interface CardWording { agreement: string; autopay: string; backup: string }
 
 function wordingFor(company: string, card: { kind: string; brand: string | null; last4: string | null }): CardWording {
   const input = {
@@ -127,7 +142,7 @@ function wordingFor(company: string, card: { kind: string; brand: string | null;
     method: cp.methodLabel(card),
     kind: card.kind === "bank_account" ? "bank_account" as const : "card" as const,
   };
-  return { agreement: cp.agreementWording(input), autopay: cp.autopayWording(input) };
+  return { agreement: cp.agreementWording(input), autopay: cp.autopayWording(input), backup: cp.backupWording(input) };
 }
 
 /* --------------------------------------------------- the customer's side */
@@ -247,32 +262,109 @@ export async function setAutopay(
       throw new ConflictError("Agree to let the company charge this card first. Paying automatically needs that agreement.");
     }
     if (!input.on) {
-      if (agreement.autopayAt === null) return viewOf(tx, agreement);
-      const [after] = await tx.update(schema.paymentAgreement)
-        .set({ autopayAt: null, autopayWording: null, autopayGrantId: null, updatedAt: new Date() })
-        .where(eq(schema.paymentAgreement.id, agreement.id)).returning();
+      if (agreement.autopayAt === null || agreement.autopayRank !== 1) return viewOf(tx, agreement);
+      /** Stopping paying automatically stops its backups with it: a backup is only ever behind a first card. */
+      const stopped = await stopAutopay(tx, session.customerId);
+      const after = stopped.find((r) => r.id === agreement.id)!;
       await audit(tx, ctx, "portal.card.autopay_off", "customer", session.customerId,
-        { autopayAt: agreement.autopayAt, autopayWording: agreement.autopayWording }, { agreementId: agreement.id });
-      return viewOf(tx, after!);
+        { autopayAt: agreement.autopayAt, autopayWording: agreement.autopayWording },
+        { agreementId: agreement.id, backupsStopped: stopped.filter((r) => r.id !== agreement.id).map((r) => r.id) });
+      return viewOf(tx, after);
     }
     const expected = wordingFor(session.organizationName, card).autopay;
     if (!cp.sameWording(input.wording ?? "", expected)) {
       throw new ConflictError("The words on this page have changed. Refresh it, read them again and turn it on if you still want to.");
     }
-    if (agreement.autopayAt !== null) return viewOf(tx, agreement);
+    if (agreement.autopayAt !== null && agreement.autopayRank === 1) return viewOf(tx, agreement);
 
+    /**
+     * The card paying automatically now stops, and stays agreed. Its backups
+     * stay where they are: they were agreed as backups to whichever card pays
+     * automatically. This card, if it was one of them, leaves that place.
+     */
     const others = await tx.update(schema.paymentAgreement)
-      .set({ autopayAt: null, autopayWording: null, autopayGrantId: null, updatedAt: new Date() })
+      .set({ autopayAt: null, autopayWording: null, autopayGrantId: null, autopayRank: 1, updatedAt: new Date() })
       .where(and(
         eq(schema.paymentAgreement.customerId, session.customerId),
         isNull(schema.paymentAgreement.withdrawnAt),
         sql`${schema.paymentAgreement.autopayAt} is not null`,
+        or(eq(schema.paymentAgreement.autopayRank, 1), eq(schema.paymentAgreement.id, agreement.id)),
       )).returning({ id: schema.paymentAgreement.id });
     const [after] = await tx.update(schema.paymentAgreement)
-      .set({ autopayAt: new Date(), autopayWording: expected, autopayGrantId: session.grant.grantId, updatedAt: new Date() })
+      .set({ autopayAt: new Date(), autopayWording: expected, autopayGrantId: session.grant.grantId, autopayRank: 1, updatedAt: new Date() })
       .where(eq(schema.paymentAgreement.id, agreement.id)).returning();
     await audit(tx, ctx, "portal.card.autopay_on", "customer", session.customerId, null, {
-      agreementId: agreement.id, cardId: card.id, wording: expected, turnedOffOn: others.map((o) => o.id),
+      agreementId: agreement.id, cardId: card.id, wording: expected,
+      turnedOffOn: others.map((o) => o.id).filter((id) => id !== agreement.id),
+    });
+    return viewOf(tx, after!);
+  });
+}
+
+/** Paying automatically stopped for a customer, first card and backups alike. The rows as they now are. */
+async function stopAutopay(tx: Database, customerId: string) {
+  return tx.update(schema.paymentAgreement)
+    .set({ autopayAt: null, autopayWording: null, autopayGrantId: null, autopayRank: 1, updatedAt: new Date() })
+    .where(and(
+      eq(schema.paymentAgreement.customerId, customerId),
+      isNull(schema.paymentAgreement.withdrawnAt),
+      sql`${schema.paymentAgreement.autopayAt} is not null`,
+    )).returning();
+}
+
+/**
+ * Keep this card as a backup for paying automatically, or stop. On needs the
+ * card's agreement, a card that pays automatically already (another one), and
+ * the backup words the customer read; it goes behind the backups there are,
+ * up to two. Off takes it out of the order and leaves the rest as they were.
+ * Only the customer's own sign in can do either, as with paying automatically.
+ */
+export async function setBackup(
+  db: Database, input: { token: string; cardId: string; on: boolean; wording?: string | undefined },
+): Promise<AgreementView> {
+  const session = await sessionFor(db, input.token);
+  return inGrant(db, session.grant, async (tx, ctx) => {
+    const card = await liveCard(tx, session, input.cardId);
+    const agreement = await liveAgreement(tx, card.id);
+    if (!agreement) {
+      throw new ConflictError("Agree to let the company charge this card first. A backup needs that agreement.");
+    }
+    if (!input.on) {
+      if (agreement.autopayAt === null || agreement.autopayRank === 1) return viewOf(tx, agreement);
+      const [after] = await tx.update(schema.paymentAgreement)
+        .set({ autopayAt: null, autopayWording: null, autopayGrantId: null, autopayRank: 1, updatedAt: new Date() })
+        .where(eq(schema.paymentAgreement.id, agreement.id)).returning();
+      await audit(tx, ctx, "portal.card.autopay_backup_off", "customer", session.customerId,
+        { autopayRank: agreement.autopayRank, autopayWording: agreement.autopayWording }, { agreementId: agreement.id });
+      return viewOf(tx, after!);
+    }
+    const expected = wordingFor(session.organizationName, card).backup;
+    if (!cp.sameWording(input.wording ?? "", expected)) {
+      throw new ConflictError("The words on this page have changed. Refresh it, read them again and choose it if you still want to.");
+    }
+    if (agreement.autopayAt !== null && agreement.autopayRank > 1) return viewOf(tx, agreement);
+    if (agreement.autopayAt !== null) {
+      throw new ConflictError("This card already pays your bills automatically. Choose another card as its backup.");
+    }
+    /** Locked, so two presses at once count the same backups and the second is refused by the order's index. */
+    const live = await tx.select().from(schema.paymentAgreement).where(and(
+      eq(schema.paymentAgreement.customerId, session.customerId),
+      isNull(schema.paymentAgreement.withdrawnAt),
+      sql`${schema.paymentAgreement.autopayAt} is not null`,
+    )).for("update");
+    if (!live.some((r) => r.autopayRank === 1)) {
+      throw new ConflictError("Choose a card to pay your bills automatically first. A backup is only tried when that card does not go through.");
+    }
+    const backups = live.filter((r) => r.autopayRank > 1);
+    if (backups.length >= cp.MAX_BACKUPS) {
+      throw new ConflictError(`You can keep ${cp.MAX_BACKUPS} backups. Stop one of them first.`);
+    }
+    const rank = Math.max(1, ...backups.map((r) => r.autopayRank)) + 1;
+    const [after] = await tx.update(schema.paymentAgreement)
+      .set({ autopayAt: new Date(), autopayWording: expected, autopayGrantId: session.grant.grantId, autopayRank: rank, updatedAt: new Date() })
+      .where(eq(schema.paymentAgreement.id, agreement.id)).returning();
+    await audit(tx, ctx, "portal.card.autopay_backup_on", "customer", session.customerId, null, {
+      agreementId: agreement.id, cardId: card.id, wording: expected, rank,
     });
     return viewOf(tx, after!);
   });
@@ -319,10 +411,14 @@ export async function withdrawWithin(
   await tx.update(schema.paymentAgreement).set({
     withdrawnAt: new Date(), withdrawnReason: input.reason, withdrawnGrantId: input.grantId,
     withdrawnByUserId: input.byUserId ?? null,
-    autopayAt: null, autopayWording: null, autopayGrantId: null, updatedAt: new Date(),
+    autopayAt: null, autopayWording: null, autopayGrantId: null, autopayRank: 1, updatedAt: new Date(),
   }).where(eq(schema.paymentAgreement.id, row.id));
+  /** The first card gone, its backups stop too: a backup is never the card a bill is charged to first. */
+  const backupsStopped = row.autopayAt !== null && row.autopayRank === 1
+    ? (await stopAutopay(tx, input.customerId)).map((r) => r.id) : [];
   await audit(tx, ctx, "portal.card.agreement_withdrawn", "customer", input.customerId,
-    { agreementId: row.id, autopay: row.autopayAt !== null }, { reason: input.reason });
+    { agreementId: row.id, autopay: row.autopayAt !== null, autopayRank: row.autopayAt !== null ? row.autopayRank : null },
+    { reason: input.reason, backupsStopped });
   return true;
 }
 
@@ -336,6 +432,8 @@ export interface CardOnFile {
   agreedAt: string;
   agreedByContact: string | null;
   autopay: boolean;
+  /** 1 for the card paying automatically, 2 and 3 for its backups in order, null for neither. */
+  autopayRank: number | null;
   /** Who gave it and how, so the screen says "by phone, taken by Sam" and not only "agreed". */
   givenBy: "customer" | "office";
   way: cp.AgreementWay;
@@ -348,6 +446,8 @@ export interface ChargeView {
   id: string;
   trigger: "office" | "autopay";
   attempt: number;
+  /** 1 for the first card, 2 and 3 for a backup tried after the cards before it failed. */
+  cardRank: number;
   status: string;
   amount: string | null;
   card: string;
@@ -393,7 +493,8 @@ async function cardsOnFileWithin(tx: Database, customerId: string): Promise<Card
     label: cp.methodLabel(card),
     agreedAt: agreement.agreedAt.toISOString(),
     agreedByContact: contactName,
-    autopay: agreement.autopayAt !== null,
+    autopay: agreement.autopayAt !== null && agreement.autopayRank === 1,
+    autopayRank: agreement.autopayAt !== null ? agreement.autopayRank : null,
     givenBy: agreement.givenBy === "office" ? "office" as const : "customer" as const,
     way: wayOf(agreement),
     wayLabel: cp.agreementWayLabel(wayOf(agreement)),
@@ -428,6 +529,7 @@ async function chargesWithin(tx: Database, invoiceId: string): Promise<ChargeVie
     id: charge.id,
     trigger: charge.trigger === "autopay" ? "autopay" as const : "office" as const,
     attempt: charge.attempt,
+    cardRank: charge.cardRank,
     status: now(charge, settled),
     amount: charge.amount,
     card: cp.methodLabel(card),
@@ -912,7 +1014,7 @@ async function attempt(
      * wants the customer anyway, it is treated the same way.
      */
     if (started.status === "requires_action" || started.status === "requires_payment_method") {
-      return failedWith(ctx, row, number, { code: cp.NEEDS_CUSTOMER, reason: "Their bank wants them to confirm it." }, now);
+      return failedWith(ctx, row, number, { code: cp.NEEDS_CUSTOMER, reason: "Their bank wants them to confirm it." }, now, deps);
     }
     const [after] = await inTenant(ctx, (tx) => tx.update(schema.cardOnFileCharge).set({
       status: "submitted", amount: started.amount, attemptEventId: started.attemptId, intentId: started.intentId,
@@ -925,7 +1027,7 @@ async function attempt(
     return resultOf(after!);
   } catch (error) {
     if (error instanceof payments.ChargeDeclinedError) {
-      return failedWith(ctx, row, number, { code: error.code, reason: error.message }, now);
+      return failedWith(ctx, row, number, { code: error.code, reason: error.message }, now, deps);
     }
     if (error instanceof ConflictError) {
       /**
@@ -944,16 +1046,97 @@ async function attempt(
   }
 }
 
+/**
+ * The customer's next backup behind the card a first day automatic charge
+ * was just refused on, or null: a live agreement kept as a backup, further
+ * down the order, on a card still saved.
+ */
+async function nextBackup(ctx: ServiceContext, row: typeof schema.cardOnFileCharge.$inferSelect) {
+  if (row.trigger !== "autopay" || row.attempt !== 1) return null;
+  const [next] = await inTenant(ctx, (tx) => tx.select({ agreement: schema.paymentAgreement })
+    .from(schema.paymentAgreement)
+    .innerJoin(schema.savedPaymentMethod, eq(schema.savedPaymentMethod.id, schema.paymentAgreement.savedPaymentMethodId))
+    .where(and(
+      eq(schema.paymentAgreement.customerId, row.customerId),
+      isNull(schema.paymentAgreement.withdrawnAt),
+      sql`${schema.paymentAgreement.autopayAt} is not null`,
+      sql`${schema.paymentAgreement.autopayRank} > ${row.cardRank}`,
+      isNull(schema.savedPaymentMethod.removedAt),
+    ))
+    .orderBy(asc(schema.paymentAgreement.autopayRank))
+    .limit(1));
+  return next?.agreement ?? null;
+}
+
+/** The first day's tries on an invoice before this one, in order, with each card's name: the cards a backup came after. */
+async function triedBefore(ctx: ServiceContext, row: typeof schema.cardOnFileCharge.$inferSelect) {
+  return inTenant(ctx, (tx) => tx.select({ charge: schema.cardOnFileCharge, card: schema.savedPaymentMethod })
+    .from(schema.cardOnFileCharge)
+    .innerJoin(schema.savedPaymentMethod, eq(schema.savedPaymentMethod.id, schema.cardOnFileCharge.savedPaymentMethodId))
+    .where(and(
+      eq(schema.cardOnFileCharge.invoiceId, row.invoiceId),
+      eq(schema.cardOnFileCharge.trigger, "autopay"),
+      eq(schema.cardOnFileCharge.attempt, row.attempt),
+      sql`${schema.cardOnFileCharge.cardRank} < ${row.cardRank}`,
+    ))
+    .orderBy(asc(schema.cardOnFileCharge.cardRank)));
+}
+
+/** Names in a sentence: "Visa ending 4242", "Visa ending 4242 and Mastercard ending 5555". */
+const inWords = (names: readonly string[]) =>
+  names.length <= 1 ? (names[0] ?? "saved card") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+
 async function failedWith(
   ctx: ServiceContext, row: typeof schema.cardOnFileCharge.$inferSelect, number: number,
-  failure: { code: string | null; reason: string }, now: Date,
+  failure: { code: string | null; reason: string }, now: Date, deps?: payments.PaymentDeps,
 ): Promise<ChargeResult> {
   const kind = cp.failureKind(failure.code);
   const trigger = row.trigger === "autopay" ? "autopay" as const : "office" as const;
-  const retry = cp.retryAt({ trigger, attempt: row.attempt, code: failure.code, now });
   const [card] = await inTenant(ctx, (tx) => tx.select().from(schema.savedPaymentMethod)
     .where(eq(schema.savedPaymentMethod.id, row.savedPaymentMethodId)).limit(1));
   const method = card ? cp.methodLabel(card) : "saved card";
+
+  /**
+   * A BACKUP COMES NEXT. The customer agreed a card behind this one: this try
+   * is written down as failed, quietly (nobody is told and nothing is tried
+   * tomorrow on account of it), and the backup is tried now, once, under the
+   * same unique index on the invoice, the try and the place in the order.
+   * Only the last card's failure tells anybody.
+   */
+  const backup = await nextBackup(ctx, row);
+  if (backup) {
+    const next = await inTenant(ctx, async (tx) => {
+      await tx.update(schema.cardOnFileCharge).set({
+        status: kind === "needs_customer" ? "needs_customer" : "failed",
+        failureCode: failure.code,
+        failureReason: kind === "needs_customer" ? "Their bank wants them to confirm the payment themselves." : failure.reason,
+        retryAt: null, updatedAt: new Date(),
+      }).where(eq(schema.cardOnFileCharge.id, row.id));
+      await audit(tx, ctx, "payment.charge_on_file_failed", "invoice", row.invoiceId, null, {
+        chargeId: row.id, trigger, attempt: row.attempt, cardRank: row.cardRank, code: failure.code, reason: failure.reason,
+        backupNext: { agreementId: backup.id, cardRank: backup.autopayRank },
+      });
+      const [created] = await tx.insert(schema.cardOnFileCharge).values({
+        organizationId: ctx.actor.organizationId, invoiceId: row.invoiceId, customerId: row.customerId,
+        agreementId: backup.id, savedPaymentMethodId: backup.savedPaymentMethodId,
+        trigger: "autopay", attempt: row.attempt, cardRank: backup.autopayRank, amount: row.amount,
+      }).onConflictDoNothing().returning();
+      return created ?? null;
+    });
+    if (next) return attempt(ctx, next, deps);
+    const [left] = await inTenant(ctx, (tx) => tx.select().from(schema.cardOnFileCharge)
+      .where(eq(schema.cardOnFileCharge.id, row.id)).limit(1));
+    return resultOf(left!);
+  }
+
+  /**
+   * The last card in the order. Whether tomorrow's one more try comes is the
+   * first card's answer, because tomorrow's try is on the first card.
+   */
+  const before = row.cardRank > 1 ? await triedBefore(ctx, row) : [];
+  const firstCode = before[0]?.charge.failureCode ?? failure.code;
+  const retry = cp.retryAt({ trigger, attempt: row.attempt, code: row.cardRank > 1 ? firstCode : failure.code, now });
+  const triedNames = [...before.map((b) => cp.methodLabel(b.card)), method];
 
   /**
    * The customer gets the link when only they can finish it, and whenever
@@ -964,7 +1147,7 @@ async function failedWith(
   const told = tellCustomer
     ? await sendPayLink(ctx, {
       invoiceId: row.invoiceId, customerId: row.customerId,
-      note: cp.payLinkNote({ kind, method, retrying: retry !== null }),
+      note: cp.payLinkNote({ kind, method: inWords(triedNames), retrying: retry !== null }),
     })
     : null;
 
@@ -976,7 +1159,8 @@ async function failedWith(
       const [task] = await tx.insert(schema.task).values({
         organizationId: ctx.actor.organizationId,
         title: `${customer?.name ?? "A customer"}'s automatic payment of ${amount} for invoice #${number} did not go through`,
-        body: `${method}: ${kind === "needs_customer" ? "their bank wants them to confirm the payment themselves." : failure.reason} `
+        body: before.map((b) => `${cp.methodLabel(b.card)}: ${b.charge.failureReason ?? "did not go through."} `).join("")
+          + `${method}: ${kind === "needs_customer" ? "their bank wants them to confirm the payment themselves." : failure.reason} `
           + (told?.told === "email" ? "They were emailed the link to pay. "
             : told?.told === "text" ? "They were texted the link to pay. "
               : `The link to pay could not be sent${told?.note ? ` (${told.note})` : ""}; send them the invoice. `)
@@ -1003,7 +1187,7 @@ async function failedWith(
       updatedAt: new Date(),
     }).where(eq(schema.cardOnFileCharge.id, row.id)).returning();
     await audit(tx, ctx, "payment.charge_on_file_failed", "invoice", row.invoiceId, null, {
-      chargeId: row.id, trigger, attempt: row.attempt, code: failure.code, reason: failure.reason,
+      chargeId: row.id, trigger, attempt: row.attempt, cardRank: row.cardRank, code: failure.code, reason: failure.reason,
       customerTold: told?.told ?? null, retryAt: retry?.toISOString() ?? null,
     });
     return updated;
@@ -1146,6 +1330,8 @@ export async function autopayFor(
           eq(schema.paymentAgreement.customerId, first.customerId),
           isNull(schema.paymentAgreement.withdrawnAt),
           sql`${schema.paymentAgreement.autopayAt} is not null`,
+          /** The first card only: a backup is tried on the first day, never on the next. */
+          eq(schema.paymentAgreement.autopayRank, 1),
           isNull(schema.savedPaymentMethod.removedAt),
         )).limit(1);
       if (!live) return null;
@@ -1166,7 +1352,7 @@ export async function autopayFor(
         from public.invoice i
         join public.payment_agreement a
           on a.customer_id = coalesce(i.payer_customer_id, i.customer_id)
-         and a.withdrawn_at is null and a.autopay_at is not null
+         and a.withdrawn_at is null and a.autopay_at is not null and a.autopay_rank = 1
         join public.saved_payment_method s on s.id = a.saved_payment_method_id and s.removed_at is null
        where i.status in ('open', 'partially_paid')
          and i.balance > 0
@@ -1219,6 +1405,28 @@ async function reconcile(ctx: ServiceContext): Promise<number> {
     if (event.status === "succeeded") {
       await inTenant(ctx, (tx) => tx.update(schema.cardOnFileCharge).set({ status: "paid", updatedAt: new Date() })
         .where(eq(schema.cardOnFileCharge.id, row.id)));
+      /**
+       * A backup paid: the customer is told which card did not go through and
+       * which one paid, once, now that the money has moved.
+       */
+      if (row.trigger === "autopay" && row.cardRank > 1 && row.customerTold === null) {
+        const before = await triedBefore(ctx, row);
+        const [paidWith] = await inTenant(ctx, (tx) => tx.select().from(schema.savedPaymentMethod)
+          .where(eq(schema.savedPaymentMethod.id, row.savedPaymentMethodId)).limit(1));
+        const told = await sendPayLink(ctx, {
+          invoiceId: row.invoiceId, customerId: row.customerId,
+          note: cp.backupPaidNote({
+            tried: before.map((b) => cp.methodLabel(b.card)), paid: paidWith ? cp.methodLabel(paidWith) : "backup card",
+          }),
+        });
+        await inTenant(ctx, async (tx) => {
+          await tx.update(schema.cardOnFileCharge).set({ customerTold: told.told, customerToldNote: told.note, updatedAt: new Date() })
+            .where(eq(schema.cardOnFileCharge.id, row.id));
+          await audit(tx, ctx, "payment.backup_card_paid", "invoice", row.invoiceId, null, {
+            chargeId: row.id, cardRank: row.cardRank, customerTold: told.told,
+          });
+        });
+      }
       settled += 1;
       continue;
     }
@@ -1290,6 +1498,8 @@ export const handlers = {
     agree(db, input, meta),
   setPortalCardAutopay: (db: Database, input: { token: string; cardId: string; on: boolean; wording?: string | undefined }) =>
     setAutopay(db, input),
+  setPortalCardAutopayBackup: (db: Database, input: { token: string; cardId: string; on: boolean; wording?: string | undefined }) =>
+    setBackup(db, input),
   withdrawPortalCardAgreement: (db: Database, input: { token: string; cardId: string }) => withdraw(db, input),
   listInvoiceCardsOnFile: (ctx: ServiceContext, input: { id: string }) => forInvoice(ctx, { invoiceId: input.id }),
   chargeInvoiceCardOnFile: (ctx: ServiceContext, input: { id: string; cardId: string; amount?: string | undefined }) =>

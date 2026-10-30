@@ -16,6 +16,8 @@ export interface CardRow {
   agreement?: {
     agreedAt: string;
     autopay: boolean;
+    /** 1 for the card paying automatically, 2 and 3 for its backups in order, null for neither. */
+    autopayRank?: number | null;
     agreedByContact: string | null;
     /** `office` when somebody at the company recorded it for them, from a phone call or a signed form. */
     givenBy?: "customer" | "office";
@@ -27,7 +29,7 @@ export interface CardRow {
     takenBy?: string | null;
   } | null;
   /** The words they would agree to, exactly as the server checks them. */
-  wording?: { agreement: string; autopay: string };
+  wording?: { agreement: string; autopay: string; backup?: string };
 }
 
 export type AgreementResult = { ok: true } | { ok: false; message: string };
@@ -35,6 +37,8 @@ export type AgreementResult = { ok: true } | { ok: false; message: string };
 export interface AgreementActions {
   agree: (cardId: string, wording: string) => Promise<AgreementResult>;
   autopay: (cardId: string, on: boolean, wording?: string) => Promise<AgreementResult>;
+  /** Keep a card as a backup for paying automatically, or stop. Absent, no backup is offered. */
+  backup?: (cardId: string, on: boolean, wording?: string) => Promise<AgreementResult>;
   withdraw: (cardId: string) => Promise<AgreementResult>;
 }
 
@@ -62,6 +66,9 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
   const [state, setState] = useState<"idle" | "loading" | "ready" | "saving">("idle");
   /** The one card that pays bills automatically now, if any: turning it on for another moves it. */
   const payingWith = cards.find((c) => c.agreement?.autopay) ?? null;
+  /** The backups behind it, in the order they are tried. */
+  const backups = cards.filter((c) => (c.agreement?.autopayRank ?? 0) > 1)
+    .sort((a, b) => (a.agreement!.autopayRank ?? 0) - (b.agreement!.autopayRank ?? 0));
   const [kind, setKind] = useState<"card" | "bank_account">("card");
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -163,7 +170,8 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
               </div>
               {agreements && card.wording && (
                 <CardAgreement card={card} wording={card.wording} actions={agreements} company={company ?? "The company"}
-                               instead={payingWith && payingWith.id !== card.id ? cardLabel(payingWith) : null} />
+                               instead={payingWith && payingWith.id !== card.id ? cardLabel(payingWith) : null}
+                               backups={backups.map(cardLabel)} backupsFull={backups.length >= 2} />
               )}
             </li>
           ))}
@@ -229,15 +237,19 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
  * second step. Paying automatically is a second yes, with its own words.
  * Stopping either is one press.
  */
-function CardAgreement({ card, wording, actions, company, instead }: {
+function CardAgreement({ card, wording, actions, company, instead, backups, backupsFull }: {
   card: CardRow;
-  wording: { agreement: string; autopay: string };
+  wording: { agreement: string; autopay: string; backup?: string };
   actions: AgreementActions;
   company: string;
   /** The card that pays automatically now, when it is another one. Choosing this one moves it here. */
   instead: string | null;
+  /** The backups behind the card paying automatically, in order. */
+  backups: string[];
+  /** Two backups already: no more are offered. */
+  backupsFull: boolean;
 }) {
-  const [open, setOpen] = useState<"agree" | "autopay" | null>(null);
+  const [open, setOpen] = useState<"agree" | "autopay" | "backup" | null>(null);
   const [ticked, setTicked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,7 +265,10 @@ function CardAgreement({ card, wording, actions, company, instead }: {
     else { setOpen(null); setTicked(false); }
   }
 
-  const words = open === "autopay" ? wording.autopay : wording.agreement;
+  const words = open === "autopay" ? wording.autopay : open === "backup" ? (wording.backup ?? "") : wording.agreement;
+  const rank = agreement?.autopayRank ?? null;
+  const isBackup = rank !== null && rank > 1;
+  const canBackUp = Boolean(actions.backup && wording.backup && instead && !isBackup && !agreement?.autopay && !backupsFull);
   return (
     <div className="mt-2 rounded border border-steel-200 p-3">
       {agreement ? (
@@ -262,6 +277,10 @@ function CardAgreement({ card, wording, actions, company, instead }: {
             {company} may charge {label} for your bills
             {agreement.agreedByContact ? ` (agreed by ${agreement.agreedByContact})` : ""}.
             {agreement.autopay ? " Your bills are paid with it automatically when they are issued." : ""}
+            {agreement.autopay && backups.length > 0
+              ? ` If it does not go through, we try ${backups.join(", then ")}, once each, the same day.`
+              : ""}
+            {isBackup ? ` It is a backup for paying automatically: we try it once, the same day, only when ${instead ?? "the card you pay with"} and any backup before it do not go through.` : ""}
           </p>
           {agreement.givenBy === "office" && (
             <p className="mt-1 text-xs text-ink-500">
@@ -280,6 +299,18 @@ function CardAgreement({ card, wording, actions, company, instead }: {
               <button type="button" disabled={busy} onClick={() => { setOpen("autopay"); setTicked(false); }}
                       className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
                 {instead ? `Pay my bills automatically with ${label} instead of ${instead}` : `Pay my bills automatically with ${label}`}
+              </button>
+            )}
+            {isBackup && actions.backup && (
+              <button type="button" disabled={busy} onClick={() => void run(() => actions.backup!(card.id, false))}
+                      className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
+                Stop using {label} as a backup
+              </button>
+            )}
+            {canBackUp && open !== "backup" && (
+              <button type="button" disabled={busy} onClick={() => { setOpen("backup"); setTicked(false); }}
+                      className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
+                Use {label} as a backup if {instead} does not go through
               </button>
             )}
             <button type="button" disabled={busy} onClick={() => void run(() => actions.withdraw(card.id))}
@@ -309,10 +340,12 @@ function CardAgreement({ card, wording, actions, company, instead }: {
           </label>
           <div className="mt-2 flex gap-3">
             <button type="button" disabled={!ticked || busy}
-                    onClick={() => void run(() => (open === "agree" ? actions.agree(card.id, words) : actions.autopay(card.id, true, words)))}
+                    onClick={() => void run(() => (open === "agree" ? actions.agree(card.id, words)
+                      : open === "backup" ? actions.backup!(card.id, true, words) : actions.autopay(card.id, true, words)))}
                     style={{ backgroundColor: "var(--brand, #111827)", color: "var(--brand-on, #ffffff)" }}
                     className="h-10 rounded px-4 text-sm font-medium disabled:opacity-40">
-              {busy ? "Saving…" : open === "agree" ? "Agree" : instead ? `Pay automatically with ${label}` : "Turn on automatic payments"}
+              {busy ? "Saving…" : open === "agree" ? "Agree" : open === "backup" ? "Keep it as a backup"
+                : instead ? `Pay automatically with ${label}` : "Turn on automatic payments"}
             </button>
             <button type="button" disabled={busy} onClick={() => setOpen(null)}
                     className="text-sm text-ink-700 underline underline-offset-4">

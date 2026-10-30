@@ -1142,6 +1142,13 @@
       "when": 1793331577110,
       "tag": "0162_slimy_lyja",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1793335300317,
+      "tag": "0163_bright_iron_lad",
+      "breakpoints": true
     }
   ]
 }

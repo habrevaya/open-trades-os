@@ -125,6 +125,35 @@ export function autopayWording(input: WordingInput): string {
     + `once more the next day. I can turn this off at any time from my account.`;
 }
 
+/** The most backups a customer may keep behind the card they pay automatically with. */
+export const MAX_BACKUPS = 2;
+
+/**
+ * A card kept as a backup for paying automatically, on top of the agreement
+ * to charge it at all.
+ *
+ * Says when it is used (only when the card paid automatically with, and any
+ * backup before it, did not go through), how often (once, the same day, for
+ * what the bill says is owed), that the customer is told which card paid, and
+ * that they can stop it. It names no other card, because the card paid
+ * automatically with can change and these words must stay true.
+ */
+export function backupWording(input: WordingInput): string {
+  const company = companyName(input.company);
+  const what = input.kind === "bank_account" ? `take the payment from my ${input.method}` : `charge my ${input.method}`;
+  return `Use my ${input.method} as a backup for paying my bills automatically: when ${company} cannot take a bill `
+    + `from the card I pay automatically with, or from a backup before this one, they ${what} once, the same day, `
+    + `for the amount the bill says I owe, and tell me which card paid. I can stop this at any time from my account.`;
+}
+
+/** What the customer is told when a backup paid a bill: which card did not, and which did. */
+export function backupPaidNote(input: { tried: readonly string[]; paid: string }): string {
+  const tried = input.tried.length <= 1 ? (input.tried[0] ?? "your first card")
+    : `${input.tried.slice(0, -1).join(", ")} or ${input.tried.at(-1)}`;
+  return `We could not take this bill from your ${tried}, so we took it from your ${input.paid}, `
+    + "the backup you chose. Nothing more is owed on it.";
+}
+
 /**
  * Two wordings are the same agreement when they say the same words. Spaces
  * are what a browser is allowed to change on the way back (a line break in a

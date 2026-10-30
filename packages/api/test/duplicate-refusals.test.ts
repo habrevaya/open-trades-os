@@ -356,12 +356,14 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One live agreement to charge a saved card. Agreeing again returns the one that stands, and the insert "
     + "is on conflict do nothing, so a double press is one agreement.",
   payment_agreement_autopay_idx:
-    "One card paying automatically per customer. Turning it on for a card turns it off on the others in the "
-    + "same transaction first; only the customer's own two presses at the same instant could meet it, and the "
-    + "second then fails rather than leaving two cards charging every bill.",
+    "One card in each place of paying automatically per customer: one first card, and one at each backup place. "
+    + "Turning it on for a card turns it off on the first card in the same transaction first, and a backup takes "
+    + "the next place after locking the customer's rows; only the customer's own two presses at the same instant "
+    + "could meet it, and the second then fails rather than leaving two cards charging every bill.",
   card_on_file_charge_autopay_idx:
-    "One automatic charge per invoice per try, which is what makes a bill charged once whatever the worker "
-    + "does. Inserted with on conflict do nothing by the worker; nobody types one.",
+    "One automatic charge per invoice per try per place in the customer's order of cards, which is what makes "
+    + "a bill charged once on each card whatever the worker does. Inserted with on conflict do nothing by the "
+    + "worker; nobody types one.",
   card_on_file_charge_key_idx:
     "The office's request key for a charge. A replay is found by a select first and answered with the charge "
     + "already made; two identical requests at the same instant fail the second rather than charge twice.",
