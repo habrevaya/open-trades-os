@@ -159,6 +159,7 @@ describe("permissions", () => {
       "POST /v1/portal/cards/{cardId}/agreement",
       "POST /v1/portal/cards/{cardId}/agreement/withdraw",
       "POST /v1/portal/cards/{cardId}/autopay",
+      "POST /v1/portal/cards/{cardId}/autopay-backup",
       /**
        * A signed in customer sending a photo or a PDF about one of their own
        * jobs or visits, the list of what they sent, and taking one back. Sign
