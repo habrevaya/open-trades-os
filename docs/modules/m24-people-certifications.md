@@ -215,6 +215,19 @@ beside the card, or "Warn days ahead" when recording it) or with
 hands it back to its type's number. The earlier number is kept in the audit log.
 A notice already sent is not sent again by moving the number.
 
+**Several at once.** On `/certifications`, each card that expires has a "Tick" box, and above
+"Who holds what" the form "Days ahead for the ticked cards" sets one number on all of them
+(`POST /v1/certification-renewals/days`, `compliance:write`: `ids`, up to 200, and
+`renewalLeadDays`, a whole number of days or `null`). A blank box hands every ticked card back to
+its type's number. It is all or nothing, in one transaction: a card that is not here, or whose type
+does not expire when a number is given, refuses the whole set in words naming each one, and nothing
+is changed. A card already on that number is left as it is: it writes no audit row and the answer
+says `changed: false` for it. Every card that does change gets its own audit row
+(`certification.renewal_days_set`) with its earlier number, the same action a single change
+writes, plus how many cards were changed with it, so one person's history reads the same
+whichever way the number was set. Sending the same set again changes nothing and writes nothing.
+A notice already sent is not sent again.
+
 Whoever keeps the renewals list can be told too. Off until the company names
 somebody, under **Who keeps this list** on `/certifications`
 (`PUT /v1/certification-renewals/keepers`, `compliance:write`;
@@ -493,9 +506,10 @@ and the office sees that they ticked it rather than the office. A skill's
 record can have an expiry of its own, and its renewals list and its notice follow its
 own number of days: there is no per type notice period for a skill, because a skill has
 no type. A certification's holding follows its type's renewal period unless it was given a
-number of its own, one card at a time: there is no way to give a number to a set of
-holdings at once, and a number of a card's own is not carried to the next card when it is
-renewed (the renewal is a new row, and follows the type's number until given one). A
+number of its own, one card at a time or for a ticked set at once (all or nothing, at most 200
+cards; there is no "tick every card" button, so a long list is ticked one by one, and a card
+whose type does not expire cannot be ticked), and a number of a card's own is not carried to the
+next card when it is renewed (the renewal is a new row, and follows the type's number until given one). A
 licence or skill running out is emailed to the holder, their manager and each keeper at
 the address they sign in with, and to no other address: a person cannot choose a second
 mailbox, and the email is not a weekly summary but one message per notice. It lands in the

@@ -23034,6 +23034,135 @@
         ]
       }
     },
+    "/v1/certification-renewals/days": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setCertificationRenewalDaysMany",
+        "summary": "Change how many days ahead a set of holdings is warned, at once",
+        "description": "The same change as `POST /v1/certifications/{id}/renewal-days`, for up to 200 holdings in one call: `renewalLeadDays` is the number of days ahead each is warned, or `null` to hand every one back to its type's number. All or nothing: a holding that is not here, or whose type does not expire (when a number is given), refuses the whole set, in words naming each one, and nothing is changed. A holding already on that number is left as it is (`changed` is false for it, and it writes no audit row). Each holding that does change gets its own audit row with its earlier number, as a single change does. A notice already sent is not sent again. Sending the same set again changes nothing and writes nothing (every holding then reads `changed: false`, because nothing changed that time). `compliance:write`.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCertificationRenewalDaysManyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Change how many days ahead a set of holdings is warned, at once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCertificationRenewalDaysManyOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
     "/v1/certification-renewals/keeper": {
       "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -277327,6 +277456,74 @@
           "id",
           "renewalLeadDays",
           "typeRenewalLeadDays"
+        ]
+      },
+      "SetCertificationRenewalDaysManyInput": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 200
+          },
+          "renewalLeadDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 3650
+          }
+        },
+        "required": [
+          "ids",
+          "renewalLeadDays"
+        ]
+      },
+      "SetCertificationRenewalDaysManyOutput": {
+        "type": "object",
+        "properties": {
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "renewalLeadDays": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "typeRenewalLeadDays": {
+                  "type": "integer"
+                },
+                "changed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "renewalLeadDays",
+                "typeRenewalLeadDays",
+                "changed"
+              ]
+            }
+          },
+          "changed": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "holdings",
+          "changed"
         ]
       },
       "SetCertificationStatusInput": {

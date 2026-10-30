@@ -24792,6 +24792,21 @@ export interface SetCertificationRenewalDaysInput {
   renewalLeadDays: number | null;
 }
 
+export interface SetCertificationRenewalDaysManyInput {
+  ids: string[];
+  renewalLeadDays: number | null;
+}
+
+export interface SetCertificationRenewalDaysManyOutput {
+  holdings: Array<{
+    id: string;
+    renewalLeadDays: number | null;
+    typeRenewalLeadDays: number;
+    changed: boolean;
+  }>;
+  changed: number;
+}
+
 export interface SetCertificationRenewalDaysOutput {
   id: string;
   renewalLeadDays: number | null;
@@ -35462,6 +35477,7 @@ export interface OperationTypes {
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCancellationNotice: { input: SetCancellationNoticeInput; output: SetCancellationNoticeOutput };
   setCertificationRenewalDays: { input: SetCertificationRenewalDaysParams & SetCertificationRenewalDaysInput; output: SetCertificationRenewalDaysOutput };
+  setCertificationRenewalDaysMany: { input: SetCertificationRenewalDaysManyInput; output: SetCertificationRenewalDaysManyOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
   setCommissionItemRule: { input: SetCommissionItemRuleInput; output: SetCommissionItemRuleOutput };
   setCommissionOnPayment: { input: SetCommissionOnPaymentInput; output: SetCommissionOnPaymentOutput };
@@ -36682,6 +36698,7 @@ export const OPERATIONS = {
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCancellationNotice: { method: "PATCH", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setCertificationRenewalDays: { method: "POST", path: "/v1/certifications/{id}/renewal-days", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  setCertificationRenewalDaysMany: { method: "POST", path: "/v1/certification-renewals/days", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCommissionItemRule: { method: "POST", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setCommissionOnPayment: { method: "POST", path: "/v1/commissions/settle-on-payment", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
@@ -45845,6 +45862,15 @@ export abstract class GeneratedOperations {
    */
   setCertificationRenewalDays(input: SetCertificationRenewalDaysParams & SetCertificationRenewalDaysInput, options?: CallOptions): Promise<SetCertificationRenewalDaysOutput> {
     return this.call("setCertificationRenewalDays", input, options);
+  }
+
+  /**
+   * Change how many days ahead a set of holdings is warned, at once.
+   *
+   * POST /v1/certification-renewals/days. Needs compliance:write.
+   */
+  setCertificationRenewalDaysMany(input: SetCertificationRenewalDaysManyInput, options?: CallOptions): Promise<SetCertificationRenewalDaysManyOutput> {
+    return this.call("setCertificationRenewalDaysMany", input, options);
   }
 
   /**
