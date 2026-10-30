@@ -298,8 +298,10 @@ stands.
 **About to breach becomes a task.** A quarter of the window before a clock
 runs out (never less than fifteen minutes), a high priority task is raised in
 the office queue, due when the clock is, and from there the company's own
-escalation rules act on it like any late task. A clock met before then takes
-its task out of the queue with it.
+escalation rules act on it like any late task. The same pass tells everybody who
+may deal with it (`task:write`) on their bell, phone or text as each chose, with a
+notice that opens the task (M34). A clock met before then takes its task out of the
+queue with it.
 
 `Contracts > Deadlines` (`/contracts/deadlines`) is the queue of what is past
 due, what is due within a day, and what is later. A clock already met since

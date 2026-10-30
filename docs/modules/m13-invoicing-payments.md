@@ -697,7 +697,10 @@ of each bill; only the office charges part of one. No charge on file carries
 a tip. The customer is told of a
 failure by email to the address on their record, or by text when the email
 cannot go and it is not quiet hours; when neither can go, the office task
-says so. A bank payment returned days later sends the link and leaves the
+says so. An automatic card payment that fails, or that the processor later says
+did not go through, also tells everybody who may charge a saved card
+(`payment:charge_saved`) on their bell, phone or text as each chose, with a notice that
+opens the invoice (M34). A bank payment returned days later sends the link and leaves the
 office the bank payment's own task. Tax rate determination is deliberately not
 built: the company writes down the rates it charges and their parts, a rate or
 a part is never looked up from an address, and BUILD.md says why. A sale is
