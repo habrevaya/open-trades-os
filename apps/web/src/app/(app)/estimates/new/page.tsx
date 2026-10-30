@@ -39,7 +39,7 @@ export default async function NewEstimatePage({
     : [];
   const items = can(user.actor, "pricebook:read")
     ? (await priceBook.list(ctx, { limit: 200, includeInactive: false })).data
-      .map((i) => ({ id: i.id, name: i.name, price: i.price, crewHours: i.quantityIsCrewHours }))
+      .map((i) => ({ id: i.id, name: i.name, price: i.price, crewHours: i.quantityIsCrewHours, picture: i.hasPicture ? i.versionId : null }))
       .sort((a, b) => a.name.localeCompare(b.name))
     : [];
 

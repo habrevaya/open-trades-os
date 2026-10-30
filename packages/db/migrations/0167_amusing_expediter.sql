@@ -1,0 +1,1 @@
+ALTER TABLE "price_book_item_version" ADD COLUMN "picture_key" text;

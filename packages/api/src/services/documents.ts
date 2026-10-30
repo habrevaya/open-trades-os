@@ -7,6 +7,7 @@ import { contactOf, guardedRead, NotFoundError, scopeOf, timezoneOf, type Servic
 import { invoiceScopeFilter, estimateScopeFilter, jobScopeFilter } from "./scope";
 import { InvalidGrantError, inGrant, peek, requireScope, type ResolvedGrant } from "./portal";
 import { proposalWithin } from "./proposals";
+import { ITEM_PICTURE } from "./proposal-templates";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import { buildStatement, type Statement } from "./statements";
 import type { ReportResult } from "./reports";
@@ -559,9 +560,24 @@ export function workOrderPdf(
  * rather than dropped.
  */
 async function proposalFile(tx: Database, doc: Awaited<ReturnType<typeof proposalWithin>>): Promise<PdfFile> {
+  /**
+   * The pictures of the price book versions the lines were priced from, each
+   * printed once per option, and only those the document already names: the
+   * id each line carries is `item-` and its version, read back to the key the
+   * version holds.
+   */
+  const versionIds = [...new Set(doc.options.flatMap((o) => o.lines)
+    .map((line) => line.picture?.startsWith(ITEM_PICTURE) ? line.picture.slice(ITEM_PICTURE.length) : null)
+    .filter((id): id is string => id !== null))];
+  const pictureKeys = new Map(versionIds.length === 0 ? [] : (await tx.select({
+    id: schema.priceBookItemVersion.id, key: schema.priceBookItemVersion.pictureKey,
+  }).from(schema.priceBookItemVersion).where(inArray(schema.priceBookItemVersion.id, versionIds)))
+    .filter((row): row is { id: string; key: string } => row.key !== null)
+    .map((row) => [`${ITEM_PICTURE}${row.id}`, row.key] as const));
   const keys = [
     ...(doc.layout.cover?.photoKey ? [doc.layout.cover.photoKey] : []),
     ...Object.values(doc.layout.optionPhotos).flat().map((photo) => photo.storageKey),
+    ...pictureKeys.values(),
   ];
   const images = new Map<string, pdf.PdfImage | null>();
   if (keys.length > 0) {
@@ -582,6 +598,7 @@ async function proposalFile(tx: Database, doc: Awaited<ReturnType<typeof proposa
       options: doc.options.map((option) => ({
         ...option,
         photos: (doc.layout.optionPhotos[option.id] ?? []).map((photo) => images.get(photo.storageKey) ?? null),
+        linePictures: linePicturesOf(option.lines, pictureKeys, images),
       })),
       layout: {
         cover: doc.layout.cover ? {
@@ -600,6 +617,26 @@ async function proposalFile(tx: Database, doc: Awaited<ReturnType<typeof proposa
       generatedAt: new Date(),
     }, RENDER),
   };
+}
+
+/** The most item pictures one option prints, so an option of forty parts is still a page somebody reads. */
+const PROPOSAL_MAX_LINE_PICTURES = 12;
+
+/** Each picture an option's lines show, once, named by the first line that shows it. */
+function linePicturesOf(
+  lines: ReadonlyArray<{ name: string; picture: string | null }>,
+  keys: ReadonlyMap<string, string>, images: ReadonlyMap<string, pdf.PdfImage | null>,
+): Array<{ name: string; image: pdf.PdfImage | null }> {
+  const seen = new Set<string>();
+  const out: Array<{ name: string; image: pdf.PdfImage | null }> = [];
+  for (const line of lines) {
+    const key = line.picture ? keys.get(line.picture) : undefined;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (out.length >= PROPOSAL_MAX_LINE_PICTURES) break;
+    out.push({ name: line.name, image: images.get(key) ?? null });
+  }
+  return out;
 }
 
 /** The proposal the office prints at `/estimates/{id}/proposal`, as a file. */

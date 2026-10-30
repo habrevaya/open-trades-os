@@ -30,6 +30,8 @@ export interface ProposalData {
       id: string; name: string; description: string | null; quantity: string; unitPrice: string;
       lineTotal: string; discountAmount: string; memberDiscountAmount: string; memberPlan: string | null;
       isOptional: boolean; isSelected: boolean;
+      /** The picture of the price book item the line was priced from, as a photograph id for `photoSrc`; null for none. */
+      picture?: string | null | undefined;
     }[];
   }[];
   /**
@@ -184,6 +186,10 @@ export function ProposalView({ proposal, logoSrc, timezone, photoSrc }: {
                 <ul className="mt-3 flex-1 space-y-2 text-sm">
                   {base.map((line) => (
                     <li key={line.id}>
+                      {line.picture && photoSrc ? (
+                        <img src={photoSrc(line.picture)} alt={`Picture of ${line.name}`}
+                             className="mb-1 h-20 w-28 rounded object-cover" />
+                      ) : null}
                       <div className="flex justify-between gap-3">
                         <span>
                           {line.name}
@@ -203,7 +209,10 @@ export function ProposalView({ proposal, logoSrc, timezone, photoSrc }: {
                     <ul className="mt-1 space-y-1 text-sm">
                       {extras.map((line) => (
                         <li key={line.id} className="flex justify-between gap-3">
-                          <span>
+                          <span className="flex items-center gap-2">
+                            {line.picture && photoSrc ? (
+                              <img src={photoSrc(line.picture)} alt={`Picture of ${line.name}`} className="h-10 w-14 rounded object-cover" />
+                            ) : null}
                             {line.name}
                             {line.isSelected ? <span className="ml-1 text-xs text-green-700">(included)</span> : null}
                           </span>

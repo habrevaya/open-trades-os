@@ -194,7 +194,10 @@ has been sent, because sending froze what the customer reads. The office's propo
 the customer's `/e/{token}/proposal` and the PDF all draw the same sections in the
 same order, with the cover first; the PDF prints a JPEG or a plain PNG and says so
 in a line where a photograph is a kind it cannot print. Each proposal's photographs
-are served only through that proposal.
+are served only through that proposal. A line priced from a price book version that carries an uploaded
+picture (M06) shows that picture beside it on all three, and in the PDF once per option
+with the line's name under it; the customer's link serves it only because a line of that
+estimate was priced from that version.
 
 `GET /v1/proposal-templates`, `POST /v1/proposal-templates`,
 `PATCH /v1/proposal-templates/{id}`, `DELETE /v1/proposal-templates/{id}` and

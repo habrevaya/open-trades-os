@@ -419,6 +419,11 @@ export interface ProposalPdfInput {
     }>;
     /** The option's photographs, already read; null for one this cannot print. */
     photos?: Array<PdfImage | null> | undefined;
+    /**
+     * The pictures of the price book items on the option's lines, each once,
+     * with the line's name under it; null for one this cannot print.
+     */
+    linePictures?: Array<{ name: string; image: PdfImage | null }> | undefined;
   }>;
   /**
    * The company's layout, when the estimate has one: a cover and the sections
@@ -490,6 +495,11 @@ export function proposalPdf(input: ProposalPdfInput, options: RenderOptions = {}
         flow.gap(6);
         if (photo) flow.image(photo, { maxHeight: 200 });
         else flow.paragraph(UNPRINTABLE, { size: 9, color: MUTED });
+      }
+      for (const picture of option.linePictures ?? []) {
+        flow.gap(6);
+        if (picture.image) flow.image(picture.image, { maxHeight: 140, caption: picture.name });
+        else flow.paragraph(`A picture of ${picture.name} is shown on the proposal's screen copy; it is not a kind this file can print.`, { size: 9, color: MUTED });
       }
       flow.gap(6);
       flow.table(

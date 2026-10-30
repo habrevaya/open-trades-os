@@ -54,7 +54,10 @@ export const PriceBookItem = z.object({
   code: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  /** A web address somebody typed for the picture. Kept as typed; nothing fetches it or shows it to a customer. */
   imageUrl: z.string().nullable(),
+  /** A picture was uploaded onto this version (`POST /v1/pricebook/items/{id}/picture`). It is shown on the item and on proposals with a line priced from this version. */
+  hasPicture: z.boolean(),
   categoryId: Uuid.nullable(),
   feeRole: FeeRole.nullable(),
   /** The quantity on a line of this item is crew hours (people times hours). Converting an approved estimate adds these lines up as the job's budgeted hours. */
@@ -171,9 +174,10 @@ export const revisePriceBookItem = defineRoute({
      */
     components: z.array(KitComponent).max(100).optional(),
     /**
-     * The item's picture, as an https address, written into the new version like any other field. `null`
-     * takes the picture off; left off, it carries forward. Only https, so a stored address can never be
-     * a script or a file on somebody's phone if a screen ever draws it.
+     * A web address for the picture, written into the new version like any other field. `null`
+     * takes it off; left off, it carries forward. Only https, so a stored address can never be
+     * a script or a file on somebody's phone. Kept for the company's own reference: nothing fetches it
+     * and no customer is shown it. A picture to show is uploaded (`POST /v1/pricebook/items/{id}/picture`).
      */
     imageUrl: z.string().max(2000).regex(/^https:\/\/[^\s]+$/, "Use a web address that starts with https://").nullable().optional(),
     /**
@@ -207,6 +211,8 @@ export const getPriceBookItem = defineRoute({
       effectiveFrom: z.string().datetime(),
       effectiveTo: z.string().datetime().nullable(),
       state: z.enum(["in_force", "scheduled", "past"]),
+      /** An uploaded picture is on this version. */
+      hasPicture: z.boolean(),
     })),
   }),
 });
@@ -249,7 +255,39 @@ export const setPriceBookItemActive = defineRoute({
   output: z.object({ id: Uuid, code: z.string(), active: z.boolean() }),
 });
 
+/**
+ * The item's picture, uploaded as a file into the company's own store. Its
+ * type is decided from the bytes, so a file that only claims to be a picture
+ * is refused. Written into a new version in force now, like a change of name,
+ * so an estimate already written keeps the picture of the version it used.
+ */
+export const uploadPriceBookPicture = defineRoute({
+  method: "post",
+  path: "/v1/pricebook/items/{id}/picture",
+  summary: "Put a picture on a price book item",
+  description:
+    "A JPEG, PNG, GIF or WebP, base64, up to four megabytes, decided from the bytes rather than from what the upload claims. Saved as a new version in force now; the same picture again writes nothing. Refused while a revision of the item is waiting to come in. Shown on the item and, for a customer, only on the proposal of an estimate with a line priced from a version that carries it. The PDF prints a JPEG or an eight bit PNG and names the others.",
+  module: "M06",
+  permissions: ["pricebook:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, fileName: z.string().min(1).max(200), bytes: z.string().min(1).max(5_600_000) }),
+  output: PriceBookItem,
+});
+
+export const removePriceBookPicture = defineRoute({
+  method: "delete",
+  path: "/v1/pricebook/items/{id}/picture",
+  summary: "Take the uploaded picture off a price book item",
+  description:
+    "Saved as a new version in force now, without the picture. Earlier versions keep it, so estimates already written still show it. An item with no picture writes nothing.",
+  module: "M06",
+  permissions: ["pricebook:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: PriceBookItem,
+});
+
 export const priceBookRoutes = {
   setPriceBookItemActive, listPriceBook, createPriceBookItem, revisePriceBookItem,
-  getPriceBookItem, updatePriceBookItem,
+  getPriceBookItem, updatePriceBookItem, uploadPriceBookPicture, removePriceBookPicture,
 } as const;
