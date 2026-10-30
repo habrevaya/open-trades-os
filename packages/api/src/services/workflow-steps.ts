@@ -2,7 +2,7 @@ import { and, eq, isNull, desc, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import * as phoneNumbers from "./phone-numbers";
 import { renderWithin } from "./message-templates";
-import { automation, comms } from "@opentradesos/core";
+import { automation, comms, customFields as fieldRules } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import { raise } from "./tasks";
 import { timezoneOf, ConflictError } from "./context";
@@ -12,6 +12,7 @@ import { sendTransactional } from "./comms-send";
 import * as email from "./email";
 import * as reviews from "./reviews";
 import * as reviewAsks from "./review-asks";
+import { definitionsWithin } from "./custom-fields";
 
 /**
  * WHAT A WORKFLOW STEP ACTUALLY DOES
@@ -619,6 +620,8 @@ export async function stopUnless(
   }
 
   const verdict = await holds(tx, check, event, config);
+  /** A step that cannot be answered as written fails, in words, so the run shows red rather than quietly ending. */
+  if ("failed" in verdict) return { ok: false, reason: verdict.failed };
   if (verdict.holds) return { ok: true, output: { check, held: true } };
 
   return {
@@ -633,7 +636,7 @@ async function holds(
   check: automation.CheckKey,
   event: typeof schema.domainEvent.$inferSelect,
   config: Record<string, unknown>,
-): Promise<{ holds: true } | { holds: false; because: string }> {
+): Promise<{ holds: true } | { holds: false; because: string } | { failed: string }> {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   switch (check) {
     case "estimate_undecided": {
@@ -773,31 +776,55 @@ async function holds(
 }
 
 /**
- * Does a field on one of the company's own records still say what the event
- * said. The value compared is the event's (`record.fields.<key>`), so the
- * step only names the field: a permit's status was "submitted" when the
- * event fired, and the run carries on only while it still is. A record that
- * was removed since is a no, like any record that is gone.
+ * Does a field on one of the company's own records still say what it should.
+ *
+ * Two things it can be compared with. BY DEFAULT the value the event carried
+ * (`record.fields.<key>`): a permit's status was "submitted" when the event
+ * fired, and the run carries on only while it still is. Or, when the step says
+ * `compare: "value"`, a VALUE TYPED INTO THE STEP: carry on only while the
+ * status is approved, whatever the event said. The typed words are read as the
+ * field's own kind, from the definition of the record's kind as it is NOW, so
+ * a number is a number and a choice has to be one of the options; a value that
+ * cannot be read that way FAILS the step with the reason (a typo in the step is
+ * the author's to see, not a run that quietly ended), and so does a field the
+ * kind does not have. A record that was removed since is a no, like any record
+ * that is gone.
  */
 async function recordFieldUnchanged(
   tx: Database,
   config: Record<string, unknown>,
   event: typeof schema.domainEvent.$inferSelect,
-): Promise<{ holds: true } | { holds: false; because: string }> {
+): Promise<{ holds: true } | { holds: false; because: string } | { failed: string }> {
   const field = typeof config["field"] === "string" ? config["field"].trim() : "";
   if (!field) return { holds: false, because: "the step names no field" };
   const id = idOf(event, ["record.id", "recordId"], "custom_object_record");
   if (!id) return { holds: false, because: "the event names no record" };
+  const typed = automation.fieldComparison(config) === "value";
   const fields = readPath(event.payload, "record.fields");
-  if (!fields || typeof fields !== "object") return { holds: false, because: "the event carries no fields" };
+  if (!typed && (!fields || typeof fields !== "object")) return { holds: false, because: "the event carries no fields" };
   const [row] = await tx.select({
     title: schema.customObjectRecord.title, customFields: schema.customObjectRecord.customFields,
-    deletedAt: schema.customObjectRecord.deletedAt,
-  }).from(schema.customObjectRecord).where(eq(schema.customObjectRecord.id, id)).limit(1);
+    deletedAt: schema.customObjectRecord.deletedAt, organizationId: schema.customObjectRecord.organizationId,
+    kind: schema.customObjectType.key, kindLabel: schema.customObjectType.label,
+  }).from(schema.customObjectRecord)
+    .innerJoin(schema.customObjectType, eq(schema.customObjectType.id, schema.customObjectRecord.objectTypeId))
+    .where(eq(schema.customObjectRecord.id, id)).limit(1);
   if (!row || row.deletedAt) return { holds: false, because: "the record is gone" };
-  const then = Object.prototype.hasOwnProperty.call(fields, field) ? (fields as Record<string, unknown>)[field] : undefined;
   const now = Object.prototype.hasOwnProperty.call(row.customFields, field) ? row.customFields[field] : undefined;
-  if (!automation.sameValue(then, now)) return { holds: false, because: `${row.title}'s ${field} has changed since` };
+
+  if (!typed) {
+    const then = Object.prototype.hasOwnProperty.call(fields, field) ? (fields as Record<string, unknown>)[field] : undefined;
+    if (!automation.sameValue(then, now)) return { holds: false, because: `${row.title}'s ${field} has changed since` };
+    return { holds: true };
+  }
+
+  const definition = (await definitionsWithin(tx, row.organizationId, `object:${row.kind}`)).find((d) => d.key === field);
+  if (!definition) return { failed: `${row.kindLabel} has no field called ${field}, so there is nothing to compare with ${JSON.stringify(String(config["value"]))}.` };
+  const wanted = fieldRules.typedValue(definition, String(config["value"] ?? ""));
+  if (!wanted.ok) return { failed: `The value typed into this step cannot be compared: ${wanted.message}` };
+  if (!automation.sameValue(wanted.value, now)) {
+    return { holds: false, because: `${row.title}'s ${definition.label} is not ${String(config["value"]).trim()} now` };
+  }
   return { holds: true };
 }
 

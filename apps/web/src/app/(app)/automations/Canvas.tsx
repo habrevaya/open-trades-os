@@ -716,11 +716,48 @@ function CheckFields({
             onChange={(e) => set({ ...config, field: e.target.value })}
             className={`${FIELD} w-60`}
           />
-          <span className="mt-1 block text-xs text-ink-500">
-            Compared with what the field said when the record was added or changed. Use it on an automation
-            that starts when one of your own records is added or changed.
-          </span>
         </label>
+      )}
+      {automation.checkNeedsField(check) && (
+        <div className="space-y-2">
+          <label className="block">
+            <span className="block text-ink-700">Compare the field with</span>
+            <select
+              value={automation.fieldComparison(config)}
+              onChange={(e) => {
+                const rest = { ...config };
+                delete rest["value"];
+                set(e.target.value === "value" ? { ...rest, compare: "value", value: String(config["value"] ?? "") } : { ...rest, compare: "event" });
+              }}
+              className={`${FIELD} w-full`}
+            >
+              <option value="event">What the field said when the record was added or changed</option>
+              <option value="value">A value I type</option>
+            </select>
+          </label>
+          {automation.fieldComparison(config) === "value" ? (
+            <label className="block">
+              <span className="block text-ink-700">The value it has to still be</span>
+              <input
+                value={String(config["value"] ?? "")}
+                onChange={(e) => set({ ...config, compare: "value", value: e.target.value })}
+                maxLength={automation.MAX_TYPED_VALUE}
+                className={`${FIELD} w-60`}
+              />
+              <span className="mt-1 block text-xs text-ink-500">
+                Typed the way the field is filled in: a number as 12, a date as 2026-03-01, a yes or no field as yes or no,
+                a choice exactly as it is listed. For a field with several choices, separate them with commas.
+                If it cannot be read that way when the automation runs, that step fails and says why. Use it on an
+                automation that starts when one of your own records is added or changed.
+              </span>
+            </label>
+          ) : (
+            <span className="block text-xs text-ink-500">
+              Compared with what the field said when the record was added or changed. Use it on an automation
+              that starts when one of your own records is added or changed.
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

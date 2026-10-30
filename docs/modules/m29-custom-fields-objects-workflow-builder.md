@@ -623,10 +623,24 @@ active, not cancelled, lapsed, paused, past due or finished),
 a new term since the event, read from its terms on file, so a renewal by the
 worker counts the same as one by a person), `task_open` (the task is open or
 being worked, not done or dismissed) and `record_field_unchanged` (a field on one
-of the company's own records still holds the value the event carried; the step
-names the field by its key, "Which field" on the canvas, and never a value, and
-a step with no field or a field that is not a key is refused at publish with
-its number). Each reads the record the event names
+of the company's own records still holds a value; the step names the field by its
+key, "Which field" on the canvas, and what to compare it with, "Compare the field
+with" on the canvas). By default that is what the event carried: the run carries on
+while the field still says what it said when the record was added or changed. Choose
+"A value I type" instead (`compare: "value"` and `value` in the step) and the run
+carries on while the field is that value, whatever the event said, so it can be
+pointed at a record whose event carried no fields at all. The typed words are read as
+the field's own kind, from the definition of the record's kind as it is when the step
+runs (the kind is only known then): a number field takes 12 or 12.50, a date field a
+real date like 2026-03-01, a yes or no field yes, no, true or false, a choice field
+one of its options exactly as listed, a field with several choices the options
+separated by commas in any order, a text field the words as typed. A step with no
+field, a field that is not a key, a typed comparison with no value or one longer than
+two hundred letters, or a comparison that is neither the event nor a value, is refused
+at publish with its number. A typed value that cannot be read as that field, or a
+field the kind does not have, FAILS the step when it runs, with the reason in words,
+rather than ending the run as finished: a typo is the author's to see, and a quiet
+"no" would hide it forever. A record removed since is still a quiet no.) Each reads the record the event names
 (its own entity, or the id the payload carries), and a no ends the run as
 finished with the rest written down as skipped. A record removed since, or an
 event naming nothing the question is about, is a no as well. A plain message by email goes
@@ -829,6 +843,11 @@ its settings are whole numbers only, with no review site or other choice from
 the company's own setup; and only the HVAC pack declares one, as the example.
 `stop_unless` asks ten questions, from a catalogue in core, and a company
 cannot write its own: a question is a query, and a workflow never carries one.
-The record question compares one field with what the event carried; it cannot
-compare with a value typed into the step or ask about two fields at once (two
-steps do). The plain message step emails only transactional mail.
+The record question compares one field with what the event carried or with a
+value typed into the step, equal only: it cannot ask "greater than" or "one of
+these", and it cannot ask about two fields at once (two steps do). A typed value
+is checked against the field only when the step runs, not when it is published,
+because the automation does not say which kind of record it will meet, so a
+typo shows as a failed step and not a refused publish. An empty field cannot be
+compared with, because a typed comparison needs a value: "still blank" is not
+something it can say. The plain message step emails only transactional mail.
