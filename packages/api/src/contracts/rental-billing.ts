@@ -106,7 +106,9 @@ export const invoiceRental = defineRoute({
     /**
      * What to do with the facility's disposal fee when the hire's terms pass it on: put it on the invoice
      * (`pass_on`) or leave it off (`leave_off`). The call is refused until one is given, because the fee is
-     * offered and never added without a person saying so. `pass_on` for a hire whose terms do not pass it on is refused.
+     * offered and never added without a person saying so, unless the company set the fee to be added without
+     * asking (`PUT /v1/disposal-billing`), when leaving this out puts it on. `pass_on` for a hire whose terms
+     * do not pass it on is refused.
      */
     disposalFee: z.enum(["pass_on", "leave_off"]).optional(),
   }),
@@ -137,11 +139,15 @@ export const previewRentalInvoice = defineRoute({
     invoiceAs: z.enum(["per_haul", "chain"]),
     lines: z.array(z.object({ name: z.string(), quantity: z.string(), unitPrice: MoneyString, amount: MoneyString })),
     disposalFee: z.array(z.object({
-      rentalId: Uuid, amount: MoneyString, facility: z.string().nullable(), ticket: z.string().nullable(),
+      /** What the customer would be charged; `cost` is the facility's fee and `markup` the company's fraction on top, null for none. */
+      rentalId: Uuid, amount: MoneyString, cost: MoneyString, markup: z.string().nullable(),
+      facility: z.string().nullable(), ticket: z.string().nullable(),
       why: z.string(), source: z.enum(["recorded", "worked_out"]),
     })),
     /** Hauls whose terms pass disposal on but whose fee cannot be worked out, with why. */
     disposalFeeUnavailable: z.array(z.object({ rentalId: Uuid, why: z.string() })),
+    /** The company adds the fee without asking (`GET /v1/disposal-billing`), and every fee here could be worked out: raising puts it on. */
+    disposalFeeAutomatic: z.boolean(),
     decisionNeeded: z.boolean(),
   }),
 });

@@ -60,7 +60,10 @@ const ORDER = [
   "estimate_delivery",
   /** A claim points at the invoice it is about, the job and the payer. */
   "coverage_claim",
-  "invoice_delivery", "invoice_line", "invoice",
+  "invoice_delivery",
+  /** What a late rise left short on a line of job work points at the line, the draft and the risen card. */
+  "contract_work_difference",
+  "invoice_line", "invoice",
   "deposit", "estimate_line", "estimate_option", "estimate", "document_signature",
   /** A layout an estimate points at, after the estimates that copied it. */
   "proposal_template",

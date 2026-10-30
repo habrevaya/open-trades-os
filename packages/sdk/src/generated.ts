@@ -660,6 +660,7 @@ export interface AgreeToPortalCardChargesOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  autopayRank: number | null;
   givenBy: "customer" | "office";
   way: "portal_sign_in" | "office_phone" | "office_form";
   wayLabel: string;
@@ -6065,9 +6066,12 @@ export interface DeliverRentalOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -6228,6 +6232,20 @@ export interface DraftContractFeeDifferenceOutput {
   invoiceNumber: number;
   total: string;
   periods: number;
+}
+
+export interface DraftContractWorkDifferenceInput {
+  anniversary: string;
+  invoiceLineIds: string[];
+}
+
+export interface DraftContractWorkDifferenceOutput {
+  contractId: string;
+  anniversary: string;
+  invoiceId: string;
+  invoiceNumber: number;
+  total: string;
+  lines: number;
 }
 
 export interface DrillMarketingFunnelOutput {
@@ -7799,6 +7817,45 @@ export interface GetContractBillingOutput {
   }>;
 }
 
+export interface GetContractWorkDifferencesOutput {
+  contractId: string;
+  rises: Array<{
+    anniversary: string;
+    appliedOn: string;
+    cards: Array<{
+      fromRateCardId: string;
+      fromName: string;
+      rateCardId: string;
+      name: string;
+    }>;
+    lines: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      issuedOn: string | null;
+      jobId: string | null;
+      jobNumber: number | null;
+      name: string;
+      quantity: string;
+      billedPrice: string;
+      risenPrice: string;
+      billed: string;
+      risen: string;
+      difference: string;
+      status: "offered" | "drafted" | "waived";
+      draftInvoiceId: string | null;
+      draftInvoiceNumber: number | null;
+    }>;
+    leftOut: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      name: string;
+      reason: string;
+    }>;
+  }>;
+}
+
 export interface GetConversationOutput {
   conversation: {
     id: string;
@@ -8451,6 +8508,11 @@ export interface GetDispatchMapOutput {
       }>;
     }>;
   } | null;
+}
+
+export interface GetDisposalBillingOutput {
+  markup: string | null;
+  addWithoutAsking: boolean;
 }
 
 export interface GetDisposalFacilityOpenOutput {
@@ -12254,9 +12316,12 @@ export interface GetRentalOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -15030,6 +15095,7 @@ export interface ListCustomerCardAgreementsOutput {
       autopay: boolean;
       autopayAt: string | null;
       autopayWording: string | null;
+      autopayRank: number | null;
       givenBy: "customer" | "office";
       way: "portal_sign_in" | "office_phone" | "office_form";
       wayLabel: string;
@@ -15845,6 +15911,7 @@ export interface ListInvoiceCardsOnFileOutput {
     agreedAt: string;
     agreedByContact: string | null;
     autopay: boolean;
+    autopayRank: number | null;
     givenBy: "customer" | "office";
     way: "portal_sign_in" | "office_phone" | "office_form";
     wayLabel: string;
@@ -15855,6 +15922,7 @@ export interface ListInvoiceCardsOnFileOutput {
     id: string;
     trigger: "office" | "autopay";
     attempt: number;
+    cardRank: number;
     status: string;
     amount: string | null;
     card: string;
@@ -16946,6 +17014,7 @@ export interface ListPortalCardsOutput {
       autopay: boolean;
       autopayAt: string | null;
       autopayWording: string | null;
+      autopayRank: number | null;
       givenBy: "customer" | "office";
       way: "portal_sign_in" | "office_phone" | "office_form";
       wayLabel: string;
@@ -16956,6 +17025,7 @@ export interface ListPortalCardsOutput {
     wording: {
       agreement: string;
       autopay: string;
+      backup: string;
     };
   }>;
   canSave: boolean;
@@ -17405,9 +17475,12 @@ export interface ListRentalsOutput {
     disposalFeeAmount: string | null;
     disposalFeeOffer: {
       amount: string | null;
+      cost: string | null;
+      markup: string | null;
       source: "recorded" | "worked_out" | null;
       why: string;
       facility: string | null;
+      automatic: boolean;
     } | null;
   }>;
 }
@@ -19815,9 +19888,12 @@ export interface PickUpRentalOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -20270,6 +20346,8 @@ export interface PreviewRentalInvoiceOutput {
   disposalFee: Array<{
     rentalId: string;
     amount: string;
+    cost: string;
+    markup: string | null;
     facility: string | null;
     ticket: string | null;
     why: string;
@@ -20279,6 +20357,7 @@ export interface PreviewRentalInvoiceOutput {
     rentalId: string;
     why: string;
   }>;
+  disposalFeeAutomatic: boolean;
   decisionNeeded: boolean;
 }
 
@@ -21066,6 +21145,7 @@ export interface RecordCustomerCardAgreementOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  autopayRank: number | null;
   givenBy: "customer" | "office";
   way: "portal_sign_in" | "office_phone" | "office_form";
   wayLabel: string;
@@ -25052,6 +25132,16 @@ export interface SetDiscountPolicyOutput {
   note: string | null;
 }
 
+export interface SetDisposalBillingInput {
+  markup?: string | null;
+  addWithoutAsking?: boolean;
+}
+
+export interface SetDisposalBillingOutput {
+  markup: string | null;
+  addWithoutAsking: boolean;
+}
+
 export interface SetEmploymentRecordInput {
   jobTitle?: string | null;
   startedOn: string;
@@ -25771,6 +25861,30 @@ export interface SetPlanPortalLayoutOutput {
   } | null;
 }
 
+export interface SetPortalCardAutopayBackupInput {
+  token: string;
+  on: boolean;
+  wording?: string;
+}
+
+export interface SetPortalCardAutopayBackupOutput {
+  id: string;
+  cardId: string;
+  wording: string;
+  agreedAt: string;
+  agreedByContact: string | null;
+  autopay: boolean;
+  autopayAt: string | null;
+  autopayWording: string | null;
+  autopayRank: number | null;
+  givenBy: "customer" | "office";
+  way: "portal_sign_in" | "office_phone" | "office_form";
+  wayLabel: string;
+  agreedOn: string | null;
+  takenBy: string | null;
+  hasForm: boolean;
+}
+
 export interface SetPortalCardAutopayInput {
   token: string;
   on: boolean;
@@ -25786,6 +25900,7 @@ export interface SetPortalCardAutopayOutput {
   autopay: boolean;
   autopayAt: string | null;
   autopayWording: string | null;
+  autopayRank: number | null;
   givenBy: "customer" | "office";
   way: "portal_sign_in" | "office_phone" | "office_form";
   wayLabel: string;
@@ -26130,9 +26245,12 @@ export interface SetRentalMaterialOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -27128,9 +27246,12 @@ export interface SwapRentalOutput {
     disposalFeeAmount: string | null;
     disposalFeeOffer: {
       amount: string | null;
+      cost: string | null;
+      markup: string | null;
       source: "recorded" | "worked_out" | null;
       why: string;
       facility: string | null;
+      automatic: boolean;
     } | null;
   };
   opened: {
@@ -27170,9 +27291,12 @@ export interface SwapRentalOutput {
     disposalFeeAmount: string | null;
     disposalFeeOffer: {
       amount: string | null;
+      cost: string | null;
+      markup: string | null;
       source: "recorded" | "worked_out" | null;
       why: string;
       facility: string | null;
+      automatic: boolean;
     } | null;
   };
 }
@@ -30379,6 +30503,50 @@ export interface WaiveContractFeeDifferenceOutput {
   }>;
 }
 
+export interface WaiveContractWorkDifferenceInput {
+  anniversary: string;
+  invoiceLineIds: string[];
+}
+
+export interface WaiveContractWorkDifferenceOutput {
+  contractId: string;
+  rises: Array<{
+    anniversary: string;
+    appliedOn: string;
+    cards: Array<{
+      fromRateCardId: string;
+      fromName: string;
+      rateCardId: string;
+      name: string;
+    }>;
+    lines: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      issuedOn: string | null;
+      jobId: string | null;
+      jobNumber: number | null;
+      name: string;
+      quantity: string;
+      billedPrice: string;
+      risenPrice: string;
+      billed: string;
+      risen: string;
+      difference: string;
+      status: "offered" | "drafted" | "waived";
+      draftInvoiceId: string | null;
+      draftInvoiceNumber: number | null;
+    }>;
+    leftOut: Array<{
+      invoiceLineId: string;
+      invoiceId: string;
+      invoiceNumber: number;
+      name: string;
+      reason: string;
+    }>;
+  }>;
+}
+
 export interface WaiveObligationInput {
   reason: string;
 }
@@ -31149,6 +31317,10 @@ export interface DraftContractFeeDifferenceParams {
   contractId: string;
 }
 
+export interface DraftContractWorkDifferenceParams {
+  contractId: string;
+}
+
 export interface DrillMarketingFunnelInput {
   from: string;
   to: string;
@@ -31360,6 +31532,10 @@ export interface GetContractBillingInput {
   contractId: string;
 }
 
+export interface GetContractWorkDifferencesInput {
+  contractId: string;
+}
+
 export interface GetConversationInput {
   id: string;
 }
@@ -31439,6 +31615,8 @@ export interface GetDispatchBoardInput {
 export interface GetDispatchMapInput {
   date: string;
 }
+
+export type GetDisposalBillingInput = Record<string, never>;
 
 export interface GetDisposalFacilityOpenInput {
   id: string;
@@ -33954,6 +34132,10 @@ export interface SetPortalCardAutopayParams {
   cardId: string;
 }
 
+export interface SetPortalCardAutopayBackupParams {
+  cardId: string;
+}
+
 export interface SetPriceBookItemActiveParams {
   id: string;
 }
@@ -34422,6 +34604,10 @@ export interface WaiveContractFeeDifferenceParams {
   contractId: string;
 }
 
+export interface WaiveContractWorkDifferenceParams {
+  contractId: string;
+}
+
 export interface WaiveObligationParams {
   id: string;
 }
@@ -34693,6 +34879,7 @@ export interface OperationTypes {
   dismissIntakeDraft: { input: DismissIntakeDraftParams & DismissIntakeDraftInput; output: DismissIntakeDraftOutput };
   dismissTruckFill: { input: DismissTruckFillParams & DismissTruckFillInput; output: DismissTruckFillOutput };
   draftContractFeeDifference: { input: DraftContractFeeDifferenceParams & DraftContractFeeDifferenceInput; output: DraftContractFeeDifferenceOutput };
+  draftContractWorkDifference: { input: DraftContractWorkDifferenceParams & DraftContractWorkDifferenceInput; output: DraftContractWorkDifferenceOutput };
   drillMarketingFunnel: { input: DrillMarketingFunnelInput; output: DrillMarketingFunnelOutput };
   drillReport: { input: DrillReportInput; output: DrillReportOutput };
   dropJobSkill: { input: DropJobSkillParams & DropJobSkillInput; output: DropJobSkillOutput };
@@ -34755,6 +34942,7 @@ export interface OperationTypes {
   getConsent: { input: GetConsentInput; output: GetConsentOutput };
   getConsumption: { input: GetConsumptionInput; output: GetConsumptionOutput };
   getContractBilling: { input: GetContractBillingInput; output: GetContractBillingOutput };
+  getContractWorkDifferences: { input: GetContractWorkDifferencesInput; output: GetContractWorkDifferencesOutput };
   getConversation: { input: GetConversationInput; output: GetConversationOutput };
   getConversions: { input: GetConversionsInput; output: GetConversionsOutput };
   getCreditNote: { input: GetCreditNoteInput; output: GetCreditNoteOutput };
@@ -34773,6 +34961,7 @@ export interface OperationTypes {
   getDiscountPolicy: { input: GetDiscountPolicyInput; output: GetDiscountPolicyOutput };
   getDispatchBoard: { input: GetDispatchBoardInput; output: GetDispatchBoardOutput };
   getDispatchMap: { input: GetDispatchMapInput; output: GetDispatchMapOutput };
+  getDisposalBilling: { input: GetDisposalBillingInput; output: GetDisposalBillingOutput };
   getDisposalFacilityOpen: { input: GetDisposalFacilityOpenInput; output: GetDisposalFacilityOpenOutput };
   getEquipment: { input: GetEquipmentInput; output: GetEquipmentOutput };
   getEquipmentHistory: { input: GetEquipmentHistoryInput; output: GetEquipmentHistoryOutput };
@@ -35468,6 +35657,7 @@ export interface OperationTypes {
   setCustomerTags: { input: SetCustomerTagsParams & SetCustomerTagsInput; output: SetCustomerTagsOutput };
   setDeficiencyStatus: { input: SetDeficiencyStatusParams & SetDeficiencyStatusInput; output: SetDeficiencyStatusOutput };
   setDiscountPolicy: { input: SetDiscountPolicyInput; output: SetDiscountPolicyOutput };
+  setDisposalBilling: { input: SetDisposalBillingInput; output: SetDisposalBillingOutput };
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
@@ -35502,6 +35692,7 @@ export interface OperationTypes {
   setPayExtras: { input: SetPayExtrasInput; output: SetPayExtrasOutput };
   setPlanPortalLayout: { input: SetPlanPortalLayoutParams & SetPlanPortalLayoutInput; output: SetPlanPortalLayoutOutput };
   setPortalCardAutopay: { input: SetPortalCardAutopayParams & SetPortalCardAutopayInput; output: SetPortalCardAutopayOutput };
+  setPortalCardAutopayBackup: { input: SetPortalCardAutopayBackupParams & SetPortalCardAutopayBackupInput; output: SetPortalCardAutopayBackupOutput };
   setPortalLayout: { input: SetPortalLayoutInput; output: SetPortalLayoutOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
   setPriceBookItemActive: { input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput; output: SetPriceBookItemActiveOutput };
@@ -35668,6 +35859,7 @@ export interface OperationTypes {
   voidCreditNote: { input: VoidCreditNoteParams & VoidCreditNoteInput; output: VoidCreditNoteOutput };
   voidInvoice: { input: VoidInvoiceParams & VoidInvoiceInput; output: VoidInvoiceOutput };
   waiveContractFeeDifference: { input: WaiveContractFeeDifferenceParams & WaiveContractFeeDifferenceInput; output: WaiveContractFeeDifferenceOutput };
+  waiveContractWorkDifference: { input: WaiveContractWorkDifferenceParams & WaiveContractWorkDifferenceInput; output: WaiveContractWorkDifferenceOutput };
   waiveObligation: { input: WaiveObligationParams & WaiveObligationInput; output: WaiveObligationOutput };
   withdrawChangeOrder: { input: WithdrawChangeOrderParams & WithdrawChangeOrderInput; output: WithdrawChangeOrderOutput };
   withdrawComplianceDocument: { input: WithdrawComplianceDocumentParams & WithdrawComplianceDocumentInput; output: WithdrawComplianceDocumentOutput };
@@ -35915,6 +36107,7 @@ export const OPERATIONS = {
   dismissIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts/{id}/dismiss", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:decide"] },
   dismissTruckFill: { method: "POST", path: "/v1/stock/truck-fills/{id}/dismissal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   draftContractFeeDifference: { method: "POST", path: "/v1/contracts/{contractId}/billing/differences", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  draftContractWorkDifference: { method: "POST", path: "/v1/contracts/{contractId}/work-differences", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   drillMarketingFunnel: { method: "GET", path: "/v1/marketing/funnel/rows", pathParams: [], queryParams: ["from","to","by","model","key","measure"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   drillReport: { method: "POST", path: "/v1/reports/drill", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   dropJobSkill: { method: "POST", path: "/v1/jobs/{id}/dropped-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","visit:assign_unqualified"] },
@@ -35977,6 +36170,7 @@ export const OPERATIONS = {
   getConsent: { method: "GET", path: "/v1/consent", pathParams: [], queryParams: ["address"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getConsumption: { method: "GET", path: "/v1/deliveries/consumption", pathParams: [], queryParams: ["propertyId","product"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getContractBilling: { method: "GET", path: "/v1/contracts/{contractId}/billing", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
+  getContractWorkDifferences: { method: "GET", path: "/v1/contracts/{contractId}/work-differences", pathParams: ["contractId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read","invoice:read"] },
   getConversation: { method: "GET", path: "/v1/conversations/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getConversions: { method: "GET", path: "/v1/marketing/conversions", pathParams: [], queryParams: ["from","to","model","format"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   getCreditNote: { method: "GET", path: "/v1/credit-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -35995,6 +36189,7 @@ export const OPERATIONS = {
   getDiscountPolicy: { method: "GET", path: "/v1/estimate-discount-policy", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getDispatchBoard: { method: "GET", path: "/v1/dispatch/board", pathParams: [], queryParams: ["date","businessUnitId","territoryId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getDispatchMap: { method: "GET", path: "/v1/dispatch/map", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getDisposalBilling: { method: "GET", path: "/v1/disposal-billing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getDisposalFacilityOpen: { method: "GET", path: "/v1/disposal-facilities/{id}/open", pathParams: ["id"], queryParams: ["at"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getEquipment: { method: "GET", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: ["on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEquipmentHistory: { method: "GET", path: "/v1/equipment/{id}/history", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
@@ -36690,6 +36885,7 @@ export const OPERATIONS = {
   setCustomerTags: { method: "POST", path: "/v1/customers/{id}/tags", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setDeficiencyStatus: { method: "POST", path: "/v1/inspection-deficiencies/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setDiscountPolicy: { method: "PUT", path: "/v1/estimates/discount-policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setDisposalBilling: { method: "PUT", path: "/v1/disposal-billing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
@@ -36724,6 +36920,7 @@ export const OPERATIONS = {
   setPayExtras: { method: "POST", path: "/v1/payroll/pay-extras", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   setPlanPortalLayout: { method: "PUT", path: "/v1/agreement-plans/{id}/portal-layout", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalCardAutopay: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  setPortalCardAutopayBackup: { method: "POST", path: "/v1/portal/cards/{cardId}/autopay-backup", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   setPortalLayout: { method: "PUT", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPriceBookItemActive: { method: "POST", path: "/v1/pricebook/items/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -36890,6 +37087,7 @@ export const OPERATIONS = {
   voidCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
   voidInvoice: { method: "POST", path: "/v1/invoices/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:void"] },
   waiveContractFeeDifference: { method: "POST", path: "/v1/contracts/{contractId}/billing/differences/waive", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  waiveContractWorkDifference: { method: "POST", path: "/v1/contracts/{contractId}/work-differences/waive", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   waiveObligation: { method: "POST", path: "/v1/obligations/{id}/waive", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   withdrawChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   withdrawComplianceDocument: { method: "POST", path: "/v1/compliance/documents/{id}/withdraw", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
@@ -39011,6 +39209,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Bill what a late rise left short on job work, on a draft invoice.
+   *
+   * POST /v1/contracts/{contractId}/work-differences. Needs invoice:write.
+   */
+  draftContractWorkDifference(input: DraftContractWorkDifferenceParams & DraftContractWorkDifferenceInput, options?: CallOptions): Promise<DraftContractWorkDifferenceOutput> {
+    return this.call("draftContractWorkDifference", input, options);
+  }
+
+  /**
    * The calls, people, jobs or spend lines behind one cell of the funnel.
    *
    * GET /v1/marketing/funnel/rows. Needs adspend:read.
@@ -39569,6 +39776,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Job work billed at last year's card because the rise was applied late.
+   *
+   * GET /v1/contracts/{contractId}/work-differences. Needs contract:read, invoice:read.
+   */
+  getContractWorkDifferences(input: GetContractWorkDifferencesInput, options?: CallOptions): Promise<GetContractWorkDifferencesOutput> {
+    return this.call("getContractWorkDifferences", input, options);
+  }
+
+  /**
    * A conversation, in order, and whether a reply may be sent.
    *
    * GET /v1/conversations/{id}. Needs message:read.
@@ -39728,6 +39944,15 @@ export abstract class GeneratedOperations {
    */
   getDispatchMap(input: GetDispatchMapInput, options?: CallOptions): Promise<GetDispatchMapOutput> {
     return this.call("getDispatchMap", input, options);
+  }
+
+  /**
+   * How a facility's disposal fee is passed on to the customer.
+   *
+   * GET /v1/disposal-billing. Needs asset:read.
+   */
+  getDisposalBilling(input: GetDisposalBillingInput = {} as GetDisposalBillingInput, options?: CallOptions): Promise<GetDisposalBillingOutput> {
+    return this.call("getDisposalBilling", input, options);
   }
 
   /**
@@ -45986,6 +46211,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set how a facility's disposal fee is passed on to the customer.
+   *
+   * PUT /v1/disposal-billing. Needs settings:write.
+   */
+  setDisposalBilling(input: SetDisposalBillingInput = {} as SetDisposalBillingInput, options?: CallOptions): Promise<SetDisposalBillingOutput> {
+    return this.call("setDisposalBilling", input, options);
+  }
+
+  /**
    * Set the basic facts of somebody's employment.
    *
    * PUT /v1/people/{membershipId}/employment. Needs user:write.
@@ -46289,6 +46523,15 @@ export abstract class GeneratedOperations {
    */
   setPortalCardAutopay(input: SetPortalCardAutopayParams & SetPortalCardAutopayInput, options?: CallOptions): Promise<SetPortalCardAutopayOutput> {
     return this.call("setPortalCardAutopay", input, options);
+  }
+
+  /**
+   * Keep a saved card as a backup for paying automatically, or stop.
+   *
+   * POST /v1/portal/cards/{cardId}/autopay-backup.
+   */
+  setPortalCardAutopayBackup(input: SetPortalCardAutopayBackupParams & SetPortalCardAutopayBackupInput, options?: CallOptions): Promise<SetPortalCardAutopayBackupOutput> {
+    return this.call("setPortalCardAutopayBackup", input, options);
   }
 
   /**
@@ -47783,6 +48026,15 @@ export abstract class GeneratedOperations {
    */
   waiveContractFeeDifference(input: WaiveContractFeeDifferenceParams & WaiveContractFeeDifferenceInput, options?: CallOptions): Promise<WaiveContractFeeDifferenceOutput> {
     return this.call("waiveContractFeeDifference", input, options);
+  }
+
+  /**
+   * Decide not to bill what a late rise left short on job work.
+   *
+   * POST /v1/contracts/{contractId}/work-differences/waive. Needs invoice:write.
+   */
+  waiveContractWorkDifference(input: WaiveContractWorkDifferenceParams & WaiveContractWorkDifferenceInput, options?: CallOptions): Promise<WaiveContractWorkDifferenceOutput> {
+    return this.call("waiveContractWorkDifference", input, options);
   }
 
   /**

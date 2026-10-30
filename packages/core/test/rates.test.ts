@@ -377,3 +377,64 @@ describe("a rise by a fixed amount, and a rise of the fixed fee alone", () => {
     ])).toBeNull();
   });
 });
+
+describe("a card risen late, against what last year's card billed", () => {
+  const risen = card({
+    id: "card-2", name: "Meridian FM schedule (year 2)",
+    lines: [{
+      id: "line-2", priceBookItemId: "item-cap", externalCode: "CAP-01",
+      description: "Capacitor, supplied and fitted", price: usd("185.40"), allowedMinutes: null,
+    }],
+    labourRates: [
+      { jobTypeId: null, band: "standard", hourlyRate: usd("97.85"), minimumMinutes: 60, incrementMinutes: 15 },
+      { jobTypeId: null, band: "after_hours", hourlyRate: usd("146.78"), minimumMinutes: 120, incrementMinutes: 15 },
+    ],
+    tripCharge: usd("46.35"),
+  });
+  const billed = (over: Partial<rates.BilledCardLine>): rates.BilledCardLine => ({
+    basis: "card_line", quantity: "2", unitPrice: usd("180.00"), discounted: false,
+    listed: { priceBookItemId: "item-cap", externalCode: "CAP-01", description: "Capacitor, supplied and fitted" },
+    work: null, ...over,
+  });
+
+  it("prices a listed item at the new card's listing, the same quantity", () => {
+    expect(rates.lateRiseOn(risen, billed({}))).toMatchObject({
+      kind: "offered", quantity: "2", billed: usd("360.00"), risen: usd("370.80"), difference: usd("10.80"),
+    });
+  });
+
+  it("works an hourly rate out again from the work, in the same time band", () => {
+    const result = rates.lateRiseOn(risen, billed({
+      basis: "labour_rate", quantity: "1.5", unitPrice: usd("95.00"), listed: null,
+      work: work({ kind: "labor", quantity: "1.5", at: tuesday(10) }),
+    }));
+    expect(result).toMatchObject({ kind: "offered", unitPrice: usd("97.85"), difference: usd("4.28") });
+    const late = rates.lateRiseOn(risen, billed({
+      basis: "labour_rate", quantity: "2", unitPrice: usd("142.50"), listed: null,
+      work: work({ kind: "labor", quantity: "1", at: tuesday(19) }),
+    }));
+    expect(late).toMatchObject({ kind: "offered", unitPrice: usd("146.78"), difference: usd("8.56") });
+  });
+
+  it("charges the new trip charge for the same visits", () => {
+    expect(rates.lateRiseOn(risen, billed({ basis: "trip_charge", quantity: "1", unitPrice: usd("45.00"), listed: null })))
+      .toMatchObject({ kind: "offered", difference: usd("1.35") });
+  });
+
+  it("leaves out, and names, what the rise does not reach or a person has to decide", () => {
+    const reason = (line: rates.BilledCardLine) => {
+      const r = rates.lateRiseOn(risen, line);
+      return r.kind === "left_out" ? r.reason : null;
+    };
+    expect(reason(billed({ basis: "material_markup" }))).toMatch(/markup on our cost/);
+    expect(reason(billed({ basis: "price_book" }))).toMatch(/price book/);
+    expect(reason(billed({ basis: "entered" }))).toMatch(/typed in by hand/);
+    expect(reason(billed({ discounted: true }))).toMatch(/discount/);
+    expect(reason(billed({ listed: { priceBookItemId: null, externalCode: "X", description: "Other" } }))).toMatch(/does not list it/);
+    expect(reason(billed({ unitPrice: usd("185.40") }))).toMatch(/left its price as it was/);
+    expect(reason(billed({ unitPrice: usd("190.00") }))).toMatch(/lower/);
+    expect(reason(billed({ basis: "labour_rate", listed: null, work: null }))).toMatch(/no record of the work/);
+    expect(rates.lateRiseOn({ ...risen, tripCharge: null }, billed({ basis: "trip_charge", listed: null })))
+      .toEqual({ kind: "left_out", reason: "Meridian FM schedule (year 2) has no trip charge." });
+  });
+});

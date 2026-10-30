@@ -39,7 +39,21 @@ export const setPortalCardAutopay = defineRoute({
   path: "/v1/portal/cards/{cardId}/autopay",
   summary: "Pay each bill automatically with a saved card, or stop",
   description:
-    "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card. Turning it off needs no words.",
+    "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card; the backups stay behind it, and a backup chosen here moves to the front. Turning it off needs no words, and stops the backups too.",
+  module: "M13",
+  permissions: [],
+  authorization: "grant",
+  idempotent: true,
+  input: z.object({ token: Token, cardId: Uuid, on: z.boolean(), wording: z.string().max(2000).optional() }),
+  output: PortalCardAgreement,
+});
+
+export const setPortalCardAutopayBackup = defineRoute({
+  method: "post",
+  path: "/v1/portal/cards/{cardId}/autopay-backup",
+  summary: "Keep a saved card as a backup for paying automatically, or stop",
+  description:
+    "From a sign in only, for a card the customer already lets the company charge and that is not the card paying automatically. Turning it on needs the backup words shown for this card (`wording.backup` on `GET /v1/portal/cards`), checked as the agreement's are, and a card already paying automatically; it goes behind the backups there are, up to two. When an automatic charge on the first card does not go through, each backup is tried once, in order, in the same run, and the customer is told which card paid. Backups are never tried on the next day's try, and stop when paying automatically stops. Turning it off needs no words and leaves the other backups where they are.",
   module: "M13",
   permissions: [],
   authorization: "grant",
@@ -69,6 +83,8 @@ const CardOnFile = z.object({
   agreedAt: z.string().datetime(),
   agreedByContact: z.string().nullable(),
   autopay: z.boolean(),
+  /** 1 for the card paying automatically, 2 and 3 for its backups in order, null for neither. */
+  autopayRank: z.number().int().nullable(),
   givenBy: z.enum(["customer", "office"]),
   way: z.enum(["portal_sign_in", "office_phone", "office_form"]),
   wayLabel: z.string(),
@@ -80,6 +96,8 @@ const ChargeOnFile = z.object({
   id: Uuid,
   trigger: z.enum(["office", "autopay"]),
   attempt: z.number().int(),
+  /** 1 for the first card, 2 and 3 for a backup tried in the same run after the cards before it did not go through. */
+  cardRank: z.number().int(),
   status: z.string(),
   amount: MoneyString.nullable(),
   card: z.string(),
@@ -185,7 +203,7 @@ export const withdrawCustomerCardAgreement = defineRoute({
 });
 
 export const cardOnFileRoutes = {
-  agreeToPortalCardCharges, setPortalCardAutopay, withdrawPortalCardAgreement,
+  agreeToPortalCardCharges, setPortalCardAutopay, setPortalCardAutopayBackup, withdrawPortalCardAgreement,
   listInvoiceCardsOnFile, chargeInvoiceCardOnFile,
   listCustomerCardAgreements, recordCustomerCardAgreement, withdrawCustomerCardAgreement,
 } as const;

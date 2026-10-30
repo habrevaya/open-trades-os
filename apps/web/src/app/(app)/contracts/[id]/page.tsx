@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { contracts, contractEscalation, contractBilling, rateCards, jobs, properties, billing } from "@opentradesos/api/services";
+import { contracts, contractEscalation, contractBilling, contractLateRise, rateCards, jobs, properties, billing } from "@opentradesos/api/services";
 import { can, rates, deadlines, contractBilling as cb } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { Crumb } from "@/components/Detail";
@@ -12,7 +12,7 @@ import { FEE_CHOICE, LABOUR_ROWS, MARKUP_ROWS, RISE_ROWS, clockOf, percentOf, ro
 import { ContractTermFields } from "../ContractTerms";
 import {
   addSite, applyEscalation, changeContractBilling, createCard, draftFeeDifference, issuePayerLink, setCardLines, setCardTerms,
-  setContractBilling, setContractRises, updateContractTerms, waiveFeeDifference,
+  setContractBilling, setContractRises, updateContractTerms, waiveFeeDifference, draftWorkDifference, waiveWorkDifference,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +85,8 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
   const fee = await contractBilling.view(ctx, { contractId: id });
   const raises = can(user.actor, "invoice:write");
   const short = fee.differences.filter((d) => d.status === "offered");
+  /** Job work billed at last year's card because a rise was applied late: invoices, so only for somebody who reads them. */
+  const lateWork = can(user.actor, "invoice:read") ? (await contractLateRise.view(ctx, { contractId: id })).rises : [];
   const open = can(user.actor, "invoice:read")
     ? (await billing.list(ctx, { limit: 100, customerId: contract.customerId, status: ["open", "partially_paid"] })).data
     : [];
@@ -417,6 +419,91 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
           )}
         </section>
       )}
+
+      {lateWork.map((late) => {
+        const offered = late.lines.filter((l) => l.status === "offered");
+        return (
+          <section key={late.anniversary} aria-label={`Job work billed before the rise from ${late.anniversary}`} className="mt-10">
+            <h2 className="text-base font-semibold">Job work billed before the rise from {late.anniversary}</h2>
+            <p className="mt-1 max-w-2xl text-sm text-ink-700">
+              The prices on {late.cards.map((c) => c.fromName).join(" and ")} rose on {late.anniversary}, but the rise was
+              applied on {late.appliedOn}. Jobs billed in between were charged last year&apos;s prices. Their invoices stay as
+              they are. You can bill what each line is short on a draft invoice, or decide not to. Nothing is billed for it
+              unless you ask.
+            </p>
+            {late.lines.length > 0 && (
+              <Table label={`Short by the rise from ${late.anniversary}`}
+                     head={<><Th>Work</Th><Th className="text-right">Billed at</Th><Th className="text-right">New price</Th><Th className="text-right">Short by</Th><Th>What happened</Th></>}>
+                {late.lines.map((l) => (
+                  <tr key={l.invoiceLineId}>
+                    <Td>
+                      {l.name}, {Number(l.quantity)}
+                      <a href={`/invoices/${l.invoiceId}`} className="block text-xs text-ink-500 hover:underline">
+                        Invoice {l.invoiceNumber}{l.jobNumber !== null ? `, job ${l.jobNumber}` : ""}
+                      </a>
+                    </Td>
+                    <Td className="text-right"><Money value={l.billedPrice} /></Td>
+                    <Td className="text-right"><Money value={l.risenPrice} /></Td>
+                    <Td className="text-right"><Money value={l.difference} /></Td>
+                    <Td>
+                      {l.status === "drafted" && l.draftInvoiceId
+                        ? <a href={`/invoices/${l.draftInvoiceId}`} className="hover:underline">On draft invoice {l.draftInvoiceNumber}</a>
+                        : l.status === "waived" ? <span className="text-ink-500">Not billed, by choice</span>
+                          : <span className="text-ink-500">Not billed yet</span>}
+                    </Td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+            {raises && offered.length > 0 && (
+              <>
+                <ActionForm action={draftWorkDifference} submit="Make a draft invoice for the ticked work"
+                            hidden={{ contractId: id, anniversary: late.anniversary }} className="mt-3 space-y-2">
+                  <fieldset>
+                    <legend className="text-sm font-medium text-ink-700">Bill the difference for</legend>
+                    <div className="mt-1 space-y-1">
+                      {offered.map((l) => (
+                        <label key={l.invoiceLineId} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" name="invoiceLineId" value={l.invoiceLineId} defaultChecked className="h-4 w-4" />
+                          {l.name} on invoice {l.invoiceNumber}, short by <Money value={l.difference} />
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </ActionForm>
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm font-medium">Do not bill the difference</summary>
+                  <p className="mt-1 max-w-2xl text-xs text-ink-500">
+                    Written down as not billed, with your name on it, and not offered again.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {offered.map((l) => (
+                      <ActionForm key={l.invoiceLineId} action={waiveWorkDifference} tone="quiet" className="space-y-2"
+                                  submit={`Do not bill ${l.name} on invoice ${l.invoiceNumber}`}
+                                  hidden={{ contractId: id, anniversary: late.anniversary, invoiceLineId: l.invoiceLineId }} />
+                    ))}
+                  </div>
+                </details>
+              </>
+            )}
+            {late.leftOut.length > 0 && (
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold">Left out</h3>
+                <p className="mt-1 max-w-2xl text-xs text-ink-500">
+                  These lines were billed in the same weeks but are not offered. Bill anything you agree with the client by hand.
+                </p>
+                <ul aria-label="Left out" className="mt-1 space-y-1 text-sm">
+                  {late.leftOut.map((l) => (
+                    <li key={l.invoiceLineId}>
+                      <a href={`/invoices/${l.invoiceId}`} className="hover:underline">Invoice {l.invoiceNumber}</a>, {l.name}: {l.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        );
+      })}
 
       <section aria-label="Sites" className="mt-10">
         <h2 className="text-base font-semibold">Sites</h2>

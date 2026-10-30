@@ -79,3 +79,24 @@ describe("what a facility charges for a load", () => {
     expect(rental.disposalFee(perTon, "-1")).toMatchObject({ ok: false });
   });
 });
+
+describe("a disposal fee passed on to the customer", () => {
+  it("is at cost with no markup, and says so", () => {
+    expect(rental.passedOnFee({ cost: "120.00", markup: null })).toEqual({ amount: "120.0000", words: "at cost" });
+    expect(rental.passedOnFee({ cost: "120.00", markup: "0" })).toEqual({ amount: "120.0000", words: "at cost" });
+  });
+
+  it("adds the markup to the cent, and the line says the fee and the markup", () => {
+    expect(rental.passedOnFee({ cost: "120.00", markup: "0.15" })).toEqual({
+      amount: "138.0000", words: "the facility's fee of 120.00 plus a 15% handling markup",
+    });
+    expect(rental.passedOnFee({ cost: "87.33", markup: "0.125" }).amount).toBe("98.2500");
+  });
+
+  it("refuses a markup written as a whole per cent, or over double", () => {
+    expect(rental.disposalMarkupProblem("0.15")).toBeNull();
+    expect(rental.disposalMarkupProblem(null)).toBeNull();
+    expect(rental.disposalMarkupProblem("15")).toMatch(/at most 100%/);
+    expect(rental.disposalMarkupProblem("-0.1")).toMatch(/per cent/);
+  });
+});

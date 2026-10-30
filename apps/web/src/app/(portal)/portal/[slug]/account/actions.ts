@@ -110,6 +110,20 @@ export async function setAutopay(
   return { ok: true };
 }
 
+/** Keeping a saved card as a backup for paying automatically, or stopping, in the words the customer read. */
+export async function setAutopayBackup(
+  slug: string, cardId: string, on: boolean, wording?: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.setBackup(getDb(), { token: session.token, cardId, on, ...(wording ? { wording } : {}) });
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
 export async function withdrawCharges(slug: string, cardId: string): Promise<{ ok: true } | { ok: false; message: string }> {
   const session = await requirePortalSession(slug);
   try {

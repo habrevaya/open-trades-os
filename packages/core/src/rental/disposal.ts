@@ -471,3 +471,46 @@ export function parseMaterialLines(text: string):
   }
   return checkMaterials(parsed);
 }
+
+/* ------------------------------------------------- the fee passed on to the customer */
+
+/** The most a company may mark a passed on disposal fee up by: double the facility's fee. */
+export const MAX_DISPOSAL_MARKUP = "1";
+
+/**
+ * A markup on a passed on disposal fee, as a fraction ("0.15" for 15%), or why
+ * not. Nothing, or zero, is no markup. More than double the fee is refused as
+ * a typing slip, and so is a figure written as a whole per cent ("15").
+ */
+export function disposalMarkupProblem(markup: string | null): string | null {
+  if (markup === null) return null;
+  if (!/^\d+(\.\d{1,6})?$/.test(markup)) return "Write the markup as a per cent, like 15.";
+  if (Number(markup) > Number(MAX_DISPOSAL_MARKUP)) {
+    return "A markup on a disposal fee is at most 100%, which doubles the facility's fee.";
+  }
+  return null;
+}
+
+/** "15%" or "12.5%" from "0.15" or "0.125". */
+export function markupPercent(markup: string): string {
+  return `${Number((Number(markup) * 100).toFixed(4))}%`;
+}
+
+/**
+ * WHAT THE CUSTOMER IS CHARGED FOR A FACILITY'S FEE, AND WHAT THE LINE SAYS.
+ *
+ * At cost unless the company set a markup, and then the fee plus that per
+ * cent of it, to the cent, rounded half up once. The words go on the invoice
+ * line, so a customer reading it sees what it is: the facility's fee and the
+ * markup on it, never one figure that hides the second.
+ */
+export function passedOnFee(input: { cost: string; markup: string | null }): { amount: string; words: string } {
+  const cost = m.round(m.money(input.cost), 2);
+  const markup = input.markup !== null && Number(input.markup) > 0 ? input.markup : null;
+  if (markup === null) return { amount: m.toString(cost), words: "at cost" };
+  const amount = m.round(m.add(cost, m.multiply(cost, markup)), 2);
+  return {
+    amount: m.toString(amount),
+    words: `the facility's fee of ${m.edit(cost)} plus a ${markupPercent(markup)} handling markup`,
+  };
+}

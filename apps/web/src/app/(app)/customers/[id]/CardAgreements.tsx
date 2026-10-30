@@ -48,6 +48,9 @@ export async function CardAgreements({ ctx, customerId, timezone, today }: {
                       {agreement.takenBy ? `, taken by ${agreement.takenBy}` : ""}
                       {agreement.agreedByContact ? `, by ${agreement.agreedByContact}` : ""}.
                       {agreement.autopay ? " Their bills are paid with it automatically." : ""}
+                      {agreement.autopayRank !== null && agreement.autopayRank > 1
+                        ? " A backup for paying automatically: tried once, the same day, when the cards before it do not go through."
+                        : ""}
                     </p>
                     {agreement.form && (
                       <p className="mt-1">

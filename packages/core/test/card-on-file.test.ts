@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  agreementWording, autopayWording, sameWording, failureKind, retryAt, payLinkNote, RETRY_AFTER_MS,
+  agreementWording, autopayWording, backupWording, backupPaidNote, MAX_BACKUPS, sameWording, failureKind, retryAt, payLinkNote, RETRY_AFTER_MS,
 } from "../src/customer-portal/index.js";
 
 /**
@@ -70,5 +70,32 @@ describe("a charge that did not go through", () => {
     expect(note).toContain("your bank wants you to confirm the payment yourself");
     expect(note).not.toContain("authentication_required");
     expect(payLinkNote({ kind: "declined", method: "Visa ending 4242", retrying: true })).toContain("try once more tomorrow");
+  });
+});
+
+describe("a backup card for paying automatically", () => {
+  const card = { company: "Ortiz Air", method: "Mastercard ending 5555", kind: "card" as const };
+  const bank = { company: "Ortiz Air", method: "Frost Bank account ending 6789", kind: "bank_account" as const };
+
+  it("says when it is used, how often, that the customer is told, and that it can be stopped", () => {
+    const words = backupWording(card);
+    expect(words).toMatch(/^Use my Mastercard ending 5555 as a backup/);
+    expect(words).toMatch(/cannot take a bill from the card I pay automatically with, or from a backup before this one/);
+    expect(words).toMatch(/once, the same day/);
+    expect(words).toMatch(/tell me which card paid/);
+    expect(words).toMatch(/stop this at any time/);
+    expect(backupWording(bank)).toMatch(/take the payment from my Frost Bank account ending 6789/);
+  });
+
+  it("names no other card, so it stays true when the first card changes", () => {
+    expect(backupWording(card)).not.toMatch(/Visa/);
+  });
+
+  it("tells the customer which card did not go through and which paid", () => {
+    expect(backupPaidNote({ tried: ["Visa ending 4242"], paid: "Mastercard ending 5555" }))
+      .toBe("We could not take this bill from your Visa ending 4242, so we took it from your Mastercard ending 5555, the backup you chose. Nothing more is owed on it.");
+    expect(backupPaidNote({ tried: ["Visa ending 4242", "Mastercard ending 5555"], paid: "Frost Bank account ending 6789" }))
+      .toMatch(/from your Visa ending 4242 or Mastercard ending 5555, so we took it from your Frost Bank account ending 6789/);
+    expect(MAX_BACKUPS).toBe(2);
   });
 });

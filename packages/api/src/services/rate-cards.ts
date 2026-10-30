@@ -243,15 +243,21 @@ export async function cardsFor(
 
   const named = input.contractId ? rows.filter((r) => r.contract.id === input.contractId) : [];
   const chosen = named.length > 0 ? named : rows;
-  if (chosen.length === 0) return [];
+  return termsOfCards(tx, chosen.map((r) => r.card), input.timeZone);
+}
 
-  const ids = chosen.map((r) => r.card.id);
+/** Cards as `core/rates` reads them, with their listed prices and hourly rates, in the order given. */
+export async function termsOfCards(
+  tx: Database, chosen: ReadonlyArray<typeof schema.rateCard.$inferSelect>, timeZone: string,
+): Promise<rates.CardTerms[]> {
+  if (chosen.length === 0) return [];
+  const ids = chosen.map((card) => card.id);
   const [lines, labour] = await Promise.all([
     tx.select().from(schema.rateCardLine).where(inArray(schema.rateCardLine.rateCardId, ids)),
     tx.select().from(schema.rateCardLabourRate).where(inArray(schema.rateCardLabourRate.rateCardId, ids)),
   ]);
 
-  return chosen.map(({ card }) => ({
+  return chosen.map((card) => ({
     id: card.id,
     name: card.name,
     authority: card.authority as rates.CardAuthority,
@@ -280,7 +286,7 @@ export async function cardsFor(
       standardStartMinute: card.standardStartMinute,
       standardEndMinute: card.standardEndMinute,
       holidays: card.holidays,
-      timeZone: input.timeZone,
+      timeZone,
     },
   }));
 }

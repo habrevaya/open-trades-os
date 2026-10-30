@@ -316,6 +316,17 @@ card ends its agreement too. `GET /v1/portal/cards` says, for each card,
 whether it is agreed and the words that would be agreed to. What the office
 can then do, and what paying automatically does when a charge fails, is M13.
 
+Once a card pays automatically, every other agreed card offers **Use Frost Bank
+account ending 6789 as a backup if Visa ending 4242 does not go through**, with
+its own words (`wording.backup`), a box to tick and **Keep it as a backup**
+(`POST /v1/portal/cards/{cardId}/autopay-backup`). Up to two, in the order
+chosen. The card paying automatically then says "If it does not go through, we
+try Frost Bank account ending 6789, once each, the same day.", each backup says
+it is one, and **Stop using Frost Bank account ending 6789 as a backup** takes
+it out. Stopping paying automatically stops the backups with it. The office sees
+which card is a backup under **Cards on file** on the customer and on the
+invoice.
+
 An agreement the office recorded for them (a phone call, or a signed form,
 below) shows in the same place. Under the words it says how it was given, the
 day, and the first name of the person who took it ("Agreed by phone on Oct 5,

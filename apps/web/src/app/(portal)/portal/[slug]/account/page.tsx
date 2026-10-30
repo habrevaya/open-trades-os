@@ -9,7 +9,7 @@ import { ReferralBlock } from "../../../c/[token]/ReferralBlock";
 import { SavedCards } from "./SavedCards";
 import { cardLabel } from "./card-label";
 import {
-  agreeToCharges, openRecord, payWithSavedCard, removeCard, setAutopay, signOut, startCardSetup,
+  agreeToCharges, openRecord, payWithSavedCard, removeCard, setAutopay, setAutopayBackup, signOut, startCardSetup,
   startSessionPayment, withdrawCharges,
 } from "./actions";
 
@@ -146,6 +146,7 @@ export default async function SignedInAccountPage({
             agreements={{
               agree: agreeToCharges.bind(null, slug),
               autopay: setAutopay.bind(null, slug),
+              backup: setAutopayBackup.bind(null, slug),
               withdraw: withdrawCharges.bind(null, slug),
             }}
           />

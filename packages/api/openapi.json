@@ -34788,6 +34788,387 @@
         ]
       }
     },
+    "/v1/contracts/{contractId}/work-differences": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "draftContractWorkDifference",
+        "summary": "Bill what a late rise left short on job work, on a draft invoice",
+        "description": "For the lines picked, each one offered under the rise named in `GET /v1/contracts/{contractId}/work-differences`: one draft invoice to the contract's customer, with its PO number, one line for each saying what it was, the risen card's price, and the price billed on which invoice, taxed at the rate the line it adds to was taxed at. A draft: nothing is posted or owed until it is issued, which is the ordinary issue on the invoice. Nothing ever raises this by itself. Refused, in words, for a line not offered, from another rise, or already on a draft or waived. Deleting the draft offers its lines again.\n\nRequires a session holding: invoice:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftContractWorkDifferenceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Bill what a late rise left short on job work, on a draft invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftContractWorkDifferenceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write"
+        ]
+      },
+      "get": {
+        "operationId": "getContractWorkDifferences",
+        "summary": "Job work billed at last year's card because the rise was applied late",
+        "description": "For each rise of the contract's cards applied after its anniversary: every line on an issued invoice that last year's card priced on or after the anniversary and before the rise was applied, with what it was billed, what the risen card charges for the same quantity, and the difference, offered until somebody bills it on a draft invoice or waives it. A listed price is the risen card's listing, an hourly rate is worked out again from the work in the same time band, and a trip charge is the risen card's. `leftOut` names every other line billed in the window and why it is not offered: priced from our price book, typed in, a share of a split line, a markup on our cost (which a rise keeps), a discount on it, a credit note or a write off on its invoice, or a draft not yet issued. Invoices are read in the caller's scope.\n\nRequires a session holding: contract:read, invoice:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job work billed at last year's card because the rise was applied late",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetContractWorkDifferencesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read",
+          "invoice:read"
+        ]
+      }
+    },
+    "/v1/contracts/{contractId}/work-differences/waive": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "waiveContractWorkDifference",
+        "summary": "Decide not to bill what a late rise left short on job work",
+        "description": "The lines picked, each one offered under the rise named, written down as not billed, so they are not offered again; who decided is on the audit line. Refused, in words, for a line not offered, or already decided.\n\nRequires a session holding: invoice:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "contractId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaiveContractWorkDifferenceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Decide not to bill what a late rise left short on job work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaiveContractWorkDifferenceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "invoice:write"
+        ]
+      }
+    },
     "/v1/contracts/{id}": {
       "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -48467,6 +48848,217 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetWorkdaySettingsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/disposal-billing": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getDisposalBilling",
+        "summary": "How a facility's disposal fee is passed on to the customer",
+        "description": "The company's markup on a passed on disposal fee (null for none, so it is passed on at cost) and whether the fee goes on a hire's invoice without the office being asked. Either way only a hire whose terms pass the fee on is charged it, and the invoice line says the facility's fee and the markup on it.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "responses": {
+          "200": {
+            "description": "How a facility's disposal fee is passed on to the customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetDisposalBillingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      },
+      "put": {
+        "operationId": "setDisposalBilling",
+        "summary": "Set how a facility's disposal fee is passed on to the customer",
+        "description": "Any field left out keeps its value; a `markup` of null or 0 turns the markup off. Refused, in words, for a markup that is not a fraction between 0 and 1. With `addWithoutAsking`, raising a hire's invoice with no `disposalFee` puts the fee on when every haul's fee can be worked out; when one cannot, raising is still refused until somebody says `leave_off`, and `leave_off` always leaves it off. A company setting, so `settings:write`, with the before and after on the audit line.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M22"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDisposalBillingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set how a facility's disposal fee is passed on to the customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDisposalBillingOutput"
                 }
               }
             }
@@ -97529,7 +98121,7 @@
       "post": {
         "operationId": "setPortalCardAutopay",
         "summary": "Pay each bill automatically with a saved card, or stop",
-        "description": "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card. Turning it off needs no words.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card; the backups stay behind it, and a backup chosen here moves to the front. Turning it off needs no words, and stops the backups too.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
         "tags": [
           "M13"
         ],
@@ -97561,6 +98153,106 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetPortalCardAutopayOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. NOTE: an expired, revoked or spent grant currently surfaces here rather than as a 401 or 403, because the dispatcher does not recognise the grant error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authorization": "grant",
+        "x-permissions": []
+      }
+    },
+    "/v1/portal/cards/{cardId}/autopay-backup": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setPortalCardAutopayBackup",
+        "summary": "Keep a saved card as a backup for paying automatically, or stop",
+        "description": "From a sign in only, for a card the customer already lets the company charge and that is not the card paying automatically. Turning it on needs the backup words shown for this card (`wording.backup` on `GET /v1/portal/cards`), checked as the agreement's are, and a card already paying automatically; it goes behind the backups there are, up to two. When an automatic charge on the first card does not go through, each backup is tried once, in order, in the same run, and the customer is told which card paid. Backups are never tried on the next day's try, and stop when paying automatically stops. Turning it off needs no words and leaves the other backups where they are.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "tags": [
+          "M13"
+        ],
+        "parameters": [
+          {
+            "name": "cardId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPortalCardAutopayBackupInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Keep a saved card as a backup for paying automatically, or stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPortalCardAutopayBackupOutput"
                 }
               }
             }
@@ -153410,6 +154102,12 @@
               "null"
             ]
           },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "givenBy": {
             "type": "string",
             "enum": [
@@ -153453,6 +154151,7 @@
           "autopay",
           "autopayAt",
           "autopayWording",
+          "autopayRank",
           "givenBy",
           "way",
           "wayLabel",
@@ -181187,6 +181886,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -181205,13 +181917,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -181960,6 +182678,63 @@
           "invoiceNumber",
           "total",
           "periods"
+        ]
+      },
+      "DraftContractWorkDifferenceInput": {
+        "type": "object",
+        "properties": {
+          "anniversary": {
+            "type": "string",
+            "format": "date"
+          },
+          "invoiceLineIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "anniversary",
+          "invoiceLineIds"
+        ]
+      },
+      "DraftContractWorkDifferenceOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "anniversary": {
+            "type": "string",
+            "format": "date"
+          },
+          "invoiceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoiceNumber": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "lines": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contractId",
+          "anniversary",
+          "invoiceId",
+          "invoiceNumber",
+          "total",
+          "lines"
         ]
       },
       "DrillMarketingFunnelOutput": {
@@ -189971,6 +190746,207 @@
           "differences"
         ]
       },
+      "GetContractWorkDifferencesOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rises": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "anniversary": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "appliedOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "cards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "fromRateCardId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "fromName": {
+                        "type": "string"
+                      },
+                      "rateCardId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fromRateCardId",
+                      "fromName",
+                      "rateCardId",
+                      "name"
+                    ]
+                  }
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "invoiceLineId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceNumber": {
+                        "type": "integer"
+                      },
+                      "issuedOn": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date"
+                      },
+                      "jobId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "jobNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "billedPrice": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "risenPrice": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "billed": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "risen": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "difference": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "offered",
+                          "drafted",
+                          "waived"
+                        ]
+                      },
+                      "draftInvoiceId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "draftInvoiceNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "invoiceLineId",
+                      "invoiceId",
+                      "invoiceNumber",
+                      "issuedOn",
+                      "jobId",
+                      "jobNumber",
+                      "name",
+                      "quantity",
+                      "billedPrice",
+                      "risenPrice",
+                      "billed",
+                      "risen",
+                      "difference",
+                      "status",
+                      "draftInvoiceId",
+                      "draftInvoiceNumber"
+                    ]
+                  }
+                },
+                "leftOut": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "invoiceLineId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceNumber": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "invoiceLineId",
+                      "invoiceId",
+                      "invoiceNumber",
+                      "name",
+                      "reason"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "anniversary",
+                "appliedOn",
+                "cards",
+                "lines",
+                "leftOut"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contractId",
+          "rises"
+        ]
+      },
       "GetConversationOutput": {
         "type": "object",
         "properties": {
@@ -193386,6 +194362,25 @@
           "geocoder",
           "routing",
           "live"
+        ]
+      },
+      "GetDisposalBillingOutput": {
+        "type": "object",
+        "properties": {
+          "markup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "addWithoutAsking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "markup",
+          "addWithoutAsking"
         ]
       },
       "GetDisposalFacilityOpenOutput": {
@@ -213644,6 +214639,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -213662,13 +214670,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -228231,6 +229245,12 @@
                         "null"
                       ]
                     },
+                    "autopayRank": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "givenBy": {
                       "type": "string",
                       "enum": [
@@ -228300,6 +229320,7 @@
                     "autopay",
                     "autopayAt",
                     "autopayWording",
+                    "autopayRank",
                     "givenBy",
                     "way",
                     "wayLabel",
@@ -232606,6 +233627,12 @@
                 "autopay": {
                   "type": "boolean"
                 },
+                "autopayRank": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "givenBy": {
                   "type": "string",
                   "enum": [
@@ -232645,6 +233672,7 @@
                 "agreedAt",
                 "agreedByContact",
                 "autopay",
+                "autopayRank",
                 "givenBy",
                 "way",
                 "wayLabel",
@@ -232670,6 +233698,9 @@
                   ]
                 },
                 "attempt": {
+                  "type": "integer"
+                },
+                "cardRank": {
                   "type": "integer"
                 },
                 "status": {
@@ -232725,6 +233756,7 @@
                 "id",
                 "trigger",
                 "attempt",
+                "cardRank",
                 "status",
                 "amount",
                 "card",
@@ -238484,6 +239516,12 @@
                         "null"
                       ]
                     },
+                    "autopayRank": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "givenBy": {
                       "type": "string",
                       "enum": [
@@ -238527,6 +239565,7 @@
                     "autopay",
                     "autopayAt",
                     "autopayWording",
+                    "autopayRank",
                     "givenBy",
                     "way",
                     "wayLabel",
@@ -238543,11 +239582,15 @@
                     },
                     "autopay": {
                       "type": "string"
+                    },
+                    "backup": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "agreement",
-                    "autopay"
+                    "autopay",
+                    "backup"
                   ]
                 }
               },
@@ -241014,6 +242057,19 @@
                       ],
                       "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     },
+                    "cost": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "markup": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "source": {
                       "type": [
                         "string",
@@ -241032,13 +242088,19 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "automatic": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
                     "amount",
+                    "cost",
+                    "markup",
                     "source",
                     "why",
-                    "facility"
+                    "facility",
+                    "automatic"
                   ]
                 }
               },
@@ -253168,6 +254230,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -253186,13 +254261,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -255502,6 +256583,16 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "cost": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "markup": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "facility": {
                   "type": [
                     "string",
@@ -255528,6 +256619,8 @@
               "required": [
                 "rentalId",
                 "amount",
+                "cost",
+                "markup",
                 "facility",
                 "ticket",
                 "why",
@@ -255554,6 +256647,9 @@
               ]
             }
           },
+          "disposalFeeAutomatic": {
+            "type": "boolean"
+          },
           "decisionNeeded": {
             "type": "boolean"
           }
@@ -255565,6 +256661,7 @@
           "lines",
           "disposalFee",
           "disposalFeeUnavailable",
+          "disposalFeeAutomatic",
           "decisionNeeded"
         ]
       },
@@ -259489,6 +260586,12 @@
               "null"
             ]
           },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "givenBy": {
             "type": "string",
             "enum": [
@@ -259558,6 +260661,7 @@
           "autopay",
           "autopayAt",
           "autopayWording",
+          "autopayRank",
           "givenBy",
           "way",
           "wayLabel",
@@ -278604,6 +279708,40 @@
           "note"
         ]
       },
+      "SetDisposalBillingInput": {
+        "type": "object",
+        "properties": {
+          "markup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "addWithoutAsking": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetDisposalBillingOutput": {
+        "type": "object",
+        "properties": {
+          "markup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "addWithoutAsking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "markup",
+          "addWithoutAsking"
+        ]
+      },
       "SetEmploymentRecordInput": {
         "type": "object",
         "properties": {
@@ -282277,6 +283415,12 @@
               "null"
             ]
           },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "givenBy": {
             "type": "string",
             "enum": [
@@ -282320,6 +283464,126 @@
           "autopay",
           "autopayAt",
           "autopayWording",
+          "autopayRank",
+          "givenBy",
+          "way",
+          "wayLabel",
+          "agreedOn",
+          "takenBy",
+          "hasForm"
+        ]
+      },
+      "SetPortalCardAutopayBackupInput": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "wording": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "token",
+          "on"
+        ]
+      },
+      "SetPortalCardAutopayBackupOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cardId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "wording": {
+            "type": "string"
+          },
+          "agreedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agreedByContact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "autopay": {
+            "type": "boolean"
+          },
+          "autopayAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "autopayWording": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "autopayRank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "givenBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "office"
+            ]
+          },
+          "way": {
+            "type": "string",
+            "enum": [
+              "portal_sign_in",
+              "office_phone",
+              "office_form"
+            ]
+          },
+          "wayLabel": {
+            "type": "string"
+          },
+          "agreedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "takenBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasForm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "cardId",
+          "wording",
+          "agreedAt",
+          "agreedByContact",
+          "autopay",
+          "autopayAt",
+          "autopayWording",
+          "autopayRank",
           "givenBy",
           "way",
           "wayLabel",
@@ -283901,6 +285165,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -283919,13 +285196,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -288528,6 +289811,19 @@
                     ],
                     "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                   },
+                  "cost": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  },
+                  "markup": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "source": {
                     "type": [
                       "string",
@@ -288546,13 +289842,19 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "automatic": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "amount",
+                  "cost",
+                  "markup",
                   "source",
                   "why",
-                  "facility"
+                  "facility",
+                  "automatic"
                 ]
               }
             },
@@ -288816,6 +290118,19 @@
                     ],
                     "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                   },
+                  "cost": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  },
+                  "markup": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "source": {
                     "type": [
                       "string",
@@ -288834,13 +290149,19 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "automatic": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "amount",
+                  "cost",
+                  "markup",
                   "source",
                   "why",
-                  "facility"
+                  "facility",
+                  "automatic"
                 ]
               }
             },
@@ -305837,6 +307158,229 @@
           "periods",
           "standing",
           "differences"
+        ]
+      },
+      "WaiveContractWorkDifferenceInput": {
+        "type": "object",
+        "properties": {
+          "anniversary": {
+            "type": "string",
+            "format": "date"
+          },
+          "invoiceLineIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "anniversary",
+          "invoiceLineIds"
+        ]
+      },
+      "WaiveContractWorkDifferenceOutput": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rises": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "anniversary": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "appliedOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "cards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "fromRateCardId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "fromName": {
+                        "type": "string"
+                      },
+                      "rateCardId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fromRateCardId",
+                      "fromName",
+                      "rateCardId",
+                      "name"
+                    ]
+                  }
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "invoiceLineId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceNumber": {
+                        "type": "integer"
+                      },
+                      "issuedOn": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date"
+                      },
+                      "jobId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "jobNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "billedPrice": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "risenPrice": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "billed": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "risen": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "difference": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "offered",
+                          "drafted",
+                          "waived"
+                        ]
+                      },
+                      "draftInvoiceId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "uuid"
+                      },
+                      "draftInvoiceNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "invoiceLineId",
+                      "invoiceId",
+                      "invoiceNumber",
+                      "issuedOn",
+                      "jobId",
+                      "jobNumber",
+                      "name",
+                      "quantity",
+                      "billedPrice",
+                      "risenPrice",
+                      "billed",
+                      "risen",
+                      "difference",
+                      "status",
+                      "draftInvoiceId",
+                      "draftInvoiceNumber"
+                    ]
+                  }
+                },
+                "leftOut": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "invoiceLineId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "invoiceNumber": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "invoiceLineId",
+                      "invoiceId",
+                      "invoiceNumber",
+                      "name",
+                      "reason"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "anniversary",
+                "appliedOn",
+                "cards",
+                "lines",
+                "leftOut"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contractId",
+          "rises"
         ]
       },
       "WaiveObligationInput": {

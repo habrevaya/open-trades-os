@@ -620,6 +620,95 @@ export const waiveContractFeeDifference = defineRoute({
   output: ContractBilling,
 });
 
+const WorkDifference = z.object({
+  invoiceLineId: Uuid,
+  invoiceId: Uuid,
+  invoiceNumber: z.number().int(),
+  issuedOn: z.string().date().nullable(),
+  jobId: Uuid.nullable(),
+  jobNumber: z.number().int().nullable(),
+  name: z.string(),
+  quantity: MoneyString,
+  /** What each was billed at, and what the risen card charges for one. */
+  billedPrice: MoneyString,
+  risenPrice: MoneyString,
+  /** The line's total as billed, at the risen card, and the difference, all before tax. */
+  billed: MoneyString,
+  risen: MoneyString,
+  difference: MoneyString,
+  status: z.enum(["offered", "drafted", "waived"]),
+  draftInvoiceId: Uuid.nullable(),
+  draftInvoiceNumber: z.number().int().nullable(),
+});
+
+export const ContractWorkDifferences = z.object({
+  contractId: Uuid,
+  /** Each rise applied after its anniversary that left job work billed at last year's card, newest first. */
+  rises: z.array(z.object({
+    anniversary: z.string().date(),
+    /** The day a person applied it, in the company's calendar. */
+    appliedOn: z.string().date(),
+    cards: z.array(z.object({ fromRateCardId: Uuid, fromName: z.string(), rateCardId: Uuid, name: z.string() })),
+    lines: z.array(WorkDifference),
+    /** Lines billed in the window that are not offered, each with why in words. */
+    leftOut: z.array(z.object({
+      invoiceLineId: Uuid, invoiceId: Uuid, invoiceNumber: z.number().int(), name: z.string(), reason: z.string(),
+    })),
+  })),
+});
+
+export const getContractWorkDifferences = defineRoute({
+  method: "get",
+  path: "/v1/contracts/{contractId}/work-differences",
+  summary: "Job work billed at last year's card because the rise was applied late",
+  description:
+    "For each rise of the contract's cards applied after its anniversary: every line on an issued invoice that last year's card priced on or after the anniversary and before the rise was applied, with what it was billed, what the risen card charges for the same quantity, and the difference, offered until somebody bills it on a draft invoice or waives it. A listed price is the risen card's listing, an hourly rate is worked out again from the work in the same time band, and a trip charge is the risen card's. `leftOut` names every other line billed in the window and why it is not offered: priced from our price book, typed in, a share of a split line, a markup on our cost (which a rise keeps), a discount on it, a credit note or a write off on its invoice, or a draft not yet issued. Invoices are read in the caller's scope.",
+  module: "M31",
+  permissions: ["contract:read", "invoice:read"],
+  input: z.object({ contractId: Uuid }),
+  output: ContractWorkDifferences,
+});
+
+const LinesPicked = z.object({
+  contractId: Uuid,
+  /** The anniversary of the rise the lines are from: one draft holds one rise's work. */
+  anniversary: z.string().date(),
+  invoiceLineIds: z.array(Uuid).min(1).max(200),
+});
+
+export const draftContractWorkDifference = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/work-differences",
+  summary: "Bill what a late rise left short on job work, on a draft invoice",
+  description:
+    "For the lines picked, each one offered under the rise named in `GET /v1/contracts/{contractId}/work-differences`: one draft invoice to the contract's customer, with its PO number, one line for each saying what it was, the risen card's price, and the price billed on which invoice, taxed at the rate the line it adds to was taxed at. A draft: nothing is posted or owed until it is issued, which is the ordinary issue on the invoice. Nothing ever raises this by itself. Refused, in words, for a line not offered, from another rise, or already on a draft or waived. Deleting the draft offers its lines again.",
+  module: "M31",
+  permissions: ["invoice:write"],
+  idempotent: true,
+  input: LinesPicked,
+  output: z.object({
+    contractId: Uuid,
+    anniversary: z.string().date(),
+    invoiceId: Uuid,
+    invoiceNumber: z.number().int(),
+    total: MoneyString,
+    lines: z.number().int(),
+  }),
+});
+
+export const waiveContractWorkDifference = defineRoute({
+  method: "post",
+  path: "/v1/contracts/{contractId}/work-differences/waive",
+  summary: "Decide not to bill what a late rise left short on job work",
+  description:
+    "The lines picked, each one offered under the rise named, written down as not billed, so they are not offered again; who decided is on the audit line. Refused, in words, for a line not offered, or already decided.",
+  module: "M31",
+  permissions: ["invoice:write"],
+  idempotent: true,
+  input: LinesPicked,
+  output: ContractWorkDifferences,
+});
+
 export const contractRoutes = {
   listContracts, createContract, updateContract, addContractSite,
   createRateCard, setRateCardLines, listRateCardLines,
@@ -627,4 +716,5 @@ export const contractRoutes = {
   previewContractEscalation, applyContractEscalation, listContractRises, setContractRises,
   getContractBilling, setContractBilling, pauseContractBilling, resumeContractBilling,
   endContractBilling, raiseContractBilling, draftContractFeeDifference, waiveContractFeeDifference,
+  getContractWorkDifferences, draftContractWorkDifference, waiveContractWorkDifference,
 } as const;

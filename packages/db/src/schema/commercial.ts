@@ -5,7 +5,7 @@ import { organization } from "./tenancy";
 import { customer, property, contact } from "./crm";
 import { coverageSource } from "./entitlement";
 import { job, jobType } from "./work";
-import { invoice } from "./billing";
+import { invoice, invoiceLine } from "./billing";
 import { message } from "./comms";
 import { portalGrant } from "./portal";
 
@@ -438,6 +438,43 @@ export const contractBillingDifference = pgTable("contract_billing_difference", 
 }, (t) => ({
   periodIdx: uniqueIndex("contract_billing_difference_period_idx").on(t.periodId),
   contractIdx: index("contract_billing_difference_contract_idx").on(t.contractId),
+}));
+
+/**
+ * WHAT A LATE RISE LEFT UNBILLED ON ONE LINE OF JOB WORK, AND WHAT A PERSON DID.
+ *
+ * A card risen after its anniversary prices the work billed from the day it is
+ * applied; a job billed between the anniversary and that day was priced by
+ * last year's card and keeps its invoice. The contract's page offers what each
+ * such line is short, rise by rise, and nothing bills it by itself. This row
+ * is the decision on one invoice line: put on a draft invoice, or waived. The
+ * unique index on the line is the claim, written in the same transaction as
+ * the draft, so a line is never on two drafts. Deleting the draft deletes this
+ * row with it (the invoice cascades) and the line is offered again.
+ */
+export const contractWorkDifference = pgTable("contract_work_difference", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  contractId: uuid("contract_id").notNull().references(() => serviceContract.id, { onDelete: "cascade" }),
+  /** The line billed at last year's price. */
+  invoiceLineId: uuid("invoice_line_id").notNull().references(() => invoiceLine.id, { onDelete: "cascade" }),
+  /** The risen card whose price made the difference. */
+  rateCardId: uuid("rate_card_id").notNull().references(() => rateCard.id, { onDelete: "cascade" }),
+  /** The anniversary the card rose on, so one draft holds one rise's work. */
+  anniversary: date("anniversary").notNull(),
+  status: contractBillingDifferenceStatus("status").notNull(),
+  /** The draft it was billed on. Null when it was waived. */
+  invoiceId: uuid("invoice_id").references(() => invoice.id, { onDelete: "cascade" }),
+  /** The risen card's price for one, as it was offered. */
+  risenPrice: money("risen_price").notNull(),
+  /** What the line was billed and what the risen card makes it, in total before tax, and the difference. */
+  billedAmount: money("billed_amount").notNull(),
+  risenAmount: money("risen_amount").notNull(),
+  amount: money("amount").notNull(),
+  ...timestamps,
+}, (t) => ({
+  lineIdx: uniqueIndex("contract_work_difference_line_idx").on(t.invoiceLineId),
+  contractIdx: index("contract_work_difference_contract_idx").on(t.contractId),
 }));
 
 /**

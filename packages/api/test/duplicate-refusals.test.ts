@@ -187,6 +187,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   financing_application_external_idx: "The lender's own id for an application, written once when the lender opens it. Nobody types it.",
   contract_billing_schedule_contract_idx: "One schedule per contract, and setting it reads it first and changes it in place. Nobody types a duplicate; two saves racing is the only way to meet this, and that is a bug to see.",
   contract_billing_period_idx: "The claim on a period: written by the worker or the button with on conflict do nothing before the invoice, so a second claim finds it taken and bills nothing. Nobody types a period.",
+  contract_work_difference_line_idx: "The claim on one line of job work a late rise left short: written with on conflict do nothing in the same transaction as the draft invoice for the difference or the waiver, so a second press finds it decided and is refused in words. Nobody types one.",
   contract_billing_difference_period_idx: "The claim on a period's late rise: written with on conflict do nothing in the same transaction as the draft invoice for the difference or the waiver, so a second press finds it decided and is refused in words. Nobody types one.",
   contract_billing_fee_schedule_idx: "A fee risen from an anniversary, written only when a person applies that anniversary's rise, under the contract's lock and after the anniversary is checked against the last one applied, so a retry answers with what was made. Nobody types one.",
   contract_escalation_notice_once_idx: "The claim on an anniversary's task: written by the worker with on conflict do nothing before the task, so a second pass finds it taken and raises nothing. Nobody types one.",
@@ -358,12 +359,14 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "One live agreement to charge a saved card. Agreeing again returns the one that stands, and the insert "
     + "is on conflict do nothing, so a double press is one agreement.",
   payment_agreement_autopay_idx:
-    "One card paying automatically per customer. Turning it on for a card turns it off on the others in the "
-    + "same transaction first; only the customer's own two presses at the same instant could meet it, and the "
-    + "second then fails rather than leaving two cards charging every bill.",
+    "One card in each place of paying automatically per customer: one first card, and one at each backup place. "
+    + "Turning it on for a card turns it off on the first card in the same transaction first, and a backup takes "
+    + "the next place after locking the customer's rows; only the customer's own two presses at the same instant "
+    + "could meet it, and the second then fails rather than leaving two cards charging every bill.",
   card_on_file_charge_autopay_idx:
-    "One automatic charge per invoice per try, which is what makes a bill charged once whatever the worker "
-    + "does. Inserted with on conflict do nothing by the worker; nobody types one.",
+    "One automatic charge per invoice per try per place in the customer's order of cards, which is what makes "
+    + "a bill charged once on each card whatever the worker does. Inserted with on conflict do nothing by the "
+    + "worker; nobody types one.",
   card_on_file_charge_key_idx:
     "The office's request key for a charge. A replay is found by a select first and answered with the charge "
     + "already made; two identical requests at the same instant fail the second rather than charge twice.",
