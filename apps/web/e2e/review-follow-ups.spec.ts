@@ -11,6 +11,8 @@ test("a second reminder and the follow up by email are set from Settings, Review
   // A policy to hang the reminders on, as the other specs leave it.
   const policy = await owner.request.put("/api/v1/reviews/policy", { data: { timeZone: "America/Chicago" } });
   expect(policy.ok(), await policy.text()).toBe(true);
+  const clean = { afterDays: null, secondAfterDays: null, followUpAfterDays: null, wording: null };
+  expect((await owner.request.put("/api/v1/reviews/reminders", { data: clean })).ok()).toBe(true);
 
   await owner.goto("/settings/reviews");
   const reminder = owner.getByRole("region", { name: "The reminder" });
@@ -45,6 +47,10 @@ test("a second reminder and the follow up by email are set from Settings, Review
   const off = (await (await owner.request.get("/api/v1/reviews/reminders")).json()) as Record<string, unknown>;
   expect(off).toMatchObject({ afterDays: null, secondAfterDays: null, followUpAfterDays: null });
 
+  // Saving the words shown while a second was on kept them as ours, not the company's own.
+  await expect(reminder).toContainText("It goes in the words we wrote.");
+  expect((await owner.request.put("/api/v1/reviews/reminders", { data: clean })).ok()).toBe(true);
+
   // The answer-within table draws a row for each star rating.
-  await expect(owner.getByLabel(/^Row \d+: up to$/)).toHaveCount(5);
+  await expect(owner.getByRole("combobox", { name: /^Row \d+: up to$/ })).toHaveCount(5);
 });

@@ -343,19 +343,31 @@ export async function setReminders(ctx: ServiceContext, input: {
       const verdict = rv.checkReminderDays(days);
       if (!verdict.ok) throw new ConflictError(verdict.reason);
     }
+    /**
+     * Line ends as a browser posts them (a text box sends CRLF) are kept as the
+     * plain newlines everything else is written with, so the shipped words
+     * saved back from the screen are recognised as ours.
+     */
+    const lines = (text: string) => text.replace(/\r\n?/g, "\n").trim();
     const typed = input.wording ? {
-      sms: input.wording.sms.trim(),
-      emailSubject: input.wording.emailSubject.trim(),
-      emailBody: input.wording.emailBody.trim(),
+      sms: lines(input.wording.sms),
+      emailSubject: lines(input.wording.emailSubject),
+      emailBody: lines(input.wording.emailBody),
     } : null;
     if (typed) {
       const words = rv.checkReviewWording(typed);
       if (!words.ok) throw new ConflictError(words.reason);
     }
     /** The shipped words typed back in are the shipped words, so later improvements to them still reach this company. */
-    const shipped = automation.REVIEW_REMINDER_WORDING;
-    const own = typed && !(typed.sms === shipped.sms && typed.emailSubject === shipped.emailSubject
-      && typed.emailBody === shipped.emailBody) ? typed : null;
+    /**
+     * Either shipped version: the screen shows the one without "the only
+     * reminder" while a second reminder is on, and saving it back is still
+     * keeping our words, not writing the company's own.
+     */
+    const isShipped = (shipped: rv.ReviewWording) => typed !== null && typed.sms === shipped.sms
+      && typed.emailSubject === shipped.emailSubject && typed.emailBody === shipped.emailBody;
+    const own = typed && !isShipped(automation.REVIEW_REMINDER_WORDING)
+      && !isShipped(automation.REVIEW_REMINDER_BEFORE_SECOND_WORDING) ? typed : null;
 
     const before = await policyFor(tx, ctx.actor.organizationId);
     /**

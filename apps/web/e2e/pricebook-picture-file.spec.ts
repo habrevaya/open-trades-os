@@ -91,6 +91,8 @@ test("an item's uploaded picture is drawn on the item, in the composer and on th
   // Taken off as a new version; the estimate already written keeps it.
   await owner.goto(`/pricebook/items/${id}`);
   await owner.getByRole("region", { name: "Picture" }).getByRole("button", { name: "Take the picture off" }).click();
-  await expect(owner.getByRole("status").filter({ hasText: "Picture taken off as a new version" })).toBeVisible();
+  /** The form that took it off goes with the picture, so the page itself says so. */
+  await expect(owner.getByRole("region", { name: "Picture" })).toContainText("No picture yet.");
+  expect(((await (await owner.request.get(`/api/v1/pricebook/items/${id}`)).json()) as { hasPicture: boolean }).hasPicture).toBe(false);
   expect((await stranger.request.get(`${path}/proposal/photos/item-${item.versionId}`)).status()).toBe(200);
 });

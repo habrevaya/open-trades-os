@@ -130,7 +130,7 @@ const requestOf = async (jobId: string) => {
 async function askedAndSent(who: Parameters<typeof aFinishedJob>[0]): Promise<Finished> {
   const job = await aFinishedJob(who);
   await reviews.requestFor(owner(), { jobId: job.jobId, platform: "google" });
-  await reviewAsks.askPass(db(), { now: tomorrowAfternoon() });
+  await reviewAsks.askDueFor(db(), ORG, { now: tomorrowAfternoon() });
   expect((await requestOf(job.jobId)).state).toBe("sent");
   return job;
 }
@@ -155,7 +155,7 @@ run("the second reminder", () => {
     const job = await askedAndSent({ name: "Sam Second", phone: "+15125550301", email: "sam@example.test" });
     await reviews.setReminders(owner(), { afterDays: 5, secondAfterDays: 7 });
     await raw`update public.review_request set sent_at = ${daysAgo(6)} where job_id = ${job.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     let sent = await outbound();
     expect(sent).toHaveLength(2);
     /** With a second on, the first no longer says it is the only one. */
@@ -163,11 +163,11 @@ run("the second reminder", () => {
     expect(sent[1]!.body).not.toContain("only reminder");
 
     /** Not yet: the first reminder went just now. */
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect(await outbound()).toHaveLength(2);
 
     await raw`update public.review_request set reminder_at = ${daysAgo(8)} where job_id = ${job.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     sent = await outbound();
     expect(sent).toHaveLength(3);
     expect(sent[2]!.channel).toBe("email");
@@ -176,7 +176,7 @@ run("the second reminder", () => {
     expect(sent[2]!.body).toContain(REVIEW_URL);
     expect((await requestOf(job.jobId)).second_reminder_message_id).not.toBeNull();
 
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect(await outbound()).toHaveLength(3);
     expect((await reviews.reminders(owner())).later).toEqual([
       expect.objectContaining({ kind: "second_reminder", customerName: "Sam Second", sent: true, detail: null }),
@@ -190,11 +190,23 @@ run("the second reminder", () => {
               reminder_message_id = ${crypto.randomUUID()} where job_id = ${job.jobId}`;
     await raw`insert into public.review (organization_id, platform, rating, posted_at, customer_id)
               values (${ORG}, 'google', 4, ${daysAgo(2)}, ${job.customerId})`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect(await outbound()).toHaveLength(1);
     const request = await requestOf(job.jobId);
     expect(request.second_reminder_message_id).toBeNull();
     expect(request.second_reminder_detail).toMatch(/^Not sent: A review has come in since the ask/);
+  });
+
+  it("keeps our words as ours when the words shown while a second is on are saved back", async () => {
+    await reviews.setReminders(owner(), { afterDays: 5, secondAfterDays: 7 });
+    const shown = await reviews.reminders(owner());
+    expect(shown.wording.emailBody).not.toContain("only reminder");
+    const { custom: _custom, ...words } = shown.wording;
+    expect((await reviews.setReminders(owner(), { wording: words })).wording.custom).toBe(false);
+    /** As a browser posts a text box: CRLF line ends are the same words. */
+    const posted = { ...words, emailBody: words.emailBody.replace(/\n/g, "\r\n") };
+    expect((await reviews.setReminders(owner(), { wording: posted })).wording.custom).toBe(false);
+    expect((await reviews.setReminders(owner(), { secondAfterDays: null })).wording.emailBody).toContain("only reminder");
   });
 
   it("is not sent when the first reminder never went", async () => {
@@ -202,7 +214,7 @@ run("the second reminder", () => {
     await reviews.setReminders(owner(), { afterDays: 5, secondAfterDays: 7 });
     await raw`update public.review_request set sent_at = ${daysAgo(20)}, reminder_at = ${daysAgo(10)},
               reminder_detail = 'Not sent: replied STOP' where job_id = ${job.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect(await outbound()).toHaveLength(1);
     expect((await requestOf(job.jobId)).second_reminder_at).toBeNull();
   });
@@ -222,13 +234,13 @@ run("the follow up by email", () => {
     await reviews.setReminders(owner(), { followUpAfterDays: 4 });
     expect((await reviews.reminders(owner())).followUpApplies).toBe(true);
     await raw`update public.review_request set sent_at = ${daysAgo(5)} where job_id = ${job.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     const sent = await outbound();
     expect(sent.map((m) => m.channel)).toEqual(["sms", "email"]);
     expect(sent[1]!.subject).toBe("How did we do, Tess?");
     expect(sent[1]!.body).toContain(REVIEW_URL);
     expect((await requestOf(job.jobId)).follow_up_message_id).not.toBeNull();
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect(await outbound()).toHaveLength(2);
   });
 
@@ -237,12 +249,12 @@ run("the follow up by email", () => {
     const job = await askedAndSent({ name: "Fay Firstly", phone: "+15125550305", email: "fay@example.test" });
     await reviews.setReminders(owner(), { followUpAfterDays: 4, afterDays: 3 });
     await raw`update public.review_request set sent_at = ${daysAgo(5)} where job_id = ${job.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     /** The follow up went; the reminder, due by the ask's date, waits for its days after the follow up. */
     expect((await outbound()).map((m) => m.channel)).toEqual(["sms", "email"]);
     expect((await requestOf(job.jobId)).reminder_at).toBeNull();
     await raw`update public.review_request set follow_up_at = ${daysAgo(4)} where job_id = ${job.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect((await outbound()).map((m) => m.channel)).toEqual(["sms", "email", "sms"]);
   });
 
@@ -251,7 +263,7 @@ run("the follow up by email", () => {
     const mailed = await askedAndSent({ name: "Mo Mailonly", phone: null, email: "mo@example.test" });
     await reviews.setReminders(owner(), { followUpAfterDays: 4 });
     await raw`update public.review_request set sent_at = ${daysAgo(5)} where job_id = ${mailed.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect((await outbound()).map((m) => m.channel)).toEqual(["email"]);
     expect((await requestOf(mailed.jobId)).follow_up_at).toBeNull();
 
@@ -261,7 +273,7 @@ run("the follow up by email", () => {
     expect((await reviews.reminders(owner())).followUpApplies).toBe(false);
     const texted = await askedAndSent({ name: "Ty Textonly", phone: "+15125550306", email: "ty@example.test" });
     await raw`update public.review_request set sent_at = ${daysAgo(5)} where job_id = ${texted.jobId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect((await requestOf(texted.jobId)).follow_up_at).toBeNull();
   });
 
@@ -271,7 +283,7 @@ run("the follow up by email", () => {
     await reviews.setReminders(owner(), { followUpAfterDays: 4 });
     await raw`update public.review_request set sent_at = ${daysAgo(5)} where job_id = ${job.jobId}`;
     await raw`update public.customer set do_not_service = true where id = ${job.customerId}`;
-    await reviewAsks.askPass(db(), { now: sixDaysOn() });
+    await reviewAsks.askDueFor(db(), ORG, { now: sixDaysOn() });
     expect(await outbound()).toHaveLength(1);
     expect((await requestOf(job.jobId)).follow_up_detail).toMatch(/^Not sent: This customer has asked not to be sent/);
   });
