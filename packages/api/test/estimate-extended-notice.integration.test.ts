@@ -181,7 +181,8 @@ run("telling the customer", () => {
   });
 
   it("holds a text in the company's quiet hours, but not the email beside it", async () => {
-    const [{ hour }] = await raw<{ hour: number }[]>`select extract(hour from now() at time zone ${ZONE})::int as hour`;
+    const [clock] = await raw<{ hour: number }[]>`select extract(hour from now() at time zone ${ZONE})::int as hour`;
+    const hour = clock!.hour;
     // A window that covers this hour and no other.
     await raw`update public.organization set settings = coalesce(settings, '{}'::jsonb)
       || ${raw.json({ quietHours: { startHour: hour, endHour: (hour + 1) % 24 } } as never)} where id = ${ORG}`;
