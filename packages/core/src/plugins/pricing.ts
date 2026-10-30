@@ -58,7 +58,16 @@ export const RULE_KIND_LABEL: Record<RuleKind, string> = {
   minimum_charge: "Minimum charge",
 };
 
-/** Days 0 (Sunday) to 6, and a span of the day as "HH:MM" in the company's own zone. */
+/**
+ * Days 0 (Sunday) to 6, and a span of the day as "HH:MM" in the company's own zone.
+ *
+ * `days` are the days the window STARTS on. When `to` is earlier than `from` the
+ * window runs past midnight into the next day: "from 18:00 to 06:00" on Monday
+ * is Monday from six in the evening until Tuesday at six in the morning, so work
+ * at three on Tuesday morning is inside it because the window that holds it
+ * started on Monday, a listed day. Work at three on Monday morning is not,
+ * unless Sunday is listed. `to` of "24:00" is the end of the same day.
+ */
 export interface TimeWindow { days: number[]; from: string; to: string }
 
 export interface PricingRule {
@@ -152,8 +161,10 @@ export function checkPricingRule(input: unknown, known: { jobTypeIds: readonly s
         && new Set(days).size === days.length;
       if (!goodDays) problems.push("A window's days are 0 (Sunday) to 6 (Saturday), each once.");
       if (!CLOCK.test(from) || !CLOCK.test(to)) problems.push("A window's times are \"HH:MM\" on the 24 hour clock.");
-      else if (minuteOf(from) >= minuteOf(to)) {
-        problems.push("A window ends after it starts on the same day. For the evening and the early morning, register two rules, or use \"outside_hours\".");
+      else if (from === "24:00") {
+        problems.push("A window cannot start at 24:00. Start it at 00:00, the first minute of the day.");
+      } else if (minuteOf(from) === minuteOf(to)) {
+        problems.push("A window has to start and end at different times. One that runs past midnight is fine: from 18:00 to 06:00 is the evening and the night after it.");
       }
       if (goodDays && CLOCK.test(from) && CLOCK.test(to)) {
         rule.window = { days: [...(days as number[])].sort((a, b) => a - b), from, to };
@@ -195,7 +206,11 @@ export function describeRule(rule: PricingRule): string {
       const window = rule.window;
       if (window === "outside_hours" || window === undefined) return `${effect} for work outside your hours`;
       const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      return `${effect} for work on ${window.days.map((d) => names[d]).join(", ")} from ${window.from} to ${window.to}`;
+      const days = window.days.map((d) => names[d]).join(", ");
+      /** Past midnight, the window is named by the day it starts, and says it ends the next one. */
+      return windowWraps(window)
+        ? `${effect} for work from ${window.from} on ${days} until ${window.to} the next day`
+        : `${effect} for work on ${days} from ${window.from} to ${window.to}`;
     }
     case "minimum_charge": return `at least ${m.format(m.money(rule.minimum ?? "0"))} in all`;
   }
@@ -214,6 +229,26 @@ export interface RuleFacts {
   work: { dayOfWeek: number; minute: number; outsideHours: boolean } | null;
 }
 
+/** Whether a window runs past midnight: it ends at an earlier time than it starts. */
+export const windowWraps = (window: TimeWindow): boolean => minuteOf(window.to) < minuteOf(window.from);
+
+/**
+ * Whether work at `minute` on `dayOfWeek` is inside a window.
+ *
+ * A window that ends the same day is its days, between `from` and `to`. One
+ * that runs past midnight holds two stretches of a day: the evening of a listed
+ * day (from `from` to midnight) and the morning after a listed day (midnight to
+ * `to`), so the morning is matched against YESTERDAY's day. Sunday's early
+ * hours belong to a window that started on Saturday.
+ */
+export function inWindow(window: TimeWindow, dayOfWeek: number, minute: number): boolean {
+  const from = minuteOf(window.from);
+  const to = minuteOf(window.to);
+  if (from < to) return window.days.includes(dayOfWeek) && minute >= from && minute < to;
+  return (window.days.includes(dayOfWeek) && minute >= from)
+    || (window.days.includes((dayOfWeek + 6) % 7) && minute < to);
+}
+
 export function ruleMatches(rule: PricingRule, facts: RuleFacts): boolean {
   switch (rule.kind) {
     case "customer_tag":
@@ -223,8 +258,7 @@ export function ruleMatches(rule: PricingRule, facts: RuleFacts): boolean {
     case "time_window": {
       if (!facts.work || rule.window === undefined) return false;
       if (rule.window === "outside_hours") return facts.work.outsideHours;
-      return rule.window.days.includes(facts.work.dayOfWeek)
-        && facts.work.minute >= minuteOf(rule.window.from) && facts.work.minute < minuteOf(rule.window.to);
+      return inWindow(rule.window, facts.work.dayOfWeek, facts.work.minute);
     }
     case "minimum_charge":
       return true;
