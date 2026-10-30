@@ -106,7 +106,7 @@ somebody who may read commission (`commission:read`), and setting or clearing on
 `commission:configure` as well as `pricebook:write`: an editor of the price book without
 it can still raise a price, change the picture and revise everything else, and the form
 does not show them the box. Both are in the audit line of the revision, before and after.
-No screen draws an item's picture yet. The commission rate is paid by the company's
+No screen draws an item's picture (see "What is not built"). The commission rate is paid by the company's
 choice on `/payroll/commissions` (M17, `POST /v1/commissions/item-rule`): the plan only,
 which is the default and pays nothing from the item's rate; the item's rate instead of
 the plan on its line; whichever of the two comes to more; or the item's rate on top of
@@ -316,7 +316,13 @@ different permission from editing the book.
 
 An item with a revision already scheduled is left out of a bulk change, dated
 ahead or not, rather than given a version beside it. A bulk change reaches at most
-two thousand items at a time. Nothing yet draws an item's picture: it is stored and offered on the API and the item screen. An item's commission rate is
+two thousand items at a time. Nothing draws an item's picture, on purpose, and it is not a small step. The picture is a web address a person typed
+(`imageUrl`, always `https://`), not a file in the company's store, so there is no file read path or permission to draw it
+through: showing it on the item page, in the composer, on the customer's proposal or in its PDF would make the browser
+(and, for the PDF, this server) fetch whatever address a staff member pasted, and hand a customer's address to that host.
+Drawing it needs the picture uploaded and kept as a stored file the way proposal photographs are (a storage key on the
+item's version, carried forward by a revision, drawn through `/files/{key}` for staff and a token route and the PDF's image
+step for the customer), which is not built; the address is still stored and offered on the API and the item screen. An item's commission rate is
 paid only on an invoice line priced from the item: a line typed by hand, or a kit's
 parts inside a kit line, pays the plan, and a kit pays its own rate, not its parts'.
 The choice of how it works with the plan is one for the whole company (M17): there is
