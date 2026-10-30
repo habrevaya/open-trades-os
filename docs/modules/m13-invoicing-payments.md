@@ -470,15 +470,40 @@ it is revoked rather than left alive.
 
 **Also send a copy to**, beside the address, copies one more of the customer's
 own people (`copyContactId` on `POST /v1/customers/{id}/statement/email`):
-chosen from a list of the customer's contacts who have an email address, never
-an address typed for it. Somebody who is another customer's contact, has been
-removed, or has no address is refused before anything goes. The copy is an email
-of its own to that person's address, saying whose statement it is ("A copy of
-Lakeside Property Management's statement"), with the same link and PDF, and it
-goes only once the statement itself went: they share the link, which is revoked
-when the statement did not go. A copy to the address the statement went to is
-not sent twice. The list under the button says where each copy went, or why
-none did.
+chosen from a list of the customer's contacts who have an email address.
+Somebody who is another customer's contact, has been removed, or has no address
+is refused before anything goes. The copy is an email of its own to that
+person's address, saying whose statement it is ("A copy of Lakeside Property
+Management's statement"), with the same link and PDF, and it goes only once the
+statement itself went: they share the link, which is revoked when the statement
+did not go. A copy to the address the statement went to is not sent twice. The
+list under the button says where each copy went, or why none did.
+
+**Also copy to** (under it, and under **Text statement** too) copies the statement
+to several people: `copies` on `POST /v1/customers/{id}/statement/email` and
+`/text`, five at most. Each copy is one of the customer's own people, by **email**
+or by **text** (each person with an address or a mobile number has a box for each),
+or an address or number the office types. The rest is as for the one copy above:
+each is a message of its own, refused or suppressed on its own (a number that
+replied STOP, no number to text from, an address asked not to be emailed) without
+taking the statement or the other copies with it, and it goes only once the
+statement itself went. A text copy goes through the consent gate every text goes
+through (M18) and says whose statement it is, the period and the link, with no
+amounts; an email copy carries the PDF. The same person or address named twice is
+copied once, and a copy to where the statement itself went is not sent again. What
+each copy did is a row of `statement_delivery_copy` (who, the channel, where, the
+outbox's message or why not), the list under the button says it for every copy, and
+`GET /v1/statement-deliveries` gives them as `copies`.
+
+**An address the office types** reaches somebody the customer record does not name,
+and carries the same link to the customer's account page every copy carries, so it
+is held to a few rules. It must be shaped like an email address, or like a number a
+text can go to; nothing else is known about it. It is marked as typed on its row and
+in the list ("typed by the office"). And it is audited twice over: the line for the
+send lists every copy with where it went, and each typed copy has a line of its own
+(`statement.copied_to_typed_address`, with the address, the channel and whether it
+went), whether or not it went. Sending a copy needs `invoice:send` like the
+statement itself.
 
 **Text statement**, beside it (`POST /v1/customers/{id}/statement/text`), sends
 the same link by text, with no amounts, to the customer's main contact's mobile,
@@ -699,11 +724,14 @@ provider is connected. Only the monthly run reads who the bills are addressed
 to: the office's **Email statement** and **Text statement** go to the customer's
 address and main contact's number unless the office types another, and the
 invoice email itself goes to the customer as before. A bill is addressed to one
-person. A statement can be copied to one more person, by email only and only
-to one of the payer's own contacts: a third person, a copy by text, or a copy
-to an address that is not a contact's are not offered, and the monthly run
-copies nobody whom the customer record does not name. Text statement copies
-nobody. A tip is taken from the portal, with cash or a check on site, and by the office with a card
+person. A statement sent by hand can be copied to five people at most, and every
+copy carries the link the statement itself went with: a copy to an address that
+was typed gives that address the same link to the customer's account page, so it
+is audited and the office is told so on the screen, and there is no way yet to
+send a copy a link that opens only the statement. The monthly run copies one
+person, the one the customer record names, by email and never by text, and copies
+nobody whom the record does not name. An old statement's single copy stays in the
+columns it was written in. A tip is taken from the portal, with cash or a check on site, and by the office with a card
 on the invoice or with cash, a check or a transfer on Record a payment, one invoice at a time. Refunding a
 payment refunds the invoice part and leaves its tip owed to the technicians, because handing a tip back is a
 decision nobody here has made for the company. A tip sent with `POST /v1/payments` alone is booked to Tips

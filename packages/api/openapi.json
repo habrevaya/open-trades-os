@@ -46164,7 +46164,7 @@
       "post": {
         "operationId": "emailCustomerStatement",
         "summary": "Email a customer their statement",
-        "description": "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). With `copyContactId`, one of the customer's own people (on the customer, not removed, with an email address; refused otherwise) is emailed a copy of their own once the statement goes: a typed address is never copied. The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.\n\nRequires a session holding: invoice:send.",
+        "description": "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). With `copies` (five at most), each of the customer's own people (on the customer, not removed, with the address or mobile number the channel needs; refused otherwise) or each address the office types is sent a copy of their own, by email or by text, once the statement goes: a message each, refused or suppressed on its own, a text through the consent gate every text goes through. A copy to an address that was typed is audited on its own (`statement.copied_to_typed_address`) with the address. `copyContactId` is an email copy to that person, first in the list. All copies carry the link the statement went with. `copies` in the answer says where each went or why not. The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.\n\nRequires a session holding: invoice:send.",
         "tags": [
           "M13"
         ],
@@ -184956,6 +184956,34 @@
           "copyContactId": {
             "type": "string",
             "format": "uuid"
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 320
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                }
+              },
+              "required": [
+                "channel"
+              ]
+            },
+            "maxItems": 5
           }
         }
       },
@@ -185051,6 +185079,65 @@
               "state",
               "explanation"
             ]
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "contactName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                },
+                "destination": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "typed": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "refused"
+                  ]
+                },
+                "explanation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "contactId",
+                "contactName",
+                "channel",
+                "destination",
+                "typed",
+                "state",
+                "explanation"
+              ]
+            }
           }
         },
         "required": [
@@ -185062,7 +185149,8 @@
           "note",
           "explanation",
           "portalUrl",
-          "copy"
+          "copy",
+          "copies"
         ]
       },
       "EmailPurchaseOrderInput": {
@@ -218460,12 +218548,36 @@
                 "email"
               ]
             }
+          },
+          "textCandidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "phone": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "phone"
+              ]
+            }
           }
         },
         "required": [
           "customerId",
           "monthly",
-          "candidates"
+          "candidates",
+          "textCandidates"
         ]
       },
       "GetStatementScheduleOutput": {
@@ -246691,6 +246803,56 @@
                     "string",
                     "null"
                   ]
+                },
+                "copies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "contactName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "channel": {
+                        "type": "string",
+                        "enum": [
+                          "email",
+                          "sms"
+                        ]
+                      },
+                      "destination": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "typed": {
+                        "type": "boolean"
+                      },
+                      "messageStatus": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "contactName",
+                      "channel",
+                      "destination",
+                      "typed",
+                      "messageStatus",
+                      "error"
+                    ]
+                  }
                 },
                 "createdAt": {
                   "type": "string",
@@ -292799,6 +292961,34 @@
           "to": {
             "type": "string",
             "format": "date"
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 320
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                }
+              },
+              "required": [
+                "channel"
+              ]
+            },
+            "maxItems": 5
           }
         }
       },
@@ -292894,6 +293084,65 @@
               "state",
               "explanation"
             ]
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "contactName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "sms"
+                  ]
+                },
+                "destination": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "typed": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "refused"
+                  ]
+                },
+                "explanation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "contactId",
+                "contactName",
+                "channel",
+                "destination",
+                "typed",
+                "state",
+                "explanation"
+              ]
+            }
           }
         },
         "required": [
@@ -292905,7 +293154,8 @@
           "note",
           "explanation",
           "portalUrl",
-          "copy"
+          "copy",
+          "copies"
         ]
       },
       "TickTaskChecklistItemInput": {

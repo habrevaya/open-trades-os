@@ -6476,6 +6476,11 @@ export interface EmailCustomerStatementInput {
   from?: string;
   to?: string;
   copyContactId?: string;
+  copies?: Array<{
+    contactId?: string;
+    address?: string;
+    channel: "email" | "sms";
+  }>;
 }
 
 export interface EmailCustomerStatementOutput {
@@ -6494,6 +6499,15 @@ export interface EmailCustomerStatementOutput {
     state: "queued" | "refused";
     explanation: string | null;
   } | null;
+  copies: Array<{
+    contactId: string | null;
+    contactName: string | null;
+    channel: "email" | "sms";
+    destination: string | null;
+    typed: boolean;
+    state: "queued" | "refused";
+    explanation: string | null;
+  }>;
 }
 
 export interface EmailPurchaseOrderInput {
@@ -12820,6 +12834,11 @@ export interface GetStatementCopyOutput {
     name: string;
     email: string;
   }>;
+  textCandidates: Array<{
+    id: string;
+    name: string;
+    phone: string;
+  }>;
 }
 
 export interface GetStatementScheduleOutput {
@@ -18169,6 +18188,14 @@ export interface ListStatementDeliveriesOutput {
     copyDestination?: string | null;
     copyMessageStatus?: string | null;
     copyError?: string | null;
+    copies?: Array<{
+      contactName: string | null;
+      channel: "email" | "sms";
+      destination: string | null;
+      typed: boolean;
+      messageStatus: string | null;
+      error: string | null;
+    }>;
     createdAt: string;
   }>;
 }
@@ -27596,6 +27623,11 @@ export interface TextCustomerStatementInput {
   phone?: string;
   from?: string;
   to?: string;
+  copies?: Array<{
+    contactId?: string;
+    address?: string;
+    channel: "email" | "sms";
+  }>;
 }
 
 export interface TextCustomerStatementOutput {
@@ -27614,6 +27646,15 @@ export interface TextCustomerStatementOutput {
     state: "queued" | "refused";
     explanation: string | null;
   } | null;
+  copies: Array<{
+    contactId: string | null;
+    contactName: string | null;
+    channel: "email" | "sms";
+    destination: string | null;
+    typed: boolean;
+    state: "queued" | "refused";
+    explanation: string | null;
+  }>;
 }
 
 export interface TickTaskChecklistItemInput {

@@ -119,6 +119,32 @@ export const StatementSent = z.object({
     state: z.enum(["queued", "refused"]),
     explanation: z.string().nullable(),
   }).nullable(),
+  /**
+   * Every copy asked for, in order: by email or by text, to one of the
+   * customer's own people or to an address the office typed (`typed`), each as
+   * a message of its own, with where it went or why it did not. `copy` is the
+   * first of these.
+   */
+  copies: z.array(z.object({
+    contactId: Uuid.nullable(),
+    contactName: z.string().nullable(),
+    channel: z.enum(["email", "sms"]),
+    destination: z.string().nullable(),
+    typed: z.boolean(),
+    state: z.enum(["queued", "refused"]),
+    explanation: z.string().nullable(),
+  })),
+});
+
+/**
+ * One copy asked for: one of the customer's own people (`contactId`) or an
+ * address the office types (`address`: an email address for `email`, a mobile
+ * number for `sms`), never both.
+ */
+const CopyAsked = z.object({
+  contactId: Uuid.optional(),
+  address: z.string().trim().min(1).max(320).optional(),
+  channel: z.enum(["email", "sms"]),
 });
 
 export const emailCustomerStatement = defineRoute({
@@ -126,7 +152,7 @@ export const emailCustomerStatement = defineRoute({
   path: "/v1/customers/{id}/statement/email",
   summary: "Email a customer their statement",
   description:
-    "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). With `copyContactId`, one of the customer's own people (on the customer, not removed, with an email address; refused otherwise) is emailed a copy of their own once the statement goes: a typed address is never copied. The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.",
+    "To the address on the customer, or to `email` when given (a commercial customer's accounts mailbox is rarely the person who booked the work). With `copies` (five at most), each of the customer's own people (on the customer, not removed, with the address or mobile number the channel needs; refused otherwise) or each address the office types is sent a copy of their own, by email or by text, once the statement goes: a message each, refused or suppressed on its own, a text through the consent gate every text goes through. A copy to an address that was typed is audited on its own (`statement.copied_to_typed_address`) with the address. `copyContactId` is an email copy to that person, first in the list. All copies carry the link the statement went with. `copies` in the answer says where each went or why not. The email carries a link to the statement on the customer's own account page for the period, and no amounts: the page reads the books when they open it, and a balance in an email is wrong the moment a cheque clears. A suppressed address or no email connection is recorded as refused, with the reason, rather than thrown. A retry with the same idempotency key is the same send.",
   module: "M13",
   permissions: ["invoice:send"],
   idempotent: true,
@@ -136,6 +162,7 @@ export const emailCustomerStatement = defineRoute({
     from: z.string().date().optional(),
     to: z.string().date().optional(),
     copyContactId: Uuid.optional(),
+    copies: z.array(CopyAsked).max(5).optional(),
   }),
   output: StatementSent,
 });
@@ -154,6 +181,8 @@ export const textCustomerStatement = defineRoute({
     phone: z.string().max(40).optional(),
     from: z.string().date().optional(),
     to: z.string().date().optional(),
+    /** Copies, as on the email: by email or by text to the customer's own people or to an address typed. */
+    copies: z.array(CopyAsked).max(5).optional(),
   }),
   output: StatementSent,
 });
@@ -181,6 +210,15 @@ export const StatementDelivery = z.object({
   copyDestination: z.string().nullable().optional(),
   copyMessageStatus: z.string().nullable().optional(),
   copyError: z.string().nullable().optional(),
+  /** Every copy, the first included, by email or by text. */
+  copies: z.array(z.object({
+    contactName: z.string().nullable(),
+    channel: z.enum(["email", "sms"]),
+    destination: z.string().nullable(),
+    typed: z.boolean(),
+    messageStatus: z.string().nullable(),
+    error: z.string().nullable(),
+  })).optional(),
   createdAt: z.string().datetime(),
 });
 
@@ -260,6 +298,8 @@ const StatementCopy = z.object({
   }).nullable(),
   /** The customer's own people with an email address: who a copy can go to. */
   candidates: z.array(z.object({ id: Uuid, name: z.string(), email: z.string() })),
+  /** The same people with a mobile number: who a copy by text can go to. */
+  textCandidates: z.array(z.object({ id: Uuid, name: z.string(), phone: z.string() })),
 });
 
 export const getStatementCopy = defineRoute({

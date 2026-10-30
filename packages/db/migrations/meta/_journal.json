@@ -1177,6 +1177,13 @@
       "when": 1793371386535,
       "tag": "0167_silent_caretaker",
       "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1793372895272,
+      "tag": "0168_messy_dark_beast",
+      "breakpoints": true
     }
   ]
 }

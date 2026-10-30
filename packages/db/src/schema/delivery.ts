@@ -200,11 +200,14 @@ export const statementDelivery = pgTable("statement_delivery", {
    */
   note: text("note"),
   /**
-   * THE COPY. One more of the payer's own people, emailed the same statement
-   * and link as a message of their own: chosen by the office on a statement
-   * sent by hand, or named on the customer for the monthly run. Never an
-   * address somebody typed. The destination is the contact's address when the
-   * copy was tried; the error says why it did not go, when it did not.
+   * THE FIRST COPY. One more person, sent the same statement and link as a
+   * message of their own: chosen by the office on a statement sent by hand,
+   * or named on the customer for the monthly run. A statement can be copied
+   * to several people, by text as well as email, and to an address the office
+   * typed: every copy is a row of `statement_delivery_copy`, and these four
+   * columns keep the first of them, as they always did. The destination is
+   * where the copy was tried; the error says why it did not go, when it did
+   * not.
    */
   copyContactId: uuid("copy_contact_id").references(() => contact.id, { onDelete: "set null" }),
   copyDestination: text("copy_destination"),
@@ -216,4 +219,41 @@ export const statementDelivery = pgTable("statement_delivery", {
   periodIdx: uniqueIndex("statement_delivery_period_idx").on(t.organizationId, t.customerId, t.period)
     .where(sql`${t.period} is not null`),
   customerIdx: index("statement_delivery_customer_idx").on(t.organizationId, t.customerId, t.createdAt),
+}));
+
+/**
+ * ONE COPY OF A STATEMENT, to one person, by one channel (M13).
+ *
+ * A statement sent by hand can be copied to several of the payer's own people,
+ * by email or by text, and to an address the office types. Each is a message
+ * of its own, which is refused or suppressed on its own without taking the
+ * statement or the other copies with it, and each is a row here saying who,
+ * where and how it went.
+ *
+ * `typed` is true when the office typed the address or number instead of
+ * choosing one of the customer's own people (`contact_id` null). Those are the
+ * copies that reach somebody the customer record does not name, so each is
+ * also an audit line of its own with the address.
+ */
+export const statementDeliveryCopy = pgTable("statement_delivery_copy", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  statementDeliveryId: uuid("statement_delivery_id").notNull()
+    .references(() => statementDelivery.id, { onDelete: "cascade" }),
+  /** The order the copies were asked for in, from nought: the first is the one the old columns keep. */
+  position: integer("position").notNull().default(0),
+  /** The customer's own person it went to. Null for a typed address, and once the person is removed from the system. */
+  contactId: uuid("contact_id").references(() => contact.id, { onDelete: "set null" }),
+  /** The person's name as it was when the copy was tried, because the contact can go. Null for a typed address. */
+  recipientName: text("recipient_name"),
+  /** `email` or `sms`. */
+  channel: text("channel").notNull(),
+  destination: text("destination"),
+  typed: boolean("typed").notNull().default(false),
+  messageId: uuid("message_id").references(() => message.id, { onDelete: "set null" }),
+  /** Why it did not go. Null when it was queued. */
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  deliveryIdx: index("statement_delivery_copy_delivery_idx").on(t.statementDeliveryId),
 }));
