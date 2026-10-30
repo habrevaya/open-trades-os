@@ -139,18 +139,26 @@ export async function extendEstimate(_previous: FormState, form: FormData): Prom
   const result = await attempt(form, async () => {
     /** The follow up starts again from today unless the office ticked "Leave the follow up alone". */
     const restartFollowUp = field(form, "leaveFollowUpAlone") === undefined;
+    /** Telling the customer is a tick that is off unless the office ticked it. */
+    const tellCustomer = field(form, "tellCustomer") !== undefined;
+    const tellChannel = field(form, "tellChannel");
     const input = parsed(extendEstimateExpiry.input, {
       id, expiresOn: field(form, "expiresOn"), reason: field(form, "reason"), restartFollowUp,
+      ...(tellCustomer ? { tellCustomer, ...(tellChannel ? { tellChannel } : {}) } : {}),
     });
     const given = await estimateExpiry.extend(await ctx(), input);
     const linkSaid = given.linkExpiresAt
       ? "Done. The link they were sent works until then."
       : "Done. They have no working link, so send the estimate again for one.";
-    return {
-      message: restartFollowUp
-        ? `${linkSaid} The follow up counts its days from today.`
-        : `${linkSaid} The follow up was left alone.`,
-    };
+    const followUpSaid = restartFollowUp
+      ? "The follow up counts its days from today."
+      : "The follow up was left alone.";
+    const toldSaid = !given.told ? ""
+      : given.told.sent
+        ? ` The customer was told by ${given.told.channels.map((c) => (c === "sms" ? "text" : "email")).join(" and ")}.`
+          + (given.told.explanation ? ` ${given.told.explanation}` : "")
+        : ` The customer was not told. ${given.told.explanation ?? ""}`.trimEnd();
+    return { message: `${linkSaid} ${followUpSaid}${toldSaid}` };
   });
   revalidatePath(`/estimates/${id}`);
   return result;

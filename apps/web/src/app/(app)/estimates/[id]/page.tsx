@@ -11,7 +11,7 @@ import { ESTIMATE_STATUS, ESTIMATE_TONE, label, tone } from "@/lib/labels";
 import { formatDay, formatIn } from "@/lib/dates";
 import { Deliveries, EstimateActions, Options, type EstimateView } from "./Panels";
 import { actOnEstimate, extendEstimate } from "../actions";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { todayIn } from "@/lib/dates";
 import { FinancingPanel } from "@/components/FinancingPanel";
 
@@ -113,6 +113,25 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
                   </span>
                 </span>
               </label>
+              {can(user.actor, "estimate:send") && can(user.actor, "portal:grant") ? (
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="tellCustomer" className="mt-1" />
+                    <span>
+                      Tell the customer.
+                      <span className="block text-xs text-ink-500">
+                        Sends them the estimate again with a line saying you are holding the price until the new date.
+                        A text is not sent in the hours we do not text people.
+                      </span>
+                    </span>
+                  </label>
+                  <Select label="Tell them by" name="tellChannel" defaultValue={customer?.email ? "email" : "sms"} options={[
+                    { value: "email", label: "Email" },
+                    { value: "sms", label: "Text" },
+                    { value: "both", label: "Email and text" },
+                  ]} />
+                </div>
+              ) : null}
             </ActionForm>
           </details>
         ) : null}

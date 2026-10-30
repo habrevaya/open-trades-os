@@ -359,6 +359,50 @@ A retry of the same change starts it once. The audit line for the change
 (`estimate.expiry_extended`) says whether the follow up was restarted and how
 many runs it started.
 
+**Telling the customer is a tick, off unless the office ticks it.** The office
+often says it on the phone, and a program moving a hundred dates must not
+message a hundred customers. On the form, "Tell the customer." (with "Tell them
+by": email, text, or email and text, email when the customer has an address and
+text when they do not) sends the estimate again through the estimate's own send.
+That needs `estimate:send` and `portal:grant` as well as `estimate:write`, and
+the form shows the tick only to someone who holds them. Through the API it is
+`tellCustomer` and `tellChannel` on `POST /v1/estimates/{id}/expiry`, and the
+answer's `told` says what went:
+
+- The message is the estimate's usual one, with a line of the company's words
+  above the link naming the new date ("Good news: we are holding your price
+  until June 5, 2027."), and a link that works through the end of the new day.
+  The link it was last sent with is withdrawn, as by any send, so the customer
+  has one working link. The words are the message templates
+  `estimate_extended.sms` and `estimate_extended.email` (the email's subject
+  too), which a company writes through the message templates API
+  (`settings:write`) using `customer.firstName`, `company.name`,
+  `estimate.number`, `estimate.title`, `estimate.expiresOn` and
+  `estimate.previousExpiresOn`. Where it has written none, the product's own
+  words are sent.
+- It is held to what any send is: the customer's STOP or withdrawn consent, no
+  address, no sender connected. In addition a **text is held in the company's
+  quiet hours** (`organization.settings.quietHours`, 9pm to 8am where none is
+  set), though an estimate itself may be texted at any hour. This is a courtesy
+  the customer did not ask for, so it waits for the morning. Nothing is queued
+  for later: the answer says it was not sent and why, and the office sends the
+  estimate again after the quiet hours. The email beside a held text still
+  goes.
+- **A message that does not go does not undo the date.** The date has moved and
+  the page says "The customer was not told." with the reason in words (they
+  replied STOP, they have no mobile number, it is outside the hours we text
+  people). By both at once, one that went and one that did not is a send that
+  went, with the other said beside it.
+- **The follow up and the message.** A send is what starts the follow up, so
+  telling the customer while the office asked for the follow up to start again
+  is the send's own start, not a second one. Telling them while "Leave the
+  follow up alone" is ticked sends the message without starting it: the
+  estimate's `sent_at` is kept and `estimate.sent` is not raised, so the sweep
+  stays stopped. The audit line says it (`customerTold`, `toldBy`,
+  `notToldBecause`).
+- A retry of the same change is the change already made, and tells nobody a
+  second time.
+
 ### Price it for a member
 
 A customer holding a running agreement whose plan carries a discount is priced
@@ -458,9 +502,13 @@ changed on an estimate once it has been sent. Sending by both channels at once g
 own email address and mobile number. The follow up is on from the start only for
 a company created since it was; an older company still turns it on. Only the good
 until date of a sent estimate can be changed, and only later: an estimate has no
-other edit, so a different price or option is a new estimate. Giving longer does
-not tell the customer by itself (the office tells them, or sends the estimate
-again), and does not bring back a link that was withdrawn or used up. Starting the follow up again is
+other edit, so a different price or option is a new estimate. Giving longer tells
+the customer only when the office ticks it (above): a text held in the quiet
+hours is not kept for the morning (the office sends again), the "given longer"
+words have no screen of their own (they are message templates written through
+the API, and the product's own are sent where none is written), and it does not
+bring back a link that was withdrawn or used up (telling the customer is a new
+send with a new link). Starting the follow up again is
 the company's recommended follow up and the sweep: an automation of the company's own that waits
 from a send is not run again, and a company that deleted or switched off the recommended follow up
 gets only the sweep's restart.

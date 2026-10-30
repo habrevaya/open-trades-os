@@ -6735,6 +6735,8 @@ export interface ExtendEstimateExpiryInput {
   expiresOn: string;
   reason: string;
   restartFollowUp?: boolean;
+  tellCustomer?: boolean;
+  tellChannel?: "email" | "sms" | "both";
 }
 
 export interface ExtendEstimateExpiryOutput {
@@ -6744,6 +6746,11 @@ export interface ExtendEstimateExpiryOutput {
   expiresOn: string;
   previousExpiresOn: string;
   linkExpiresAt: string | null;
+  told: {
+    sent: boolean;
+    channels: Array<"email" | "sms">;
+    explanation: string | null;
+  } | null;
 }
 
 export interface FailUploadInput {

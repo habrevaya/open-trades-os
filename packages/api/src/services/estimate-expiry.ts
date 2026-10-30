@@ -1,11 +1,14 @@
 import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, assertCan, time, type Actor } from "@opentradesos/core";
 import {
   audit, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { emit } from "./events";
 import { fire } from "./workflow-runner";
+import { sendWithin } from "./estimates";
+import { extendedScope, renderExtended } from "./estimate-extended-notice";
+import { identityOf } from "./estimate-delivery";
 
 /**
  * AN ESTIMATE PAST ITS DATE IS MARKED EXPIRED, BY THE WORKER
@@ -142,6 +145,17 @@ export interface ExtendedEstimate {
   previousExpiresOn: string;
   /** When the link the customer was last sent stops working, or null when there is no live link to give them. */
   linkExpiresAt: string | null;
+  /** What happened to "tell the customer": null when the office did not ask. */
+  told: ToldCustomer | null;
+}
+
+export interface ToldCustomer {
+  /** At least one message was queued to the customer. */
+  sent: boolean;
+  /** The channels that went. */
+  channels: ("email" | "sms")[];
+  /** Why it did not go, or why one of two did not, in words for the office. Null when everything asked went. */
+  explanation: string | null;
 }
 
 /**
@@ -187,10 +201,41 @@ export interface ExtendedEstimate {
  *   send are not run again for a date that moved;
  *   `estimate.follow_up_restarted` is raised (not offered as a trigger).
  * A date moved again later without asking leaves the follow up stopped.
+ *
+ * TELLING THE CUSTOMER IS A TICK, OFF BY DEFAULT (`tellCustomer`). The office
+ * often says it on the phone, and a program moving a hundred dates must not
+ * message a hundred customers because it forgot a flag. Ticked, it is the
+ * estimate's own send (`sendWithin`: the same consent, suppression and quiet
+ * hours checks, the same line in the customer's thread and the same delivery
+ * row), with the company's "given longer" words above the link and a link that
+ * works through the new date. Sending is its own permission (`estimate:send`
+ * and `portal:grant`), asked for here as well as `estimate:write`, so moving a
+ * date never lets somebody message a customer they could not message before.
+ *
+ * A MESSAGE THAT DOES NOT GO DOES NOT UNDO THE DATE. The date is moved and the
+ * answer says the customer was not told, and why (they replied STOP, no
+ * address, it is the hours texts are held). Texts are held in the company's
+ * quiet hours for this notice, though an estimate itself may be texted at any
+ * hour: it is a courtesy the customer did not ask for. The office can send the
+ * estimate again in the morning. A retry of the same change is the change
+ * already made and tells nobody twice.
+ *
+ * THE SEND AND THE FOLLOW UP. A send is what starts the follow up, so telling
+ * the customer while the office asked for the follow up to start again is the
+ * one start (the send's own); telling them while the office asked it to be
+ * left alone sends without starting it (`sent_at` is kept, `estimate.sent` is
+ * not raised). Telling nobody changes nothing about either.
  */
 export async function extend(
-  ctx: ServiceContext, input: { id: string; expiresOn: string; reason: string; restartFollowUp?: boolean | undefined },
+  ctx: ServiceContext, input: {
+    id: string; expiresOn: string; reason: string; restartFollowUp?: boolean | undefined;
+    tellCustomer?: boolean | undefined; tellChannel?: "email" | "sms" | "both" | undefined;
+  },
 ): Promise<ExtendedEstimate> {
+  if (input.tellCustomer) {
+    assertCan(ctx.actor, "estimate:send");
+    assertCan(ctx.actor, "portal:grant");
+  }
   return guardedWrite(ctx, "estimate:write", async (tx) => {
     const reason = input.reason.trim();
     if (!reason) throw new ConflictError("Say why the customer is getting longer. It is kept with the change.");
@@ -203,7 +248,7 @@ export async function extend(
 
     if (row.expiresOn === input.expiresOn && row.expiryExtendedAt) {
       /** The same change again, a retry after a lost answer, is the change already made. */
-      return { ...(await shapeExtended(tx, row)), previousExpiresOn: row.expiresOn };
+      return { ...(await shapeExtended(tx, row)), previousExpiresOn: row.expiresOn, told: null };
     }
     if (row.status === "draft") {
       throw new ConflictError(`Estimate ${row.number} has not been sent, so its date has not started. Change it before sending by writing it again.`);
@@ -244,7 +289,14 @@ export async function extend(
       linkBefore = link.expiresAt;
     }
 
-    const restarted = restart ? await restartFollowUp(tx, ctx, after, now) : [];
+    const told = input.tellCustomer
+      ? await tellCustomer(tx, ctx, after, {
+        previousExpiresOn: row.expiresOn, channel: input.tellChannel, quiet: !restart, linkUntil: endOfDay,
+      })
+      : null;
+
+    /** The send is what starts the follow up when the customer was told, so it is not started twice. */
+    const restarted = restart && !told?.sent ? await restartFollowUp(tx, ctx, after, now) : [];
 
     await audit(tx, ctx, "estimate.expiry_extended", "estimate", row.id,
       { expiresOn: row.expiresOn, status: row.status, linkExpiresAt: linkBefore?.toISOString() ?? null },
@@ -252,10 +304,67 @@ export async function extend(
         expiresOn: input.expiresOn, status, reason,
         linkExpiresAt: link ? (link.expiresAt < endOfDay ? endOfDay : link.expiresAt).toISOString() : null,
         followUpRestarted: restart, followUpRuns: restarted.length,
+        ...(told ? { customerTold: told.sent, toldBy: told.channels, notToldBecause: told.explanation } : {}),
       });
 
-    return { ...(await shapeExtended(tx, after)), previousExpiresOn: row.expiresOn };
+    return { ...(await shapeExtended(tx, after)), previousExpiresOn: row.expiresOn, told };
   });
+}
+
+/**
+ * Tell the customer, through the estimate's own send. Never throws for a
+ * customer who cannot be reached: that is an answer for the office, and the
+ * date has moved either way.
+ */
+async function tellCustomer(
+  tx: Database, ctx: ServiceContext, estimate: typeof schema.estimate.$inferSelect,
+  how: {
+    previousExpiresOn: string; channel: "email" | "sms" | "both" | undefined; quiet: boolean; linkUntil: Date;
+  },
+): Promise<ToldCustomer> {
+  const [customer] = await tx.select({
+    name: schema.customer.name, email: schema.customer.email, phone: schema.customer.phone,
+  }).from(schema.customer).where(eq(schema.customer.id, estimate.customerId)).limit(1);
+  const hasEmail = Boolean(customer?.email?.trim());
+  const hasPhone = Boolean(customer?.phone?.trim());
+  const channel = how.channel ?? (hasEmail ? "email" : "sms");
+
+  const missing = [
+    ...(channel !== "sms" && !hasEmail ? ["an email address"] : []),
+    ...(channel !== "email" && !hasPhone ? ["a mobile number"] : []),
+  ];
+  if (missing.length > 0) {
+    return {
+      sent: false, channels: [],
+      explanation: `${customer?.name ?? "The customer"} has no ${missing.join(" or ")} on file, so they were not told. `
+        + "Add one to the customer, or tell them yourself.",
+    };
+  }
+
+  const identity = await identityOf(tx, ctx.actor.organizationId);
+  const notice = await renderExtended(tx, ctx.actor.organizationId, extendedScope({
+    customerName: customer?.name ?? "", organizationName: identity.name, number: estimate.number,
+    title: estimate.title, expiresOn: estimate.expiresOn!, previousExpiresOn: how.previousExpiresOn,
+  }));
+
+  const sent = await sendWithin(tx, ctx, { id: estimate.id, channel, expiresInDays: 30 }, {
+    subject: notice.email.subject,
+    notes: { sms: notice.text, email: notice.email.body },
+    holdTextsInQuietHours: true,
+    quiet: how.quiet,
+    linkUntil: how.linkUntil,
+    keyless: true,
+  });
+
+  const went = sent.deliveries.filter((d) => d.messageId && !d.error);
+  const refused = sent.deliveries.filter((d) => d.error);
+  return {
+    sent: went.length > 0,
+    channels: went.map((d) => d.channel as "email" | "sms"),
+    explanation: refused.length === 0 ? null
+      : `${refused.map((d) => (d.channel === "sms" ? "The text" : "The email")).join(" and ")} did not go. `
+        + `${[...new Set(refused.map((d) => d.error))].join(" ")}`,
+  };
 }
 
 /**
@@ -326,7 +435,7 @@ async function lastLink(tx: Database, estimateId: string) {
 
 async function shapeExtended(
   tx: Database, row: typeof schema.estimate.$inferSelect,
-): Promise<Omit<ExtendedEstimate, "previousExpiresOn">> {
+): Promise<Omit<ExtendedEstimate, "previousExpiresOn" | "told">> {
   const link = await lastLink(tx, row.id);
   return {
     id: row.id, number: row.number, status: row.status, expiresOn: row.expiresOn!,
