@@ -1,6 +1,12 @@
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, TextField } from "@/components/ActionForm";
-import { markNotTheSame, unmarkNotTheSame } from "./costing-actions";
+import type { FormState } from "@/lib/actions";
+
+/** The two server actions behind "Not the same cost", handed in by the page so this component imports no server module. */
+export interface NotTheSameActions {
+  mark: (previous: FormState, form: FormData) => Promise<FormState>;
+  unmark: (previous: FormState, form: FormData) => Promise<FormState>;
+}
 
 export interface CostingData {
   revenue: string;
@@ -90,9 +96,10 @@ function OverheadParts({ parts }: { parts: CostingData["overheadParts"] }) {
  * because the material cost below includes both. Nothing here changes a
  * figure; whoever posts journals can say a pair is two different costs.
  */
-function DoubleCounts({ jobId, pairs, canMark }: {
-  jobId: string; pairs: NonNullable<CostingData["doubleCounts"]>; canMark: boolean;
+function DoubleCounts({ jobId, pairs, actions }: {
+  jobId: string; pairs: NonNullable<CostingData["doubleCounts"]>; actions: NotTheSameActions | null;
 }) {
+  const canMark = actions !== null;
   if (pairs.length === 0) return null;
   const open = pairs.filter((p) => p.notTheSame === null);
   return (
@@ -123,13 +130,13 @@ function DoubleCounts({ jobId, pairs, canMark }: {
                 <Chip tone="neutral">Not the same cost</Chip>
                 {pair.notTheSame.markedBy ? `Marked by ${pair.notTheSame.markedBy}.` : "Marked."}
                 {pair.notTheSame.note ? ` ${pair.notTheSame.note}` : ""}
-                {canMark ? (
-                  <ActionForm action={unmarkNotTheSame} submit="Take back" tone="quiet" className="inline-flex"
+                {actions ? (
+                  <ActionForm action={actions.unmark} submit="Take back" tone="quiet" className="inline-flex"
                               hidden={{ jobId, markId: pair.notTheSame.id }} />
                 ) : null}
               </span>
-            ) : canMark ? (
-              <ActionForm action={markNotTheSame} submit="Not the same cost" tone="quiet" className="mt-1 flex flex-wrap items-end gap-2"
+            ) : actions ? (
+              <ActionForm action={actions.mark} submit="Not the same cost" tone="quiet" className="mt-1 flex flex-wrap items-end gap-2"
                           hidden={{ jobId, jobLineId: pair.jobLineId, ledgerEntryId: pair.ledgerEntryId }}>
                 <TextField label="Why (optional)" name="note" placeholder="Two separate bills" />
               </ActionForm>
@@ -144,7 +151,11 @@ function DoubleCounts({ jobId, pairs, canMark }: {
   );
 }
 
-export function Costing({ data, jobId, canMark = false }: { data: CostingData; jobId?: string; canMark?: boolean }) {
+export function Costing({ data, jobId, notTheSame = null }: {
+  data: CostingData; jobId?: string;
+  /** Present for whoever posts journals, who can mark a possible double count as two different costs. */
+  notTheSame?: NotTheSameActions | null;
+}) {
   const negative = Number(data.grossMargin) < 0;
   const over = Number(data.hoursOverPlan) > 0;
   return (
@@ -160,7 +171,7 @@ export function Costing({ data, jobId, canMark = false }: { data: CostingData; j
           {data.provisional.map((reason) => <li key={reason}>{reason}</li>)}
         </ul>
       )}
-      {jobId && data.doubleCounts ? <DoubleCounts jobId={jobId} pairs={data.doubleCounts} canMark={canMark} /> : null}
+      {jobId && data.doubleCounts ? <DoubleCounts jobId={jobId} pairs={data.doubleCounts} actions={notTheSame} /> : null}
 
       <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 rounded-md border border-steel-200 bg-canvas p-4 text-sm sm:grid-cols-3">
         <Figure label="Revenue"><Money value={data.revenue} /></Figure>
