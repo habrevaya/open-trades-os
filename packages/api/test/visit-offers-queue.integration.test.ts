@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
-import { eq } from "drizzle-orm";
-import { schema } from "@opentradesos/db";
 import { time, type Actor } from "@opentradesos/core";
 import * as portal from "../src/services/portal";
 import * as visitChanges from "../src/services/visit-changes";
@@ -37,10 +35,8 @@ const as = (roles: string[]): ServiceContext => ({
 const office = () => as(["dispatcher"]);
 
 let customerId = "";
-let otherCustomerId = "";
 let propertyId = "";
 let jobTypeId = "";
-let serviceId = "";
 let windowId = "";
 let technicianId = "";
 
@@ -63,9 +59,6 @@ beforeAll(async () => {
   const [c] = await raw`insert into public.customer (organization_id, name, phone)
     values (${ORG}, 'Dana Change', ${PHONE}) returning id`;
   customerId = c!.id;
-  const [o] = await raw`insert into public.customer (organization_id, name)
-    values (${ORG}, 'Somebody Else') returning id`;
-  otherCustomerId = o!.id;
   const [p] = await raw`insert into public.property (organization_id, address_line1, city, state, postal_code)
     values (${ORG}, '3 Change Ct', 'Austin', 'TX', '78701') returning id`;
   propertyId = p!.id;
@@ -102,10 +95,9 @@ beforeEach(async () => {
   await raw`delete from public.visit_assignment where organization_id = ${ORG}`;
   await raw`delete from public.visit where organization_id = ${ORG}`;
   await raw`delete from public.job where organization_id = ${ORG}`;
-  const [s] = await raw`insert into public.bookable_service
+  await raw`insert into public.bookable_service
     (organization_id, job_type_id, public_name, min_notice_hours, max_advance_days, max_per_window)
-    values (${ORG}, ${jobTypeId}, 'Drain cleaning', 24, 60, 2) returning id`;
-  serviceId = s!.id;
+    values (${ORG}, ${jobTypeId}, 'Drain cleaning', 24, 60, 2)`;
 });
 
 /** A dispatched visit five days out, with a technician on it, and the customer's link to the job. */
