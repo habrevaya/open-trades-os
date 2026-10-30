@@ -1039,6 +1039,7 @@ export const handlers = {
   updateTaskEscalationRule: taskRules.handlers.updateTaskEscalationRule,
   listTaskEscalations: taskRules.handlers.listTaskEscalations,
   listReportingLines: taskRules.handlers.listReportingLines,
+  listReportingLoops: taskRules.handlers.listReportingLoops,
   setReportingLine: taskRules.handlers.setReportingLine,
   getTaskChecklist: taskChecklist.handlers.getTaskChecklist,
   addTaskChecklistItem: taskChecklist.handlers.addTaskChecklistItem,

@@ -39,7 +39,7 @@ const Template = z.object({
   monthWeek: z.number().int().nullable(),
   /** For `every_n_weeks`: the gap in weeks, 2 to 52. */
   intervalWeeks: z.number().int().nullable(),
-  /** For `chosen_weekdays`: the days, 0 for Sunday, each once and in order. */
+  /** For `chosen_weekdays`, and for `every_other_week` and `every_n_weeks` naming two or more days: the days, 0 for Sunday, each once and in order. Null for an every so many weeks task naming one day, which is `weekday`. */
   daysOfWeek: z.array(z.number().int()).nullable(),
   /** Minutes after the company's midnight. */
   dueMinutes: z.number().int(),
@@ -91,7 +91,7 @@ export const createTaskTemplate = defineRoute({
   path: "/v1/task-templates",
   summary: "Make a task come round on a schedule",
   description:
-    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 4: the first Monday, say), `every_n_weeks` (needs `weekday` and `intervalWeeks`, 2 to 52, counted like every other week) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
+    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 4: the first Monday, say), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 52, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
   module: "M34",
   permissions: ["task:write"],
   idempotent: true,
@@ -295,6 +295,25 @@ export const listReportingLines = defineRoute({
   }),
 });
 
+export const listReportingLoops = defineRoute({
+  method: "get",
+  path: "/v1/reporting-lines/loops",
+  summary: "Loops already in who answers to whom",
+  description:
+    "Scans the whole company for people who, through any number of managers, report back to themselves, and names each loop once in words "
+    + "(`sentence`) and as the people in it in reporting order. A new line that would close a loop is refused when saved; this finds the ones that were already there. "
+    + "It only reads: nothing is repaired, because which line is wrong is the company's to say. A person who has since left is named as a link in the chain and shown with `active: false`. An empty list means there are none.",
+  module: "M34",
+  permissions: ["user:read"],
+  input: z.object({}),
+  output: z.object({
+    loops: z.array(z.object({
+      people: z.array(z.object({ userId: Uuid, name: z.string(), active: z.boolean() })),
+      sentence: z.string(),
+    })),
+  }),
+});
+
 export const setReportingLine = defineRoute({
   method: "post",
   path: "/v1/reporting-lines",
@@ -311,5 +330,5 @@ export const taskRuleRoutes = {
   listTaskTemplates, createTaskTemplate, updateTaskTemplate,
   listTaskEscalationRules, createTaskEscalationRule, updateTaskEscalationRule, listTaskEscalations,
   getTaskChecklist, addTaskChecklistItem, tickTaskChecklistItem, removeTaskChecklistItem,
-  listReportingLines, setReportingLine,
+  listReportingLines, listReportingLoops, setReportingLine,
 } as const;

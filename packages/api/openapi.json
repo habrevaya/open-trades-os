@@ -119846,6 +119846,104 @@
         ]
       }
     },
+    "/v1/reporting-lines/loops": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listReportingLoops",
+        "summary": "Loops already in who answers to whom",
+        "description": "Scans the whole company for people who, through any number of managers, report back to themselves, and names each loop once in words (`sentence`) and as the people in it in reporting order. A new line that would close a loop is refused when saved; this finds the ones that were already there. It only reads: nothing is repaired, because which line is wrong is the company's to say. A person who has since left is named as a link in the chain and shown with `active: false`. An empty list means there are none.\n\nRequires a session holding: user:read.",
+        "tags": [
+          "M34"
+        ],
+        "responses": {
+          "200": {
+            "description": "Loops already in who answers to whom",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListReportingLoopsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "user:read"
+        ]
+      }
+    },
     "/v1/reports/ar-aging": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -135291,7 +135389,7 @@
       "post": {
         "operationId": "createTaskTemplate",
         "summary": "Make a task come round on a schedule",
-        "description": "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, counted from the first such weekday on or after `startsOn`), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 4: the first Monday, say), `every_n_weeks` (needs `weekday` and `intervalWeeks`, 2 to 52, counted like every other week) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
+        "description": "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 4: the first Monday, say), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 52, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
         "tags": [
           "M34"
         ],
@@ -240862,6 +240960,52 @@
         },
         "required": [
           "people"
+        ]
+      },
+      "ListReportingLoopsOutput": {
+        "type": "object",
+        "properties": {
+          "loops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "people": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "active": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "userId",
+                      "name",
+                      "active"
+                    ]
+                  }
+                },
+                "sentence": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "people",
+                "sentence"
+              ]
+            }
+          }
+        },
+        "required": [
+          "loops"
         ]
       },
       "ListRestockSuggestionsOutput": {

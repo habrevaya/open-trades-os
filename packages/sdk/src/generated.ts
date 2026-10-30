@@ -17489,6 +17489,17 @@ export interface ListReportingLinesOutput {
   }>;
 }
 
+export interface ListReportingLoopsOutput {
+  loops: Array<{
+    people: Array<{
+      userId: string;
+      name: string;
+      active: boolean;
+    }>;
+    sentence: string;
+  }>;
+}
+
 export interface ListRestockSuggestionsOutput {
   suggestions: Array<{
     itemId: string;
@@ -32733,6 +32744,8 @@ export type ListReportSchedulesInput = Record<string, never>;
 
 export type ListReportingLinesInput = Record<string, never>;
 
+export type ListReportingLoopsInput = Record<string, never>;
+
 export type ListRestockSuggestionsInput = Record<string, never>;
 
 export interface ListRestoresInput {
@@ -35017,6 +35030,7 @@ export interface OperationTypes {
   listReportDeliveries: { input: ListReportDeliveriesInput; output: ListReportDeliveriesOutput };
   listReportSchedules: { input: ListReportSchedulesInput; output: ListReportSchedulesOutput };
   listReportingLines: { input: ListReportingLinesInput; output: ListReportingLinesOutput };
+  listReportingLoops: { input: ListReportingLoopsInput; output: ListReportingLoopsOutput };
   listRestockSuggestions: { input: ListRestockSuggestionsInput; output: ListRestockSuggestionsOutput };
   listRestorableCopies: { input: ListRestorableCopiesInput; output: ListRestorableCopiesOutput };
   listRestores: { input: ListRestoresInput; output: ListRestoresOutput };
@@ -36234,6 +36248,7 @@ export const OPERATIONS = {
   listReportDeliveries: { method: "GET", path: "/v1/report-deliveries", pathParams: [], queryParams: ["scheduleId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportSchedules: { method: "GET", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportingLines: { method: "GET", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listReportingLoops: { method: "GET", path: "/v1/reporting-lines/loops", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listRestockSuggestions: { method: "GET", path: "/v1/stock/restock-suggestions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listRestorableCopies: { method: "POST", path: "/v1/restores/available", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listRestores: { method: "GET", path: "/v1/restores", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
@@ -42658,6 +42673,15 @@ export abstract class GeneratedOperations {
    */
   listReportingLines(input: ListReportingLinesInput = {} as ListReportingLinesInput, options?: CallOptions): Promise<ListReportingLinesOutput> {
     return this.call("listReportingLines", input, options);
+  }
+
+  /**
+   * Loops already in who answers to whom.
+   *
+   * GET /v1/reporting-lines/loops. Needs user:read.
+   */
+  listReportingLoops(input: ListReportingLoopsInput = {} as ListReportingLoopsInput, options?: CallOptions): Promise<ListReportingLoopsOutput> {
+    return this.call("listReportingLoops", input, options);
   }
 
   /**

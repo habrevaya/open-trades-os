@@ -39,6 +39,7 @@ export default async function EscalationPage() {
   const writes = can(user.actor, "task:write");
   const people = await taskRules.assignable(ctx);
   const lines = can(user.actor, "user:read") ? await taskRules.reportingLines(ctx) : null;
+  const loops = lines ? await taskRules.reportingLoops(ctx) : null;
   const editsPeople = can(user.actor, "user:write");
   const personOptions = people.map((p) => ({ value: p.userId, label: p.name }));
 
@@ -115,6 +116,26 @@ export default async function EscalationPage() {
           <p className="mt-1 max-w-prose text-sm text-ink-700">
             Read by the rules that tell a person&rsquo;s manager, and shown on each person&rsquo;s own page under People.
           </p>
+          {loops && (
+            <div aria-label="Loops" className={`mt-3 rounded-md border p-3 text-sm ${loops.length > 0 ? "border-amber-700 bg-amber-tint" : "border-steel-200"}`}>
+              {loops.length === 0 ? (
+                <p className="text-ink-700">No loops. Nobody answers, through any number of managers, back to themselves.</p>
+              ) : (
+                <>
+                  <p className="font-medium text-ink-900">
+                    {loops.length === 1 ? "There is a loop in who answers to whom." : `There are ${loops.length} loops in who answers to whom.`}
+                  </p>
+                  <ul className="mt-1 list-disc pl-5 text-ink-700">
+                    {loops.map((loop) => <li key={loop.people.map((p) => p.userId).join("-")}>{loop.sentence}</li>)}
+                  </ul>
+                  <p className="mt-2 text-ink-500">
+                    Nothing is changed for you. Change one line in each loop below, so the people in it answer to somebody outside it, or to nobody.
+                    Until then, a rule that tells a person&rsquo;s manager tells the one they are recorded as answering to, which is harmless.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
           <Table label="Managers" head={<><Th>Person</Th><Th>Answers to</Th></>}>
             {lines.map((line) => (
               <tr key={line.userId}>

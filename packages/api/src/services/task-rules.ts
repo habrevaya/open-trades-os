@@ -134,6 +134,44 @@ export async function reportingLines(ctx: ServiceContext): Promise<ReportingLine
   });
 }
 
+export interface ReportingLoop {
+  /** The people in it, each reporting to the next and the last to the first. */
+  people: { userId: string; name: string; active: boolean }[];
+  /** The loop in words, for the page: "Ana reports to Ben, and Ben reports to Ana." */
+  sentence: string;
+}
+
+/**
+ * Every loop already in the company's reporting lines, named in words.
+ *
+ * A new line that would close a loop is refused when it is saved
+ * (`setReportsTo`), but lines from before that check, or a person put in by a
+ * path that did not run it, can already be loops. This walks the whole company
+ * once, over everyone on record (a person who has since left is still a link
+ * in the chain, and is named so), and returns each loop once. It ONLY READS:
+ * it never changes a line, because which line in a loop is the wrong one is the
+ * company's to say. `user:read`, as the lines themselves are read.
+ */
+export async function reportingLoops(ctx: ServiceContext): Promise<ReportingLoop[]> {
+  return guardedRead(ctx, "user:read", async (tx) => {
+    const people = await directory(tx, ctx.actor.organizationId);
+    /** In name order, so a loop is named from the same person every time. */
+    const ordered = [...people.values()].sort((a, b) =>
+      (a.name ?? a.email).localeCompare(b.name ?? b.email) || a.userId.localeCompare(b.userId));
+    const loops = taskRules.reportingLoopsInData(new Map(ordered.map((p) => [p.userId, p.reportsToUserId])));
+    return loops.map((ids) => {
+      const members = ids.map((id) => {
+        const p = people.get(id)!;
+        return { userId: id, name: p.name ?? p.email, active: p.active };
+      });
+      return {
+        people: members,
+        sentence: taskRules.describeExistingLoop(members.map((m) => (m.active ? m.name : `${m.name} (no longer works here)`))),
+      };
+    });
+  });
+}
+
 /**
  * Say who somebody answers to, or that nobody is recorded.
  *
@@ -276,12 +314,28 @@ const scheduleOf = (row: Pick<typeof schema.taskTemplate.$inferSelect,
  */
 const scheduleColumns = (input: TemplateInput) => ({
   frequency: input.frequency,
-  weekday: taskRules.NEEDS_WEEKDAY.includes(input.frequency) ? input.weekday ?? null : null,
+  ...weekColumns(input),
   monthDay: input.frequency === "monthly" ? input.monthDay ?? null : null,
   monthWeek: input.frequency === "nth_weekday_of_month" ? input.monthWeek ?? null : null,
   intervalWeeks: input.frequency === "every_n_weeks" ? input.intervalWeeks ?? null : null,
-  daysOfWeek: input.frequency === "chosen_weekdays" ? taskRules.cleanDays(input.daysOfWeek) : null,
 });
+
+/**
+ * The day or days of the week, as stored. A task counted in weeks names ONE day
+ * in `weekday` or SEVERAL in `daysOfWeek`, never both: one ticked day is stored
+ * as the weekday it is, so a template reads the same whichever way it was
+ * entered, and several days are stored once each and in order. A chosen
+ * weekdays task keeps its days; the rest that name a day keep `weekday`.
+ */
+function weekColumns(input: TemplateInput): { weekday: number | null; daysOfWeek: number[] | null } {
+  if (input.frequency === "chosen_weekdays") return { weekday: null, daysOfWeek: taskRules.cleanDays(input.daysOfWeek) };
+  if (taskRules.EVERY_SO_MANY_WEEKS.includes(input.frequency)) {
+    const days = taskRules.cleanDays(input.daysOfWeek);
+    if (days.length >= 2) return { weekday: null, daysOfWeek: days };
+    return { weekday: input.weekday ?? days[0] ?? null, daysOfWeek: null };
+  }
+  return { weekday: taskRules.NEEDS_WEEKDAY.includes(input.frequency) ? input.weekday ?? null : null, daysOfWeek: null };
+}
 
 function checkTemplate(input: TemplateInput & { startsOn: string }): void {
   if (input.title.trim() === "") throw new ConflictError("A recurring task needs a title.");
@@ -364,11 +418,20 @@ export async function updateTemplate(
     const merged: TemplateInput & { startsOn: string } = {
       title: input.title ?? before.title,
       frequency: input.frequency ?? before.frequency,
-      weekday: input.weekday !== undefined ? input.weekday : before.weekday,
+      /**
+       * For a task counted in weeks, the day or the days sent last win: a
+       * template changed from several days to one (or back) must not keep the
+       * other form of it, which would be read in its place.
+       */
+      weekday: input.weekday !== undefined ? input.weekday
+        : input.daysOfWeek !== undefined && taskRules.cleanDays(input.daysOfWeek).length > 0
+          && taskRules.EVERY_SO_MANY_WEEKS.includes(input.frequency ?? before.frequency) ? null : before.weekday,
       monthDay: input.monthDay !== undefined ? input.monthDay : before.monthDay,
       monthWeek: input.monthWeek !== undefined ? input.monthWeek : before.monthWeek,
       intervalWeeks: input.intervalWeeks !== undefined ? input.intervalWeeks : before.intervalWeeks,
-      daysOfWeek: input.daysOfWeek !== undefined ? input.daysOfWeek : before.daysOfWeek,
+      daysOfWeek: input.daysOfWeek !== undefined ? input.daysOfWeek
+        : input.weekday !== undefined && taskRules.EVERY_SO_MANY_WEEKS.includes(input.frequency ?? before.frequency)
+          ? null : before.daysOfWeek,
       dueMinutes: input.dueMinutes ?? before.dueMinutes,
       checklist: input.checklist ?? before.checklist,
       startsOn: input.startsOn ?? before.startsOn,
@@ -959,6 +1022,7 @@ export const handlers = {
   listTaskEscalations: async (ctx: ServiceContext, input: { id: string }) =>
     ({ escalations: await escalationsOf(ctx, { taskId: input.id }) }),
   listReportingLines: async (ctx: ServiceContext) => ({ people: await reportingLines(ctx) }),
+  listReportingLoops: async (ctx: ServiceContext) => ({ loops: await reportingLoops(ctx) }),
   setReportingLine: (ctx: ServiceContext, input: { userId: string; reportsToUserId: string | null }) =>
     setReportsTo(ctx, input),
 } as const;

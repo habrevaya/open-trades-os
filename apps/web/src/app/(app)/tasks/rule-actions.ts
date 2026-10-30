@@ -112,6 +112,9 @@ export async function finishTask(_previous: FormState, form: FormData): Promise<
   return state;
 }
 
+/** The two that count weeks, which may name several days. */
+const COUNTED_IN_WEEKS = ["every_other_week", "every_n_weeks"];
+
 /** The schedules that come round on a named day of the week; the others ignore the day box. */
 const WEEKDAY_FREQUENCIES = ["weekly", "every_other_week", "last_weekday_of_month", "nth_weekday_of_month", "every_n_weeks"];
 
@@ -132,11 +135,18 @@ function templateFields(form: FormData) {
     title: field(form, "title"),
     priority: field(form, "priority"),
     frequency,
-    ...(frequency && WEEKDAY_FREQUENCIES.includes(frequency) && weekday !== undefined ? { weekday: Number(weekday) } : {}),
+    /**
+     * A task counted in weeks takes the ticked days when any are ticked, in place
+     * of the one day, and the one day otherwise; the service stores one ticked
+     * day as that weekday.
+     */
+    ...(frequency && WEEKDAY_FREQUENCIES.includes(frequency) && weekday !== undefined
+      && !(COUNTED_IN_WEEKS.includes(frequency) && days.length > 0) ? { weekday: Number(weekday) } : {}),
     ...(frequency === "monthly" && monthDay !== undefined ? { monthDay: Number(monthDay) } : {}),
     ...(frequency === "nth_weekday_of_month" && monthWeek !== undefined ? { monthWeek: Number(monthWeek) } : {}),
     ...(frequency === "every_n_weeks" && intervalWeeks !== undefined ? { intervalWeeks: Number(intervalWeeks) } : {}),
-    ...(frequency === "chosen_weekdays" ? { daysOfWeek: days } : {}),
+    ...(frequency === "chosen_weekdays" || (frequency && COUNTED_IN_WEEKS.includes(frequency) && days.length > 0)
+      ? { daysOfWeek: days } : {}),
     ...(due !== undefined ? { dueMinutes: due } : {}),
     startsOn: field(form, "startsOn"),
     skipHolidays: form.get("skipHolidays") === "yes",

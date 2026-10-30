@@ -55,7 +55,7 @@ export function TemplateFields({
         <TextField label="How many weeks apart (every few weeks)" name="intervalWeeks" type="number" min={2} max={52}
                    defaultValue={String(template?.intervalWeeks ?? 3)} />
         <fieldset className="text-sm">
-          <legend className="text-ink-700">Which days (on the days I tick)</legend>
+          <legend className="text-ink-700">Which days (on the days I tick, or every few weeks on several days)</legend>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
             {WEEK_ORDER.map((i) => (
               <label key={i} className="flex items-center gap-1">
@@ -74,7 +74,10 @@ export function TemplateFields({
       </div>
       <p className="text-xs text-ink-500">
         Every other week and every few weeks start with the first of that day of the week on or after
-        the starting day, then every second (or third, or however many) one after it. The last one of
+        the starting day, then every second (or third, or however many) one after it. To come round on
+        several days, say Monday and Thursday every third week, tick those days instead of choosing a day of
+        the week: the weeks run Monday to Sunday, the first week is the one the first day falls in, and it
+        comes round on every ticked day of that week and of every third week after it. The last one of
         every month is the last Friday, say, whether that is the fourth or the fifth.
       </p>
       <label className="flex items-center gap-2 text-sm">
