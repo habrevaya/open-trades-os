@@ -771,6 +771,8 @@ export const handlers = {
   unskipAgreementVisit: agreements.handlers.unskipAgreementVisit,
   invoiceAgreementInstalment: agreements.handlers.invoiceAgreementInstalment,
   cancelAgreement: agreements.handlers.cancelAgreement,
+  recordAgreementLapseReason: agreements.handlers.recordAgreementLapseReason,
+  releaseAgreementTerm: agreements.handlers.releaseAgreementTerm,
   // A customer asking to move or cancel a visit, and the office answering
   getPortalVisitChange: visitChanges.handlers.getPortalVisitChange,
   requestPortalVisitChange: visitChanges.handlers.requestPortalVisitChange,

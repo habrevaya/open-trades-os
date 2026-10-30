@@ -259,6 +259,14 @@ export const agreement = pgTable("agreement", {
   cancellationReason: text("cancellation_reason"),
   /** The reason from the fixed list. Null on a cancellation made before there was one. */
   cancellationCode: agreementCancellationCode("cancellation_code"),
+  /**
+   * Why a plan lapsed, from the same fixed list, when the office has said. A lapse is a renewal that did not
+   * happen and is made by the worker, so it carries no reason until somebody records one; the office may leave
+   * it unknown for ever. Cleared when the agreement is renewed, so a running agreement never shows an old lapse.
+   */
+  lapseReasonCode: agreementCancellationCode("lapse_reason_code"),
+  /** The words that go with it: required for "something else", optional with any other. */
+  lapseReason: text("lapse_reason"),
 
   /** Frozen at sale. Raising the plan price must not reprice existing members. */
   price: money("price").notNull(),

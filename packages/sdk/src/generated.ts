@@ -2045,6 +2045,8 @@ export interface CancelAgreementOutput {
   cancelledOn: string | null;
   cancellationReason: string | null;
   cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReasonCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReason: string | null;
   visitsIncludedThisTerm: number;
   visitsDeliveredThisTerm: number;
   released: string;
@@ -6903,6 +6905,8 @@ export interface GetAgreementOutput {
   cancelledOn: string | null;
   cancellationReason: string | null;
   cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReasonCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReason: string | null;
   visitsIncludedThisTerm: number;
   visitsDeliveredThisTerm: number;
   planName: string;
@@ -6929,6 +6933,7 @@ export interface GetAgreementOutput {
     invoiceId: string | null;
   }>;
   terms: Array<{
+    id: string;
     term: number;
     startsOn: string | null;
     endsOn: string;
@@ -13823,6 +13828,8 @@ export interface ListAgreementsOutput {
     cancelledOn: string | null;
     cancellationReason: string | null;
     cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+    lapseReasonCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+    lapseReason: string | null;
     visitsIncludedThisTerm: number;
     visitsDeliveredThisTerm: number;
     planName: string;
@@ -20886,6 +20893,39 @@ export interface ReceiveStockOutput {
   }>;
 }
 
+export interface RecordAgreementLapseReasonInput {
+  reasonCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other";
+  reason?: string;
+  endPropertyLink?: boolean;
+}
+
+export interface RecordAgreementLapseReasonOutput {
+  id: string;
+  planId: string;
+  customerId: string;
+  propertyId: string | null;
+  status: string;
+  startedOn: string;
+  endsOn: string | null;
+  price: string;
+  discountRate: string | null;
+  discountExclusions: {
+    categoryIds: string[];
+    itemIds: string[];
+  };
+  billingFrequency: string;
+  autoRenews: boolean;
+  renewalCount: number;
+  cancelledOn: string | null;
+  cancellationReason: string | null;
+  cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReasonCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReason: string | null;
+  visitsIncludedThisTerm: number;
+  visitsDeliveredThisTerm: number;
+  endedLinks: number;
+}
+
 export interface RecordAssetCostInput {
   kind: "acquisition" | "maintenance" | "fuel" | "repair" | "insurance" | "registration" | "storage" | "other";
   amount: string;
@@ -22088,6 +22128,18 @@ export interface RegisterWebhookEndpointOutput {
   previousSecretExpiresAt: string | null;
   createdAt: string;
   secret: string;
+}
+
+export type ReleaseAgreementTermInput = Record<string, unknown>;
+
+export interface ReleaseAgreementTermOutput {
+  termId: string;
+  term: number;
+  endsOn: string;
+  breakageReleasedOn: string | null;
+  breakageAmount: string | null;
+  breakageVisits: number | null;
+  releasedNow: boolean;
 }
 
 export type ReleaseJobHoldInput = Record<string, unknown>;
@@ -24229,6 +24281,8 @@ export interface SellAgreementOutput {
   cancelledOn: string | null;
   cancellationReason: string | null;
   cancellationCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReasonCode: "moved" | "sold" | "price" | "service" | "switched" | "not_needed" | "other" | null;
+  lapseReason: string | null;
   visitsIncludedThisTerm: number;
   visitsDeliveredThisTerm: number;
 }
@@ -33254,6 +33308,10 @@ export interface ReceivePurchaseOrderParams {
   id: string;
 }
 
+export interface RecordAgreementLapseReasonParams {
+  id: string;
+}
+
 export interface RecordAssetCostParams {
   assetId: string;
 }
@@ -33362,6 +33420,11 @@ export interface RefundableCardPaymentsInput {
 
 export interface RefuseAppRequestParams {
   id: string;
+}
+
+export interface ReleaseAgreementTermParams {
+  id: string;
+  termId: string;
 }
 
 export interface ReleaseJobHoldParams {
@@ -35209,6 +35272,7 @@ export interface OperationTypes {
   receiveExternalWorkOrder: { input: ReceiveExternalWorkOrderInput; output: ReceiveExternalWorkOrderOutput };
   receivePurchaseOrder: { input: ReceivePurchaseOrderParams & ReceivePurchaseOrderInput; output: ReceivePurchaseOrderOutput };
   receiveStock: { input: ReceiveStockInput; output: ReceiveStockOutput };
+  recordAgreementLapseReason: { input: RecordAgreementLapseReasonParams & RecordAgreementLapseReasonInput; output: RecordAgreementLapseReasonOutput };
   recordAssetCost: { input: RecordAssetCostParams & RecordAssetCostInput; output: RecordAssetCostOutput };
   recordAssetReading: { input: RecordAssetReadingParams & RecordAssetReadingInput; output: RecordAssetReadingOutput };
   recordAssetService: { input: RecordAssetServiceParams & RecordAssetServiceInput; output: RecordAssetServiceOutput };
@@ -35257,6 +35321,7 @@ export interface OperationTypes {
   registerPricingRule: { input: RegisterPricingRuleInput; output: RegisterPricingRuleOutput };
   registerReportType: { input: RegisterReportTypeInput; output: RegisterReportTypeOutput };
   registerWebhookEndpoint: { input: RegisterWebhookEndpointInput; output: RegisterWebhookEndpointOutput };
+  releaseAgreementTerm: { input: ReleaseAgreementTermParams & ReleaseAgreementTermInput; output: ReleaseAgreementTermOutput };
   releaseJobHold: { input: ReleaseJobHoldParams & ReleaseJobHoldInput; output: ReleaseJobHoldOutput };
   releasePhoneNumber: { input: ReleasePhoneNumberParams & ReleasePhoneNumberInput; output: ReleasePhoneNumberOutput };
   releaseRetentionHold: { input: ReleaseRetentionHoldParams & ReleaseRetentionHoldInput; output: ReleaseRetentionHoldOutput };
@@ -36427,6 +36492,7 @@ export const OPERATIONS = {
   receiveExternalWorkOrder: { method: "POST", path: "/v1/external-work-orders", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   receivePurchaseOrder: { method: "POST", path: "/v1/purchase-orders/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   receiveStock: { method: "POST", path: "/v1/stock/receipts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  recordAgreementLapseReason: { method: "POST", path: "/v1/agreements/{id}/lapse-reason", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   recordAssetCost: { method: "POST", path: "/v1/assets/{assetId}/costs", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordAssetReading: { method: "POST", path: "/v1/assets/{assetId}/readings", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordAssetService: { method: "POST", path: "/v1/asset-maintenance-plans/{planId}/serviced", pathParams: ["planId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -36475,6 +36541,7 @@ export const OPERATIONS = {
   registerPricingRule: { method: "POST", path: "/v1/plugins/pricing-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   registerReportType: { method: "POST", path: "/v1/plugins/report-types", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   registerWebhookEndpoint: { method: "POST", path: "/v1/webhooks/endpoints", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  releaseAgreementTerm: { method: "POST", path: "/v1/agreements/{id}/terms/{termId}/release", pathParams: ["id","termId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   releaseJobHold: { method: "POST", path: "/v1/job-holds/{id}/released", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   releasePhoneNumber: { method: "POST", path: "/v1/marketing/tracking-numbers/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   releaseRetentionHold: { method: "POST", path: "/v1/compliance/retention/holds/{id}/release", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -44071,6 +44138,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Say why a plan lapsed.
+   *
+   * POST /v1/agreements/{id}/lapse-reason. Needs membership:write.
+   */
+  recordAgreementLapseReason(input: RecordAgreementLapseReasonParams & RecordAgreementLapseReasonInput, options?: CallOptions): Promise<RecordAgreementLapseReasonOutput> {
+    return this.call("recordAgreementLapseReason", input, options);
+  }
+
+  /**
    * Money spent on one thing.
    *
    * POST /v1/assets/{assetId}/costs. Needs asset:write.
@@ -44500,6 +44576,15 @@ export abstract class GeneratedOperations {
    */
   registerWebhookEndpoint(input: RegisterWebhookEndpointInput, options?: CallOptions): Promise<RegisterWebhookEndpointOutput> {
     return this.call("registerWebhookEndpoint", input, options);
+  }
+
+  /**
+   * Count an ended term's unused visits as earned now.
+   *
+   * POST /v1/agreements/{id}/terms/{termId}/release. Needs membership:write.
+   */
+  releaseAgreementTerm(input: ReleaseAgreementTermParams & ReleaseAgreementTermInput, options?: CallOptions): Promise<ReleaseAgreementTermOutput> {
+    return this.call("releaseAgreementTerm", input, options);
   }
 
   /**

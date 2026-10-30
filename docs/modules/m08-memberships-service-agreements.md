@@ -244,6 +244,27 @@ it) is marked done at nothing. The agreement's screen lists its terms under
 carries the same as `terms`. Delivering a visit whose term has been released
 recognises nothing more, because it is already earned.
 
+**Release a term from the screen.** On an agreement's own screen under "Terms", a term that has
+ended and has not been counted shows "Ended, not counted yet" and a "Release this term" button
+(`membership:write`, the permission cancelling is under, which posts the same kind of release).
+`POST /v1/agreements/{id}/terms/{termId}/release` is the same: it runs `releaseEndedTerms` for that
+one term, so the posting, the claim-first rule, the audit row (`agreement.breakage_released`) and
+the term's figures are exactly the worker's. A term still running is refused in words (counted on
+the day it ends, never earlier, because a skipped visit can be put back until then), and a term
+already released, by the worker or an earlier press, answers with what it released and posts
+nothing (`releasedNow` is false), so a retry or a second press cannot post twice. The term list on
+`GET /v1/agreements/{id}` now carries each term's `id`.
+
+**Say why a plan lapsed.** A lapsed agreement's screen shows "Lapsed. Nobody has said why." or the
+reason, and, to someone who may write memberships, a "Why it lapsed" choice from the cancellation
+reasons (moved, sold, price, service, switched, no longer needed, something else), the words
+(needed for "something else"), and a tick box to end their link to the address (a move or a sale
+only). `POST /v1/agreements/{id}/lapse-reason` (`membership:write`) is the same: only a lapsed
+agreement takes it (a cancelled one has its cancellation reason, a running one has not lapsed),
+saying it again corrects it with the earlier words kept in the audit log
+(`agreement.lapse_reason_recorded`), and a renewal clears it. It is optional: nothing is refused for
+lack of one.
+
 `/agreements/renewals` is what ends in the next 30, 60 or 90 days, soonest
 first, with the ones that lapsed in the last month on top.
 `GET /v1/agreement-renewals` is the same list.
@@ -450,6 +471,8 @@ know the customer is a member and does not need the agreement book to find out.
 | `GET /v1/agreements/{id}` | `membership:read` |
 | `POST /v1/agreements/{id}/renew` | `membership:write` |
 | `POST /v1/agreements/{id}/cancel` | `membership:write` |
+| `POST /v1/agreements/{id}/lapse-reason` | `membership:write` |
+| `POST /v1/agreements/{id}/terms/{termId}/release` | `membership:write` |
 | `GET /v1/owed-agreement-visits` | `membership:read` |
 | `POST /v1/agreement-visits/{id}/book` | `membership:write` |
 | `POST /v1/agreement-visits/{id}/deliver` | `membership:write` |
@@ -515,15 +538,22 @@ in it, where a drop reads it without, which can differ by one job at the
 edge of the hold. A plan never offers to send anyway. The assistants know a member only by the number they ring or
 text from or a number or email written in the chat, never by a name they say,
 and that match proves nothing about who is asking: it changes which windows
-are offered and nothing else. A breakage release is reached by the worker's
-pass or by a renewal; a term is not released by any screen. Terms of an
+are offered and nothing else. A breakage release is made by the worker's
+pass, by a renewal, or by "Release this term" on an ended term (the same function, one
+term, never before its last day). Terms of an
 agreement sold before terms were recorded, other than its current one, have
 no end date written down and are never released. Prorating a cancellation to
 the day, rather than releasing whole undelivered slices, is a decision nobody
 has made. A cancellation made before reasons were chosen from a list keeps only its
 words, and nothing reads a reason back out of them; the figures count it as
 unknown. The list is the product's own and a company cannot add to it, because
-every figure that reads it has to know what each reason means. A lapse is not
-asked for a reason at all: it is a renewal that did not happen, and the only
-thing that tells a lapse after a house sale from a lost customer is the link to
-the address being ended, on the cancellation or on the address.
+every figure that reads it has to know what each reason means. A lapse is made by the
+worker and is not asked for a reason: the office may say why from the lapsed
+agreement's screen, and many never will. There is no way to lapse a plan from the office:
+a plan lapses on its end date, or is cancelled. A recorded lapse reason is shown and
+audited, and nothing in the retention, renewal or churn figures reads it: counting a lapse as
+a house sale because a reason was typed moves a number the owner reads, and that is not decided.
+What tells a lapse after a house sale from a lost customer in those figures is still the link to the
+address being ended, which the reason form offers to end (a move or a sale only, never done unless
+asked) and the address screen can end on its own. The lapse reasons are the cancellation
+list, so there is no "does not need it any more" apart from the existing "No longer needed".

@@ -4675,6 +4675,144 @@
         ]
       }
     },
+    "/v1/agreements/{id}/lapse-reason": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordAgreementLapseReason",
+        "summary": "Say why a plan lapsed",
+        "description": "For a lapsed agreement only (a cancelled one has its cancellation reason, and a running one has not lapsed). The reasons are the cancellation list: `moved`, `sold`, `price`, `service`, `switched`, `not_needed`, or `other` with the words in `reason`; any reason may carry words. Optional for the office: a lapse stays unknown until somebody says, and nothing is refused for lack of one. For `moved` or `sold`, `endPropertyLink` ends the customer's link to the address the agreement covers today (`endedLinks` says how many were ended), which is what the retention figures read to tell a house sale from a lost customer; it is never done unless asked. The retention figures do not read this reason themselves. Saying it again with other words corrects it, with the earlier words kept in the audit log; a renewal clears it. `membership:write`.\n\nRequires a session holding: membership:write.",
+        "tags": [
+          "M08"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordAgreementLapseReasonInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Say why a plan lapsed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordAgreementLapseReasonOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "membership:write"
+        ]
+      }
+    },
     "/v1/agreements/{id}/renew": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -4724,6 +4862,153 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RenewAgreementOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "membership:write"
+        ]
+      }
+    },
+    "/v1/agreements/{id}/terms/{termId}/release": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "releaseAgreementTerm",
+        "summary": "Count an ended term's unused visits as earned now",
+        "description": "The same release the worker makes on the day a term ends, for one term, on request: what the term's visits never taken still hold in deferred revenue (2400) moves to agreement revenue (4100) in one balanced posting sourced to the term. Never before the term's last day: a term still running is refused in words, because a skipped visit can be put back until then. A term already released (by the worker or an earlier call) answers with what it released and posts nothing more (`releasedNow` is false). The visits stay owed. `membership:write`, the permission cancelling an agreement is under, which posts the same kind of release.\n\nRequires a session holding: membership:write.",
+        "tags": [
+          "M08"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseAgreementTermInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Count an ended term's unused visits as earned now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseAgreementTermOutput"
                 }
               }
             }
@@ -160115,6 +160400,27 @@
               "other"
             ]
           },
+          "lapseReasonCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
+          "lapseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "visitsIncludedThisTerm": {
             "type": "integer"
           },
@@ -160146,6 +160452,8 @@
           "cancelledOn",
           "cancellationReason",
           "cancellationCode",
+          "lapseReasonCode",
+          "lapseReason",
           "visitsIncludedThisTerm",
           "visitsDeliveredThisTerm",
           "released",
@@ -184791,6 +185099,27 @@
               "other"
             ]
           },
+          "lapseReasonCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
+          "lapseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "visitsIncludedThisTerm": {
             "type": "integer"
           },
@@ -184924,6 +185253,10 @@
             "items": {
               "type": "object",
               "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
                 "term": {
                   "type": "integer"
                 },
@@ -184960,6 +185293,7 @@
                 }
               },
               "required": [
+                "id",
                 "term",
                 "startsOn",
                 "endsOn",
@@ -184987,6 +185321,8 @@
           "cancelledOn",
           "cancellationReason",
           "cancellationCode",
+          "lapseReasonCode",
+          "lapseReason",
           "visitsIncludedThisTerm",
           "visitsDeliveredThisTerm",
           "planName",
@@ -221193,6 +221529,27 @@
                     "other"
                   ]
                 },
+                "lapseReasonCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "moved",
+                    "sold",
+                    "price",
+                    "service",
+                    "switched",
+                    "not_needed",
+                    "other"
+                  ]
+                },
+                "lapseReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "visitsIncludedThisTerm": {
                   "type": "integer"
                 },
@@ -221223,6 +221580,8 @@
                 "cancelledOn",
                 "cancellationReason",
                 "cancellationCode",
+                "lapseReasonCode",
+                "lapseReason",
                 "visitsIncludedThisTerm",
                 "visitsDeliveredThisTerm",
                 "planName",
@@ -258193,6 +258552,197 @@
           "movements"
         ]
       },
+      "RecordAgreementLapseReasonInput": {
+        "type": "object",
+        "properties": {
+          "reasonCode": {
+            "type": "string",
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "endPropertyLink": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reasonCode"
+        ]
+      },
+      "RecordAgreementLapseReasonOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "planId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "startedOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "discountRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "discountExclusions": {
+            "type": "object",
+            "properties": {
+              "categoryIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 200
+              },
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "categoryIds",
+              "itemIds"
+            ]
+          },
+          "billingFrequency": {
+            "type": "string"
+          },
+          "autoRenews": {
+            "type": "boolean"
+          },
+          "renewalCount": {
+            "type": "integer"
+          },
+          "cancelledOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "cancellationReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cancellationCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
+          "lapseReasonCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
+          "lapseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitsIncludedThisTerm": {
+            "type": "integer"
+          },
+          "visitsDeliveredThisTerm": {
+            "type": "integer"
+          },
+          "endedLinks": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "planId",
+          "customerId",
+          "propertyId",
+          "status",
+          "startedOn",
+          "endsOn",
+          "price",
+          "discountRate",
+          "discountExclusions",
+          "billingFrequency",
+          "autoRenews",
+          "renewalCount",
+          "cancelledOn",
+          "cancellationReason",
+          "cancellationCode",
+          "lapseReasonCode",
+          "lapseReason",
+          "visitsIncludedThisTerm",
+          "visitsDeliveredThisTerm",
+          "endedLinks"
+        ]
+      },
       "RecordAssetCostInput": {
         "type": "object",
         "properties": {
@@ -264198,6 +264748,58 @@
           "previousSecretExpiresAt",
           "createdAt",
           "secret"
+        ]
+      },
+      "ReleaseAgreementTermInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReleaseAgreementTermOutput": {
+        "type": "object",
+        "properties": {
+          "termId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "term": {
+            "type": "integer"
+          },
+          "endsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "breakageReleasedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "breakageAmount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "breakageVisits": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "releasedNow": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "termId",
+          "term",
+          "endsOn",
+          "breakageReleasedOn",
+          "breakageAmount",
+          "breakageVisits",
+          "releasedNow"
         ]
       },
       "ReleaseJobHoldInput": {
@@ -274274,6 +274876,27 @@
               "other"
             ]
           },
+          "lapseReasonCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "moved",
+              "sold",
+              "price",
+              "service",
+              "switched",
+              "not_needed",
+              "other"
+            ]
+          },
+          "lapseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "visitsIncludedThisTerm": {
             "type": "integer"
           },
@@ -274298,6 +274921,8 @@
           "cancelledOn",
           "cancellationReason",
           "cancellationCode",
+          "lapseReasonCode",
+          "lapseReason",
           "visitsIncludedThisTerm",
           "visitsDeliveredThisTerm"
         ]

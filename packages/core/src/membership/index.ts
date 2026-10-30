@@ -475,3 +475,18 @@ export function cancellationProblem(code: string | null | undefined, words: stri
   if (code === "other" && said === "") return "Say in words why they cancelled.";
   return null;
 }
+
+/**
+ * What is wrong with a reason recorded for a lapse, in words, or null. The same fixed list as a cancellation,
+ * so one figure can read both, but a lapse does not have to be explained: the code is what is asked, and
+ * "something else" needs its words.
+ */
+export function lapseReasonProblem(code: string | null | undefined, words: string | null | undefined): string | null {
+  const said = (words ?? "").trim();
+  if (code === null || code === undefined || code === "") return "Pick why the plan lapsed.";
+  if (!(CANCELLATION_CODES as readonly string[]).includes(code)) {
+    return `"${code}" is not one of the reasons. Pick one from the list.`;
+  }
+  if (code === "other" && said === "") return "Say in words why the plan lapsed.";
+  return null;
+}
