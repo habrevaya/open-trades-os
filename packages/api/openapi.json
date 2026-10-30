@@ -66028,7 +66028,7 @@
       "patch": {
         "operationId": "setJobHoldNudge",
         "summary": "Set how a job left on hold is nudged",
-        "description": "`days`: whole days from 1 to 90, counted in the company's own calendar, or null to turn nudging off (it is off until a company turns it on). When a hold has lasted that long the worker raises one task in the office queue about the job, naming the job, the reason it is held and how long; ending the hold closes it. `dueDays`: the task is due that many company days after it is raised (0 to 30), so the queue's late rules act on it; null leaves it without a due date. `repeatDays`: while the job is still on hold, raise the task again that many days after the last one (1 to 90), but only once the last one has been closed; null never raises it again. `assignTo` is `nobody` (the office queue), `placed_by` (whoever put the job on hold; a job has no owner of its own) or `person` (with `assigneeUserId`, somebody who works here now); a person who has left is skipped and the task stays in the office queue. A field left out keeps what the company had. Without repeats, a task somebody closed by hand is not raised again for the same hold. Holds already past a new `days` are nudged on the next pass, and tasks already raised stay where they are.\n\nRequires a session holding: settings:write.",
+        "description": "`days`: whole days from 1 to 90, counted in the company's own calendar, or null to turn nudging off (it is off until a company turns it on). When a hold has lasted that long the worker raises one task in the office queue about the job, naming the job, the reason it is held and how long; ending the hold closes it. `dueDays`: the task is due that many company days after it is raised (0 to 30), so the queue's late rules act on it; null leaves it without a due date. `repeatDays`: while the job is still on hold, raise the task again that many days after the last one (1 to 90), but only once the last one has been closed; null never raises it again. `assignTo` is `nobody` (the office queue), `placed_by` (whoever put the job on hold; a job has no owner of its own), `person` (with `assigneeUserId`, somebody who works here now), `role` (with `assigneeRole`: everybody who holds that role is told, and the one task stays in the office queue for whoever acts on it) or `branch_manager` (the same, for the managers of the job's own branch); a person who has left, a role nobody holds, a job in no branch or a branch with no manager is skipped and the task stays in the office queue, and says so. A field left out keeps what the company had. Without repeats, a task somebody closed by hand is not raised again for the same hold. Holds already past a new `days` are nudged on the next pass, and tasks already raised stay where they are.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M10"
         ],
@@ -66060,6 +66060,489 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetJobHoldNudgeOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/job-hold-nudge-rules": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "createJobHoldNudgeRule",
+        "summary": "Nudge differently for one reason a job is on hold, one branch, or both",
+        "description": "Names a reason (`part`, `inspection`, `customer`, `weather`, `other`), a branch (`businessUnitId`) or both; at least one, because a rule for everything is the company's own setting. Says what changes: `days` (null: never nudge for these), `dueDays` (null: no due date), `repeatDays` (null: never again), and who gets the task (`assignTo`, with `assigneeUserId` for a person or `assigneeRole` for a role). One rule for each reason and branch. It applies to nudges raised from then on, and holds already nudged keep what they were given.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobHoldNudgeRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Nudge differently for one reason a job is on hold, one branch, or both",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateJobHoldNudgeRuleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "get": {
+        "operationId": "listJobHoldNudgeRules",
+        "summary": "The nudge for a job on hold, where it differs by reason or by branch",
+        "description": "Each rule changes some of the company's nudge numbers (`GET /v1/job-hold-nudge`) for one reason, one branch, or one reason in one branch. A field a rule leaves out is the company's. For a hold, the rule for its reason in its branch wins, then the rule for its reason, then the rule for its branch, then the company's numbers, field by field.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M10"
+        ],
+        "responses": {
+          "200": {
+            "description": "The nudge for a job on hold, where it differs by reason or by branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListJobHoldNudgeRulesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/job-hold-nudge-rules/{id}": {
+      "description": "Served at this path: DELETE, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "delete": {
+        "operationId": "deleteJobHoldNudgeRule",
+        "summary": "Take away a nudge rule",
+        "description": "Holds it covered use the company's numbers, or another rule's, from the next pass. Tasks already raised stay where they are.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteJobHoldNudgeRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take away a nudge rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteJobHoldNudgeRuleOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      },
+      "patch": {
+        "operationId": "updateJobHoldNudgeRule",
+        "summary": "Change a nudge rule",
+        "description": "A field left out keeps what the rule had. `clear` lists fields to hand back to the company's own (`days`, `dueDays`, `repeatDays`, `assign`). A rule left changing nothing is refused: delete it instead. The reason and the branch of a rule are not changed: make another rule.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateJobHoldNudgeRuleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a nudge rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateJobHoldNudgeRuleOutput"
                 }
               }
             }
@@ -172002,6 +172485,202 @@
           "updatedAt"
         ]
       },
+      "CreateJobHoldNudgeRuleInput": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "part",
+              "inspection",
+              "customer",
+              "weather",
+              "other"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "dueDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 30
+          },
+          "repeatDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "assignTo": {
+            "type": "string",
+            "enum": [
+              "nobody",
+              "placed_by",
+              "person",
+              "role",
+              "branch_manager"
+            ]
+          },
+          "assigneeUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "assigneeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "accountant"
+            ]
+          }
+        }
+      },
+      "CreateJobHoldNudgeRuleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "part",
+              "inspection",
+              "customer",
+              "weather",
+              "other"
+            ]
+          },
+          "reasonLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "businessUnitName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "dueDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 30
+          },
+          "repeatDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "assignTo": {
+            "type": "string",
+            "enum": [
+              "nobody",
+              "placed_by",
+              "person",
+              "role",
+              "branch_manager"
+            ]
+          },
+          "assigneeUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "assigneeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "accountant"
+            ]
+          },
+          "assigneeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reason",
+          "reasonLabel",
+          "businessUnitId",
+          "businessUnitName",
+          "assigneeName",
+          "summary"
+        ]
+      },
       "CreateJournalEntryInput": {
         "type": "object",
         "properties": {
@@ -181975,6 +182654,29 @@
         "required": [
           "deleted",
           "id"
+        ]
+      },
+      "DeleteJobHoldNudgeRuleInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DeleteJobHoldNudgeRuleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
         ]
       },
       "DeleteLeadConnectorInput": {
@@ -202525,7 +203227,9 @@
             "enum": [
               "nobody",
               "placed_by",
-              "person"
+              "person",
+              "role",
+              "branch_manager"
             ]
           },
           "assigneeUserId": {
@@ -202539,6 +203243,18 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "assigneeRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "accountant"
             ]
           }
         },
@@ -235372,6 +236088,132 @@
           "contract",
           "named",
           "clocks"
+        ]
+      },
+      "ListJobHoldNudgeRulesOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "part",
+                    "inspection",
+                    "customer",
+                    "weather",
+                    "other"
+                  ]
+                },
+                "reasonLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "businessUnitName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "days": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 1,
+                  "maximum": 90
+                },
+                "dueDays": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 30
+                },
+                "repeatDays": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 1,
+                  "maximum": 90
+                },
+                "assignTo": {
+                  "type": "string",
+                  "enum": [
+                    "nobody",
+                    "placed_by",
+                    "person",
+                    "role",
+                    "branch_manager"
+                  ]
+                },
+                "assigneeUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "assigneeRole": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "office_manager",
+                    "branch_manager",
+                    "dispatcher",
+                    "csr",
+                    "accountant"
+                  ]
+                },
+                "assigneeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "reason",
+                "reasonLabel",
+                "businessUnitId",
+                "businessUnitName",
+                "assigneeName",
+                "summary"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "ListJobHoldsOutput": {
@@ -282141,7 +282983,9 @@
             "enum": [
               "nobody",
               "placed_by",
-              "person"
+              "person",
+              "role",
+              "branch_manager"
             ]
           },
           "assigneeUserId": {
@@ -282150,6 +282994,21 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "assigneeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "accountant"
+            ]
           }
         }
       },
@@ -282185,7 +283044,9 @@
             "enum": [
               "nobody",
               "placed_by",
-              "person"
+              "person",
+              "role",
+              "branch_manager"
             ]
           },
           "assigneeUserId": {
@@ -282199,6 +283060,18 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "assigneeRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "accountant"
             ]
           }
         },
@@ -299501,6 +300374,195 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "UpdateJobHoldNudgeRuleInput": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "dueDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 30
+          },
+          "repeatDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "assignTo": {
+            "type": "string",
+            "enum": [
+              "nobody",
+              "placed_by",
+              "person",
+              "role",
+              "branch_manager"
+            ]
+          },
+          "assigneeUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "assigneeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "accountant"
+            ]
+          },
+          "clear": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "days",
+                "dueDays",
+                "repeatDays",
+                "assign"
+              ]
+            },
+            "maxItems": 4
+          }
+        }
+      },
+      "UpdateJobHoldNudgeRuleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "part",
+              "inspection",
+              "customer",
+              "weather",
+              "other"
+            ]
+          },
+          "reasonLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "businessUnitName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "dueDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 30
+          },
+          "repeatDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 90
+          },
+          "assignTo": {
+            "type": "string",
+            "enum": [
+              "nobody",
+              "placed_by",
+              "person",
+              "role",
+              "branch_manager"
+            ]
+          },
+          "assigneeUserId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "assigneeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "accountant"
+            ]
+          },
+          "assigneeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reason",
+          "reasonLabel",
+          "businessUnitId",
+          "businessUnitName",
+          "assigneeName",
+          "summary"
         ]
       },
       "UpdateKnowledgeNoteInput": {

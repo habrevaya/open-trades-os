@@ -3868,6 +3868,33 @@ export interface CreateInvoiceOutput {
   updatedAt: string;
 }
 
+export interface CreateJobHoldNudgeRuleInput {
+  reason?: "part" | "inspection" | "customer" | "weather" | "other" | null;
+  businessUnitId?: string | null;
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assigneeUserId?: string | null;
+  assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
+}
+
+export interface CreateJobHoldNudgeRuleOutput {
+  id: string;
+  reason: "part" | "inspection" | "customer" | "weather" | "other" | null;
+  reasonLabel: string | null;
+  businessUnitId: string | null;
+  businessUnitName: string | null;
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assigneeUserId?: string | null;
+  assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
+  assigneeName: string | null;
+  summary: string;
+}
+
 export interface CreateJobInput {
   number?: number;
   externalRef?: {
@@ -5913,6 +5940,13 @@ export type DeleteInvoiceInput = Record<string, unknown>;
 export interface DeleteInvoiceOutput {
   deleted: true;
   id: string;
+}
+
+export type DeleteJobHoldNudgeRuleInput = Record<string, unknown>;
+
+export interface DeleteJobHoldNudgeRuleOutput {
+  id: string;
+  removed: true;
 }
 
 export type DeleteLeadConnectorInput = Record<string, unknown>;
@@ -9799,9 +9833,10 @@ export interface GetJobHoldNudgeOutput {
   days: number | null;
   dueDays: number | null;
   repeatDays: number | null;
-  assignTo: "nobody" | "placed_by" | "person";
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
   assigneeUserId: string | null;
   assigneeName: string | null;
+  assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant";
 }
 
 export interface GetJobMaterialCostOutput {
@@ -16074,6 +16109,24 @@ export interface ListJobClocksOutput {
     consequence: string | null;
     standing: "met" | "met_late" | "waived" | "cancelled" | "due" | "overdue";
     minutesRemaining: number;
+  }>;
+}
+
+export interface ListJobHoldNudgeRulesOutput {
+  data: Array<{
+    id: string;
+    reason: "part" | "inspection" | "customer" | "weather" | "other" | null;
+    reasonLabel: string | null;
+    businessUnitId: string | null;
+    businessUnitName: string | null;
+    days?: number | null;
+    dueDays?: number | null;
+    repeatDays?: number | null;
+    assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+    assigneeUserId?: string | null;
+    assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
+    assigneeName: string | null;
+    summary: string;
   }>;
 }
 
@@ -25443,17 +25496,19 @@ export interface SetJobHoldNudgeInput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
   assigneeUserId?: string | null;
+  assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
 }
 
 export interface SetJobHoldNudgeOutput {
   days: number | null;
   dueDays: number | null;
   repeatDays: number | null;
-  assignTo: "nobody" | "placed_by" | "person";
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
   assigneeUserId: string | null;
   assigneeName: string | null;
+  assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant";
 }
 
 export interface SetJobPartiesInput {
@@ -28781,6 +28836,32 @@ export interface UpdateInvoiceOutput {
   updatedAt: string;
 }
 
+export interface UpdateJobHoldNudgeRuleInput {
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assigneeUserId?: string | null;
+  assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
+  clear?: Array<"days" | "dueDays" | "repeatDays" | "assign">;
+}
+
+export interface UpdateJobHoldNudgeRuleOutput {
+  id: string;
+  reason: "part" | "inspection" | "customer" | "weather" | "other" | null;
+  reasonLabel: string | null;
+  businessUnitId: string | null;
+  businessUnitName: string | null;
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assigneeUserId?: string | null;
+  assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
+  assigneeName: string | null;
+  summary: string;
+}
+
 export interface UpdateJobInput {
   customerId?: string;
   propertyId?: string;
@@ -31358,6 +31439,10 @@ export interface DeleteInvoiceParams {
   id: string;
 }
 
+export interface DeleteJobHoldNudgeRuleParams {
+  id: string;
+}
+
 export interface DeleteLeadConnectorParams {
   id: string;
 }
@@ -32832,6 +32917,8 @@ export type ListItemTaxInput = Record<string, never>;
 export interface ListJobClocksInput {
   id: string;
 }
+
+export type ListJobHoldNudgeRulesInput = Record<string, never>;
 
 export interface ListJobHoldsInput {
   id: string;
@@ -34586,6 +34673,10 @@ export interface UpdateJobParams {
   id: string;
 }
 
+export interface UpdateJobHoldNudgeRuleParams {
+  id: string;
+}
+
 export interface UpdateKnowledgeNoteParams {
   id: string;
 }
@@ -34938,6 +35029,7 @@ export interface OperationTypes {
   createIntakeDraft: { input: CreateIntakeDraftInput; output: CreateIntakeDraftOutput };
   createInvoice: { input: CreateInvoiceInput; output: CreateInvoiceOutput };
   createJob: { input: CreateJobInput; output: CreateJobOutput };
+  createJobHoldNudgeRule: { input: CreateJobHoldNudgeRuleInput; output: CreateJobHoldNudgeRuleOutput };
   createJournalEntry: { input: CreateJournalEntryInput; output: CreateJournalEntryOutput };
   createKnowledgeNote: { input: CreateKnowledgeNoteInput; output: CreateKnowledgeNoteOutput };
   createLeadConnector: { input: CreateLeadConnectorInput; output: CreateLeadConnectorOutput };
@@ -35005,6 +35097,7 @@ export interface OperationTypes {
   deleteCustomRecord: { input: DeleteCustomRecordParams & DeleteCustomRecordInput; output: DeleteCustomRecordOutput };
   deleteImportMapping: { input: DeleteImportMappingParams & DeleteImportMappingInput; output: DeleteImportMappingOutput };
   deleteInvoice: { input: DeleteInvoiceParams & DeleteInvoiceInput; output: DeleteInvoiceOutput };
+  deleteJobHoldNudgeRule: { input: DeleteJobHoldNudgeRuleParams & DeleteJobHoldNudgeRuleInput; output: DeleteJobHoldNudgeRuleOutput };
   deleteLeadConnector: { input: DeleteLeadConnectorParams & DeleteLeadConnectorInput; output: DeleteLeadConnectorOutput };
   deleteMessageTemplate: { input: DeleteMessageTemplateParams & DeleteMessageTemplateInput; output: DeleteMessageTemplateOutput };
   deletePhoneMenu: { input: DeletePhoneMenuParams & DeletePhoneMenuInput; output: DeletePhoneMenuOutput };
@@ -35382,6 +35475,7 @@ export interface OperationTypes {
   listInvoices: { input: ListInvoicesInput; output: ListInvoicesOutput };
   listItemTax: { input: ListItemTaxInput; output: ListItemTaxOutput };
   listJobClocks: { input: ListJobClocksInput; output: ListJobClocksOutput };
+  listJobHoldNudgeRules: { input: ListJobHoldNudgeRulesInput; output: ListJobHoldNudgeRulesOutput };
   listJobHolds: { input: ListJobHoldsInput; output: ListJobHoldsOutput };
   listJobLines: { input: ListJobLinesInput; output: ListJobLinesOutput };
   listJobPartRequests: { input: ListJobPartRequestsInput; output: ListJobPartRequestsOutput };
@@ -35971,6 +36065,7 @@ export interface OperationTypes {
   updateHoliday: { input: UpdateHolidayParams & UpdateHolidayInput; output: UpdateHolidayOutput };
   updateInvoice: { input: UpdateInvoiceParams & UpdateInvoiceInput; output: UpdateInvoiceOutput };
   updateJob: { input: UpdateJobParams & UpdateJobInput; output: UpdateJobOutput };
+  updateJobHoldNudgeRule: { input: UpdateJobHoldNudgeRuleParams & UpdateJobHoldNudgeRuleInput; output: UpdateJobHoldNudgeRuleOutput };
   updateKnowledgeNote: { input: UpdateKnowledgeNoteParams & UpdateKnowledgeNoteInput; output: UpdateKnowledgeNoteOutput };
   updateLeadConnector: { input: UpdateLeadConnectorParams & UpdateLeadConnectorInput; output: UpdateLeadConnectorOutput };
   updateLocation: { input: UpdateLocationParams & UpdateLocationInput; output: UpdateLocationOutput };
@@ -36172,6 +36267,7 @@ export const OPERATIONS = {
   createIntakeDraft: { method: "POST", path: "/v1/ai/intake/drafts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   createInvoice: { method: "POST", path: "/v1/invoices", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   createJob: { method: "POST", path: "/v1/jobs", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  createJobHoldNudgeRule: { method: "POST", path: "/v1/job-hold-nudge-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   createJournalEntry: { method: "POST", path: "/v1/ledger/journal-entries", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post"] },
   createKnowledgeNote: { method: "POST", path: "/v1/knowledge-notes", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   createLeadConnector: { method: "POST", path: "/v1/lead-connectors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -36239,6 +36335,7 @@ export const OPERATIONS = {
   deleteCustomRecord: { method: "DELETE", path: "/v1/custom-records/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
   deleteImportMapping: { method: "DELETE", path: "/v1/import-mappings/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   deleteInvoice: { method: "DELETE", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
+  deleteJobHoldNudgeRule: { method: "DELETE", path: "/v1/job-hold-nudge-rules/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   deleteLeadConnector: { method: "DELETE", path: "/v1/lead-connectors/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   deleteMessageTemplate: { method: "DELETE", path: "/v1/message-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   deletePhoneMenu: { method: "DELETE", path: "/v1/phone-menus/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -36616,6 +36713,7 @@ export const OPERATIONS = {
   listInvoices: { method: "GET", path: "/v1/invoices", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","payerCustomerId","jobId","dueBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields","fieldMatch"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["invoice:read"] },
   listItemTax: { method: "GET", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listJobClocks: { method: "GET", path: "/v1/jobs/{id}/deadlines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  listJobHoldNudgeRules: { method: "GET", path: "/v1/job-hold-nudge-rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listJobHolds: { method: "GET", path: "/v1/jobs/{id}/holds", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobPartRequests: { method: "GET", path: "/v1/jobs/{id}/part-requests", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
@@ -37205,6 +37303,7 @@ export const OPERATIONS = {
   updateHoliday: { method: "PATCH", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   updateInvoice: { method: "PATCH", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   updateJob: { method: "PATCH", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  updateJobHoldNudgeRule: { method: "PATCH", path: "/v1/job-hold-nudge-rules/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateKnowledgeNote: { method: "PATCH", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   updateLeadConnector: { method: "PATCH", path: "/v1/lead-connectors/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   updateLocation: { method: "PATCH", path: "/v1/locations/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -38544,6 +38643,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Nudge differently for one reason a job is on hold, one branch, or both.
+   *
+   * POST /v1/job-hold-nudge-rules. Needs settings:write.
+   */
+  createJobHoldNudgeRule(input: CreateJobHoldNudgeRuleInput = {} as CreateJobHoldNudgeRuleInput, options?: CallOptions): Promise<CreateJobHoldNudgeRuleOutput> {
+    return this.call("createJobHoldNudgeRule", input, options);
+  }
+
+  /**
    * Post a manual journal entry.
    *
    * POST /v1/ledger/journal-entries. Needs ledger:post.
@@ -39144,6 +39252,15 @@ export abstract class GeneratedOperations {
    */
   deleteInvoice(input: DeleteInvoiceParams & DeleteInvoiceInput, options?: CallOptions): Promise<DeleteInvoiceOutput> {
     return this.call("deleteInvoice", input, options);
+  }
+
+  /**
+   * Take away a nudge rule.
+   *
+   * DELETE /v1/job-hold-nudge-rules/{id}. Needs settings:write.
+   */
+  deleteJobHoldNudgeRule(input: DeleteJobHoldNudgeRuleParams & DeleteJobHoldNudgeRuleInput, options?: CallOptions): Promise<DeleteJobHoldNudgeRuleOutput> {
+    return this.call("deleteJobHoldNudgeRule", input, options);
   }
 
   /**
@@ -42537,6 +42654,15 @@ export abstract class GeneratedOperations {
    */
   listJobClocks(input: ListJobClocksInput, options?: CallOptions): Promise<ListJobClocksOutput> {
     return this.call("listJobClocks", input, options);
+  }
+
+  /**
+   * The nudge for a job on hold, where it differs by reason or by branch.
+   *
+   * GET /v1/job-hold-nudge-rules. Needs settings:read.
+   */
+  listJobHoldNudgeRules(input: ListJobHoldNudgeRulesInput = {} as ListJobHoldNudgeRulesInput, options?: CallOptions): Promise<ListJobHoldNudgeRulesOutput> {
+    return this.call("listJobHoldNudgeRules", input, options);
   }
 
   /**
@@ -47838,6 +47964,15 @@ export abstract class GeneratedOperations {
    */
   updateJob(input: UpdateJobParams & UpdateJobInput, options?: CallOptions): Promise<UpdateJobOutput> {
     return this.call("updateJob", input, options);
+  }
+
+  /**
+   * Change a nudge rule.
+   *
+   * PATCH /v1/job-hold-nudge-rules/{id}. Needs settings:write.
+   */
+  updateJobHoldNudgeRule(input: UpdateJobHoldNudgeRuleParams & UpdateJobHoldNudgeRuleInput, options?: CallOptions): Promise<UpdateJobHoldNudgeRuleOutput> {
+    return this.call("updateJobHoldNudgeRule", input, options);
   }
 
   /**

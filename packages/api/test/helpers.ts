@@ -112,6 +112,8 @@ const ORDER = [
   "part_request",
   /** Why a job waited points at the job and at the order its part is on. */
   "job_hold",
+  /** A nudge rule points at the company and at a branch, and nothing points at it. */
+  "job_hold_nudge_rule",
   "visit", "entitlement", "job_party",
   /** The city's inspections of a permitted job point at the job and at the permit document. */
   "permit_inspection",

@@ -2205,18 +2205,32 @@ returns table (organization_id uuid)
     select o.id from public.organization o
      where o.suspended_at is null
        and o.demo_user_id is null
-       and jsonb_typeof(o.settings -> 'holdNudge' -> 'days') = 'number'
+       -- Somebody has asked for a nudge: the company's own days, or a rule for one reason or branch.
+       and (
+         jsonb_typeof(o.settings -> 'holdNudge' -> 'days') = 'number'
+         or exists (
+           select 1 from public.job_hold_nudge_rule r
+            where r.organization_id = o.id and jsonb_typeof(r.overrides -> 'days') = 'number'
+         )
+       )
        and exists (
          select 1 from public.job_hold h
           where h.organization_id = o.id and h.released_at is null
             and (
               h.nudged_at is null
-              -- A company that asked for the nudge to be raised again (settings.holdNudge.repeatDays):
-              -- a hold last nudged a whole day less than that ago may be due, by the company's calendar.
-              or (
-                jsonb_typeof(o.settings -> 'holdNudge' -> 'repeatDays') = 'number'
-                and h.nudged_at <= now() - (((o.settings -> 'holdNudge' ->> 'repeatDays')::numeric - 1) * interval '1 day')
-              )
+              -- A company that asked for the nudge to be raised again (settings.holdNudge.repeatDays, or
+              -- a rule's own repeatDays): a hold last nudged a whole day less than the shortest repeat
+              -- ago may be due, by the company's calendar.
+              or h.nudged_at <= now() - ((
+                select min(x.n) from (
+                  select (o.settings -> 'holdNudge' ->> 'repeatDays')::numeric as n
+                   where jsonb_typeof(o.settings -> 'holdNudge' -> 'repeatDays') = 'number'
+                  union all
+                  select (r.overrides ->> 'repeatDays')::numeric
+                    from public.job_hold_nudge_rule r
+                   where r.organization_id = o.id and jsonb_typeof(r.overrides -> 'repeatDays') = 'number'
+                ) x
+              ) - 1) * interval '1 day'
             )
        )
      limit p_limit

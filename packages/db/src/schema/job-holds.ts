@@ -1,7 +1,7 @@
-import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp, jsonb, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
-import { organization, technician, user } from "./tenancy";
+import { organization, technician, user, businessUnit } from "./tenancy";
 import { job, jobStatus, visit } from "./work";
 import { purchaseOrder } from "./inventory";
 import { task } from "./automation";
@@ -79,6 +79,55 @@ export const jobHold = pgTable("job_hold", {
    */
   openIdx: uniqueIndex("job_hold_open_idx").on(t.jobId).where(sql`${t.releasedAt} is null`),
   orderIdx: index("job_hold_order_idx").on(t.purchaseOrderId).where(sql`${t.purchaseOrderId} is not null`),
+}));
+
+/**
+ * A NUDGE THAT DIFFERS BY WHY THE JOB IS WAITING, OR BY BRANCH
+ *
+ * The company's own numbers (`organization.settings.holdNudge`) are the
+ * default for every hold. A rule here changes some of them for one reason, one
+ * branch, or one reason in one branch, and says nothing about the rest, which
+ * fall back to the company's. A job waiting on the weather is not a job waiting
+ * on a part.
+ *
+ * `overrides` holds only what this rule changes. A key that is missing means
+ * "as the company has it"; a key that is `null` means "none" (no nudge at
+ * all for `days`, no due date for `dueDays`, never again for `repeatDays`).
+ * `assign` is one unit, who the task goes to, with the person or the role it
+ * needs. It is validated in core (`work.holdNudgeOverridesProblem`), not by
+ * the database, like the settings it overrides.
+ *
+ * At least one of the reason and the branch is set: a rule for every reason in
+ * every branch is the company's own setting. One rule for each combination, so
+ * which one applies is never a guess. A rule is deleted for good when it is
+ * removed (the audit log keeps what it said).
+ */
+export const jobHoldNudgeRule = pgTable("job_hold_nudge_rule", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** Null: whatever the reason. */
+  reason: jobHoldReason("reason"),
+  /** Null: whatever the branch. A rule for a branch goes when the branch does. */
+  businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
+  overrides: jsonb("overrides").$type<Record<string, unknown>>().notNull().default({}),
+  createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: index("job_hold_nudge_rule_org_idx").on(t.organizationId),
+  /** A rule for every reason in every branch is the company's own setting, not a rule. */
+  reaches: check("job_hold_nudge_rule_reaches", sql`${t.reason} is not null or ${t.businessUnitId} is not null`),
+  /**
+   * One rule for each reason and branch, either of which may be "any". Three
+   * partial indexes, because a null does not clash with a null in a unique
+   * index and a cast of the enum cannot be indexed.
+   */
+  bothIdx: uniqueIndex("job_hold_nudge_rule_both_idx").on(t.organizationId, t.reason, t.businessUnitId)
+    .where(sql`${t.reason} is not null and ${t.businessUnitId} is not null`),
+  reasonIdx: uniqueIndex("job_hold_nudge_rule_reason_idx").on(t.organizationId, t.reason)
+    .where(sql`${t.reason} is not null and ${t.businessUnitId} is null`),
+  branchIdx: uniqueIndex("job_hold_nudge_rule_branch_idx").on(t.organizationId, t.businessUnitId)
+    .where(sql`${t.reason} is null and ${t.businessUnitId} is not null`),
 }));
 
 /**

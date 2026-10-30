@@ -19,6 +19,7 @@ import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { saveNoticeDefaults, setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
+import { HoldNudgeRules, holdAssignOptions } from "./HoldNudgeRules";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,7 @@ export default async function SettingsPage() {
   const holdNudge = writes ? await jobHolds.nudgeSetting(ctx) : null;
   /** Who the nudge can be given to: the people who work here, named by somebody who may open tasks. */
   const holdPeople = holdNudge && can(user.actor, "task:read") ? await taskRules.assignable(ctx) : [];
+  const holdRules = holdNudge ? (await jobHolds.listRules(ctx)).data : [];
   const keeping = writes ? await noticeUpkeep.keeping(ctx) : null;
   const noticeStart = writes ? await noticeDefaults.defaults(ctx) : null;
 
@@ -157,16 +159,18 @@ export default async function SettingsPage() {
                          defaultValue={holdNudge.repeatDays === null ? "" : String(holdNudge.repeatDays)} className="block w-48" />
             </div>
             <Select label="Who gets the task" name="assignTo" className="block max-w-md"
-                    defaultValue={holdNudge.assignTo === "person" && holdNudge.assigneeUserId ? `person:${holdNudge.assigneeUserId}` : holdNudge.assignTo}
+                    defaultValue={holdNudge.assignTo === "person" && holdNudge.assigneeUserId ? `person:${holdNudge.assigneeUserId}`
+                      : holdNudge.assignTo === "role" && holdNudge.assigneeRole ? `role:${holdNudge.assigneeRole}` : holdNudge.assignTo}
                     options={[
-                      { value: "nobody", label: "Nobody in particular (the office queue)" },
-                      { value: "placed_by", label: "Whoever put the job on hold" },
-                      ...holdPeople.map((p) => ({ value: `person:${p.userId}`, label: p.name })),
+                      ...holdAssignOptions(holdPeople),
                       ...(holdNudge.assignTo === "person" && holdNudge.assigneeUserId && !holdPeople.some((p) => p.userId === holdNudge.assigneeUserId)
                         ? [{ value: `person:${holdNudge.assigneeUserId}`, label: holdNudge.assigneeName ?? "Somebody who has left" }] : []),
                     ]} />
           </ActionForm>
         </section>
+      )}
+      {holdNudge && (
+        <HoldNudgeRules rules={holdRules.map((r) => ({ id: r.id, summary: r.summary }))} branches={data.branches} people={holdPeople} />
       )}
 
       {/*
