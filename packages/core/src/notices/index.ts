@@ -42,6 +42,7 @@ export const NOTICE_KINDS = [
   "task_deadline",
   "visit_change_requested",
   "autopay_failed",
+  "customer_file",
 ] as const;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 
@@ -89,6 +90,10 @@ export const NOTICE_KIND_WORDS: Record<NoticeKind, { label: string; description:
   autopay_failed: {
     label: "An automatic payment that failed",
     description: "A customer's saved card was charged for an invoice and the payment did not go through.",
+  },
+  customer_file: {
+    label: "A photo or file from a customer",
+    description: "A customer sent photos or a PDF to a job you are on. Once a day for each job.",
   },
 };
 
@@ -531,6 +536,8 @@ export function keepReadProblem(days: number | null): string | null {
 export function raisedAgainWithinDays(kind: string): number {
   if (kind === "qualification_expiry") return MAX_EXPIRY_NOTICE_DAYS + EXPIRY_LATE_DAYS + 2;
   if (kind === "talk_unsigned") return TALK_NUDGE_WITHIN_DAYS + 2;
+  /** Keyed on the job and the company's day, so one removed after that day cannot be raised again by it. */
+  if (kind === "customer_file") return 2;
   return 0;
 }
 

@@ -4,7 +4,7 @@ import { Uuid, MoneyString, RateString, PageRequest, pageOf, Timestamps } from "
 
 export const OperationKind = z.enum([
   "visit.en_route", "visit.arrive", "visit.start", "visit.complete",
-  "visit.pause", "visit.note",
+  "visit.pause", "visit.note", "visit.call_off",
   "timeclock.punch_in", "timeclock.punch_out",
   "service_report.set_field", "service_report.submit", "visit.checklist_item",
   "visit.add_line", "equipment.record",
@@ -20,6 +20,7 @@ export const OperationKind = z.enum([
   "notice.read",
   "truck.water",
   "haul.time",
+  "part.request",
 ]);
 
 export const OperationStatus = z.enum([
@@ -394,6 +395,18 @@ export const VisitForField = z.object({
     contentType: z.string().nullable(),
     storageKey: z.string(),
     addedAt: z.string().datetime(),
+  })).optional(),
+  /**
+   * The parts asked for on this visit's job from the field (`part.request`), oldest first, in the
+   * technician's words, with whether the office has put the job on hold for each yet. Never the
+   * order. Absent from older servers.
+   */
+  partsAsked: z.array(z.object({
+    id: Uuid,
+    part: z.string(),
+    note: z.string().nullable(),
+    requestedAt: z.string().datetime(),
+    held: z.boolean(),
   })).optional(),
   /**
    * The office's notes on this customer that were marked for the field (M03), pinned ones first and then

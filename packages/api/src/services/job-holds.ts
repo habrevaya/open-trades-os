@@ -109,7 +109,11 @@ export function holdsOf(ctx: ServiceContext, input: { id: string }) {
  */
 export function place(
   ctx: ServiceContext,
-  input: { id: string; reason: work.HoldReason; purchaseOrderId?: string | undefined; note?: string | undefined },
+  input: {
+    id: string; reason: work.HoldReason; purchaseOrderId?: string | undefined; note?: string | undefined;
+    /** The part a technician asked for from the field, which this hold answers. */
+    partRequestId?: string | undefined;
+  },
 ) {
   return guardedWrite(ctx, "job:write", async (tx) => {
     const again = await replayed<{ data: HoldView[] }>(tx, ctx, "job_hold");
@@ -118,6 +122,20 @@ export function place(
     const job = await loadJob(tx, ctx, input.id);
     const refusal = work.holdRefusal(input);
     if (refusal) throw new ConflictError(refusal);
+
+    /**
+     * A HOLD PLACED FROM A PART ASKED FOR IN THE FIELD. Only a part hold, on the
+     * job the request is about, and once: a request already answered names its
+     * hold, and a second hold for it would be the same part twice.
+     */
+    const request = input.partRequestId
+      ? (await tx.select().from(schema.partRequest).where(eq(schema.partRequest.id, input.partRequestId)).limit(1))[0]
+      : undefined;
+    if (input.partRequestId) {
+      if (!request || request.jobId !== job.id) throw new NotFoundError("Part request");
+      if (input.reason !== "part") throw new ConflictError("A part asked for from the field is held for as a part, on the order it is on.");
+      if (request.holdId) throw new ConflictError("The job has already been put on hold for that part.");
+    }
 
     const [open] = await tx.select({ id: schema.jobHold.id, reason: schema.jobHold.reason })
       .from(schema.jobHold)
@@ -178,11 +196,38 @@ export function place(
       });
     }
     await audit(tx, ctx, "job.held", "job_hold", hold!.id, null, hold!);
+    if (request) await answerRequest(tx, ctx, request, hold!);
 
     const answer = { data: await viewsOf(tx, input.id) };
     await remember(tx, ctx, "job_hold", hold!.id, answer);
     return answer;
   });
+}
+
+/**
+ * The part request a hold was placed from: linked to the hold, and its task
+ * finished saying which order, unless somebody already closed it. Inside the
+ * hold's transaction, so the two cannot disagree.
+ */
+async function answerRequest(
+  tx: Database, ctx: ServiceContext, request: typeof schema.partRequest.$inferSelect, hold: typeof schema.jobHold.$inferSelect,
+): Promise<void> {
+  const now = new Date();
+  await tx.update(schema.partRequest).set({ holdId: hold.id, updatedAt: now }).where(eq(schema.partRequest.id, request.id));
+  const [order] = hold.purchaseOrderId
+    ? await tx.select({ number: schema.purchaseOrder.number }).from(schema.purchaseOrder)
+      .where(eq(schema.purchaseOrder.id, hold.purchaseOrderId)).limit(1)
+    : [];
+  if (request.taskId) {
+    await tx.update(schema.task).set({
+      status: "done",
+      outcome: order ? `The job is on hold for the part on purchase order ${order.number}.` : "The job is on hold for the part.",
+      completedAt: now,
+      completedByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
+      updatedAt: now,
+    }).where(and(eq(schema.task.id, request.taskId), inArray(schema.task.status, ["open", "in_progress"])));
+  }
+  await audit(tx, ctx, "part_request.held", "part_request", request.id, { holdId: null }, { holdId: hold.id, purchaseOrderId: hold.purchaseOrderId });
 }
 
 /**

@@ -8,7 +8,7 @@ import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
   NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking, expenses, plugins,
-  jobHolds, inventory,
+  jobHolds, inventory, partRequests, customerUploads,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -217,6 +217,10 @@ export default async function JobPage({ params, searchParams }: {
    * orders, newest first, for somebody who reads purchasing.
    */
   const holds = (await jobHolds.holdsOf(ctx, { id })).data;
+  /** Parts a technician asked for from the field, each with the task it raised and the hold placed for it. */
+  const partsAsked = (await partRequests.forJob(ctx, { id })).data;
+  /** Photos and PDFs the customer sent that nobody here has opened yet, said at the top until somebody does. */
+  const unopenedFromCustomer = can(user.actor, "document:read") ? await customerUploads.unopenedOnJob(ctx, { jobId: id }) : 0;
   const mayNameOrder = writes && can(user.actor, "po:read");
   const orderChoices = mayNameOrder
     ? (await inventory.purchaseOrders(ctx))
@@ -244,6 +248,12 @@ export default async function JobPage({ params, searchParams }: {
           {label(JOB_STATUS, job.status)}
         </Chip>
       </div>
+      {unopenedFromCustomer > 0 ? (
+        <p role="status" className="mt-3 rounded-md border border-amber-700 bg-amber-tint px-3 py-2 text-sm text-amber-700">
+          The customer sent {unopenedFromCustomer === 1 ? "a new file" : `${unopenedFromCustomer} new files`} from their account.{" "}
+          <a href="#files" className="font-medium underline underline-offset-4">Open {unopenedFromCustomer === 1 ? "it" : "them"} under Files</a>.
+        </p>
+      ) : null}
       {/*
         The work order as a PDF: the office's copy with prices, and the copy
         for the van without them. Downloads under the job's own permission
@@ -580,6 +590,29 @@ export default async function JobPage({ params, searchParams }: {
         <p className="mt-4 text-sm">
           <span className="font-medium">On hold:</span> {holds.find((h) => h.releasedAt === null)!.reasonLabel}
         </p>
+      ) : null}
+      {partsAsked.length > 0 ? (
+        <section aria-label="Parts asked for from the field" className="mt-6">
+          <h2 className="text-base font-semibold">Parts asked for from the field</h2>
+          <ul className="mt-2 divide-y divide-steel-200 rounded-md border border-steel-200 text-sm">
+            {partsAsked.map((a) => (
+              <li key={a.id} className="bg-canvas px-4 py-2">
+                <span className="font-medium">{a.part}</span>
+                <span className="text-ink-500">
+                  {a.requestedBy ? `, by ${a.requestedBy}` : ""}, {formatIn(a.requestedAt, user.organizationTimezone)}
+                </span>
+                {a.note ? <span className="block text-ink-700">{a.note}</span> : null}
+                <span className="block text-ink-700">
+                  {a.holdId
+                    ? `On hold for it${a.purchaseOrderNumber !== null ? `, purchase order ${a.purchaseOrderNumber}` : ""}.`
+                    : a.taskId
+                      ? <>Not ordered yet. <a href={`/tasks/${a.taskId}`} className="underline underline-offset-4">Open the task</a> to put the job on hold for it.</>
+                      : "Not ordered yet."}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
       {writes && (
         <CancelJob action={setJobStatus} jobId={id} status={job.status}

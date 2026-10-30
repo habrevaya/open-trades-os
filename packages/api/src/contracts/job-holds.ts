@@ -59,8 +59,46 @@ export const placeJobHold = defineRoute({
     reason: HoldReason,
     purchaseOrderId: Uuid.optional(),
     note: z.string().max(2000).optional(),
+    /**
+     * The part a technician asked for from the field (`GET /v1/jobs/{id}/part-requests`) that this
+     * hold answers. Only with `reason: "part"`, once per request: the request names the hold and
+     * the office task it raised is finished.
+     */
+    partRequestId: Uuid.optional(),
   }),
   output: Holds,
+});
+
+export const PartRequest = z.object({
+  id: Uuid,
+  jobId: Uuid,
+  visitId: Uuid.nullable(),
+  /** The part in the technician's words. */
+  part: z.string(),
+  note: z.string().nullable(),
+  requestedAt: z.string().datetime(),
+  /** Who asked, by their name on the team. */
+  requestedBy: z.string().nullable(),
+  /** The office task it raised, and that task's status. */
+  taskId: Uuid.nullable(),
+  taskStatus: z.string().nullable(),
+  /** The hold the office placed from it. Null until then. */
+  holdId: Uuid.nullable(),
+  /** The order the hold names. Null before a hold, and for a reader without `po:read`. */
+  purchaseOrderId: Uuid.nullable(),
+  purchaseOrderNumber: z.number().int().nullable(),
+});
+
+export const listJobPartRequests = defineRoute({
+  method: "get",
+  path: "/v1/jobs/{id}/part-requests",
+  summary: "Parts a technician asked for from the field",
+  description:
+    "Every part asked for on the job from the phone (`part.request` in the field queue), oldest first, each with the office task it raised and, once the office put the job on hold for it, the hold and the order. A technician never places a hold; the office does, from the task, with `partRequestId` on `POST /v1/jobs/{id}/holds`.",
+  module: "M10",
+  permissions: ["job:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({ data: z.array(PartRequest) }),
 });
 
 export const releaseJobHold = defineRoute({
@@ -104,4 +142,4 @@ export const setJobHoldNudge = defineRoute({
   output: HoldNudge,
 });
 
-export const jobHoldRoutes = { listJobHolds, placeJobHold, releaseJobHold, getJobHoldNudge, setJobHoldNudge } as const;
+export const jobHoldRoutes = { listJobHolds, placeJobHold, releaseJobHold, getJobHoldNudge, setJobHoldNudge, listJobPartRequests } as const;

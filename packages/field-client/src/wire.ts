@@ -91,6 +91,21 @@ export interface FieldVisit {
    * first, at most twenty. Read only on the phone. Absent from older servers.
    */
   customerNotes?: FieldCustomerNote[] | undefined;
+  /**
+   * The parts asked for on this visit's job from the field, oldest first, with whether the office has put the
+   * job on hold for each yet. Absent from older servers.
+   */
+  partsAsked?: FieldPartAsked[] | undefined;
+}
+
+export interface FieldPartAsked {
+  id: string;
+  /** The part in the technician's words. */
+  part: string;
+  note: string | null;
+  requestedAt: string;
+  /** The office has put the job on hold for it, against the order the part is on. */
+  held: boolean;
 }
 
 export interface FieldCustomerNote {

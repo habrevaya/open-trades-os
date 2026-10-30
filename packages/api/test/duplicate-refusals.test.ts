@@ -178,6 +178,7 @@ const REFUSED: Record<string, Refused> = {
  * the symptom of something much worse than a typo.
  */
 const LEFT_TO_THE_DATABASE: Record<string, string> = {
+  customer_upload_day_job_day_idx: "The claim on a job's day of customer files: written with on conflict do nothing when a customer sends a file, under the job's lock, so a second file that day finds it and adds to its count. Nobody types one.",
   connected_app_claim_idx: "A claim secret is random and the app's own; a retry with the same one is read first and answered with the first request, and the insert is on conflict do nothing for two retries racing.",
   import_mapping_name_idx: "Written with on conflict do update: saving a mapping under a name it already has replaces it, which is what the screen says it does.",
   import_row_number_idx: "A row's place in its file, numbered by the upload that wrote every row at once. Nobody types one.",

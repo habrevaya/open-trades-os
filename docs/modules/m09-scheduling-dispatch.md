@@ -321,6 +321,28 @@ nothing guesses a reason from notes, and an integration that cancelled before
 reasons existed keeps working. A visit brought in from history does not carry
 one.
 
+**A team turned away at the door calls the visit off from the field.** "Call off
+this visit", folded under the visit on `/my-day` and on the phone app's visit
+screen, asks who called it off with no default: "The customer turned us away"
+(the customer's cancellation, with what they said kept in the visit's notes as
+"Turned away at the door: ...", because a customer's is never given a reason),
+or "We called it off" with one of the office's own four reasons (rain or
+weather, crew short, equipment, or something else, which asks for words). It
+goes into the phone's queue as `visit.call_off` (M11), kept with no signal, and
+when it arrives the moment it was pressed is when they asked. It lands through
+the office's own call off (`callOffWithin` in `visit-cancellations.ts`): the
+same columns on the visit (who, when, the notice window frozen), the same
+reason, the same people told not to go, the same request of the customer's
+closed, the same `visit.called_off` audit entry (by the person at the door, with
+`from: "phone"` where the office's says `"office"`), so the visit's page and the
+cancellation rate cannot tell the two apart. It needs only `field:sync`, as
+marking a visit done does, and is accepted only for a visit on that person's own
+day (on it themselves or through their crew, on the company's date it was
+pressed) that nobody has started; anything else is refused in words ("That
+visit is not on your day today, so it cannot be called off from your phone.
+Ring the office."), and one the office cancelled meanwhile is refused as already
+cancelled, keeping the office's.
+
 **Crew work is not unassigned.** A visit sent to a crew is on the crew, not on
 anybody's assignment list, and the board used to put it in the unassigned pile
 where a dispatcher would give it to somebody else. A visit carries a crew or
@@ -659,9 +681,11 @@ manager.
 
 ## What is not built
 
-A visit is not called off from the phone: a team turned away at the door rings
-the office, which records it with the time they were turned away, as the
-customer's. Why the company called a day off is coded from now on, and a
+From the field a visit is called off only by someone on it, on the company day
+it was pressed, before anybody started it: a visit on another day, on somebody
+else's day, or being worked is the office's, on its own page. The phone records
+the moment it was pressed as when they asked; a customer who rang earlier to say
+do not come is the office's to record with that time. Why the company called a day off is coded from now on, and a
 company cancellation from before that, from an API caller that gave none, or
 brought in from history, stays "no reason given": the API does not insist on a
 reason, so an integration written before it keeps working, and only the screens

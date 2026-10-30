@@ -1,4 +1,4 @@
-import type { DayReportField, PriceBookEntry } from "@opentradesos/field-client";
+import type { DayPartAsked, DayReportField, PriceBookEntry } from "@opentradesos/field-client";
 
 /**
  * THE WORK RECORDED ON A VISIT, WITHOUT THE SCREEN
@@ -50,4 +50,16 @@ export function withFocus<T extends { id: string }>(
 ): { focused: T | null; rest: T[]; missing: boolean } {
   const focused = taskId ? tasks.find((t) => t.id === taskId) ?? null : null;
   return { focused, rest: tasks.filter((t) => t !== focused), missing: taskId !== null && focused === null };
+}
+
+/**
+ * A part asked for on the job, as the visit screen lists it: the words, then
+ * where it is. "Waiting to send" while it is still on the phone, then with the
+ * office until the office has put the job on hold for it against the order.
+ */
+export function partAskedLine(asked: Pick<DayPartAsked, "part" | "held" | "waiting">): string {
+  const where = asked.waiting ? "waiting to send"
+    : asked.held ? "ordered, and the job is on hold for it"
+    : "with the office";
+  return `${asked.part}: ${where}`;
 }

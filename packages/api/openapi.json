@@ -67378,6 +67378,115 @@
         ]
       }
     },
+    "/v1/jobs/{id}/part-requests": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listJobPartRequests",
+        "summary": "Parts a technician asked for from the field",
+        "description": "Every part asked for on the job from the phone (`part.request` in the field queue), oldest first, each with the office task it raised and, once the office put the job on hold for it, the hold and the order. A technician never places a hold; the office does, from the task, with `partRequestId` on `POST /v1/jobs/{id}/holds`.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M10"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Parts a technician asked for from the field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListJobPartRequestsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      }
+    },
     "/v1/jobs/{id}/parties": {
       "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -195862,6 +195971,41 @@
                     ]
                   }
                 },
+                "partsAsked": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "part": {
+                        "type": "string"
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "requestedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "held": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "part",
+                      "note",
+                      "requestedAt",
+                      "held"
+                    ]
+                  }
+                },
                 "customerNotes": {
                   "type": "array",
                   "items": {
@@ -204077,7 +204221,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -205467,7 +205612,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -225183,6 +225329,7 @@
                     "visit.complete",
                     "visit.pause",
                     "visit.note",
+                    "visit.call_off",
                     "timeclock.punch_in",
                     "timeclock.punch_out",
                     "service_report.set_field",
@@ -225206,7 +225353,8 @@
                     "expense.record",
                     "notice.read",
                     "truck.water",
-                    "haul.time"
+                    "haul.time",
+                    "part.request"
                   ]
                 },
                 "subjectId": {
@@ -232876,6 +233024,103 @@
                 "invoiceLineId",
                 "nonBillableReason",
                 "occurredAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ListJobPartRequestsOutput": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "visitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "part": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "requestedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "requestedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "taskId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "taskStatus": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "holdId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "purchaseOrderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "purchaseOrderNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "jobId",
+                "visitId",
+                "part",
+                "note",
+                "requestedAt",
+                "requestedBy",
+                "taskId",
+                "taskStatus",
+                "holdId",
+                "purchaseOrderId",
+                "purchaseOrderNumber"
               ]
             }
           }
@@ -252812,6 +253057,10 @@
           "note": {
             "type": "string",
             "maxLength": 2000
+          },
+          "partRequestId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
@@ -279615,7 +279864,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -279745,7 +279995,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "email": {
@@ -279760,7 +280011,7 @@
               ]
             },
             "minItems": 1,
-            "maxItems": 10
+            "maxItems": 11
           }
         },
         "required": [
@@ -279796,7 +280047,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -279947,7 +280199,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -280199,7 +280452,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "inApp": {
@@ -280219,7 +280473,7 @@
               ]
             },
             "minItems": 1,
-            "maxItems": 10
+            "maxItems": 11
           }
         },
         "required": [
@@ -280246,7 +280500,8 @@
                     "qualification_expiry",
                     "task_deadline",
                     "visit_change_requested",
-                    "autopay_failed"
+                    "autopay_failed",
+                    "customer_file"
                   ]
                 },
                 "label": {
@@ -288079,6 +288334,7 @@
                     "visit.complete",
                     "visit.pause",
                     "visit.note",
+                    "visit.call_off",
                     "timeclock.punch_in",
                     "timeclock.punch_out",
                     "service_report.set_field",
@@ -288102,7 +288358,8 @@
                     "expense.record",
                     "notice.read",
                     "truck.water",
-                    "haul.time"
+                    "haul.time",
+                    "part.request"
                   ]
                 },
                 "subjectId": {

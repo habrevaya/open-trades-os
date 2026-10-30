@@ -7,6 +7,7 @@ import {
   audit, guardedRead, guardedWrite, inTenant, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { invoiceScopeFilter, jobScopeFilter } from "./scope";
+import { sideOf } from "./visit-notices";
 import { memberActor } from "./session";
 import * as scoped from "./people-scope";
 import { quietHoursFor } from "./comms-send";
@@ -73,11 +74,12 @@ export type About =
   | { type: "person_certification"; id: string }
   | { type: "technician_skill"; id: string }
   | { type: "visit_change_request"; id: string }
-  | { type: "invoice"; id: string };
+  | { type: "invoice"; id: string }
+  | { type: "visit"; id: string };
 
 const ABOUT_TYPES = new Set<About["type"]>([
   "task", "purchase_order", "connected_app", "safety_meeting", "expense", "person_certification", "technician_skill",
-  "visit_change_request", "invoice",
+  "visit_change_request", "invoice", "visit",
 ]);
 
 /**
@@ -173,6 +175,26 @@ export async function openFor(tx: Database, actor: Actor, about: About): Promise
           invoiceScopeFilter(scopeOf({ actor, db: tx }, "invoice"), actor),
         )).limit(1);
       return row ? `/invoices/${row.id}` : null;
+    }
+    case "visit": {
+      /**
+       * Their own visit, on their own day: in person or through their crew, opened
+       * where they work it. Anybody else who reads visits opens its page, inside
+       * their scope of jobs.
+       */
+      const [visit] = await tx.select({ id: schema.visit.id, jobId: schema.visit.jobId, windowStart: schema.visit.windowStart })
+        .from(schema.visit).where(eq(schema.visit.id, about.id)).limit(1);
+      if (!visit) return null;
+      if (actor.technicianId && can(actor, "field:sync")
+        && ((await sideOf(tx, visit.id))?.technicianIds ?? []).includes(actor.technicianId)) {
+        const zone = await timezoneOf(tx, actor.organizationId);
+        return visit.windowStart ? `/my-day?date=${time.dateIn(visit.windowStart, zone)}` : "/my-day";
+      }
+      if (!can(actor, "visit:read") || !can(actor, "job:read")) return null;
+      const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+        .where(and(eq(schema.job.id, visit.jobId), isNull(schema.job.deletedAt), jobScopeFilter(scopeOf({ actor, db: tx }, "job"), actor)))
+        .limit(1);
+      return job ? `/visits/${visit.id}` : null;
     }
     default: {
       const unhandled: never = about;

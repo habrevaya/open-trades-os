@@ -103,6 +103,10 @@ const ORDER = [
   "custom_object_record",
   "service_report_field", "service_report", "visit_asset", "visit_assignment",
   "job_line",
+  /** A job's day of customer files points at the job and the task it raised. */
+  "customer_upload_day",
+  /** A part asked for from the field points at the hold placed from it, the job, the visit and the task. */
+  "part_request",
   /** Why a job waited points at the job and at the order its part is on. */
   "job_hold",
   "visit", "entitlement", "job_party",

@@ -222,6 +222,33 @@ nudges the holds already past the number on the next pass; tasks already raised
 stay where they are when it is turned off. The audit log has `job.hold_nudged`
 and `organization.hold_nudge_set`.
 
+**A technician asks for a part from the field; the office places the hold.**
+"Ask the office for a part" under the visit, on `/my-day` and on the phone app's
+visit screen, takes the part in the technician's own words ("condenser fan
+motor, 1/4 hp") and anything else they want to say (the model on the plate, how
+soon). It goes into the phone's queue as `part.request` (M11), kept with no
+signal, with an id made on the phone so a request sent twice is written once.
+It needs only `field:sync`, from a visit the person is on (in person or through
+their crew), on a job that is not cancelled, and is refused in words otherwise.
+It raises one office task, in the office queue and in nobody's name: "Part needed
+for job 1042: condenser fan motor, 1/4 hp", saying who asked, at which customer
+and address, what they said, and what to do. The phone never places a hold: a
+hold names the purchase order, which is the office's to know. The task's own
+page (`/tasks/{id}`) shows the part and, for somebody who may change the job and
+read purchase orders, "Put the job on hold for this part" with the company's
+open orders to choose from and the part as the note; it places the hold through
+the same service as the job page (`partRequestId` on `POST /v1/jobs/{id}/holds`,
+a part hold only, once per request, on the request's own job), links the hold
+to the request and finishes the task ("The job is on hold for the part on
+purchase order 88."). The job's page lists "Parts asked for from the field"
+with who asked, when, and whether the job is on hold for each, with the task
+linked while it is not; `GET /v1/jobs/{id}/part-requests` (`job:read`) is the
+same list, the order only for a reader with `po:read`. The phone's day carries
+each job's requests with whether the office has held the job for them
+(`partsAsked`), so the technician sees "with the office" and then "ordered, and
+the job is on hold for it". The audit log has `part.requested` and
+`part_request.held`.
+
 **The dispatch board says why a job is on hold.** A card whose job is on hold
 (a visit booked before the job was held stays on the board) carries, under the
 customer and the summary, "On hold 3 days. Waiting on a part: condenser fan
@@ -394,6 +421,7 @@ because a technician may finish work and may not re-describe it.
 | `POST /v1/job-lines/{id}/haul` | `job:write` |
 | `GET /v1/jobs/{id}/holds` | `job:read` |
 | `POST /v1/jobs/{id}/holds` | `job:write`, and `po:read` to name a purchase order |
+| `GET /v1/jobs/{id}/part-requests` | `job:read` (the order named only with `po:read`) |
 | `POST /v1/job-holds/{id}/released` | `job:write` |
 | `GET /v1/job-hold-nudge` | `settings:read` |
 | `PATCH /v1/job-hold-nudge` | `settings:write` |
@@ -447,8 +475,14 @@ cancels jobs today keeps its behaviour, and one that does not send
 way to is never cancelled with the job: the office rings them, or calls off
 that visit from its own page.
 
-A hold is placed by the office, never from the phone: a technician who needs a
-part says so to whoever orders it, and that person names the order. A part
+A hold is placed by the office, never from the phone: a technician asks for a
+part from the field and the office places the hold from the task it raised,
+naming the order. A request is answered by one hold; a part asked for that the
+office decides not to order is closed by dismissing its task, and the request
+stays on the job as asked and never held. A request is not tied to a line on
+the order: the office names the order, not which of its lines is the part. A
+technician cannot take a request back from the phone; they ring the office,
+which dismisses the task. A part
 held for without an order in this product (bought over the counter, say) can
 be held for "something else" with words, but it is not "held for a part
 order", so the first time fix rate counts it. A hold names one order; a job

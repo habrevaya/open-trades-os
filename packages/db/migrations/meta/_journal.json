@@ -1142,6 +1142,13 @@
       "when": 1793331329765,
       "tag": "0162_next_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1793363372454,
+      "tag": "0163_zippy_impossible_man",
+      "breakpoints": true
     }
   ]
 }

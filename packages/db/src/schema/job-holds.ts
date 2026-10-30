@@ -1,8 +1,8 @@
 import { pgTable, pgEnum, uuid, text, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
-import { organization, user } from "./tenancy";
-import { job, jobStatus } from "./work";
+import { organization, technician, user } from "./tenancy";
+import { job, jobStatus, visit } from "./work";
 import { purchaseOrder } from "./inventory";
 import { task } from "./automation";
 
@@ -72,4 +72,42 @@ export const jobHold = pgTable("job_hold", {
    */
   openIdx: uniqueIndex("job_hold_open_idx").on(t.jobId).where(sql`${t.releasedAt} is null`),
   orderIdx: index("job_hold_order_idx").on(t.purchaseOrderId).where(sql`${t.purchaseOrderId} is not null`),
+}));
+
+/**
+ * A PART ASKED FOR FROM THE FIELD
+ *
+ * The technician at the unit knows what part it needs; the office knows what
+ * it is on. A hold names a purchase order, and a phone has no business naming
+ * one, so a technician never places a hold. They say what part they need, in
+ * their own words, from the phone (`part.request` in the field queue), and that
+ * raises an office task naming the job, the part and who asked. Whoever orders
+ * it places the real hold against the purchase order from that task, which
+ * closes the task and links the hold here.
+ *
+ * The id is made on the phone, like every record the phone writes offline, so
+ * a request sent twice is written once.
+ */
+export const partRequest = pgTable("part_request", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id").notNull().references(() => job.id, { onDelete: "cascade" }),
+  /** The visit they were on when they asked. Kept if the visit is later removed, as a request about the job. */
+  visitId: uuid("visit_id").references(() => visit.id, { onDelete: "set null" }),
+  technicianId: uuid("technician_id").references(() => technician.id, { onDelete: "set null" }),
+  requestedByUserId: uuid("requested_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  /** The part, in the technician's words: "condenser fan motor, 1/4 hp, 1075 rpm". */
+  part: text("part").notNull(),
+  /** Anything else they said: the model on the plate, how soon. */
+  note: text("note"),
+  /** When they asked, by the phone's clock as the sync resolved it. */
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+  /** The office task it raised. */
+  taskId: uuid("task_id").references(() => task.id, { onDelete: "set null" }),
+  /** The hold the office placed from it, against the order the part is on. Null until then. */
+  holdId: uuid("hold_id").references(() => jobHold.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  jobIdx: index("part_request_job_idx").on(t.organizationId, t.jobId),
+  taskIdx: index("part_request_task_idx").on(t.taskId).where(sql`${t.taskId} is not null`),
 }));

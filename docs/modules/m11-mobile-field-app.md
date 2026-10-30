@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Thirty operation kinds and the
-list is closed (the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Thirty two operation kinds and the
+list is closed (`visit.call_off` is a visit called off from the door and `part.request` a part asked of the office, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -239,6 +239,39 @@ component; a PDF cannot be, because the phone's PDF reader is another app and
 cannot be handed a header, so it is downloaded with the header into the app's cache and
 offered to the share sheet, and that cache is emptied when the person signs out.
 Both need a signal, and the screen says so under the thumbnails when a photograph will not load.
+
+### Calling a visit off from the door
+
+A team turned away at the door, or sent home by rain, calls the visit off on
+the phone: "Call off this visit" on the visit screen (on `/my-day`, folded
+under the visit's card), offered only for a visit on today's day that nobody
+has started. It asks who called it off with no default: "The customer turned us
+away", with what they said if anything, or "We called it off" with the office's
+reasons (rain or weather, crew short, equipment, something else with words).
+The phone asks once more before it goes. It is `visit.call_off`, a transition:
+allowed from unassigned, scheduled, dispatched and on the way (which is where a
+visit is while the team stands at the door), and refused from anything else,
+so a visit the office already cancelled keeps the office's cancellation and the
+phone says "The office had cancelled it". The visit leaves the day as
+cancelled the moment it is pressed, with no signal. The server lands it as the
+office's call off lands (M09): the same columns, the same audit entry and the
+same figures. The choices and the checks are in `packages/field-client`
+(`CALL_OFF_CHOICES`, `checkCallOff`, `canCallOff`, `recordCallOff`), the four
+company reasons held to core's list by a test.
+
+### Asking the office for a part
+
+"Ask the office for a part" on the visit screen (and under the visit on
+`/my-day`) takes the part in the technician's own words and an optional note,
+checked on the phone as the server checks them (`checkPartRequest`: up to 300
+characters for the part, 1,000 for the note). It is `part.request`, an append:
+its id is made on the phone, so a retry writes it once, and nothing the office
+did meanwhile contradicts a request. The server raises one office task naming
+the job, the part and who asked (M10); the phone never places a hold. The
+visit lists the parts asked for on its job, "waiting to send" while still on
+the phone, then "with the office", then "ordered, and the job is on hold for
+it" once the office has placed the hold against the order (`partsAsked` on the
+day).
 
 ### Money on site
 
@@ -525,7 +558,7 @@ Expo project and set `EXPO_ACCESS_TOKEN` for the worker.
 The same phones get the notices the product sends a person about their own work
 (M34): a task given to them, a late task, an order waiting for their approval, a
 toolbox talk they have not signed, their expense answered, their licence running
-out. The worker sends them through the same push service, to every phone the
+out, a photo or a PDF a customer sent to a job they are on. The worker sends them through the same push service, to every phone the
 person is signed in on, each kind only when they left "Phone app" ticked for it
 on `/me`. Inside the company's quiet hours they go without a sound; none of them
 is work starting that night, so none rings. Each is a row of its own
@@ -541,7 +574,9 @@ kind and id of the record it is about and the page the bell would open
 the words are the title and body the lock screen already shows, and a record is an
 opaque id. A notice about a task opens the Tasks screen with that task first, to
 take, tick and finish; one about a toolbox talk opens the talks to sign, and one about
-the person's expense opens "Money I spent". Any other kind (an order waiting, an app
+the person's expense opens "Money I spent", and one about a customer's photo or PDF
+(`about: { type: "visit" }`) opens that visit, where it is under "From the customer".
+Any other kind (an order waiting, an app
 asking, a licence running out) opens the notice's page in the phone's browser, on the
 company's own server: the phone only ever follows a path on that server, never an
 address a notice carries. A task the phone does not hold yet (given a moment ago) is
@@ -773,7 +808,7 @@ regulated.
 
 | Role | Access |
 |---|---|
-| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`) |
+| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`); with `field:sync` alone, calls off a visit on their own day that nobody has started (`visit.call_off`), where the office needs `visit:reschedule`, and asks the office for a part on a visit they are on (`part.request`), never placing a hold |
 | Crew lead | The same, scoped to the crew |
 | Dispatcher | Reads and resolves conflicts |
 | Office manager | Reads service reports and publishes them |
