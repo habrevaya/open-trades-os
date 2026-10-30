@@ -11,7 +11,7 @@ import { ActionForm } from "./ActionForm";
 import { ActionForm as SaidForm, Select, TextField } from "@/components/ActionForm";
 import { Money } from "@opentradesos/ui";
 import {
-  billingTermsAction, collectionTimeAction, invoiceHireAction, recordChargeAction, removeChargeAction, rentalDispatchAction, scheduleCollectionsAction,
+  billingTermsAction, collectionTimeAction, disposalBillingAction, invoiceHireAction, recordChargeAction, removeChargeAction, rentalDispatchAction, scheduleCollectionsAction,
 } from "./billing-actions";
 
 const CHARGE_KINDS = [
@@ -126,6 +126,7 @@ export default async function ContainersPage(
   const invoices = can(user.actor, "invoice:write");
   const schedules = writes && can(user.actor, "job:write");
   const dispatching = await rentalBilling.rentalDispatch(ctx);
+  const passing = await disposalFacilities.disposalBilling(ctx);
   const tipping = (await disposalFacilities.listFacilities(ctx)).facilities;
   /** Where the load went, offered when the company has recorded any facility. */
   const facilityPick = (label: string) => tipping.length > 0 ? (
@@ -325,7 +326,9 @@ export default async function ContainersPage(
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-ink-700">
                   {hire.disposalFeeOffer.amount
-                    ? `Disposal fee to pass on: ${Number(hire.disposalFeeOffer.amount).toFixed(2)}${hire.disposalFeeOffer.facility ? ` at ${hire.disposalFeeOffer.facility}` : ""} (${hire.disposalFeeOffer.why}).`
+                    ? `Disposal fee to pass on: ${Number(hire.disposalFeeOffer.amount).toFixed(2)}${hire.disposalFeeOffer.facility ? ` at ${hire.disposalFeeOffer.facility}` : ""} (${hire.disposalFeeOffer.why}`
+                      + `${hire.disposalFeeOffer.markup && hire.disposalFeeOffer.cost ? `, ${Number(hire.disposalFeeOffer.cost).toFixed(2)} plus your ${Number((Number(hire.disposalFeeOffer.markup) * 100).toFixed(4))}% markup` : ", at cost"}).`
+                      + `${hire.disposalFeeOffer.automatic ? " Your settings add it without asking." : ""}`
                     : `Disposal fee cannot be worked out: ${hire.disposalFeeOffer.why}`}
                 </span>
                 {hire.disposalFeeOffer.amount ? (
@@ -437,6 +440,29 @@ export default async function ContainersPage(
                        defaultValue={dispatching.yardMinutes} className="w-40" />
             <TextField label="An hour of a truck and driver costs" name="truckHourCost" inputMode="decimal" placeholder="Leave empty if not known"
                        defaultValue={dispatching.truckHourCost ? Number(dispatching.truckHourCost).toFixed(2) : ""} className="w-60" />
+          </SaidForm>
+        ) : null}
+      </section>
+
+      <section className="mt-6" aria-labelledby="passing">
+        <h2 id="passing" className="text-base font-semibold">Disposal fees passed on</h2>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          When a hire&apos;s terms make the facility&apos;s fee the customer&apos;s, it goes on the hire&apos;s invoice
+          {passing.markup
+            ? ` with a ${Number((Number(passing.markup) * 100).toFixed(4))}% markup. The invoice line says the facility's fee and the markup.`
+            : " at cost. The invoice line says so."}
+          {passing.addWithoutAsking
+            ? " It is added when the invoice is raised, without asking."
+            : " You are asked each time you raise the invoice."}
+        </p>
+        {settingsWrite ? (
+          <SaidForm action={disposalBillingAction} submit="Save disposal fees" className="mt-2 flex flex-wrap items-end gap-3">
+            <TextField label="Markup on the facility's fee, per cent" name="markupPercent" inputMode="decimal" placeholder="None"
+                       defaultValue={passing.markup ? String(Number((Number(passing.markup) * 100).toFixed(4))) : ""} className="w-64" />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="addWithoutAsking" defaultChecked={passing.addWithoutAsking} />
+              Add the fee to the invoice without asking
+            </label>
           </SaidForm>
         ) : null}
       </section>

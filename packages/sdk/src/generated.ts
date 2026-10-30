@@ -6057,9 +6057,12 @@ export interface DeliverRentalOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -8488,6 +8491,11 @@ export interface GetDispatchMapOutput {
       }>;
     }>;
   } | null;
+}
+
+export interface GetDisposalBillingOutput {
+  markup: string | null;
+  addWithoutAsking: boolean;
 }
 
 export interface GetDisposalFacilityOpenOutput {
@@ -12266,9 +12274,12 @@ export interface GetRentalOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -17404,9 +17415,12 @@ export interface ListRentalsOutput {
     disposalFeeAmount: string | null;
     disposalFeeOffer: {
       amount: string | null;
+      cost: string | null;
+      markup: string | null;
       source: "recorded" | "worked_out" | null;
       why: string;
       facility: string | null;
+      automatic: boolean;
     } | null;
   }>;
 }
@@ -19803,9 +19817,12 @@ export interface PickUpRentalOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -20257,6 +20274,8 @@ export interface PreviewRentalInvoiceOutput {
   disposalFee: Array<{
     rentalId: string;
     amount: string;
+    cost: string;
+    markup: string | null;
     facility: string | null;
     ticket: string | null;
     why: string;
@@ -20266,6 +20285,7 @@ export interface PreviewRentalInvoiceOutput {
     rentalId: string;
     why: string;
   }>;
+  disposalFeeAutomatic: boolean;
   decisionNeeded: boolean;
 }
 
@@ -25031,6 +25051,16 @@ export interface SetDiscountPolicyOutput {
   note: string | null;
 }
 
+export interface SetDisposalBillingInput {
+  markup?: string | null;
+  addWithoutAsking?: boolean;
+}
+
+export interface SetDisposalBillingOutput {
+  markup: string | null;
+  addWithoutAsking: boolean;
+}
+
 export interface SetEmploymentRecordInput {
   jobTitle?: string | null;
   startedOn: string;
@@ -26103,9 +26133,12 @@ export interface SetRentalMaterialOutput {
   disposalFeeAmount: string | null;
   disposalFeeOffer: {
     amount: string | null;
+    cost: string | null;
+    markup: string | null;
     source: "recorded" | "worked_out" | null;
     why: string;
     facility: string | null;
+    automatic: boolean;
   } | null;
 }
 
@@ -27101,9 +27134,12 @@ export interface SwapRentalOutput {
     disposalFeeAmount: string | null;
     disposalFeeOffer: {
       amount: string | null;
+      cost: string | null;
+      markup: string | null;
       source: "recorded" | "worked_out" | null;
       why: string;
       facility: string | null;
+      automatic: boolean;
     } | null;
   };
   opened: {
@@ -27143,9 +27179,12 @@ export interface SwapRentalOutput {
     disposalFeeAmount: string | null;
     disposalFeeOffer: {
       amount: string | null;
+      cost: string | null;
+      markup: string | null;
       source: "recorded" | "worked_out" | null;
       why: string;
       facility: string | null;
+      automatic: boolean;
     } | null;
   };
 }
@@ -31459,6 +31498,8 @@ export interface GetDispatchMapInput {
   date: string;
 }
 
+export type GetDisposalBillingInput = Record<string, never>;
+
 export interface GetDisposalFacilityOpenInput {
   id: string;
   at: string;
@@ -34792,6 +34833,7 @@ export interface OperationTypes {
   getDiscountPolicy: { input: GetDiscountPolicyInput; output: GetDiscountPolicyOutput };
   getDispatchBoard: { input: GetDispatchBoardInput; output: GetDispatchBoardOutput };
   getDispatchMap: { input: GetDispatchMapInput; output: GetDispatchMapOutput };
+  getDisposalBilling: { input: GetDisposalBillingInput; output: GetDisposalBillingOutput };
   getDisposalFacilityOpen: { input: GetDisposalFacilityOpenInput; output: GetDisposalFacilityOpenOutput };
   getEquipment: { input: GetEquipmentInput; output: GetEquipmentOutput };
   getEquipmentHistory: { input: GetEquipmentHistoryInput; output: GetEquipmentHistoryOutput };
@@ -35483,6 +35525,7 @@ export interface OperationTypes {
   setCustomerTags: { input: SetCustomerTagsParams & SetCustomerTagsInput; output: SetCustomerTagsOutput };
   setDeficiencyStatus: { input: SetDeficiencyStatusParams & SetDeficiencyStatusInput; output: SetDeficiencyStatusOutput };
   setDiscountPolicy: { input: SetDiscountPolicyInput; output: SetDiscountPolicyOutput };
+  setDisposalBilling: { input: SetDisposalBillingInput; output: SetDisposalBillingOutput };
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
@@ -36011,6 +36054,7 @@ export const OPERATIONS = {
   getDiscountPolicy: { method: "GET", path: "/v1/estimate-discount-policy", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getDispatchBoard: { method: "GET", path: "/v1/dispatch/board", pathParams: [], queryParams: ["date","businessUnitId","territoryId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getDispatchMap: { method: "GET", path: "/v1/dispatch/map", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
+  getDisposalBilling: { method: "GET", path: "/v1/disposal-billing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getDisposalFacilityOpen: { method: "GET", path: "/v1/disposal-facilities/{id}/open", pathParams: ["id"], queryParams: ["at"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getEquipment: { method: "GET", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: ["on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEquipmentHistory: { method: "GET", path: "/v1/equipment/{id}/history", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
@@ -36702,6 +36746,7 @@ export const OPERATIONS = {
   setCustomerTags: { method: "POST", path: "/v1/customers/{id}/tags", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setDeficiencyStatus: { method: "POST", path: "/v1/inspection-deficiencies/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setDiscountPolicy: { method: "PUT", path: "/v1/estimates/discount-policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setDisposalBilling: { method: "PUT", path: "/v1/disposal-billing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
@@ -39741,6 +39786,15 @@ export abstract class GeneratedOperations {
    */
   getDispatchMap(input: GetDispatchMapInput, options?: CallOptions): Promise<GetDispatchMapOutput> {
     return this.call("getDispatchMap", input, options);
+  }
+
+  /**
+   * How a facility's disposal fee is passed on to the customer.
+   *
+   * GET /v1/disposal-billing. Needs asset:read.
+   */
+  getDisposalBilling(input: GetDisposalBillingInput = {} as GetDisposalBillingInput, options?: CallOptions): Promise<GetDisposalBillingOutput> {
+    return this.call("getDisposalBilling", input, options);
   }
 
   /**
@@ -45960,6 +46014,15 @@ export abstract class GeneratedOperations {
    */
   setDiscountPolicy(input: SetDiscountPolicyInput, options?: CallOptions): Promise<SetDiscountPolicyOutput> {
     return this.call("setDiscountPolicy", input, options);
+  }
+
+  /**
+   * Set how a facility's disposal fee is passed on to the customer.
+   *
+   * PUT /v1/disposal-billing. Needs settings:write.
+   */
+  setDisposalBilling(input: SetDisposalBillingInput = {} as SetDisposalBillingInput, options?: CallOptions): Promise<SetDisposalBillingOutput> {
+    return this.call("setDisposalBilling", input, options);
   }
 
   /**

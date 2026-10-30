@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { rentalBilling, timezoneOf, inTenant, ConflictError } from "@opentradesos/api/services";
+import { rentalBilling, disposalFacilities, timezoneOf, inTenant, ConflictError } from "@opentradesos/api/services";
 import { time } from "@opentradesos/core";
 import { recordRentalCharge, scheduleRentalCollections, setRentalDispatch } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
@@ -129,6 +129,28 @@ export async function rentalDispatchAction(_previous: FormState, form: FormData)
       ...(form.has("truckHourCost") ? { truckHourCost: field(form, "truckHourCost")?.replace(/[$,\s]/g, "") ?? null } : {}),
     }));
     return { message: "Saved." };
+  });
+  if (state?.done) revalidatePath("/fleet/containers");
+  return state;
+}
+
+/**
+ * The company's markup on a passed on disposal fee, typed as a per cent and
+ * kept as a fraction like every rate, and whether the fee is added without
+ * asking. Empty is no markup.
+ */
+export async function disposalBillingAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const typed = (field(form, "markupPercent") ?? "").replace(/[%\s]/g, "");
+    if (typed !== "" && !/^\d+(\.\d{1,4})?$/.test(typed)) throw new ConflictError("Write the markup as a per cent, like 15, or leave it empty.");
+    const saved = await disposalFacilities.setDisposalBilling(await ctx(), {
+      markup: typed === "" || Number(typed) === 0 ? null : String(Number((Number(typed) / 100).toFixed(6))),
+      addWithoutAsking: form.get("addWithoutAsking") === "on",
+    });
+    return {
+      message: `Saved. Disposal fees are passed on ${saved.markup ? `with a ${Number((Number(saved.markup) * 100).toFixed(4))}% markup` : "at cost"}`
+        + `${saved.addWithoutAsking ? ", added without asking." : ", and you are asked each time."}`,
+    };
   });
   if (state?.done) revalidatePath("/fleet/containers");
   return state;

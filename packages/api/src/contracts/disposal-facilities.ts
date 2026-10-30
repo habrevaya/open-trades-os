@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
-import { Uuid, MoneyString } from "./common";
+import { Uuid, MoneyString, RateString } from "./common";
 
 /**
  * DISPOSAL FACILITIES AS PLACES: where a full can is tipped, when it takes
@@ -185,7 +185,42 @@ export const unpinDisposalFacility = defineRoute({
   output: Pinned,
 });
 
+const DisposalBilling = z.object({
+  /**
+   * A markup on a facility's fee passed on to the customer, as a fraction
+   * ("0.15" for 15%), at most 1. Null is none, which is the default: the fee
+   * is passed on at cost.
+   */
+  markup: RateString.nullable(),
+  /** Put the fee on the hire's invoice when it is raised, without the office pressing a button for it. Off by default. */
+  addWithoutAsking: z.boolean(),
+});
+
+export const getDisposalBilling = defineRoute({
+  method: "get",
+  path: "/v1/disposal-billing",
+  summary: "How a facility's disposal fee is passed on to the customer",
+  description:
+    "The company's markup on a passed on disposal fee (null for none, so it is passed on at cost) and whether the fee goes on a hire's invoice without the office being asked. Either way only a hire whose terms pass the fee on is charged it, and the invoice line says the facility's fee and the markup on it.",
+  module: "M22",
+  permissions: ["asset:read"],
+  input: z.object({}),
+  output: DisposalBilling,
+});
+
+export const setDisposalBilling = defineRoute({
+  method: "put",
+  path: "/v1/disposal-billing",
+  summary: "Set how a facility's disposal fee is passed on to the customer",
+  description:
+    "Any field left out keeps its value; a `markup` of null or 0 turns the markup off. Refused, in words, for a markup that is not a fraction between 0 and 1. With `addWithoutAsking`, raising a hire's invoice with no `disposalFee` puts the fee on when every haul's fee can be worked out; when one cannot, raising is still refused until somebody says `leave_off`, and `leave_off` always leaves it off. A company setting, so `settings:write`, with the before and after on the audit line.",
+  module: "M22",
+  permissions: ["settings:write"],
+  input: DisposalBilling.partial(),
+  output: DisposalBilling,
+});
+
 export const disposalFacilityRoutes = {
   listDisposalFacilities, createDisposalFacility, updateDisposalFacility, closeDisposalFacility,
-  getDisposalFacilityOpen, pinDisposalFacility, unpinDisposalFacility,
+  getDisposalFacilityOpen, pinDisposalFacility, unpinDisposalFacility, getDisposalBilling, setDisposalBilling,
 } as const;

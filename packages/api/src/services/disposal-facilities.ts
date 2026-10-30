@@ -1,4 +1,4 @@
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m, rental as rt, time } from "@opentradesos/core";
 import {
@@ -353,6 +353,70 @@ export async function feeFigure(
   return { ok: true, figure: { amount: verdict.fee, source: "worked_out", why: verdict.why, facility: facility.name } };
 }
 
+/* ------------------------------------- what the customer is charged for a fee */
+
+/**
+ * HOW THE COMPANY PASSES A FACILITY'S FEE ON, a company setting kept with the
+ * others on `organization.settings` (`disposalBilling`).
+ *
+ * `markup` is a fraction of the fee added on top ("0.15" for 15%), null for
+ * none, which is the default: a fee passed on at cost is what a customer who
+ * agreed to pay "the dump fee" expects, and charging more is a decision the
+ * company makes, not one made for it. `addWithoutAsking` puts the fee on the
+ * hire's invoice when it is raised without the office pressing a button for
+ * it, off by default; the hire still records that it was passed on and by
+ * whose invoice. Either way the line says what it is.
+ */
+export interface DisposalBillingSettings {
+  markup: string | null;
+  addWithoutAsking: boolean;
+}
+
+export async function disposalBillingOf(tx: Database, organizationId: string): Promise<DisposalBillingSettings> {
+  const [row] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  const held = ((row?.settings ?? {}) as Record<string, unknown>)["disposalBilling"] as Partial<DisposalBillingSettings> | undefined;
+  const markup = typeof held?.markup === "string" && rt.disposalMarkupProblem(held.markup) === null && Number(held.markup) > 0
+    ? held.markup : null;
+  return { markup, addWithoutAsking: held?.addWithoutAsking === true };
+}
+
+export function disposalBilling(ctx: ServiceContext): Promise<DisposalBillingSettings> {
+  return guardedRead(ctx, "asset:read", (tx) => disposalBillingOf(tx, ctx.actor.organizationId));
+}
+
+/**
+ * Set the markup and whether the fee is added without asking. A company
+ * setting, so `settings:write`, with the before and after on the audit line.
+ * Left out keeps what it was; a markup of null or nothing turns it off.
+ */
+export function setDisposalBilling(
+  ctx: ServiceContext, input: { markup?: string | null | undefined; addWithoutAsking?: boolean | undefined },
+): Promise<DisposalBillingSettings> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const before = await disposalBillingOf(tx, ctx.actor.organizationId);
+    const typed = input.markup === undefined ? before.markup : input.markup;
+    const problem = rt.disposalMarkupProblem(typed);
+    if (problem) throw new ConflictError(problem);
+    const after: DisposalBillingSettings = {
+      markup: typed !== null && Number(typed) > 0 ? String(Number(typed)) : null,
+      addWithoutAsking: input.addWithoutAsking ?? before.addWithoutAsking,
+    };
+    await tx.update(schema.organization).set({
+      settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ disposalBilling: after })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    await audit(tx, ctx, "rental.disposal_billing_set", "organization", ctx.actor.organizationId, before, after);
+    return after;
+  });
+}
+
+/** A haul's fee as the customer would be charged it: the figure, marked up when the company says, and the words for the line. */
+export function chargedFee(figure: FeeFigure, settings: DisposalBillingSettings) {
+  const passed = rt.passedOnFee({ cost: figure.amount, markup: settings.markup });
+  return { cost: m.toString(m.money(figure.amount)), amount: passed.amount, markup: settings.markup, words: passed.words };
+}
+
 /**
  * A facility as the day's planner weighs it: the materials it takes, as keys,
  * and what it would charge for the full cans on a truck, in cents, or null
@@ -384,4 +448,7 @@ export const handlers = {
   getDisposalFacilityOpen: (ctx: ServiceContext, input: { id: string; at: string }) => openAt(ctx, input),
   pinDisposalFacility: (ctx: ServiceContext, input: { id: string; latitude: number; longitude: number }) => pinFacility(ctx, input),
   unpinDisposalFacility: (ctx: ServiceContext, input: { id: string }) => unpinFacility(ctx, input),
+  getDisposalBilling: (ctx: ServiceContext) => disposalBilling(ctx),
+  setDisposalBilling: (ctx: ServiceContext, input: { markup?: string | null | undefined; addWithoutAsking?: boolean | undefined }) =>
+    setDisposalBilling(ctx, input),
 } as const;

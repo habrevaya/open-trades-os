@@ -450,7 +450,7 @@ disposal fee is the customer's (`disposalPassThrough`), the fee is OFFERED when
 the invoice is raised and never added without a person saying so. The fee is
 what was recorded on the haul (what the facility billed) or, when none was, the
 ticket's weight at the haul's facility's rate, and the offer says which; it is at
-cost, with no markup. Raising the invoice is refused until the call says
+cost unless the company set a markup (below). Raising the invoice is refused until the call says
 `disposalFee: "pass_on"` (the fee goes on as a line for each can) or
 `"leave_off"`; when the terms pass it on but no figure can be worked out, the
 refusal says what is missing and `leave_off` is the only way forward. The hire
@@ -462,6 +462,29 @@ tonnage, which would charge the customer for the same load twice. The line is
 taxed as the hire's other lines are, a judgement the product owner has not made:
 the invoice is a draft, and the office changes that line before issuing it if its
 state taxes disposal differently.
+
+**A markup, and adding it without asking.** Under **Disposal fees passed on**
+on `/fleet/containers` the company can set a markup on the facility's fee,
+typed as a per cent and kept as a fraction (`markup` on `PUT
+/v1/disposal-billing`, `settings:write`, with the before and after on the audit
+line; `GET /v1/disposal-billing` under `asset:read`), and tick **Add the fee to
+the invoice without asking** (`addWithoutAsking`). Both are off by default: the
+fee is passed on at cost and offered every time. A markup is at most 100%, and a
+figure written as a whole per cent through the API ("15") is refused in words.
+With a markup the customer is charged the fee plus that per cent of it, to the
+cent, rounded half up once (`core/rental.passedOnFee`), and the invoice line
+says both: "2.5 tons at 60.0000 a ton, scale ticket T-88, the facility's fee of
+150.00 plus a 15% handling markup", where a fee at cost says "at cost". The
+offer on the hire's row and the preview give the amount charged, the facility's
+fee (`cost`) and the markup, and the hire keeps the amount charged as
+`disposalFeeAmount`; the audit line of the invoice keeps the cost and the
+markup. With **Add the fee without asking**, raising the invoice with no
+`disposalFee` puts the fee on, recorded as passed on by whoever raised it and
+marked automatic on the audit line, and the preview says no decision is needed
+(`disposalFeeAutomatic`). It never reaches a hire whose terms do not pass the
+fee on; `leave_off` still leaves it off; and when a fee cannot be worked out the
+invoice is still refused until somebody says `leave_off`, so nobody loses a
+fee without knowing.
 
 ### A facility's scale tickets
 
@@ -685,10 +708,17 @@ this product's own board first.
   time. The load in the morning is not recorded; for a day already under way it is
   worked out from the stops done. The rebalance across people leaves a driver's
   day with containers on it alone (M09).
-- **A disposal fee is passed on at cost.** There is no markup on the facility's
-  fee, and no standing rule that adds it without being asked: it is offered
-  every time. A fee worked out from the ticket's weight is an estimate until the
-  facility's invoice is recorded on the haul, and the offer says so. A chain
+- **One markup for every disposal fee.** The company's markup is one per cent
+  for every facility, material and customer, on the facility's fee alone (never
+  on a by the ton charge over the included tonnage, which is the hire's own
+  price), and it is a markup, never a flat handling charge. Whether a markup on
+  a pass through is allowed, and how it is taxed, depends on the state and the
+  customer's contract, which the product does not know: the markup line is taxed
+  as the hire's other lines are, the invoice is a draft for the office to check,
+  and the line names the markup so nothing is hidden. Adding the fee without
+  asking adds it only when every haul's fee can be worked out. A fee worked out
+  from the ticket's weight is an estimate until the facility's invoice is
+  recorded on the haul, and the offer says so. A chain
   billed as one invoice cannot be raised until its last can is collected: the
   cans already collected are invoiced by changing the hire to one invoice per
   haul.

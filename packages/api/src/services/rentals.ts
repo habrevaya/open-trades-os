@@ -6,7 +6,7 @@ import {
   type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
-import { facilityOf, feeFigure } from "./disposal-facilities";
+import { chargedFee, disposalBillingOf, facilityOf, feeFigure } from "./disposal-facilities";
 import { assertPlacedAfterTip, closeRepair, openRepair, recordTipWithin, releaseOnDelivery } from "./haul-times";
 
 /**
@@ -827,7 +827,14 @@ async function rentalViewWithin(
 async function offerOf(tx: Database, ctx: ServiceContext, row: typeof schema.rental.$inferSelect) {
   if (!row.disposalPassThrough || row.pickedUpAt === null || row.disposalFeePassedOn !== null) return null;
   const fee = await feeFigure(tx, ctx, row);
-  return fee.ok ? fee.figure : { amount: null, source: null, why: fee.why, facility: row.disposalFacility };
+  if (!fee.ok) return { amount: null, cost: null, markup: null, source: null, why: fee.why, facility: row.disposalFacility, automatic: false };
+  const passing = await disposalBillingOf(tx, ctx.actor.organizationId);
+  const charged = chargedFee(fee.figure, passing);
+  return {
+    ...fee.figure, amount: charged.amount, cost: charged.cost, markup: charged.markup,
+    /** The company adds it without asking: raising the invoice puts it on. */
+    automatic: passing.addWithoutAsking,
+  };
 }
 
 export function getRental(ctx: ServiceContext, input: { id: string }) {

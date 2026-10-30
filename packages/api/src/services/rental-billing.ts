@@ -9,7 +9,7 @@ import * as once from "./once";
 import * as jobs from "./jobs";
 import * as billing from "./billing";
 import { inForceAt } from "./pricebook";
-import { feeFigure } from "./disposal-facilities";
+import { chargedFee, disposalBillingOf, feeFigure } from "./disposal-facilities";
 
 /**
  * A HIRE AFTER THE CAN HAS GONE OUT
@@ -561,7 +561,12 @@ export function charges(ctx: ServiceContext, input: { rentalId?: string | undefi
 
 export interface DisposalOffer {
   rentalId: string;
+  /** What the customer would be charged: the facility's fee, plus the company's markup when it has one. */
   amount: string;
+  /** The facility's fee, at cost. */
+  cost: string;
+  /** The company's markup on it as a fraction, or null for none. */
+  markup: string | null;
   facility: string | null;
   ticket: string | null;
   /** Where the figure came from, in words. */
@@ -628,6 +633,8 @@ interface Draft {
   offers: DisposalOffer[];
   /** Hauls whose terms pass it on but whose fee cannot be worked out, with why. */
   unpriced: { rentalId: string; why: string }[];
+  /** The company puts the fee on without asking, and every haul's fee could be worked out. */
+  automatic: boolean;
   /** Where each offered fee would go, kept apart from the lines until somebody says to add it. */
   feeLines: Map<string, DraftLine>;
   from: string;
@@ -675,6 +682,7 @@ async function draftFor(tx: Database, ctx: ServiceContext, hire: Hire): Promise<
   const unpriced: Draft["unpriced"] = [];
   const feeLines = new Map<string, DraftLine>();
   const found: Draft["found"] = [];
+  const passing = await disposalBillingOf(tx, ctx.actor.organizationId);
 
   for (const link of group) {
     if (link.deliveredAt === null) throw new ConflictError("That hire has no delivery date, so there is no period to bill.");
@@ -732,21 +740,23 @@ async function draftFor(tx: Database, ctx: ServiceContext, hire: Hire): Promise<
     }
 
     /**
-     * THE FACILITY'S FEE, OFFERED AND NEVER ADDED. When the terms pass it on, the
-     * line is worked out and held apart; it goes on the invoice only when a person
-     * said to. At cost: no markup is added to it.
+     * THE FACILITY'S FEE, held apart from the lines. When the terms pass it on,
+     * the line is worked out and goes on the invoice when a person says to, or
+     * when the company has said to add it without asking. At cost unless the
+     * company set a markup, and the line says which.
      */
     if (link.disposalPassThrough) {
       const fee = await feeFigure(tx, ctx, link);
       if (fee.ok) {
+        const charged = chargedFee(fee.figure, passing);
         offers.push({
-          rentalId: link.id, amount: fee.figure.amount, facility: fee.figure.facility,
+          rentalId: link.id, amount: charged.amount, cost: charged.cost, markup: charged.markup, facility: fee.figure.facility,
           ticket: link.disposalTicketNumber, why: fee.figure.why, source: fee.figure.source,
         });
         feeLines.set(link.id, {
           name: `${can}, disposal${fee.figure.facility ? ` at ${fee.figure.facility}` : ""}`,
-          description: `${fee.figure.why}${link.disposalTicketNumber ? `, scale ticket ${link.disposalTicketNumber}` : ""}, at cost`,
-          quantity: "1", unitPrice: m.toString(m.money(fee.figure.amount)),
+          description: `${fee.figure.why}${link.disposalTicketNumber ? `, scale ticket ${link.disposalTicketNumber}` : ""}, ${charged.words}`,
+          quantity: "1", unitPrice: charged.amount,
           /** Taxed like the hire's other lines: the draft is checked before it is issued, and the office changes this line if its state taxes disposal differently. */
           taxable: true,
           rentalId: link.id,
@@ -763,6 +773,7 @@ async function draftFor(tx: Database, ctx: ServiceContext, hire: Hire): Promise<
     .from(schema.rentableAsset).where(eq(schema.rentableAsset.id, last.assetId)).limit(1);
   return {
     group, lines, found, offers, unpriced, feeLines,
+    automatic: passing.addWithoutAsking && offers.length > 0 && unpriced.length === 0,
     from: time.dateIn(first.deliveredAt!, zone), to: time.dateIn(last.pickedUpAt!, zone),
     can: `Container ${asset?.identifier ?? ""}${asset?.size ? ` (${asset.size})` : ""}`,
     propertyId: first.propertyId,
@@ -773,7 +784,8 @@ const amountOf = (l: { unitPrice: string; quantity: string }) =>
   m.toString(m.round(m.multiply(m.money(l.unitPrice), l.quantity), 2));
 
 const feeWords = (offers: DisposalOffer[]) => offers
-  .map((o) => `${Number(o.amount).toFixed(2)}${o.facility ? ` at ${o.facility}` : ""}${o.ticket ? `, ticket ${o.ticket}` : ""} (${o.why})`).join("; ");
+  .map((o) => `${Number(o.amount).toFixed(2)}${o.facility ? ` at ${o.facility}` : ""}${o.ticket ? `, ticket ${o.ticket}` : ""} (${o.why}`
+    + `${o.markup ? `, ${Number(o.cost).toFixed(2)} plus ${rt.markupPercent(o.markup)}` : ""})`).join("; ");
 
 /**
  * What the invoice for this hire would be, nothing written: the lines, and the
@@ -794,13 +806,16 @@ export function previewHireInvoice(ctx: ServiceContext, input: { id: string }) {
         lines: draft.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitPrice: l.unitPrice, amount: amountOf(l) })),
         disposalFee: draft.offers,
         disposalFeeUnavailable: draft.unpriced,
-        decisionNeeded: draft.offers.length + draft.unpriced.length > 0,
+        /** The company adds the fee without asking: raising the invoice puts it on. */
+        disposalFeeAutomatic: draft.automatic,
+        decisionNeeded: !draft.automatic && draft.offers.length + draft.unpriced.length > 0,
       };
     } catch (error) {
       if (error instanceof ConflictError) {
         return {
           refused: error.message, hauls: 0, invoiceAs: hire.invoiceAs, lines: [],
-          disposalFee: [] as DisposalOffer[], disposalFeeUnavailable: [] as Draft["unpriced"], decisionNeeded: false,
+          disposalFee: [] as DisposalOffer[], disposalFeeUnavailable: [] as Draft["unpriced"], disposalFeeAutomatic: false,
+          decisionNeeded: false,
         };
       }
       throw error;
@@ -839,7 +854,14 @@ export function invoiceHire(ctx: ServiceContext, input: { id: string; disposalFe
     const draft = await draftFor(tx, ctx, hire);
     const { group, found } = draft;
 
-    const choice = input.disposalFee;
+    /**
+     * ADDED WITHOUT ASKING only when the company said so and every haul's fee
+     * could be worked out. A fee that cannot be still stops the invoice, so
+     * nobody leaves it off without knowing; and `leave_off` sent by a person
+     * still leaves it off.
+     */
+    const automatic = !input.disposalFee && draft.automatic;
+    const choice = input.disposalFee ?? (automatic ? "pass_on" as const : undefined);
     const lines = [...draft.lines];
     let decided: { passedOn: boolean; amount: string | null } | null = null;
     if (draft.offers.length + draft.unpriced.length > 0) {
@@ -919,6 +941,11 @@ export function invoiceHire(ctx: ServiceContext, input: { id: string; disposalFe
     }
     await audit(tx, ctx, "rental.invoiced", "rental", hire.id, null, {
       invoiceId: invoice.id, lines: lines.length, hauls: group.length, disposalFee: decided,
+      ...(decided ? {
+        disposalFeeAutomatic: automatic,
+        disposalFeeCost: draft.offers.length > 0 ? m.toString(m.sum(draft.offers.map((o) => m.money(o.cost)))) : null,
+        disposalFeeMarkup: draft.offers[0]?.markup ?? null,
+      } : {}),
     });
 
     const result: HireInvoiceResult = {

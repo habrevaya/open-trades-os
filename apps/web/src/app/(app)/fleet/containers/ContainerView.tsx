@@ -57,7 +57,10 @@ export interface HireRow {
   disposalFeePassedOn?: boolean | null;
   disposalFeeAmount?: string | null;
   /** The fee the terms would pass on, with where it comes from, or why there is no figure (`amount` null). */
-  disposalFeeOffer?: { amount: string | null; source: "recorded" | "worked_out" | null; why: string; facility: string | null } | null;
+  disposalFeeOffer?: {
+    amount: string | null; cost?: string | null; markup?: string | null; automatic?: boolean;
+    source: "recorded" | "worked_out" | null; why: string; facility: string | null;
+  } | null;
 }
 
 export interface Report {

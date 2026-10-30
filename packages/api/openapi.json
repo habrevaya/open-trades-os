@@ -48577,6 +48577,217 @@
         ]
       }
     },
+    "/v1/disposal-billing": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getDisposalBilling",
+        "summary": "How a facility's disposal fee is passed on to the customer",
+        "description": "The company's markup on a passed on disposal fee (null for none, so it is passed on at cost) and whether the fee goes on a hire's invoice without the office being asked. Either way only a hire whose terms pass the fee on is charged it, and the invoice line says the facility's fee and the markup on it.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "responses": {
+          "200": {
+            "description": "How a facility's disposal fee is passed on to the customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetDisposalBillingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      },
+      "put": {
+        "operationId": "setDisposalBilling",
+        "summary": "Set how a facility's disposal fee is passed on to the customer",
+        "description": "Any field left out keeps its value; a `markup` of null or 0 turns the markup off. Refused, in words, for a markup that is not a fraction between 0 and 1. With `addWithoutAsking`, raising a hire's invoice with no `disposalFee` puts the fee on when every haul's fee can be worked out; when one cannot, raising is still refused until somebody says `leave_off`, and `leave_off` always leaves it off. A company setting, so `settings:write`, with the before and after on the audit line.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M22"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDisposalBillingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set how a facility's disposal fee is passed on to the customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDisposalBillingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/disposal-facilities": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -180845,6 +181056,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -180863,13 +181087,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -193256,6 +193486,25 @@
           "geocoder",
           "routing",
           "live"
+        ]
+      },
+      "GetDisposalBillingOutput": {
+        "type": "object",
+        "properties": {
+          "markup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "addWithoutAsking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "markup",
+          "addWithoutAsking"
         ]
       },
       "GetDisposalFacilityOpenOutput": {
@@ -213355,6 +213604,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -213373,13 +213635,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -240643,6 +240911,19 @@
                       ],
                       "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     },
+                    "cost": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "markup": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "source": {
                       "type": [
                         "string",
@@ -240661,13 +240942,19 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "automatic": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
                     "amount",
+                    "cost",
+                    "markup",
                     "source",
                     "why",
-                    "facility"
+                    "facility",
+                    "automatic"
                   ]
                 }
               },
@@ -252751,6 +253038,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -252769,13 +253069,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -255081,6 +255387,16 @@
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 },
+                "cost": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "markup": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "facility": {
                   "type": [
                     "string",
@@ -255107,6 +255423,8 @@
               "required": [
                 "rentalId",
                 "amount",
+                "cost",
+                "markup",
                 "facility",
                 "ticket",
                 "why",
@@ -255133,6 +255451,9 @@
               ]
             }
           },
+          "disposalFeeAutomatic": {
+            "type": "boolean"
+          },
           "decisionNeeded": {
             "type": "boolean"
           }
@@ -255144,6 +255465,7 @@
           "lines",
           "disposalFee",
           "disposalFeeUnavailable",
+          "disposalFeeAutomatic",
           "decisionNeeded"
         ]
       },
@@ -278147,6 +278469,40 @@
           "note"
         ]
       },
+      "SetDisposalBillingInput": {
+        "type": "object",
+        "properties": {
+          "markup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "addWithoutAsking": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SetDisposalBillingOutput": {
+        "type": "object",
+        "properties": {
+          "markup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "addWithoutAsking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "markup",
+          "addWithoutAsking"
+        ]
+      },
       "SetEmploymentRecordInput": {
         "type": "object",
         "properties": {
@@ -283361,6 +283717,19 @@
                 ],
                 "pattern": "^-?\\d+(\\.\\d{1,4})?$"
               },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "markup": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "source": {
                 "type": [
                   "string",
@@ -283379,13 +283748,19 @@
                   "string",
                   "null"
                 ]
+              },
+              "automatic": {
+                "type": "boolean"
               }
             },
             "required": [
               "amount",
+              "cost",
+              "markup",
               "source",
               "why",
-              "facility"
+              "facility",
+              "automatic"
             ]
           }
         },
@@ -287988,6 +288363,19 @@
                     ],
                     "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                   },
+                  "cost": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  },
+                  "markup": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "source": {
                     "type": [
                       "string",
@@ -288006,13 +288394,19 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "automatic": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "amount",
+                  "cost",
+                  "markup",
                   "source",
                   "why",
-                  "facility"
+                  "facility",
+                  "automatic"
                 ]
               }
             },
@@ -288276,6 +288670,19 @@
                     ],
                     "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                   },
+                  "cost": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                  },
+                  "markup": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "source": {
                     "type": [
                       "string",
@@ -288294,13 +288701,19 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "automatic": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "amount",
+                  "cost",
+                  "markup",
                   "source",
                   "why",
-                  "facility"
+                  "facility",
+                  "automatic"
                 ]
               }
             },

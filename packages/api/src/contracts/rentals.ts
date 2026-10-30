@@ -90,10 +90,17 @@ const RentalView = z.object({
    * weight at the facility's rate), or why there is no figure (`amount` null).
    */
   disposalFeeOffer: z.object({
+    /** What the customer would be charged: the facility's fee plus the company's markup when it has one. */
     amount: MoneyString.nullable(),
+    /** The facility's fee, at cost. */
+    cost: MoneyString.nullable(),
+    /** The company's markup as a fraction, or null for none. */
+    markup: z.string().nullable(),
     source: z.enum(["recorded", "worked_out"]).nullable(),
     why: z.string(),
     facility: z.string().nullable(),
+    /** The company puts the fee on the invoice without asking. */
+    automatic: z.boolean(),
   }).nullable(),
 });
 
