@@ -59,10 +59,10 @@ beforeEach(async () => {
   await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Hold Reason Co", slug: "hold-reason-co" });
   await raw`update public.organization set timezone = ${ZONE} where id = ${ORG}`;
   await raw`delete from public.job_hold_nudge_rule where organization_id = ${ORG}`;
-  [{ id: houston }] = await raw<{ id: string }[]>`
-    insert into public.business_unit (organization_id, name, code) values (${ORG}, 'Houston', 'HOU') returning id` as [{ id: string }];
-  [{ id: austin }] = await raw<{ id: string }[]>`
-    insert into public.business_unit (organization_id, name, code) values (${ORG}, 'Austin', 'AUS') returning id` as [{ id: string }];
+  const unit = async (name: string, code: string) => (await raw<{ id: string }[]>`
+    insert into public.business_unit (organization_id, name, code) values (${ORG}, ${name}, ${code}) returning id`)[0]!.id;
+  houston = await unit("Houston", "HOU");
+  austin = await unit("Austin", "AUS");
   await member(OFFICE_A, "ada@hold-reason-co.test", "office_manager", "Ada Office");
   await member(OFFICE_B, "bo@hold-reason-co.test", "office_manager", "Bo Office");
   await member(HOUSTON_MGR, "hank@hold-reason-co.test", "branch_manager", "Hank Houston", houston);

@@ -11,7 +11,7 @@ describe("the task the daily loop scan raises", () => {
     const body = taskRules.reportingLoopTaskBody(["Ana reports to Ben and Ben reports to Ana.", "Cy is recorded as reporting to themselves."]);
     expect(body).toContain("Ana reports to Ben and Ben reports to Ana. Cy is recorded as reporting to themselves.");
     expect(body).toContain("Nothing was changed. Open Tasks, then Escalation, and change one line in each loop.");
-    expect(body).not.toMatch(/[–—]/);
+    expect(body.includes(String.fromCharCode(0x2013)) || body.includes(String.fromCharCode(0x2014))).toBe(false);
   });
 
   it("marks the same loops the same way whichever person the scan started from", () => {
