@@ -38,7 +38,11 @@ export function PortalChat({ slug, company, initial }: { slug: string; company: 
     <section aria-label="Your chat" className="rounded-md border border-steel-200 bg-canvas p-5">
       {chat.status === "closed" && (
         <p role="status" className="rounded-md border border-steel-200 bg-steel-100 p-3 text-sm text-ink-700">
-          You closed your last chat. Write below to start a new one.
+          {chat.closedBy === "office"
+            ? `${company} closed this chat. You can still read it below. Write below to start a new one.`
+            : chat.closedBy === "idle"
+              ? `${company} closed this chat because it had been quiet for a while. You can still read it below. Write below to start a new one.`
+              : "You closed your last chat. Write below to start a new one."}
         </p>
       )}
       <p className="mt-3 text-sm text-ink-700">

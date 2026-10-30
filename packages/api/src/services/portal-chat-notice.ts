@@ -160,7 +160,9 @@ async function attempt(
     if (now.getTime() - chat.customerNoticeHeldAt.getTime() > HELD_LONGEST_HOURS * 3_600_000) {
       return record("Not told: your quiet hours ended more than two days after the answer, which is too late for a notice to help.", false);
     }
-    if (chat.status === "closed") return record("Not told: the customer closed the chat.", false);
+    if (chat.status === "closed" && !chat.officeClosedAt) return record("Not told: the customer closed the chat.", false);
+    /** Closed by a person after answering: the link still shows them the answer, so they are told. Closed for going quiet: that answer is old news. */
+    if (chat.status === "closed" && chat.officeCloseKind === "idle") return record("Not told: the chat was closed because it went quiet.", false);
     if (await unreadAnswers(tx, conversation.id, chat.customerReadAt) === 0) {
       return record("Not told: they read the chat before your quiet hours ended.", false);
     }

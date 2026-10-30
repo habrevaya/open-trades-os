@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { comms as c, files as f } from "@opentradesos/core";
 /**
@@ -48,6 +48,8 @@ export interface ThreadSummary {
   unread: number;
   /** The customer closed this chat from their account (M05). False on every other thread. */
   closedByCustomer: boolean;
+  /** Who closed an account chat: the customer, a person in the office, or the company's quiet chat rule. Null: not closed that way. */
+  closedBy: "customer" | "office" | "idle" | null;
 }
 
 export async function threads(
@@ -125,11 +127,17 @@ export async function threads(
     `);
 
     const state = new Map(lastDirections.map((r) => [r.conversation_id, r]));
-    /** Chats the customer closed from their account, so the list can say who closed them. */
-    const closedByThem = new Set(ids.length === 0 ? [] : (await tx.select({ id: schema.aiChatSession.conversationId })
-      .from(schema.aiChatSession)
-      .where(and(inArray(schema.aiChatSession.conversationId, ids), isNotNull(schema.aiChatSession.customerClosedAt))))
-      .map((r) => r.id));
+    /** Chats closed from an account chat, so the list can say who closed them. */
+    const closers = new Map<string, "customer" | "office" | "idle">(ids.length === 0 ? [] : (await tx.select({
+      id: schema.aiChatSession.conversationId,
+      customerClosedAt: schema.aiChatSession.customerClosedAt,
+      kind: schema.aiChatSession.officeCloseKind,
+    }).from(schema.aiChatSession)
+      .where(and(
+        inArray(schema.aiChatSession.conversationId, ids),
+        or(isNotNull(schema.aiChatSession.customerClosedAt), isNotNull(schema.aiChatSession.officeClosedAt)),
+      )))
+      .map((r) => [r.id, r.customerClosedAt ? "customer" as const : (r.kind ?? "office")] as const));
 
     return {
       ...page,
@@ -144,7 +152,8 @@ export async function threads(
         lastMessagePreview: conversation.lastMessagePreview,
         awaitingReply: state.get(conversation.id)?.direction === "inbound",
         unread: state.get(conversation.id)?.unread ?? 0,
-        closedByCustomer: closedByThem.has(conversation.id),
+        closedByCustomer: closers.get(conversation.id) === "customer",
+        closedBy: closers.get(conversation.id) ?? null,
       })),
     };
   });
@@ -190,14 +199,26 @@ export async function thread(ctx: ServiceContext, input: { id: string }) {
     const [chat] = conversation.internalAddress === "portal"
       ? await tx.select({
         customerNotice: schema.aiChatSession.customerNotice, customerClosedAt: schema.aiChatSession.customerClosedAt,
+        officeClosedAt: schema.aiChatSession.officeClosedAt, officeClosedByUserId: schema.aiChatSession.officeClosedByUserId,
+        officeCloseKind: schema.aiChatSession.officeCloseKind,
       }).from(schema.aiChatSession)
         .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1)
       : [];
+    const closer = chat?.officeClosedByUserId
+      ? (await tx.execute<{ name: string | null; email: string }>(
+        sql`select name, email from app.organization_people() where user_id = ${chat.officeClosedByUserId}::uuid`,
+      ))[0]
+      : undefined;
 
     return {
       conversation,
       customerNotice: chat?.customerNotice ?? null,
       customerClosedAt: chat?.customerClosedAt ?? null,
+      /** Closed from the office side: when, how, and by whom (nobody, for the quiet chat rule). */
+      officeClosedAt: chat?.officeClosedAt ?? null,
+      closedBy: (chat?.customerClosedAt ? "customer" : chat?.officeClosedAt ? (chat.officeCloseKind ?? "office") : null) as
+        "customer" | "office" | "idle" | null,
+      closedByName: closer ? (closer.name ?? closer.email) : null,
       customer: customer ? clean(ctx, "customer", customer) : null,
       messages: messages.map((m) => clean(ctx, "message", m)),
       canReply: decision.allowed,
@@ -249,15 +270,22 @@ export async function markRead(ctx: ServiceContext, input: { id: string }) {
 async function replyDecision(tx: Database, conversation: typeof schema.conversation.$inferSelect):
   Promise<{ allowed: true } | { allowed: false; reason: string; explanation: string }> {
   if (conversation.channel === "webchat") {
-    const [session] = await tx.select({ status: schema.aiChatSession.status }).from(schema.aiChatSession)
+    const [session] = await tx.select({
+      status: schema.aiChatSession.status, officeClosedAt: schema.aiChatSession.officeClosedAt,
+      kind: schema.aiChatSession.officeCloseKind,
+    }).from(schema.aiChatSession)
       .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1);
     if (session && session.status !== "closed") return { allowed: true };
     return {
       allowed: false,
       reason: "chat_closed",
-      explanation: conversation.internalAddress === "portal"
-        ? "The customer closed this chat, so a reply has nowhere to go. If they write again, it opens a new one."
-        : "This website chat has ended, so a reply has nowhere to go.",
+      explanation: conversation.internalAddress !== "portal"
+        ? "This website chat has ended, so a reply has nowhere to go."
+        : session?.officeClosedAt
+          ? session.kind === "idle"
+            ? "This chat was closed because it went quiet, so a reply has nowhere to go. If the customer writes again, it opens a new one."
+            : "This chat was closed, so a reply has nowhere to go. If the customer writes again, it opens a new one."
+          : "The customer closed this chat, so a reply has nowhere to go. If they write again, it opens a new one.",
     };
   }
   if (conversation.channel === "email") {
@@ -735,6 +763,9 @@ export const handlers = {
       }),
       customerNotice: found.customerNotice,
       customerClosedAt: iso(found.customerClosedAt),
+      officeClosedAt: iso(found.officeClosedAt),
+      closedBy: found.closedBy,
+      closedByName: found.closedByName,
       canReply: found.canReply,
       blockedReason: found.blockedReason ?? null,
       blockedExplanation: found.blockedExplanation ?? null,

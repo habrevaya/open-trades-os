@@ -11,6 +11,8 @@ export interface ThreadRow {
   unread: number;
   /** The customer closed this chat from their account. */
   closedByCustomer?: boolean;
+  /** Who closed an account chat. */
+  closedBy?: "customer" | "office" | "idle" | null;
   /** `webchat` for a website chat, whose address is not a number anybody can ring. */
   channel?: string;
 }
@@ -45,6 +47,8 @@ export function ThreadList({ threads, timezone }: { threads: ThreadRow[]; timezo
                 {thread.awaitingReply && <Chip tone="warning">Needs a reply</Chip>}
                 {thread.unread > 0 && <Chip tone="info">{thread.unread} unread</Chip>}
                 {thread.closedByCustomer && <Chip tone="neutral">Closed by the customer</Chip>}
+                {thread.closedBy === "office" && <Chip tone="neutral">Closed by the office</Chip>}
+                {thread.closedBy === "idle" && <Chip tone="neutral">Closed, went quiet</Chip>}
               </div>
               {/* One line. A preview that wraps is a list that scrolls. */}
               <p className="mt-1 truncate text-sm text-ink-700">

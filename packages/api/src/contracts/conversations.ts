@@ -32,6 +32,8 @@ export const ConversationSummary = z.object({
   unread: z.number().int(),
   /** The customer closed this chat from their account. False on every other conversation. */
   closedByCustomer: z.boolean(),
+  /** Who closed an account chat: the customer, a person in the office, or the company's quiet chat rule. Null otherwise. */
+  closedBy: z.enum(["customer", "office", "idle"]).nullable(),
 });
 
 export const listConversations = defineRoute({
@@ -97,6 +99,12 @@ export const getConversation = defineRoute({
     customerNotice: z.string().nullable(),
     /** When the customer closed this chat from their account, or null: not closed by them, or not an account chat. */
     customerClosedAt: Iso.nullable(),
+    /** When the company closed this account chat (a person, or the quiet chat rule), or null. */
+    officeClosedAt: Iso.nullable(),
+    /** Who closed an account chat: `customer`, `office` or `idle`. Null: not closed that way, or not an account chat. */
+    closedBy: z.enum(["customer", "office", "idle"]).nullable(),
+    /** The person who closed it, when `closedBy` is `office`. */
+    closedByName: z.string().nullable(),
     canReply: z.boolean(),
     /** Why not, as a code and in words, when a reply would be refused. */
     blockedReason: z.string().nullable(),
@@ -134,6 +142,23 @@ export const replyToConversation = defineRoute({
     })).max(3).optional(),
   }),
   output: z.object({ messageId: Uuid, status: z.string() }),
+});
+
+export const closeConversation = defineRoute({
+  method: "post",
+  path: "/v1/conversations/{id}/closed",
+  summary: "Close a chat from a customer's account",
+  description:
+    "Ends a chat the customer started from their account, whoever has it (the assistant or a person). The customer's chat page says in words that the company closed it, still shows them what was said, and the next thing they write opens a new conversation. A reply into it is refused from then on. Nothing the office has not read is marked read and no task is closed. A chat from a website visitor, a text or an email cannot be closed here. Closing a chat that is already closed changes nothing.",
+  module: "M05",
+  permissions: ["message:send"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    id: Uuid,
+    closedBy: z.enum(["customer", "office", "idle"]),
+    closedAt: Iso,
+  }),
 });
 
 export const startConversation = defineRoute({
@@ -211,6 +236,6 @@ export const revokeConsent = defineRoute({
 });
 
 export const conversationRoutes = {
-  listConversations, getConversation, markConversationRead, replyToConversation, startConversation,
+  listConversations, getConversation, markConversationRead, replyToConversation, closeConversation, startConversation,
   getConsent, grantConsent, revokeConsent,
 } as const;

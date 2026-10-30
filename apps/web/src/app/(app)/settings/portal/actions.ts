@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { portalSettings } from "@opentradesos/api/services";
-import { attempt, field, type FormState } from "@/lib/actions";
+import { attempt, field, refused, type FormState } from "@/lib/actions";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -39,6 +39,25 @@ export async function saveBankPayments(_previous: FormState, form: FormData): Pr
     await portalSettings.set(await ctx(), { bankAccounts: form.get("bankAccounts") === "on" });
     revalidatePath("/settings/portal");
     return { message: "Saved." };
+  });
+}
+
+/**
+ * Closing account chats that have gone quiet, after so many days. Empty is off.
+ * Only a chat the company answered last is closed; the service says so in the contract.
+ */
+export async function saveChatIdleClose(_previous: FormState, form: FormData): Promise<FormState> {
+  const said = field(form, "days");
+  const days = said === undefined ? null : Number(said);
+  if (days !== null && !Number.isInteger(days)) return refused(form, "Give the days as a whole number, or leave it empty.");
+  return attempt(form, async () => {
+    const saved = await portalSettings.set(await ctx(), { chatIdleCloseDays: days });
+    revalidatePath("/settings/portal");
+    return {
+      message: saved.chatIdleCloseDays === null
+        ? "Saved. Chats stay open until the customer or you close them."
+        : `Saved. A chat you answered last is closed after ${saved.chatIdleCloseDays} ${saved.chatIdleCloseDays === 1 ? "day" : "days"} of quiet.`,
+    };
   });
 }
 

@@ -26,6 +26,11 @@ const PortalChatView = z.object({
    * customer closed it: there are no messages until they write again, which opens a new conversation.
    */
   status: z.enum(["open", "handed_off", "closed"]).nullable(),
+  /**
+   * Who closed it, when it is closed. `customer`: there are no messages. `office` (a person) or `idle` (the
+   * company's quiet chat rule): the messages are still there, and the page says the company closed it.
+   */
+  closedBy: z.enum(["customer", "office", "idle"]).nullable().optional(),
   bookingTaken: z.boolean(),
   messages: z.array(z.object({
     id: z.string(),

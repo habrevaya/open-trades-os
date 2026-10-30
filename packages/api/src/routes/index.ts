@@ -473,6 +473,7 @@ export const handlers = {
   getConversation: comms.handlers.getConversation,
   markConversationRead: comms.handlers.markConversationRead,
   replyToConversation: comms.handlers.replyToConversation,
+  closeConversation: portalChat.handlers.closeConversation,
   startConversation: comms.handlers.startConversation,
   getConsent: consent.handlers.getConsent,
   grantConsent: consent.handlers.grantConsent,

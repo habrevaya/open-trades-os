@@ -4,7 +4,7 @@ import { portalSettings } from "@opentradesos/api/services";
 import { can, assertCan } from "@opentradesos/core";
 import { PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
-import { saveBankPayments, saveChatReplyNotice, saveJobPhotos, saveTipping } from "./actions";
+import { saveBankPayments, saveChatIdleClose, saveChatReplyNotice, saveJobPhotos, saveTipping } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +133,24 @@ export default async function PortalSettingsPage() {
           </ActionForm>
         ) : (
           <p className="mt-3 text-sm">{settings.chatReplyNotice ? "On." : "Off."}</p>
+        )}
+      </section>
+
+      <section aria-label="Quiet chats" className="mt-8">
+        <h2 className="text-base font-semibold">Quiet chats</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          A chat stays open until the customer or you close it. Say how many days of quiet should close it for you. Only a
+          chat where you wrote last is closed, so a customer waiting on an answer is never closed on. The customer sees
+          that you closed it and can write again to start a new one. What they wrote stays in your inbox. Leave the box
+          empty to never close a chat for them.
+        </p>
+        {writes ? (
+          <ActionForm action={saveChatIdleClose} submit="Save quiet chats" className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Days of quiet before a chat is closed" name="days" type="number" min={1} max={90} step={1}
+                       defaultValue={settings.chatIdleCloseDays === null ? "" : String(settings.chatIdleCloseDays)} className="block w-64" />
+          </ActionForm>
+        ) : (
+          <p className="mt-3 text-sm">{settings.chatIdleCloseDays === null ? "Off." : `After ${settings.chatIdleCloseDays} days.`}</p>
         )}
       </section>
 

@@ -2046,6 +2046,31 @@ returns table (organization_id uuid)
 revoke all on function app.held_chat_notice_organizations(int) from public;
 grant execute on function app.held_chat_notice_organizations(int) to background;
 
+-- ---- Companies that close account chats gone quiet -------------------------
+-- A company can choose a number of quiet days (settings.portal.chatIdleCloseDays,
+-- off until it does) after which an account chat the company answered last is
+-- closed. The worker has no tenant until it picks one, so it asks here which
+-- companies have the setting on and a portal chat that is still open, as ids and
+-- nothing else. Whether a chat has been quiet long enough, in the company's own
+-- calendar, is the service's to decide. A suspended company is left alone.
+create or replace function app.portal_chat_idle_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select o.id from public.organization o
+     where o.suspended_at is null
+       and o.demo_user_id is null
+       and jsonb_typeof(o.settings -> 'portal' -> 'chatIdleCloseDays') = 'number'
+       and exists (
+         select 1 from public.ai_chat_session s
+          where s.organization_id = o.id and s.channel = 'portal' and s.status <> 'closed'
+       )
+     limit p_limit
+  $$;
+
+revoke all on function app.portal_chat_idle_organizations(int) from public;
+grant execute on function app.portal_chat_idle_organizations(int) to background;
+
 -- ---- Companies with automatic payments, or card charges to follow up ------
 -- A customer who agreed can have each bill charged to their saved card as it
 -- is issued, and a charge the worker made may need following up: a declined
