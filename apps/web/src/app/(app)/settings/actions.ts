@@ -4,8 +4,8 @@ import { attempt, field, refused, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, jobHolds, noticeUpkeep, ConflictError, NotFoundError } from "@opentradesos/api/services";
-import type { branding as brand } from "@opentradesos/core";
+import { branding, setup, telephony, phoneNumbers, voice, websiteTracking, visitCancellations, jobHolds, noticeUpkeep, noticeDefaults, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { notices, type branding as brand } from "@opentradesos/core";
 
 /**
  * `requireUser`, not the setup gate: the setup wizard draws these same forms
@@ -371,6 +371,27 @@ export async function setNoticeKeeping(_previous: FormState, form: FormData): Pr
         ? "Saved. Read notices are kept for good."
         : `Saved. Read notices are removed ${saved.keepDays} days after they were read.`,
     };
+  });
+  revalidatePath("/settings");
+  return result;
+}
+
+/**
+ * What a person added from now on starts with, per kind of notice: a box for the
+ * app's bell and one for the phone app, and for the kinds that are emailed a box
+ * for email. A box left unticked is off. People already here are not changed.
+ */
+export async function saveNoticeDefaults(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    await noticeDefaults.setDefaults(await ctx(), {
+      kinds: notices.NOTICE_KINDS.map((kind) => ({
+        kind,
+        inApp: form.get(`${kind}.inApp`) === "on",
+        push: form.get(`${kind}.push`) === "on",
+        ...(notices.isEmailKind(kind) ? { email: form.get(`${kind}.email`) === "on" } : {}),
+      })),
+    });
+    return { message: "Saved. People you add from now on start with these. Nobody already here is changed." };
   });
   revalidatePath("/settings");
   return result;

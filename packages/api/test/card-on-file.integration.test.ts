@@ -496,6 +496,49 @@ run("paying each bill automatically", () => {
     expect(stripe.charges.filter((c) => c.amountMinor === 7500)).toHaveLength(2);
   });
 
+  it("tells the people who can charge a card again, on the invoice, each time an automatic payment fails", async () => {
+    const BOOKS = fixtureId("card-on-file:notice-books");
+    const CLERK = fixtureId("card-on-file:notice-clerk");
+    for (const [id, role, name] of [[BOOKS, "accountant", "Beth"], [CLERK, "csr", "Cass"]] as const) {
+      await raw`delete from public."user" where id = ${id}`;
+      await raw`insert into public."user" (id, email, name) values (${id}, ${`${name.toLowerCase()}@onfile-notice.test`}, ${name})`;
+      await raw`insert into public.membership (organization_id, user_id, role) values (${ORG}, ${id}, ${role})`;
+    }
+    try {
+      stripe.answers = [{ code: "insufficient_funds", message: "Your card has insufficient funds." }];
+      const invoiceId = await anInvoice(ivy, "64.00");
+      const now = new Date();
+      await cardOnFile.autopayFor(db(), ORG, { deps: deps(), now });
+      const told = (userId: string) => raw<{ title: string; body: string; href: string; entity_type: string; entity_id: string }[]>`
+        select title, body, href, entity_type, entity_id from public.staff_notice
+         where organization_id = ${ORG} and user_id = ${userId} and kind = 'autopay_failed' and entity_id = ${invoiceId}
+         order by created_at`;
+
+      /** The owner and the accountant can charge a saved card; the invoice is what opens. */
+      for (const who of [USER, BOOKS]) {
+        const rows = await told(who);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ href: `/invoices/${invoiceId}`, entity_type: "invoice" });
+        expect(rows[0]!.title).toBe("Ivy Automatic's automatic payment did not go through");
+        expect(rows[0]!.body).toMatch(/^Invoice #\d+, \$64\.00\. It will be tried once more tomorrow\.$/);
+      }
+      /** A CSR cannot charge a saved card, so is not told. */
+      expect(await told(CLERK)).toHaveLength(0);
+
+      /** Nothing before the day is out, and the second failure is a second try, told as its own. */
+      await cardOnFile.autopayFor(db(), ORG, { deps: deps(), now: new Date(now.getTime() + 3600e3) });
+      expect(await told(USER)).toHaveLength(1);
+      await cardOnFile.autopayFor(db(), ORG, { deps: deps(), now: new Date(now.getTime() + 25 * 3600e3) });
+      const both = await told(USER);
+      expect(both).toHaveLength(2);
+      expect(both[1]!.body).toMatch(/It will not be tried again\.$/);
+    } finally {
+      await raw`delete from public.staff_notice where organization_id = ${ORG} and user_id in ${raw([BOOKS, CLERK])}`;
+      await raw`delete from public.membership where organization_id = ${ORG} and user_id in ${raw([BOOKS, CLERK])}`;
+      await raw`delete from public."user" where id in ${raw([BOOKS, CLERK])}`;
+    }
+  });
+
   it("does not try again what only the customer can finish", async () => {
     stripe.answers = [{ code: "authentication_required", message: "This payment requires authentication." }];
     const invoiceId = await anInvoice(ivy, "33.00");
@@ -564,6 +607,30 @@ run("a charge followed up after the processor took it", () => {
     expect(after!.task_id).not.toBeNull();
     const seen = await cardOnFile.forInvoice(owner(), { invoiceId });
     expect(seen.charges[0]).toMatchObject({ status: "failed", failureReason: expect.stringContaining("declined") });
+  });
+
+  it("tells the people who can charge a card again when the processor later says a card payment failed", async () => {
+    stripe.answers = ["processing"];
+    const invoiceId = await anInvoice(jo, "88.00");
+    await cardOnFile.autopayFor(db(), ORG, { deps: deps() });
+    const [row] = await charges(invoiceId);
+    const intentId = (await raw<{ intent_id: string }[]>`select intent_id from public.card_on_file_charge where id = ${row!.id}`)[0]!.intent_id;
+    const connection = (await payments.connectionById(db(), connectionId))!;
+    await payments.receive(db(), {
+      connection,
+      event: {
+        eventId: `evt_onfile_notice_${Math.random().toString(36).slice(2)}`, kind: "failed", type: "payment_intent.payment_failed",
+        intentId, amountMinor: 8800, currency: "usd", feeMinor: null, refundedMinor: null, metadata: {},
+        failureMessage: "The card was declined.",
+      },
+    });
+    await cardOnFile.autopayFor(db(), ORG, { deps: deps() });
+    const rows = await raw<{ title: string; body: string; href: string }[]>`
+      select title, body, href from public.staff_notice
+       where organization_id = ${ORG} and user_id = ${USER} and kind = 'autopay_failed' and entity_id = ${invoiceId}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ title: "An automatic card payment did not go through", href: `/invoices/${invoiceId}` });
+    expect(rows[0]!.body).toContain("declined");
   });
 
   it("asks again with the same key when a worker died in the middle, and adopts what it had already asked", async () => {

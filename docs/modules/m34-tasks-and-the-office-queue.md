@@ -27,7 +27,8 @@ estimate rather than a sentence describing it.
 And it tells people. A notice is one sentence about one record for one person:
 a task given to you, a late task, an order waiting for your approval, an app
 asking to connect, a toolbox talk you have not signed, your expense answered,
-your licence running out. It shows on the bell in the app, goes to the phone
+your licence running out, a deadline about to be missed, a customer asking to
+change a visit, an automatic payment that failed. It shows on the bell in the app, goes to the phone
 app for somebody who has it, and is texted to their own mobile when they
 turned that on themselves, each kind switched per person on `/me`. Nobody is
 told about a record they cannot open.
@@ -184,6 +185,21 @@ changed from ticked days to monthly forgets the days. The worker raises each one
 on the day in the COMPANY'S timezone, so Monday's task is not raised on Sunday
 evening in Chicago, and each is paused and resumed from the same screen.
 
+An every other week or every so many weeks task may name SEVERAL days of the week:
+every third Monday and Thursday is one template, not two. On the form the days are the
+same boxes as "on the days I tick" (tick two or more, or tick none and use the day of
+the week box; one ticked day is just that weekday). In the API it is `daysOfWeek`
+(`[1, 4]`) beside `intervalWeeks` on `every_n_weeks`, or on `every_other_week`, in place
+of `weekday`. The weeks run Monday to Sunday, the first week is the one the first
+occurrence falls in (the first named day on or after "Starting", so a start on a
+Wednesday skips that week's Monday and takes its Thursday), and it comes round on every
+named day of that week and of every gap after it, which is why editing "Starting" moves
+the on week exactly as it does for one day. A schedule naming one day is counted exactly
+as it always was. The service stores one day as `weekday` and several as `daysOfWeek`
+and never both, changes between the two forms without keeping the other, and refuses a
+day that is not a day of the week, no day at all, and two different ways of naming one
+day, in plain words. It reads back as "Every 3 weeks on Monday and Thursday".
+
 A template can be told to skip holidays ("Not on a holiday" on the form,
 `skipHolidays` in the API): an occurrence on a date the company's holiday list
 (`/settings/holidays`, M02) says it is closed raises nothing, and the day is
@@ -285,7 +301,23 @@ unassigned task, nobody in the chosen role, or a named person who has left, the
 owners are told and the escalation says so in words.
 `GET /v1/task-escalation-rules`, `POST /v1/task-escalation-rules`,
 `PATCH /v1/task-escalation-rules/{id}`, `GET /v1/tasks/{id}/escalations`,
-`GET /v1/reporting-lines` and `POST /v1/reporting-lines`.
+`GET /v1/reporting-lines`, `POST /v1/reporting-lines` and `GET /v1/reporting-lines/loops`.
+
+LOOPS ALREADY IN THE DATA. The check above stops a loop being made; it cannot see one
+that was there already, from lines saved before it existed or by a path that did not
+run it. The reporting lines section on `/tasks/escalation` scans the whole company for
+them every time it is drawn and says so in words: "No loops." when there are none, or
+"There is a loop in who answers to whom." with each loop named once, in reporting order:
+"Ana Reyes reports to Ben Cole and Ben Cole reports to Ana Reyes.", "Ana reports to
+Ben, Ben reports to Cy, and Cy reports to Ana.", or "Dee Lund is recorded as reporting
+to themselves." The scan walks everyone on record, so a person who has since left is
+still a link in the chain and is named with "(no longer works here)". Someone who only
+reports INTO a loop is not in it and is not named. It ONLY READS: it never changes a
+line, because which line in a loop is the wrong one is the company's to say, and the
+page says that nothing was changed and what to do (change one line in each loop). The
+same list is `GET /v1/reporting-lines/loops` (`user:read`, like the lines): `loops`,
+each with its `people` (`userId`, `name`, `active`) in reporting order and its
+`sentence`. The rule is core's `reportingLoopsInData`, with unit tests.
 
 ### Notices to the company's own people
 
@@ -320,6 +352,29 @@ What raises one, each in the same transaction as the thing it is about:
   the holder's record, and to each of the people the company names as keeping
   the renewals list, which is nobody until it names somebody (M24). A renewal
   recorded since stops it. It is the one kind that also comes by email.
+- **A deadline about to be missed**, when a clock reaches its warning time and its
+  task lands in the office queue (a contract's clock on a job, a warranty to
+  register, a filing falling due). It goes to everybody who may deal with it
+  (`task:write`) and may open the task, and opens `/tasks/{id}`. It is raised
+  beside the task, once, by the pass that raises the task, so a deadline already
+  past its warning when this was built is not announced afterwards.
+- **A customer asking to change a visit**, when a customer asks from their link
+  to move or cancel one. It goes to everybody who may answer it
+  (`visit:reschedule`) and can open the job under their own scope, and opens the
+  job at `/jobs/{id}`, where the request and its buttons are. A dispatcher, who
+  holds no `task:read`, is told all the same, because the job is where it is
+  answered. It says who asked, which visit, what they ask for and what they said.
+  The customer taking or turning down a time the office offered is not a notice:
+  it stays a task.
+- **An automatic payment that failed**, when the worker charges a customer's saved
+  card for a bill and it does not go through (declined at once, or the processor
+  says no later). It goes to everybody who may charge a saved card
+  (`payment:charge_saved`) and can open the invoice, and opens `/invoices/{id}`.
+  The second try the next day that fails is told as its own failure, so the people
+  who handle it hear that it will not be tried again. A failed bank payment keeps
+  the task it already raised and no notice, as before. A failed charge the office
+  itself pressed is not announced: the person who pressed the button is looking at
+  the answer.
 
 NEVER ABOUT A RECORD THEY CANNOT OPEN. Before anything is written, the person
 is resolved the way their own session would be, and the record is opened with
@@ -338,6 +393,22 @@ text, and for a licence or skill running out a box for email. Until they change
 it, every kind comes in the app and on the phone, and none by text; a licence or
 skill running out also comes by email to the address they sign in with. A kind switched off in the app is kept off the bell; the notice
 is still written, so the worker does not raise it again.
+
+WHAT A NEW PERSON STARTS WITH is the company's to set, on Settings under "What new
+people are told" (`GET /v1/notice-defaults` with `settings:read`,
+`PATCH /v1/notice-defaults` with `settings:write`, audited as
+`staff_notice_defaults.changed`). Per kind, whether a person added from then on has
+it in the app, on the phone app and, for a licence or skill running out, by email.
+Until a company changes a kind it starts people on the product's own (app and
+phone, a licence or skill also by email). The company's choice is COPIED onto each
+person as their own switches the moment they join, by a database trigger on the
+membership, so the setup wizard, an invite and a row put in by hand all start a
+person the same way. It seeds and never overrules: people already here keep exactly
+what they have, however long ago they joined; editing the defaults changes nobody;
+a person's own choice on `/me` is never replaced; and a later change to the defaults
+reaches only people added after it. There is no text setting, deliberately: a text
+goes to somebody's own mobile and only because they turned it on with their own
+number, so the copied row always says text is off.
 
 BY EMAIL, only for a licence or skill running out, to the person's address on
 the company's own email, through the company's email outbox, as one more delivery
@@ -455,6 +526,7 @@ them use the task permissions, because an obligation is work in the same queue.
 | `GET /v1/tasks/{id}/escalations` | `task:read` |
 | `GET /v1/reporting-lines` | `user:read` |
 | `POST /v1/reporting-lines` | `user:write` |
+| `GET /v1/reporting-lines/loops` | `user:read` |
 | `GET /v1/me/notices` | `profile:own` |
 | `POST /v1/me/notices/read` | `profile:own` |
 | `GET /v1/me/notice-settings` | `profile:own` |
@@ -463,6 +535,8 @@ them use the task permissions, because an obligation is work in the same queue.
 | `POST /v1/me/notice-digest` | `profile:own` |
 | `GET /v1/notice-keeping` | `settings:read` |
 | `PATCH /v1/notice-keeping` | `settings:write` |
+| `GET /v1/notice-defaults` | `settings:read` |
+| `PATCH /v1/notice-defaults` | `settings:write` |
 
 Claiming, ticking your own task's checklist and marking your own task done need only
 `task:read`, and they are the writes in the module guarded by a read. Each is acting
@@ -525,10 +599,16 @@ again on the tasks it already acted on. The people a rule tells get a task, an
 email, and a notice on the bell, the phone app or a text as each of them chose;
 somebody who cannot open tasks gets the task and the email and no notice.
 
-Notices are raised by the seven things listed under "Notices to the company's
-own people" and nothing else: a deadline about to breach, a visit change
-request, a failed payment and the rest of what the queue holds reach people as
-tasks, as before. A text goes from whichever registered number the company
+Notices are raised by the ten things listed under "Notices to the company's
+own people" and nothing else: the rest of what the queue holds reaches people as
+tasks, as before, and so does a customer taking or turning down a time the office
+offered for their visit, and a failed bank payment. A deadline's notice is raised
+when its task is, so a deadline that was already past its warning time before the
+notice existed is not announced after the fact. These three tell everybody who
+holds the permission that answers them and may open the record, not a person
+chosen for the job: a company with six people in the office tells six, and a
+person who finds that too many switches the kind off on `/me`; there is no
+"on call" choice yet. A text goes from whichever registered number the company
 sends customer texts from, in the company's quiet hours (not the person's own), and a reply to it
 lands in the inbox like any text from a number nobody recognises; a STOP is
 honoured. There is no notice by email one at a time beyond a licence or skill running
@@ -537,8 +617,9 @@ send; the daily digest is the other way to get them by email, and it lists, it d
 not send each. The digest's hour is the end of the company's quiet hours, not a
 setting of its own or the person's, deliberately; it is plain text, and it goes
 only to the address the person signs in with. There is no per company
-setting for which kinds exist or what a new person starts with: the defaults
-(in the app and on the phone, never a text, no digest) are fixed. A licence notice goes to
+setting for which kinds exist, and the company's defaults for a new person are
+copied once and never applied to people already here, never include a text, and
+do not include the daily digest, which only the person can turn on. A licence notice goes to
 the holder, to whoever they report to and to the people named to keep the
 renewals list, not to everybody who can read it, deliberately; a talk is nudged once, an hour after it was held,
 and not again. Read notices are kept for good unless the company chooses a number
@@ -548,9 +629,12 @@ after the notice was removed can be raised again for the new date, which is the
 right notice to get.
 
 Recurring tasks have no fifth given weekday of the month (most months have
-none; the last one is offered instead), no gap of more than fifty two weeks,
-and one weekday for an every so many weeks task: every third Monday and
-Thursday is two templates. A template set to skip holidays skips the occurrence
+none; the last one is offered instead) and no gap of more than fifty two weeks.
+Several weekdays are for the tasks counted in weeks and for "the days I tick";
+the first, second, third, fourth or last given weekday of a month is still one
+weekday (the first Monday and Thursday is two templates), because "the first
+Monday and the third Thursday" has no one honest answer for what a company with
+both meant. A template set to skip holidays skips the occurrence
 on a closed holiday rather than moving it to the next working day,
 deliberately, and an every other week task's off week stays the off week
 whatever the holidays. A change to a template applies to the tasks it raises
@@ -562,9 +646,11 @@ page, with the change applying from the next occurrence.
 Reporting lines are read by escalation and by the licence notice, and shown on the
 person's own page, where they can also be set; nothing else in the product reads them.
 They are one manager per person, with no limit on how long a chain is. A new line that
-would make a loop is refused, but a loop already in the data from before the check is not
-found or repaired: nothing walks the whole company looking for one, and escalation looks
-one step up and no further, so it does no harm.
+would make a loop is refused, and a loop already in the data from before the check is
+found and named in words on `/tasks/escalation`, but never repaired: which line is wrong
+is the company's to say, and escalation looks one step up and no further, so a loop does
+no harm while it waits. Nothing runs the scan on a schedule or tells anybody: it is what
+the page shows when somebody opens it.
 
 Obligations are raised by work finished on a cancelled visit, by a contract's
 clocks on a job (respond by, on site by, finished by, invoice by and claim by,

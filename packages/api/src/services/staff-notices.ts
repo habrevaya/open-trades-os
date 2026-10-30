@@ -4,8 +4,9 @@ import {
   SYSTEM_USER_ID, can, comms, field, notices as rules, time, type Actor,
 } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { invoiceScopeFilter, jobScopeFilter } from "./scope";
 import { memberActor } from "./session";
 import * as scoped from "./people-scope";
 import { quietHoursFor } from "./comms-send";
@@ -70,10 +71,13 @@ export type About =
   | { type: "safety_meeting"; id: string }
   | { type: "expense"; id: string }
   | { type: "person_certification"; id: string }
-  | { type: "technician_skill"; id: string };
+  | { type: "technician_skill"; id: string }
+  | { type: "visit_change_request"; id: string }
+  | { type: "invoice"; id: string };
 
 const ABOUT_TYPES = new Set<About["type"]>([
   "task", "purchase_order", "connected_app", "safety_meeting", "expense", "person_certification", "technician_skill",
+  "visit_change_request", "invoice",
 ]);
 
 /**
@@ -140,6 +144,35 @@ export async function openFor(tx: Database, actor: Actor, about: About): Promise
           scoped.recordPeople({ actor, db: tx }),
         )).limit(1);
       return person ? `/people/${person.membershipId}` : null;
+    }
+    case "visit_change_request": {
+      /**
+       * A customer's ask to move or cancel a visit is answered from the job's
+       * own page, so it opens there for somebody who may answer it
+       * (`visit:reschedule`), read the visit and open that job under their
+       * own scope. The task beside it is the queue's copy, and a dispatcher,
+       * who holds no `task:read`, is who answers these most.
+       */
+      if (!can(actor, "visit:reschedule") || !can(actor, "visit:read") || !can(actor, "job:read")) return null;
+      const [row] = await tx.select({ jobId: schema.visitChangeRequest.jobId }).from(schema.visitChangeRequest)
+        .innerJoin(schema.job, eq(schema.job.id, schema.visitChangeRequest.jobId))
+        .where(and(
+          eq(schema.visitChangeRequest.id, about.id),
+          isNull(schema.job.deletedAt),
+          jobScopeFilter(scopeOf({ actor, db: tx }, "job"), actor),
+        )).limit(1);
+      return row ? `/jobs/${row.jobId}` : null;
+    }
+    case "invoice": {
+      /** The invoice page shows the saved card charges, so it opens there for whoever may read that invoice under their scope. */
+      if (!can(actor, "invoice:read")) return null;
+      const [row] = await tx.select({ id: schema.invoice.id }).from(schema.invoice)
+        .where(and(
+          eq(schema.invoice.id, about.id),
+          isNull(schema.invoice.deletedAt),
+          invoiceScopeFilter(scopeOf({ actor, db: tx }, "invoice"), actor),
+        )).limit(1);
+      return row ? `/invoices/${row.id}` : null;
     }
     default: {
       const unhandled: never = about;
@@ -255,6 +288,40 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
   }
 
   return { told: true, noticeId: notice.id, channels };
+}
+
+/**
+ * Tell everyone who handles it, for a kind the office queue raises.
+ *
+ * A deadline about to be missed, a customer asking to change a visit and a
+ * failed automatic payment each land in the office queue as a task nobody
+ * owns yet. The people told are the ones who can DO something about that kind
+ * (core's `QUEUE_KIND_HANDLER`: the permission that answers it), and each is
+ * then held to `raiseWithin`'s own rule, so somebody who cannot open the record it is about
+ * is not told, however their role is named. The same key for all of them: one
+ * notice each, and a retry or a second look tells nobody twice. Returns how
+ * many people were told.
+ *
+ * Inside the caller's transaction, so the notices exist if and only if the
+ * task they are about does.
+ */
+export async function raiseToHolders(
+  tx: Database,
+  input: Omit<RaiseInput, "userId"> & { kind: "task_deadline" | "visit_change_requested" | "autopay_failed" },
+): Promise<number> {
+  const permission = rules.QUEUE_KIND_HANDLER[input.kind];
+  if (!permission) return 0;
+  const members = await tx.select({ userId: schema.membership.userId }).from(schema.membership)
+    .where(and(eq(schema.membership.organizationId, input.organizationId), eq(schema.membership.active, true)))
+    .orderBy(asc(schema.membership.createdAt));
+  let told = 0;
+  for (const member of members) {
+    const actor = await memberActor(tx, input.organizationId, member.userId);
+    if (!actor || !can(actor, permission)) continue;
+    const outcome = await raiseWithin(tx, { ...input, userId: member.userId });
+    if (outcome.told) told += 1;
+  }
+  return told;
 }
 
 /* --------------------------------------------------------------- the bell */

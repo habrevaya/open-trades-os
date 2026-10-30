@@ -14,6 +14,7 @@ import { Uuid } from "./common";
  *
  * What raises a notice is not here: it is the escalation, the order waiting,
  * the expense decided, each in its own module, through `staff-notices.ts`.
+ * What a new person starts with is the company's, below (`/v1/notice-defaults`).
  */
 
 const DateTime = z.string().datetime();
@@ -191,7 +192,54 @@ export const setReadNoticeKeeping = defineRoute({
   output: Keeping,
 });
 
+const DefaultKind = z.object({
+  kind: Kind,
+  label: z.string(),
+  description: z.string(),
+  inApp: z.boolean(),
+  push: z.boolean(),
+  /** Whether a new person starts on email. Null for a kind that is never emailed. */
+  email: z.boolean().nullable(),
+});
+
+export const getNoticeDefaults = defineRoute({
+  method: "get",
+  path: "/v1/notice-defaults",
+  summary: "What a new person's notices start as",
+  description:
+    "Per kind, whether a person added to the company starts with it in the app, on the phone app and, for a kind that is emailed, by email. "
+    + "There is no text setting: texts go to a person's own mobile and only when they turn them on themselves. "
+    + "Until the company changes one, a kind starts in the app and on the phone.",
+  module: "M34",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: z.object({ kinds: z.array(DefaultKind) }),
+});
+
+export const setNoticeDefaults = defineRoute({
+  method: "patch",
+  path: "/v1/notice-defaults",
+  summary: "Set what a new person's notices start as",
+  description:
+    "Only the kinds sent change. These are copied onto each person as they are added and never applied to people already in the company, "
+    + "and a person's own choice on their page is never replaced. `email` is for a kind that is emailed and is refused on the others. Audited.",
+  module: "M34",
+  permissions: ["settings:write"],
+  /** Setting a state. */
+  idempotent: true,
+  input: z.object({
+    kinds: z.array(z.object({
+      kind: Kind,
+      inApp: z.boolean(),
+      push: z.boolean(),
+      email: z.boolean().optional(),
+    })).min(1).max(notices.NOTICE_KINDS.length),
+  }),
+  output: z.object({ kinds: z.array(DefaultKind) }),
+});
+
 export const staffNoticeRoutes = {
+  getNoticeDefaults, setNoticeDefaults,
   listMyNotices, readMyNotices, getMyNoticeSettings, setMyNoticeSettings, setMyNoticeTexts, setMyNoticeDigest,
   getReadNoticeKeeping, setReadNoticeKeeping,
 } as const;

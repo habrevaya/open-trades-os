@@ -3923,3 +3923,39 @@ drop trigger if exists vendor_item_numbers on public.vendor_item;
 create trigger vendor_item_numbers
   before insert or update of part_number, second_part_number on public.vendor_item
   for each row execute function app.vendor_item_numbers();
+
+-- ---- What a new person's notices start as ----------------------------------
+-- A company can set, per kind of notice, whether a new person gets it in the
+-- app, on the phone app and (for a kind that is emailed) by email
+-- (`staff_notice_default`). Those rows are COPIED onto the person's own
+-- `staff_notice_setting` rows when their membership is made, and read from
+-- nowhere after that: editing the defaults changes nobody who is already here,
+-- and the person's own choice on /me is theirs. Done by the database so every
+-- way a person joins a company (the setup wizard, an invite, an import, a row
+-- inserted by hand) starts them the same way, and none can forget. Texts are
+-- never seeded: the copied row says text is off, because a text needs the
+-- person's own consent and number.
+--
+-- Security definer because the invite function that makes the membership runs
+-- as its owner and the request path runs under row level security; it reads and
+-- writes only the new membership's own company, by that column and no other.
+create or replace function app.membership_notice_defaults() returns trigger
+  language plpgsql volatile security definer set search_path = public, pg_temp
+  as $$
+  begin
+    insert into public.staff_notice_setting (organization_id, user_id, kind, in_app, push, text, email)
+    select d.organization_id, new.user_id, d.kind, d.in_app, d.push, false, d.email
+      from public.staff_notice_default d
+     where d.organization_id = new.organization_id
+       and d.deleted_at is null
+    on conflict (organization_id, user_id, kind) do nothing;
+    return new;
+  end;
+  $$;
+
+revoke all on function app.membership_notice_defaults() from public;
+
+drop trigger if exists membership_notice_defaults on public.membership;
+create trigger membership_notice_defaults
+  after insert on public.membership
+  for each row execute function app.membership_notice_defaults();

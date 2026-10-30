@@ -13,6 +13,7 @@ import { refusingDuplicate } from "./duplicates";
 import { sendTransactional } from "./comms-send";
 import * as email from "./email";
 import { emit } from "./events";
+import { raiseToHolders } from "./staff-notices";
 
 /**
  * A CUSTOMER ASKING TO MOVE OR CANCEL A VISIT, AND THE OFFICE ANSWERING
@@ -391,6 +392,21 @@ export async function request(
 
     await tx.update(schema.visitChangeRequest).set({ taskId: task!.id })
       .where(eq(schema.visitChangeRequest.id, created!.id));
+
+    /**
+     * The people who can answer it are told, on the bell, the phone or their
+     * own mobile as each chose (M34), in this transaction beside the task.
+     * The task is what opens, and it carries the buttons to answer.
+     */
+    await raiseToHolders(tx, {
+      organizationId: grant.organizationId, kind: "visit_change_requested", key: `visit_change:${created!.id}`,
+      title: input.kind === "cancel"
+        ? `${customer?.name ?? "A customer"} asks to cancel a visit`
+        : `${customer?.name ?? "A customer"} asks to move a visit`,
+      body: `Their visit is ${was}.${input.kind === "reschedule" ? ` They ask for ${sentenceWindow(target!.requestedStart, target!.requestedEnd, timezone)}.` : ""}`
+        + `${reason ? ` In their words: ${reason}` : ""} Answer before the visit.`,
+      about: { type: "visit_change_request", id: created!.id },
+    });
 
     const ctx: ServiceContext = { actor: portalSystem(grant.organizationId), db: tx };
     await emit(tx, ctx, {
