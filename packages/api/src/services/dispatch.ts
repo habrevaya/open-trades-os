@@ -955,7 +955,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       return {
         revision, unchanged: true, visits: [], priceBook: [], openTimeEntry: null, inspectionPrograms: [],
         locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
-        tasks: [], talks: [], abilities: await fieldSales.abilitiesFor(tx, ctx), expenses: [],
+        tasks: [], talks: [], abilities: await fieldSales.abilitiesFor(tx, ctx, device.technicianId), expenses: [],
       };
     }
 
@@ -1085,7 +1085,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       locationSharing: await location.forDevice(tx, ctx.actor.organizationId, device.technicianId),
       tasks: await fieldSales.tasksFor(tx, ctx),
       talks: await safetyTalks.talksForField(tx, ctx, device.technicianId),
-      abilities: await fieldSales.abilitiesFor(tx, ctx),
+      abilities: await fieldSales.abilitiesFor(tx, ctx, device.technicianId),
       expenses: await fieldSales.expensesFor(tx, device.technicianId),
       /** Yesterday and the first day asked for: a reading is made at the end of a day, or the morning after. */
       trucks: await truckWater.trucksForField(tx, device.technicianId, time.addDays(input.from, -1), input.from),

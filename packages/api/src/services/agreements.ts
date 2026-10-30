@@ -1224,6 +1224,30 @@ export interface CancelInput {
   endPropertyLink?: boolean | undefined;
 }
 
+/**
+ * End the customer's link to the address an agreement covers, today. Only a link still open: one ended earlier
+ * keeps the day it ended. Returns how many were ended. It is the fact that tells a house sale from churn in
+ * every retention figure, so a cancellation and a recorded lapse reason both offer it.
+ */
+async function endLinkWithin(
+  tx: Database, ctx: ServiceContext, agreement: typeof schema.agreement.$inferSelect, on: string, because: string,
+): Promise<number> {
+  if (!agreement.propertyId) return 0;
+  const ended = await tx.update(schema.customerProperty)
+    .set({ endedOn: on, updatedAt: new Date() })
+    .where(and(
+      eq(schema.customerProperty.customerId, agreement.customerId),
+      eq(schema.customerProperty.propertyId, agreement.propertyId),
+      isNull(schema.customerProperty.endedOn),
+    )).returning({ id: schema.customerProperty.id });
+  if (ended.length > 0) {
+    await audit(tx, ctx, "customer_property.ended", "property", agreement.propertyId, null, {
+      customerId: agreement.customerId, endedOn: on, because,
+    });
+  }
+  return ended.length;
+}
+
 export async function cancel(ctx: ServiceContext, input: CancelInput) {
   return guardedWrite(ctx, "membership:write", (tx) => cancelWithin(tx, ctx, input));
 }
@@ -1267,22 +1291,9 @@ async function cancelWithin(tx: Database, ctx: ServiceContext, input: CancelInpu
    * and the office ticked it. Only a link still open: one ended earlier keeps
    * the day it ended.
    */
-  let endedLinks = 0;
-  if (input.endPropertyLink && before.propertyId) {
-    const ended = await tx.update(schema.customerProperty)
-      .set({ endedOn: on, updatedAt: new Date() })
-      .where(and(
-        eq(schema.customerProperty.customerId, before.customerId),
-        eq(schema.customerProperty.propertyId, before.propertyId),
-        isNull(schema.customerProperty.endedOn),
-      )).returning({ id: schema.customerProperty.id });
-    endedLinks = ended.length;
-    if (endedLinks > 0) {
-      await audit(tx, ctx, "customer_property.ended", "property", before.propertyId, null, {
-        customerId: before.customerId, endedOn: on, because: `agreement cancelled: ${said}`,
-      });
-    }
-  }
+  const endedLinks = input.endPropertyLink
+    ? await endLinkWithin(tx, ctx, before, on, `agreement cancelled: ${said}`)
+    : 0;
 
   /**
    * Instalments not yet invoiced are cancelled. An invoiced one stands:
@@ -1412,7 +1423,7 @@ async function ensureCurrentTerm(tx: Database, ctx: ServiceContext, agreement: t
  * it later recognises nothing more, because it is already earned.
  */
 export async function releaseEndedTerms(
-  tx: Database, ctx: ServiceContext, input: { today: string; agreementId?: string | undefined },
+  tx: Database, ctx: ServiceContext, input: { today: string; agreementId?: string | undefined; termId?: string | undefined },
 ): Promise<{ termId: string; agreementId: string; term: number; amount: string; visits: number }[]> {
   const ended = await tx.select({ term: schema.agreementTerm, customerId: schema.agreement.customerId })
     .from(schema.agreementTerm)
@@ -1421,6 +1432,7 @@ export async function releaseEndedTerms(
       isNull(schema.agreementTerm.breakageReleasedOn),
       lte(schema.agreementTerm.endsOn, input.today),
       input.agreementId ? eq(schema.agreementTerm.agreementId, input.agreementId) : undefined,
+      input.termId ? eq(schema.agreementTerm.id, input.termId) : undefined,
     ))
     .orderBy(asc(schema.agreementTerm.endsOn), asc(schema.agreementTerm.term));
 
@@ -1470,6 +1482,110 @@ export async function releaseEndedTerms(
     released.push({ termId: term.id, agreementId: term.agreementId, term: term.term, amount: m.toString(amount), visits });
   }
   return released;
+}
+
+/**
+ * WHY A PLAN LAPSED, SAID BY THE OFFICE
+ *
+ * A lapse is a renewal that did not happen, made by the worker on the end date, so it arrives with no reason and
+ * the office is not made to give one: it is asked for from a lapsed agreement's own screen and may stay unknown.
+ * The reasons are the cancellation list, so one set of words means one thing everywhere. A cancelled agreement
+ * has its cancellation reason, and one still running has not lapsed, so only a lapsed one takes this.
+ *
+ * Saying "moved" or "sold" offers to end the customer's link to the address, as a cancellation does, because that
+ * link, not the word, is what the retention figures read to tell a house sale from a lost customer. Offered and
+ * never done by itself: the lapse may have been months ago and they may have kept the house as a rental. Nothing
+ * in the retention figures reads this reason: counting a lapse as a house sale because somebody typed it moves a
+ * number the owner reads, and that is not decided here.
+ *
+ * It can be corrected by saying it again (the earlier words stay in the audit log). Renewing the agreement clears
+ * it, so a running agreement never carries an old lapse.
+ */
+export interface LapseReasonInput {
+  id: string;
+  reasonCode: membership.CancellationCode;
+  reason?: string | undefined;
+  endPropertyLink?: boolean | undefined;
+}
+
+async function recordLapseReasonWithin(tx: Database, ctx: ServiceContext, input: LapseReasonInput) {
+  const [before] = await tx.select().from(schema.agreement).where(eq(schema.agreement.id, input.id)).limit(1);
+  if (!before) throw new NotFoundError("Agreement");
+  if (before.status !== "lapsed") {
+    throw new ConflictError(
+      before.status === "cancelled"
+        ? "This agreement was cancelled, so it has the reason it was cancelled for. A lapse is a plan that ran out and was not renewed."
+        : "This agreement has not lapsed, so there is no lapse to explain.",
+    );
+  }
+  const problem = membership.lapseReasonProblem(input.reasonCode, input.reason);
+  if (problem) throw new ConflictError(problem);
+  if (input.endPropertyLink && !membership.leftTheHome(input.reasonCode)) {
+    throw new ConflictError("Only a move or a sale ends their link to the address. Choose one of those, or leave the link as it is.");
+  }
+  if (input.endPropertyLink && !before.propertyId) {
+    throw new ConflictError(
+      "This agreement covers them at any address, so there is no one address to end their link to. End it on the address itself.",
+    );
+  }
+  const words = (input.reason ?? "").trim();
+  const on = time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+  const changed = before.lapseReasonCode !== input.reasonCode || (before.lapseReason ?? "") !== words;
+  const [after] = changed
+    ? await tx.update(schema.agreement).set({
+      lapseReasonCode: input.reasonCode, lapseReason: words === "" ? null : words, updatedAt: new Date(),
+    }).where(eq(schema.agreement.id, input.id)).returning()
+    : [before];
+  const endedLinks = input.endPropertyLink
+    ? await endLinkWithin(tx, ctx, before, on, `agreement lapsed: ${membership.CANCELLATION_LABEL[input.reasonCode]}`)
+    : 0;
+  if (changed) {
+    await audit(tx, ctx, "agreement.lapse_reason_recorded", "agreement", input.id,
+      { lapseReasonCode: before.lapseReasonCode, lapseReason: before.lapseReason },
+      { lapseReasonCode: after!.lapseReasonCode, lapseReason: after!.lapseReason });
+  }
+  return { ...after!, endedLinks };
+}
+
+export async function recordLapseReason(ctx: ServiceContext, input: LapseReasonInput) {
+  return guardedWrite(ctx, "membership:write", (tx) => recordLapseReasonWithin(tx, ctx, input));
+}
+
+export async function releaseTerm(ctx: ServiceContext, input: { id: string; termId: string }) {
+  return guardedWrite(ctx, "membership:write", (tx) => releaseTermWithin(tx, ctx, input));
+}
+
+/**
+ * RELEASE ONE ENDED TERM FROM ITS SCREEN
+ *
+ * The worker releases what a term still holds deferred on the day it ends; this is the same function
+ * (`releaseEndedTerms`), run for one term on request, for the day the worker has not yet run, is off, or the
+ * office is closing a month and wants it counted now. It is never earlier than the end: a term still running is
+ * refused in words, because a skipped visit can still be put back until then. A term already released answers
+ * with what it released and does nothing more, so a second press or a retry posts nothing twice (the term is
+ * claimed by a conditional update before anything is posted).
+ */
+async function releaseTermWithin(tx: Database, ctx: ServiceContext, input: { id: string; termId: string }) {
+  const [term] = await tx.select().from(schema.agreementTerm)
+    .where(and(eq(schema.agreementTerm.id, input.termId), eq(schema.agreementTerm.agreementId, input.id))).limit(1);
+  if (!term) throw new NotFoundError("Term");
+  const today = time.dateIn(new Date(), await organizationTimezone(tx, ctx.actor.organizationId));
+  if (term.breakageReleasedOn === null && term.endsOn > today) {
+    throw new ConflictError(
+      `Term ${term.term} ends on ${term.endsOn}. What a term still holds is counted as earned on the day it ends, never earlier, `
+      + "because a skipped visit can still be put back until then.",
+    );
+  }
+  const released = term.breakageReleasedOn === null
+    ? await releaseEndedTerms(tx, ctx, { today, agreementId: input.id, termId: input.termId })
+    : [];
+  const [after] = await tx.select().from(schema.agreementTerm).where(eq(schema.agreementTerm.id, input.termId)).limit(1);
+  return {
+    termId: after!.id, term: after!.term, endsOn: after!.endsOn,
+    breakageReleasedOn: after!.breakageReleasedOn, breakageAmount: after!.breakageAmount, breakageVisits: after!.breakageVisits,
+    /** False when the term had already been released, by the worker or an earlier press. */
+    releasedNow: released.length > 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1581,6 +1697,9 @@ export async function renewWithin(
     /** The next term owes its own notice, so this term's record is cleared. */
     renewalNoticeSentAt: null,
     renewalNoticeOutcome: null,
+    /** A running agreement carries no old lapse. The reason stays in the audit log. */
+    lapseReasonCode: null,
+    lapseReason: null,
     visitsIncludedThisTerm: plan.includedVisitsPerTerm,
     visitsDeliveredThisTerm: 0,
     updatedAt: new Date(),
@@ -2298,6 +2417,8 @@ const agreementView = (row: typeof schema.agreement.$inferSelect) => ({
   cancelledOn: row.cancelledOn,
   cancellationReason: row.cancellationReason,
   cancellationCode: row.cancellationCode,
+  lapseReasonCode: row.lapseReasonCode,
+  lapseReason: row.lapseReason,
   visitsIncludedThisTerm: row.visitsIncludedThisTerm,
   visitsDeliveredThisTerm: row.visitsDeliveredThisTerm,
 });
@@ -2435,7 +2556,7 @@ export const handlers = {
       visits: found.visits.map(visitView),
       instalments: found.billing.map(instalmentView),
       terms: found.terms.map((t) => ({
-        term: t.term, startsOn: t.startsOn, endsOn: t.endsOn, breakageReleasedOn: t.breakageReleasedOn,
+        id: t.id, term: t.term, startsOn: t.startsOn, endsOn: t.endsOn, breakageReleasedOn: t.breakageReleasedOn,
         breakageAmount: t.breakageAmount, breakageVisits: t.breakageVisits,
       })),
     };
@@ -2497,4 +2618,13 @@ export const handlers = {
       const cancelled = await cancelWithin(tx, ctx, input);
       return { ...agreementView(cancelled), released: cancelled.released, endedLinks: cancelled.endedLinks };
     }),
+
+  recordAgreementLapseReason: (ctx: ServiceContext, input: LapseReasonInput) =>
+    onceOver(ctx, "membership:write", "agreement.lapse_reason", input.id, async (tx) => {
+      const recorded = await recordLapseReasonWithin(tx, ctx, input);
+      return { ...agreementView(recorded), endedLinks: recorded.endedLinks };
+    }),
+
+  releaseAgreementTerm: (ctx: ServiceContext, input: { id: string; termId: string }) =>
+    onceOver(ctx, "membership:write", "agreement.term_release", input.termId, (tx) => releaseTermWithin(tx, ctx, input)),
 } as const;

@@ -249,6 +249,9 @@ export interface CertificationInput {
 /** The most days a holding may be warned ahead: ten years, the same ceiling a type has. */
 const MAX_LEAD_DAYS = 3650;
 
+/** The most holdings one change reaches, so a page of ticks is one change somebody can read back. */
+export const MAX_BULK_HOLDINGS = 200;
+
 /** A notice period of a holding's own, or null for the type's; refused when it is not whole days. */
 function ownLead(value: number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
@@ -462,6 +465,65 @@ export async function setCertificationRenewalDays(
     await audit(tx, ctx, "certification.renewal_days_set", "person_certification", before.id,
       { renewalLeadDays: before.renewalLeadDays }, { renewalLeadDays: lead });
     return { id: row!.id, renewalLeadDays: row!.renewalLeadDays, typeRenewalLeadDays: type.renewalLeadDays };
+  });
+}
+
+/**
+ * The same change for a set of holdings at once: "warn forty five days ahead" for every ticked electrician's
+ * licence, or hand them all back to their kinds' numbers with `null`.
+ *
+ * ALL OR NOTHING, in one transaction. A holding that cannot take a number (its kind does not expire) or that
+ * is not here refuses the whole set and names each one, because a half applied change to a renewals list is
+ * a list nobody can say the state of. A holding already on that number is left as it is: it writes no audit
+ * row and the answer says it did not change. Every holding that does change gets its own audit row, with the
+ * earlier number, exactly as the single route writes it, so one person's history reads the same whichever way
+ * the number was set. A notice already sent is not sent again by moving the number.
+ */
+export async function setCertificationRenewalDaysMany(
+  ctx: ServiceContext, input: { ids: string[]; renewalLeadDays: number | null },
+) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const ids = [...new Set(input.ids)];
+    if (ids.length === 0) throw new ConflictError("Tick at least one card.");
+    if (ids.length > MAX_BULK_HOLDINGS) {
+      throw new ConflictError(`Change at most ${MAX_BULK_HOLDINGS} cards at a time.`);
+    }
+    const lead = ownLead(input.renewalLeadDays);
+    const rows = await tx.select({
+      holding: schema.personCertification, typeName: schema.certificationType.name,
+      expires: schema.certificationType.expires, typeLead: schema.certificationType.renewalLeadDays,
+      person: schema.technician.displayName,
+    }).from(schema.personCertification)
+      .innerJoin(schema.certificationType, eq(schema.certificationType.id, schema.personCertification.certificationTypeId))
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.personCertification.technicianId))
+      .where(and(
+        eq(schema.personCertification.organizationId, ctx.actor.organizationId),
+        inArray(schema.personCertification.id, ids),
+      ));
+    const found = new Map(rows.map((r) => [r.holding.id, r]));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) throw new NotFoundError("Certification");
+    if (lead !== null) {
+      const cannot = rows.filter((r) => !r.expires).map((r) => `${r.person}'s ${r.typeName}`);
+      if (cannot.length > 0) {
+        throw new ConflictError(
+          `Nothing was changed. ${cannot.join(", ")} ${cannot.length === 1 ? "does" : "do"} not expire, so there is nothing to warn about ahead of time. Untick ${cannot.length === 1 ? "it" : "them"} and try again.`,
+        );
+      }
+    }
+    const holdings: { id: string; renewalLeadDays: number | null; typeRenewalLeadDays: number; changed: boolean }[] = [];
+    for (const id of ids) {
+      const r = found.get(id)!;
+      const changed = r.holding.renewalLeadDays !== lead;
+      if (changed) {
+        await tx.update(schema.personCertification).set({ renewalLeadDays: lead, updatedAt: new Date() })
+          .where(eq(schema.personCertification.id, id));
+        await audit(tx, ctx, "certification.renewal_days_set", "person_certification", id,
+          { renewalLeadDays: r.holding.renewalLeadDays }, { renewalLeadDays: lead, withOthers: ids.length });
+      }
+      holdings.push({ id, renewalLeadDays: lead, typeRenewalLeadDays: r.typeLead, changed });
+    }
+    return { holdings, changed: holdings.filter((h) => h.changed).length };
   });
 }
 
@@ -1145,6 +1207,11 @@ export const handlers = {
     id: string; renewalLeadDays: number | null;
   }): Promise<{ id: string; renewalLeadDays: number | null; typeRenewalLeadDays: number }> =>
     setCertificationRenewalDays(ctx, input),
+
+  setCertificationRenewalDaysMany: (ctx: ServiceContext, input: {
+    ids: string[]; renewalLeadDays: number | null;
+  }): Promise<{ holdings: { id: string; renewalLeadDays: number | null; typeRenewalLeadDays: number; changed: boolean }[]; changed: number }> =>
+    setCertificationRenewalDaysMany(ctx, input),
 
   verifyCertification: async (ctx: ServiceContext, input: {
     id: string; note?: string | null | undefined;

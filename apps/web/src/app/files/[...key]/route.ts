@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { files as fileRules } from "@opentradesos/core";
 import { files, NotFoundError, OrganizationSuspendedError, type ResolvedSession } from "@opentradesos/api/services";
 import { authenticateFileRead } from "@opentradesos/api/http";
 import { sessionFromCookie } from "@/lib/auth";
@@ -56,10 +57,17 @@ export async function GET(
   try {
     const file = await files.open({ actor: user.actor, db: getDb() }, storageKey);
 
+    /**
+     * Pictures and PDFs are drawn inline as they always were. A Word document, a spreadsheet, a text file or a
+     * zip (which only an email reply can bring) is never drawn: it is sent as a download, as
+     * `application/octet-stream`, whatever it is stored as.
+     */
+    const how = fileRules.serving(file.contentType);
+
     return new NextResponse(new Uint8Array(file.bytes), {
       headers: {
         /** The SNIFFED type, from when it was stored. Never anything a request asked for. */
-        "Content-Type": file.contentType,
+        "Content-Type": how.contentType,
         /**
          * A year, and safe because the key IS the hash: different bytes are
          * a different URL, so there is nothing to invalidate.
@@ -93,7 +101,7 @@ export async function GET(
          * one the uploader chose, and `invoice.pdf.html` is what that gets
          * you.
          */
-        "Content-Disposition": "inline",
+        "Content-Disposition": how.inline ? "inline" : 'attachment; filename="file"',
       },
     });
   } catch (error) {

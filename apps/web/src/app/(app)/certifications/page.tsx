@@ -8,6 +8,7 @@ import { ActionForm } from "./ActionForm";
 import { ActionForm as SaveForm, Select } from "@/components/ActionForm";
 import { removeKeeper, setKeeper } from "./keeper-actions";
 import { ExpiringList, HoldingsByPerson } from "./Holdings";
+import { BULK_FORM, BulkRenewalDays } from "./BulkRenewalDays";
 
 export const dynamic = "force-dynamic";
 
@@ -164,10 +165,18 @@ export default async function CertificationsPage() {
       )}
 
       <h2 className="mt-8 text-base font-semibold">Who holds what</h2>
+      {writes && certifications.some((h) => h.expiresOn && h.status !== "revoked") ? <BulkRenewalDays /> : null}
       <HoldingsByPerson
         rows={certifications}
         controls={writes ? (h) => (
           <div className="flex flex-wrap gap-2">
+            {h.expiresOn && h.status !== "revoked" && (
+              <label className="flex h-8 items-center gap-1 text-xs text-ink-700">
+                <input type="checkbox" form={BULK_FORM} name="id" value={h.id}
+                       aria-label={`Tick ${h.name} for ${h.technicianName}`} className="h-4 w-4" />
+                Tick
+              </label>
+            )}
             {!h.verifiedAt && (
               <ActionForm op="verify" label="I have seen the card" quiet>
                 <input type="hidden" name="id" value={h.id} />

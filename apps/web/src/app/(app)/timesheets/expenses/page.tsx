@@ -7,6 +7,7 @@ import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { Empty, PageHeader, Table, Td, Th } from "@/components/Table";
 import { formatDay, formatIn, todayIn } from "@/lib/dates";
+import { rateSourceNote } from "@/lib/mileage";
 import { decide, perDiem, removeDay } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -87,7 +88,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
               <Td>
                 {e.description}
                 <span className="block text-xs text-ink-500">
-                  {e.miles ? `${e.miles} miles at $${e.mileageRate} a mile. ` : ""}{formatDay(e.spentOn, zone)}
+                  {e.miles ? `${e.miles} miles at $${e.mileageRate} a mile${rateSourceNote(e, `${e.technicianName}'s`) ? `, ${rateSourceNote(e, `${e.technicianName}'s`)}` : ""}. ` : ""}{formatDay(e.spentOn, zone)}
                   {e.jobId
                     ? <>{", "}<Link href={`/jobs/${e.jobId}`} className="text-blue-600 underline underline-offset-4">job {e.jobNumber}</Link></>
                     : ", not for a job"}

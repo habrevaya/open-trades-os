@@ -264,6 +264,36 @@ export const setCertificationRenewalDays = defineRoute({
   }),
 });
 
+export const setCertificationRenewalDaysMany = defineRoute({
+  method: "post",
+  path: "/v1/certification-renewals/days",
+  summary: "Change how many days ahead a set of holdings is warned, at once",
+  description:
+    "The same change as `POST /v1/certifications/{id}/renewal-days`, for up to 200 holdings in one call: `renewalLeadDays` is the number of days ahead each is warned, or `null` to hand every one back to its type's number. "
+    + "All or nothing: a holding that is not here, or whose type does not expire (when a number is given), refuses the whole set, in words naming each one, and nothing is changed. "
+    + "A holding already on that number is left as it is (`changed` is false for it, and it writes no audit row). Each holding that does change gets its own audit row with its earlier number, as a single change does. "
+    + "A notice already sent is not sent again. Sending the same set again changes nothing and writes nothing (every holding then reads `changed: false`, because nothing changed that time). `compliance:write`.",
+  module: "M24",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({
+    ids: z.array(Uuid).min(1).max(200),
+    renewalLeadDays: z.number().int().min(0).max(3650).nullable(),
+  }),
+  output: z.object({
+    holdings: z.array(z.object({
+      id: Uuid,
+      renewalLeadDays: z.number().int().nullable(),
+      /** The number it follows when it has none of its own. */
+      typeRenewalLeadDays: z.number().int(),
+      /** False when it was already on that number. */
+      changed: z.boolean(),
+    })),
+    /** How many holdings were actually changed. */
+    changed: z.number().int(),
+  }),
+});
+
 export const verifyCertification = defineRoute({
   method: "post",
   path: "/v1/certifications/{id}/verify",
@@ -428,6 +458,6 @@ export const peopleRoutes = {
   setMembershipActive,
   listPeople,
   listCertificationTypes, defineCertificationType, updateCertificationType,
-  listCertifications, recordCertification, verifyCertification, setCertificationStatus, setCertificationRenewalDays,
+  listCertifications, recordCertification, verifyCertification, setCertificationStatus, setCertificationRenewalDays, setCertificationRenewalDaysMany,
   listExpiringCertifications, getSkillStanding,
 } as const;

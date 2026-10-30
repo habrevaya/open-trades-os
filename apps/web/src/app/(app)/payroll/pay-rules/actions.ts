@@ -4,7 +4,7 @@ import { attempt, field, type FormState } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { laborSettings, payExtras } from "@opentradesos/api/services";
+import { laborSettings, mileageOverrides, payExtras } from "@opentradesos/api/services";
 
 /** Hours typed on the form, as the minutes the policy is declared in, or null when left empty. */
 function minutes(form: FormData, name: string): number | null {
@@ -100,6 +100,20 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
 
       case "mileageRemove":
         await payExtras.removeMileageRate(ctx, { from: field(form, "from") ?? "" });
+        return { message: "Taken off. Claims already made keep the rate they were worked out at." };
+
+      case "mileageOverrideAdd": {
+        const technicianId = field(form, "technicianId");
+        const assetId = field(form, "assetId");
+        await mileageOverrides.add(ctx, {
+          ...(technicianId ? { technicianId } : {}), ...(assetId ? { assetId } : {}),
+          from: field(form, "from") ?? "", perMile: field(form, "perMile") ?? "",
+        });
+        return { message: "Saved. Claims in miles for days from then on are worked out at this rate for them. Claims already made keep theirs." };
+      }
+
+      case "mileageOverrideRemove":
+        await mileageOverrides.remove(ctx, { id: field(form, "id") ?? "" });
         return { message: "Taken off. Claims already made keep the rate they were worked out at." };
 
       case "placeAdd": {

@@ -129,3 +129,43 @@ export async function renewAgreement(_previous: FormState, form: FormData): Prom
   revalidatePath("/agreements/renewals");
   return result;
 }
+
+/**
+ * Why a plan lapsed, said from the lapsed agreement's own screen. Optional for the office: this is only
+ * reached when somebody chooses to say. A move or a sale offers to end their link to the address, and the
+ * service refuses a link for anything else.
+ */
+export async function recordLapseReason(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  const result = await attempt(form, async () => {
+    const code = field(form, "reasonCode") ?? "";
+    const saved = await agreements.recordLapseReason(await ctx(), {
+      id,
+      /** Checked by the service against the list, and refused in words when it is not on it. */
+      reasonCode: code as NonNullable<Parameters<typeof agreements.recordLapseReason>[1]["reasonCode"]>,
+      reason: field(form, "reason") ?? "",
+      endPropertyLink: form.get("endPropertyLink") === "1",
+    });
+    return { message: saved.endedLinks > 0 ? "Saved. Their link to the address has ended." : "Saved." };
+  });
+  revalidatePath(`/agreements/${id}`);
+  revalidatePath("/agreements/renewals");
+  return result;
+}
+
+/**
+ * Count an ended term's unused visits as earned now: the release the worker makes on the day a term ends,
+ * for one term. The service refuses a term that has not ended, in words.
+ */
+export async function releaseTerm(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  const result = await attempt(form, async () => {
+    const released = await agreements.releaseTerm(await ctx(), { id, termId: field(form, "termId") ?? "" });
+    return {
+      message: !released.releasedNow ? "That term had already been counted."
+        : Number(released.breakageAmount ?? "0") > 0 ? `Counted as earned: ${released.breakageAmount}.` : "Counted. Nothing was left to count.",
+    };
+  });
+  revalidatePath(`/agreements/${id}`);
+  return result;
+}

@@ -69,6 +69,9 @@ const REFUSED: Record<string, Refused> = {
   journal_entry_reverses_idx: { file: "journals.ts", how: "check", says: "was already reversed by journal" },
   /** A second sales tax rate in use under one name: two rows on a filing report that mean the same thing. */
   tax_rate_name_idx: { file: "tax.ts", how: "check", says: "There is already a rate called" },
+  /** A second mileage rate for one person, or one vehicle, on one day: "what was a mile paid at on the 1st" would have two answers. */
+  mileage_rate_override_person_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
+  mileage_rate_override_asset_day_idx: { file: "mileage-overrides.ts", how: "check", says: "There is already a rate from" },
   /** A second, different percentage for one rate on one day: "what did it charge on the 1st" would have two answers. */
   tax_rate_version_day_idx: { file: "tax.ts", how: "check", says: "already has a percentage from" },
   /* ---- caught by the index's own name, through `refusingDuplicate` ---- */

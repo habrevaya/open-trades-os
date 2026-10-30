@@ -4,13 +4,13 @@ import { getDb } from "@/lib/db";
 import { agreements, NotFoundError } from "@opentradesos/api/services";
 import { can, money, membership } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
-import { formatDay, formatIn } from "@/lib/dates";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { formatDay, formatIn, todayIn } from "@/lib/dates";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { PageHeader, Table, Th, Td } from "@/components/Table";
 import { VisitActions } from "../VisitActions";
 import { BillButton } from "../BillButton";
 import { CancelForm } from "../CancelForm";
-import { renewAgreement } from "../actions";
+import { recordLapseReason, releaseTerm, renewAgreement } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +49,7 @@ export default async function AgreementPage({
   const zone = user.organizationTimezone;
   /** A term column only once there is more than one term to tell apart. */
   const renewed = agreement.renewalCount > 0;
+  const today = todayIn(zone);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -107,6 +108,40 @@ export default async function AgreementPage({
               : `${membership.CANCELLATION_LABEL[agreement.cancellationCode]}. ${agreement.cancellationReason}`)
             : `${agreement.cancellationReason} (cancelled before reasons were chosen from a list)`}
         </p>
+      ) : null}
+
+      {agreement.status === "lapsed" ? (
+        <section aria-labelledby="lapse" className="mt-2 text-sm text-ink-700">
+          <h2 id="lapse" className="sr-only">Why it lapsed</h2>
+          <p>
+            {agreement.lapseReasonCode
+              ? <>Lapsed: {membership.CANCELLATION_LABEL[agreement.lapseReasonCode]}{agreement.lapseReason ? `. ${agreement.lapseReason}` : ""}</>
+              : "Lapsed. Nobody has said why."}
+          </p>
+          {writes ? (
+            <ActionForm
+              action={recordLapseReason}
+              submit={agreement.lapseReasonCode ? "Change the reason" : "Save the reason"}
+              tone="quiet"
+              hidden={{ id: agreement.id }}
+              className="mt-2 flex flex-wrap items-end gap-3"
+            >
+              <Select
+                label="Why it lapsed" name="reasonCode" className="block w-64"
+                defaultValue={agreement.lapseReasonCode ?? "service"}
+                options={membership.CANCELLATION_CODES.map((c) => ({ value: c, label: membership.CANCELLATION_LABEL[c] }))}
+              />
+              <TextField label="In their words (needed for something else)" name="reason" maxLength={1000}
+                         defaultValue={agreement.lapseReason ?? ""} className="block w-72" />
+              {agreement.propertyId ? (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="endPropertyLink" value="1" className="h-4 w-4" />
+                  They left the address: end their link to it today (a move or a sale only)
+                </label>
+              ) : null}
+            </ActionForm>
+          ) : null}
+        </section>
       ) : null}
 
       <div className="mt-4 rounded-md border border-steel-200 bg-canvas p-4">
@@ -258,7 +293,7 @@ export default async function AgreementPage({
             When a term ends, the money for any visits they never took is counted as earned. Never before the end.
             Those visits stay on the list if you still want to do them, and doing one later adds nothing to the books.
           </p>
-          <Table head={<><Th>Term</Th><Th>Ran</Th><Th>At the end</Th><Th className="text-right">Earned at the end</Th></>}>
+          <Table head={<><Th>Term</Th><Th>Ran</Th><Th>At the end</Th><Th className="text-right">Earned at the end</Th><Th /></>}>
             {data.terms.map((t) => (
               <tr key={t.id}>
                 <Td>{t.term}</Td>
@@ -267,12 +302,19 @@ export default async function AgreementPage({
                 </Td>
                 <Td className="text-ink-700">
                   {t.breakageReleasedOn === null
-                    ? "Still running"
+                    ? (t.endsOn <= today ? "Ended, not counted yet" : "Still running")
                     : Number(t.breakageAmount ?? "0") > 0
                       ? `${t.breakageVisits === 1 ? "1 visit" : `${t.breakageVisits ?? 0} visits`} not taken, counted ${formatDay(t.breakageReleasedOn, zone)}`
                       : "Nothing left to count"}
                 </Td>
                 <Td className="text-right">{t.breakageReleasedOn ? <Money value={t.breakageAmount ?? "0"} /> : null}</Td>
+                <Td>
+                  {/* Only a term that has ended and not been counted. The worker does this on the day; this is for when it has not. */}
+                  {writes && t.breakageReleasedOn === null && t.endsOn <= today ? (
+                    <ActionForm action={releaseTerm} submit="Release this term" tone="quiet"
+                                hidden={{ id: agreement.id, termId: t.id }} />
+                  ) : null}
+                </Td>
               </tr>
             ))}
           </Table>

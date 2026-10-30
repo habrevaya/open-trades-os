@@ -42,6 +42,10 @@ export const ExpenseView = z.object({
   miles: z.string().nullable(),
   /** For a claim entered as miles: the dollars for one mile it was worked out at, kept on the claim. Null otherwise. */
   mileageRate: z.string().nullable(),
+  /** For a claim in miles: whose rate it was worked out at, the vehicle's, the person's or the company's. Null for an amount paid. */
+  mileageRateSource: z.enum(["company", "person", "vehicle"]).nullable(),
+  /** For a claim in miles that named a vehicle: the vehicle's name as it was. */
+  mileageVehicle: z.string().nullable(),
   spentOn: IsoDate,
   description: z.string(),
   status: z.enum(["pending", "approved", "refused"]),
@@ -74,7 +78,7 @@ export const recordExpense = defineRoute({
   path: "/v1/me/expenses",
   summary: "Record what you paid for the company",
   description:
-    "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the company's mileage rate in force on `spentOn` (`POST /v1/payroll/mileage-rates`), to the cent, and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
+    "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the rate in force on `spentOn`, to the cent: the line of the vehicle named in `vehicleId` first (`POST /v1/payroll/mileage-overrides`), then the person's own line, then the company's (`POST /v1/payroll/mileage-rates`), and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
   module: "M17",
   permissions: ["expense:own"],
   idempotent: true,
@@ -87,6 +91,8 @@ export const recordExpense = defineRoute({
     amount: z.string().max(20).optional(),
     /** The miles driven, to a tenth, like "18.4". Exactly one of `amount` and `miles`. */
     miles: z.string().max(10).optional(),
+    /** A vehicle with a rate of its own that the miles were driven in (listed as `vehicles` by `GET /v1/me/expenses`). Only with `miles`. */
+    vehicleId: Uuid.optional(),
     spentOn: IsoDate,
     description: z.string().min(1).max(300),
     receipt: Receipt.optional(),
@@ -121,8 +127,10 @@ export const listMyExpenses = defineRoute({
     technician: z.boolean(),
     expenses: z.array(ExpenseView),
     perDiems: z.array(PerDiemView),
-    /** What the company pays for one mile today ("0.725"), or null when none is set, which is when miles cannot be claimed. */
+    /** What one mile is paid to you today ("0.725"): your own rate if the company set one for you, else the company's. Null when neither has started, which is when miles cannot be claimed (unless a vehicle below has a rate). */
     mileageRate: z.string().nullable(),
+    /** Vehicles with a rate of their own that can be named on a claim, and what each pays today (null while every line of it is still to start). */
+    vehicles: z.array(z.object({ id: Uuid, label: z.string(), rateToday: z.string().nullable() })),
   }),
 });
 
@@ -321,6 +329,62 @@ export const removeMileageRate = defineRoute({
   output: PayExtras,
 });
 
+const MileageOverrideLine = z.object({
+  id: Uuid,
+  kind: z.enum(["person", "vehicle"]),
+  technicianId: Uuid.nullable(),
+  assetId: Uuid.nullable(),
+  /** The person's name or the vehicle's label. */
+  subjectName: z.string(),
+  from: IsoDate,
+  perMile: z.string(),
+  /** This is the line in force today for its person or vehicle. */
+  inForceToday: z.boolean(),
+});
+
+export const listMileageOverrides = defineRoute({
+  method: "get",
+  path: "/v1/payroll/mileage-overrides",
+  summary: "The mileage rates set for one person or one vehicle",
+  description:
+    "Every line, by person or vehicle and then oldest first. A claim in miles is worked out at the named vehicle's line in force on the day of the drive, else the person's, else the company's (`GET /v1/payroll/pay-extras`). A person's lines are shown to those whose timesheet scope reaches that person. Filter to one person or one vehicle with `technicianId` or `assetId`.",
+  module: "M17",
+  permissions: ["timesheet:read"],
+  input: z.object({ technicianId: Uuid.optional(), assetId: Uuid.optional() }),
+  output: z.object({ lines: z.array(MileageOverrideLine) }),
+});
+
+export const addMileageOverride = defineRoute({
+  method: "post",
+  path: "/v1/payroll/mileage-overrides",
+  summary: "Set what one person or one vehicle is paid for a mile, from a day",
+  description:
+    "Exactly one of `technicianId` and `assetId` (a vehicle in the fleet that is not retired), then `from`, the first day it applies, and `perMile`, dollars to three decimals, at most 3.000. It works like the company's own rate: a claim made from then on for a drive on or after `from` is worked out at it, the vehicle's first, then the person's, then the company's, and a claim already made keeps the rate it was worked out at. A day that already has a rate for that person or vehicle is refused: take it off first. The same line sent again is the first answer back. A statement about what a person is owed, so `payroll:configure`. The rate is the company's choice; whether it is within what the tax authority allows without tax is the company's to check. Not posted to the ledger.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({
+    technicianId: Uuid.optional(),
+    assetId: Uuid.optional(),
+    from: IsoDate,
+    perMile: z.string().max(20),
+  }),
+  output: z.object({ lines: z.array(MileageOverrideLine) }),
+});
+
+export const removeMileageOverride = defineRoute({
+  method: "post",
+  path: "/v1/payroll/mileage-overrides/{id}/removal",
+  summary: "Take a person's or a vehicle's mileage rate off",
+  description:
+    "Claims already made keep the rate they were worked out at; claims made from then on fall to the next rate in line. Taking off a line that is not there changes nothing. `payroll:configure`.",
+  module: "M17",
+  permissions: ["payroll:configure"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ lines: z.array(MileageOverrideLine) }),
+});
+
 export const addPerDiemPlace = defineRoute({
   method: "post",
   path: "/v1/payroll/per-diem-places",
@@ -462,6 +526,6 @@ export const listMyCashTips = defineRoute({
 export const expenseRoutes = {
   recordExpense, addExpenseReceipt, listMyExpenses, listExpenses, decideExpense,
   recordPerDiem, listPerDiem, removePerDiem, getJobExpenses, getPayExtras, setPayExtras,
-  addMileageRate, removeMileageRate, addPerDiemPlace, addPerDiemPlaceRate, removePerDiemPlaceRate, retirePerDiemPlace,
+  addMileageRate, removeMileageRate, listMileageOverrides, addMileageOverride, removeMileageOverride, addPerDiemPlace, addPerDiemPlaceRate, removePerDiemPlaceRate, retirePerDiemPlace,
   recordCashTipFor, correctCashTip, listCashTips, listMyCashTips,
 } as const;

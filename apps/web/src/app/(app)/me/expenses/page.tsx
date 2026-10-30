@@ -3,10 +3,11 @@ import { getDb } from "@/lib/db";
 import { expenses } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
 import { Empty } from "@/components/Table";
 import { formatDay, todayIn } from "@/lib/dates";
+import { rateSourceNote } from "@/lib/mileage";
 import { addReceipt, recordExpense } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -62,15 +63,21 @@ export default async function MyExpensesPage() {
       <section className="mt-4" aria-labelledby="put-in">
         <h2 id="put-in" className="text-base font-semibold">Put one in</h2>
         <ActionForm action={recordExpense} submit="Save it" className="mt-3 grid gap-3 sm:grid-cols-2">
-          <TextField label="What you paid (dollars)" name="amount" inputMode="decimal" required={own.mileageRate === null}
+          <TextField label="What you paid (dollars)" name="amount" inputMode="decimal" required={own.mileageRate === null && own.vehicles.length === 0}
                      placeholder="42.50" />
-          {own.mileageRate !== null ? (
+          {own.mileageRate !== null || own.vehicles.length > 0 ? (
             <div>
               <TextField label="Or the miles you drove" name="miles" inputMode="decimal" placeholder="18.4" className="block" />
               <p className="mt-1 text-xs text-ink-500">
-                Your own vehicle. Fill in the miles or the amount, not both. Miles are paid at ${own.mileageRate} a mile,
-                the rate for the day you drove.
+                {own.mileageRate !== null
+                  ? <>Your own vehicle. Fill in the miles or the amount, not both. Miles are paid at ${own.mileageRate} a mile, the rate for the day you drove.</>
+                  : <>Fill in the miles or the amount, not both. Miles are paid at the rate for the vehicle you pick, as it stood on the day you drove.</>}
               </p>
+              {own.vehicles.length > 0 ? (
+                <Select label="Which vehicle (if it has its own rate)" name="vehicleId" className="mt-2 block"
+                        options={[{ value: "", label: own.mileageRate !== null ? "My own vehicle" : "Pick one" },
+                          ...own.vehicles.map((v) => ({ value: v.id, label: v.rateToday ? `${v.label}, $${v.rateToday} a mile` : v.label }))]} />
+              ) : null}
             </div>
           ) : null}
           <TextField label="Day you paid it" name="spentOn" type="date" required defaultValue={today} max={today} />
@@ -96,7 +103,7 @@ export default async function MyExpensesPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium"><Money value={e.amount} /></span>
                   <span>{e.description}</span>
-                  {e.miles ? <span className="text-ink-500">({e.miles} miles at ${e.mileageRate} a mile)</span> : null}
+                  {e.miles ? <span className="text-ink-500">({e.miles} miles at ${e.mileageRate} a mile{rateSourceNote(e, "your own") ? `, ${rateSourceNote(e, "your own")}` : ""})</span> : null}
                   {e.status === "approved" ? <Chip tone="success">Approved</Chip>
                     : e.status === "refused" ? <Chip tone="danger">Not approved</Chip>
                     : <Chip tone="warning">Waiting for the office</Chip>}

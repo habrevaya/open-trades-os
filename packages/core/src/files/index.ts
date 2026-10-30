@@ -110,7 +110,17 @@ export type FileVerdict =
  */
 export function checkFile(
   bytes: Uint8Array,
-  options: { maxBytes?: number; claimedType?: string | undefined; accept?: "documents" | "recordings" } = {},
+  options: {
+    maxBytes?: number;
+    claimedType?: string | undefined;
+    /**
+     * `email` is the files that come with a reply: the pictures and PDF every upload takes, and also a Word
+     * document, a spreadsheet, a text file and a zip (see `sniffEmailDocument`). Nothing else asks for it.
+     */
+    accept?: "documents" | "recordings" | "email";
+    /** The name the file came with. Used only to tell a text file from a CSV, never to decide what the bytes are. */
+    fileName?: string | undefined;
+  } = {},
 ): FileVerdict {
   if (bytes.length === 0) return { ok: false, reason: "That file is empty." };
 
@@ -122,9 +132,27 @@ export function checkFile(
     };
   }
 
-  const signature = sniff(bytes, options.accept ?? "documents");
+  const signature = sniff(bytes, options.accept === "recordings" ? "recordings" : "documents");
   if (!signature && options.accept === "recordings") {
     return { ok: false, reason: "That is not an MP3 or WAV recording." };
+  }
+  if (!signature && options.accept === "email") {
+    const found = sniffEmailDocument(bytes, options.fileName ?? "");
+    if (found?.ok === false) return { ok: false, reason: found.reason };
+    if (found?.ok) {
+      if (bytes.length > EMAIL_ATTACHMENTS.maxDocumentBytes) {
+        return {
+          ok: false,
+          reason: `A ${found.label} may be up to ${Math.round(EMAIL_ATTACHMENTS.maxDocumentBytes / (1024 * 1024))} MB and that one is ${Math.max(1, Math.round(bytes.length / (1024 * 1024)))} MB. It is in the email at your provider.`,
+        };
+      }
+      return { ok: true, contentType: found.type, extension: found.extension, sizeBytes: bytes.length };
+    }
+    return {
+      ok: false,
+      reason: "That is not a picture, a PDF, a Word document (.docx), a spreadsheet (.xlsx), a text file (.txt or .csv) or a zip."
+        + " Older Word and Excel files (.doc, .xls) can carry macros and are not kept.",
+    };
   }
   if (!signature) {
     const claimed = options.claimedType?.trim();
@@ -212,7 +240,146 @@ export const EMAIL_ATTACHMENTS = {
   maxFiles: 10,
   maxFileBytes: 10 * 1024 * 1024,
   maxTotalBytes: 25 * 1024 * 1024,
+  /**
+   * A Word document, a spreadsheet, a text file or a zip: a smaller limit than a picture's, because nothing here
+   * can look inside one and a customer's quote or list of parts is a few hundred kilobytes, not ten megabytes.
+   */
+  maxDocumentBytes: 5 * 1024 * 1024,
 } as const;
+
+/* ------------------------------------- the documents a reply may bring besides pictures and PDFs */
+
+/**
+ * WHAT ELSE A REPLY MAY BRING: Word, spreadsheet, text and zip
+ *
+ * A customer's quote from another company is a .docx, a list of parts is an .xlsx or a .csv, a note is a
+ * .txt, and a folder of paperwork is a .zip. Each is decided from its BYTES, as every other type is:
+ *
+ *   docx, xlsx   a zip with `[Content_Types].xml` and a `word/` or `xl/` folder. Never one that holds a
+ *                macro project (`vbaProject.bin`), which is what a .docm is whatever it was called.
+ *   zip          any other zip that can be read to the end of its table of contents. Never one that holds
+ *                a program or a script by name, and never one that cannot be read (a damaged table, or
+ *                the zip64 kind, which a file this small never needs).
+ *   txt, csv     text with no control bytes, no NUL, and nothing that looks like a page or a script; a CSV
+ *                only when the name says so. Bytes above 127 are allowed, so a spreadsheet saved as
+ *                Windows text keeps its accents.
+ *
+ * NOT KEPT: the older Word and Excel formats (.doc, .xls), PowerPoint, RTF and templates, which can carry
+ * macros or embedded objects under their ordinary extension, so there is no telling the safe one from the
+ * other by looking. They are named and refused, as before.
+ *
+ * NONE OF THEM IS EVER SHOWN IN A PAGE. `serving` says how a stored file is sent back: pictures and PDFs
+ * inline as they always were, everything else only as a download, under a content type that runs nothing.
+ */
+export type EmailDocumentKind = "docx" | "xlsx" | "txt" | "csv" | "zip";
+
+const EMAIL_DOCUMENT_TYPES: Record<EmailDocumentKind, { type: string; label: string }> = {
+  docx: { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", label: "Word document" },
+  xlsx: { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", label: "spreadsheet" },
+  txt: { type: "text/plain", label: "text file" },
+  csv: { type: "text/csv", label: "text file" },
+  zip: { type: "application/zip", label: "zip" },
+};
+
+/** Extensions that decide a file is not worth downloading before a byte is fetched. */
+const LEGACY_OFFICE_EXTENSIONS = new Set(["doc", "dot", "xls", "xlt", "xla", "ppt", "pot", "pps", "rtf", "wps", "wbk"]);
+
+const lastExtension = (fileName: string): string => {
+  const parts = displayName(fileName).toLowerCase().split(".");
+  return parts.length < 2 ? "" : parts[parts.length - 1]!.trim();
+};
+
+/** Whether a name says the file is an older Office file, which is never kept. */
+export function isLegacyOfficeName(fileName: string): boolean {
+  return LEGACY_OFFICE_EXTENSIONS.has(lastExtension(fileName));
+}
+
+/** Whether a name says the file is one of the document kinds, so the smaller limit can apply before it is downloaded. */
+export function isDocumentName(fileName: string): boolean {
+  return ["docx", "xlsx", "txt", "csv", "zip"].includes(lastExtension(fileName));
+}
+
+/**
+ * The names in a zip's table of contents, or null when it cannot be read to the end (no end record, a table
+ * outside the file, an entry that does not fit, or the zip64 marker). The bytes are never unpacked.
+ */
+export function zipEntryNames(bytes: Uint8Array): string[] | null {
+  if (bytes.length < 22) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let end = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i -= 1) {
+    if (view.getUint32(i, true) === 0x06054b50) { end = i; break; }
+  }
+  if (end < 0) return null;
+  const count = view.getUint16(end + 10, true);
+  const offset = view.getUint32(end + 16, true);
+  if (count === 0 || count === 0xffff || offset === 0xffffffff || offset >= end) return null;
+  const names: string[] = [];
+  let at = offset;
+  for (let n = 0; n < count; n += 1) {
+    if (at + 46 > end || view.getUint32(at, true) !== 0x02014b50) return null;
+    const nameLength = view.getUint16(at + 28, true);
+    const extraLength = view.getUint16(at + 30, true);
+    const commentLength = view.getUint16(at + 32, true);
+    if (at + 46 + nameLength + extraLength + commentLength > end) return null;
+    names.push(new TextDecoder("utf-8").decode(bytes.subarray(at + 46, at + 46 + nameLength)));
+    at += 46 + nameLength + extraLength + commentLength;
+  }
+  return names;
+}
+
+const looksLikeAPage = /<\s*(script|html|svg|iframe|object|embed)\b|<\?xml|<!doctype/i;
+
+/**
+ * What a reply's file is when it is not a picture or a PDF: one of the kinds above, a refusal in words, or
+ * nothing (it is none of them). `fileName` only chooses between a text file and a CSV.
+ */
+export function sniffEmailDocument(
+  bytes: Uint8Array, fileName: string,
+): ({ ok: true; kind: EmailDocumentKind; type: string; extension: EmailDocumentKind; label: string } | { ok: false; reason: string } | null) {
+  const accepted = (kind: EmailDocumentKind) => ({ ok: true as const, kind, type: EMAIL_DOCUMENT_TYPES[kind].type, extension: kind, label: EMAIL_DOCUMENT_TYPES[kind].label });
+  const isZip = bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+  if (isZip) {
+    const names = zipEntryNames(bytes);
+    if (!names) return { ok: false, reason: "That zip could not be read to the end, so it is not kept." };
+    if (names.some((name) => /(^|\/)vbaProject\.bin$/i.test(name))) {
+      return { ok: false, reason: "That file holds a macro project, and a file that can run macros is never kept." };
+    }
+    /** An .xml inside a package is its content, not a program, so it is the one program extension passed over here. */
+    const program = names.find((name) => !/\.(xml|rels)$/i.test(name) && isProgramName(name));
+    if (program) return { ok: false, reason: `That zip holds a program or a script (${displayName(program)}), and those are never kept here.` };
+    if (names.includes("[Content_Types].xml")) {
+      if (names.some((name) => name.startsWith("word/"))) return accepted("docx");
+      if (names.some((name) => name.startsWith("xl/"))) return accepted("xlsx");
+    }
+    return accepted("zip");
+  }
+  const extension = lastExtension(fileName);
+  if (extension !== "txt" && extension !== "csv") return null;
+  /** Control bytes other than tab, line feed, form feed and carriage return mean this is not text. */
+  for (const byte of bytes) {
+    if (byte === 0 || byte === 0x7f || (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0c && byte !== 0x0d)) return null;
+  }
+  const start = new TextDecoder("utf-8").decode(bytes.subarray(0, 8192));
+  if (looksLikeAPage.test(start)) {
+    return { ok: false, reason: "That text looks like a web page or a script, and those are never kept here." };
+  }
+  return accepted(extension);
+}
+
+/**
+ * HOW A STORED FILE IS SENT BACK
+ *
+ * Pictures and PDFs are drawn in the page, as they always were. Everything else, which is what a Word
+ * document, a spreadsheet, a text file or a zip is, is sent only as a download under a content type that
+ * names no program and renders nothing, whatever it is stored as. Every route that serves a stored file
+ * asks this rather than deciding for itself.
+ */
+export function serving(contentType: string): { contentType: string; inline: boolean } {
+  const type = contentType.split(";")[0]!.trim().toLowerCase();
+  if (type === "application/pdf" || (type.startsWith("image/") && type !== "image/svg+xml")) return { contentType: type, inline: true };
+  return { contentType: "application/octet-stream", inline: false };
+}
 
 /**
  * Names a computer will run when the file is opened. Refused by name before a
@@ -285,6 +452,12 @@ export function planEmailAttachments(named: readonly EmailAttachmentNamed[]): Ar
     if (taken >= EMAIL_ATTACHMENTS.maxFiles) {
       return { fetch: false, refused: `${name} came with this email and was not kept: only the first ${EMAIL_ATTACHMENTS.maxFiles} files on one email are kept. It is in the email at your provider.` };
     }
+    if (isLegacyOfficeName(file.fileName)) {
+      return { fetch: false, refused: `${name} came with this email and was not kept: an older Word, Excel or PowerPoint file can carry macros, and only .docx and .xlsx files are kept. It is in the email at your provider.` };
+    }
+    if (typeof file.size === "number" && isDocumentName(file.fileName) && file.size > EMAIL_ATTACHMENTS.maxDocumentBytes) {
+      return { fetch: false, refused: `${name} came with this email and was not kept: a Word document, spreadsheet, text file or zip may be up to ${megabytes(EMAIL_ATTACHMENTS.maxDocumentBytes)} MB and it is ${megabytes(file.size)} MB. It is in the email at your provider.` };
+    }
     if (typeof file.size === "number" && file.size > EMAIL_ATTACHMENTS.maxFileBytes) {
       return { fetch: false, refused: `${name} came with this email and was not kept: a file may be up to ${megabytes(EMAIL_ATTACHMENTS.maxFileBytes)} MB and it is ${megabytes(file.size)} MB. It is in the email at your provider.` };
     }
@@ -296,7 +469,7 @@ export function planEmailAttachments(named: readonly EmailAttachmentNamed[]): Ar
 /**
  * Whether one downloaded file may be kept: not a program by its bytes, within
  * the limit for one file and what is left of the limit for the email, and one
- * of the types kept anywhere here, decided from the bytes.
+ * of the types kept anywhere here, decided from the bytes, or one of the document kinds a reply may bring.
  */
 export function checkEmailAttachment(
   file: { fileName: string; contentType: string; bytes: Uint8Array },
@@ -309,7 +482,9 @@ export function checkEmailAttachment(
   if (options.bytesAlreadyKept + file.bytes.length > EMAIL_ATTACHMENTS.maxTotalBytes) {
     return { ok: false, reason: `${name} came with this email and was not kept: the files on one email may come to ${megabytes(EMAIL_ATTACHMENTS.maxTotalBytes)} MB. It is in the email at your provider.` };
   }
-  const verdict = checkFile(file.bytes, { maxBytes: EMAIL_ATTACHMENTS.maxFileBytes, claimedType: file.contentType });
+  const verdict = checkFile(file.bytes, {
+    maxBytes: EMAIL_ATTACHMENTS.maxFileBytes, claimedType: file.contentType, accept: "email", fileName: file.fileName,
+  });
   if (!verdict.ok) return { ok: false, reason: `${name} came with this email and was not kept. ${verdict.reason}` };
   return verdict;
 }

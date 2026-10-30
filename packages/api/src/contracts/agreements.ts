@@ -87,6 +87,9 @@ export const AgreementView = z.object({
   cancellationReason: z.string().nullable(),
   /** The reason from the fixed list. Null on a cancellation made before there was one. */
   cancellationCode: AgreementCancellationCode.nullable(),
+  /** Why a lapsed plan lapsed, from the same list, once the office has said (`POST /v1/agreements/{id}/lapse-reason`). Null while unknown, and cleared by a renewal. */
+  lapseReasonCode: AgreementCancellationCode.nullable(),
+  lapseReason: z.string().nullable(),
   visitsIncludedThisTerm: z.number().int(),
   visitsDeliveredThisTerm: z.number().int(),
 });
@@ -348,6 +351,7 @@ export const getAgreement = defineRoute({
      * not before. A term sold before terms were recorded has no row.
      */
     terms: z.array(z.object({
+      id: Uuid,
       term: z.number().int(),
       startsOn: z.string().date().nullable(),
       endsOn: z.string().date(),
@@ -468,6 +472,42 @@ export const cancelAgreement = defineRoute({
   output: AgreementView.extend({ released: MoneyString, endedLinks: z.number().int() }),
 });
 
+export const recordAgreementLapseReason = defineRoute({
+  method: "post",
+  path: "/v1/agreements/{id}/lapse-reason",
+  summary: "Say why a plan lapsed",
+  description: "For a lapsed agreement only (a cancelled one has its cancellation reason, and a running one has not lapsed). The reasons are the cancellation list: `moved`, `sold`, `price`, `service`, `switched`, `not_needed`, or `other` with the words in `reason`; any reason may carry words. Optional for the office: a lapse stays unknown until somebody says, and nothing is refused for lack of one. For `moved` or `sold`, `endPropertyLink` ends the customer's link to the address the agreement covers today (`endedLinks` says how many were ended), which is what the retention figures read to tell a house sale from a lost customer; it is never done unless asked. The retention figures do not read this reason themselves. Saying it again with other words corrects it, with the earlier words kept in the audit log; a renewal clears it. `membership:write`.",
+  module: "M08",
+  permissions: ["membership:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    reasonCode: AgreementCancellationCode,
+    reason: z.string().max(1000).optional(),
+    endPropertyLink: z.boolean().optional(),
+  }),
+  output: AgreementView.extend({ endedLinks: z.number().int() }),
+});
+
+export const releaseAgreementTerm = defineRoute({
+  method: "post",
+  path: "/v1/agreements/{id}/terms/{termId}/release",
+  summary: "Count an ended term's unused visits as earned now",
+  description: "The same release the worker makes on the day a term ends, for one term, on request: what the term's visits never taken still hold in deferred revenue (2400) moves to agreement revenue (4100) in one balanced posting sourced to the term. Never before the term's last day: a term still running is refused in words, because a skipped visit can be put back until then. A term already released (by the worker or an earlier call) answers with what it released and posts nothing more (`releasedNow` is false). The visits stay owed. `membership:write`, the permission cancelling an agreement is under, which posts the same kind of release.",
+  module: "M08",
+  permissions: ["membership:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, termId: Uuid }),
+  output: z.object({
+    termId: Uuid,
+    term: z.number().int(),
+    endsOn: z.string().date(),
+    breakageReleasedOn: z.string().date().nullable(),
+    breakageAmount: MoneyString.nullable(),
+    breakageVisits: z.number().int().nullable(),
+    releasedNow: z.boolean(),
+  }),
+});
 
 const NoticeCode = z.enum([
   "agreement_renewal.renews.sms", "agreement_renewal.renews.email",
@@ -526,7 +566,7 @@ export const updateAgreementRenewalNotices = defineRoute({
 
 export const agreementRoutes = {
   createAgreementPlan, listAgreementPlans, getAgreementPlan, updateAgreementPlan, retireAgreementPlan,
-  sellAgreement, listAgreements, getAgreement, renewAgreement, cancelAgreement,
+  sellAgreement, listAgreements, getAgreement, renewAgreement, cancelAgreement, recordAgreementLapseReason, releaseAgreementTerm,
   listOwedAgreementVisits, bookAgreementVisit, deliverAgreementVisit, skipAgreementVisit, unskipAgreementVisit,
   invoiceAgreementInstalment,
   listAgreementRenewals, getMemberPricing,

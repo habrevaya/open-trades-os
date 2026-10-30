@@ -32,7 +32,7 @@ import {
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
-  me, staffDocuments, staffNotices, noticeUpkeep, noticeDefaults, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills,
+  me, staffDocuments, staffNotices, noticeUpkeep, noticeDefaults, expenses, payExtras, cashTips, purchaseAcknowledgements, truckFills, mileageOverrides,
   plugins,
 } from "../services/index";
 
@@ -630,6 +630,7 @@ export const handlers = {
   verifyCertification: people.handlers.verifyCertification,
   setCertificationStatus: people.handlers.setCertificationStatus,
   setCertificationRenewalDays: people.handlers.setCertificationRenewalDays,
+  setCertificationRenewalDaysMany: people.handlers.setCertificationRenewalDaysMany,
   listExpiringCertifications: people.handlers.listExpiringCertifications,
   getSkillStanding: people.handlers.getSkillStanding,
   listProjects: projects.handlers.listProjects,
@@ -776,6 +777,8 @@ export const handlers = {
   unskipAgreementVisit: agreements.handlers.unskipAgreementVisit,
   invoiceAgreementInstalment: agreements.handlers.invoiceAgreementInstalment,
   cancelAgreement: agreements.handlers.cancelAgreement,
+  recordAgreementLapseReason: agreements.handlers.recordAgreementLapseReason,
+  releaseAgreementTerm: agreements.handlers.releaseAgreementTerm,
   // A customer asking to move or cancel a visit, and the office answering
   getPortalVisitChange: visitChanges.handlers.getPortalVisitChange,
   requestPortalVisitChange: visitChanges.handlers.requestPortalVisitChange,
@@ -1165,6 +1168,9 @@ export const handlers = {
   setPayExtras: payExtras.handlers.setPayExtras,
   addMileageRate: payExtras.handlers.addMileageRate,
   removeMileageRate: payExtras.handlers.removeMileageRate,
+  listMileageOverrides: mileageOverrides.handlers.listMileageOverrides,
+  addMileageOverride: mileageOverrides.handlers.addMileageOverride,
+  removeMileageOverride: mileageOverrides.handlers.removeMileageOverride,
   addPerDiemPlace: payExtras.handlers.addPerDiemPlace,
   addPerDiemPlaceRate: payExtras.handlers.addPerDiemPlaceRate,
   removePerDiemPlaceRate: payExtras.handlers.removePerDiemPlaceRate,
