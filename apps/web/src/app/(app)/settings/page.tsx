@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import {
   inTenant, roles as roleService, branding as brandingService,
   telephony as telephonyService, phoneNumbers as numberService, acquisition,
-  people as peopleService, setup as setupService, documents, visitCancellations, jobHolds, noticeUpkeep,
+  people as peopleService, setup as setupService, documents, visitCancellations, jobHolds, noticeUpkeep, taskRules,
 } from "@opentradesos/api/services";
 import { can, ROLE_PRESETS } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
@@ -17,7 +17,7 @@ import { Timezone } from "./Timezone";
 import { Recording } from "./Recording";
 import { Numbers } from "./Numbers";
 import { Buy } from "./Buy";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { setCancelNotice, setHoldNudge, setNoticeKeeping } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +79,8 @@ export default async function SettingsPage() {
   const recordingPolicies = writes ? await telephonyService.listPolicies(ctx) : [];
   const cancelNotice = writes ? await visitCancellations.notice(ctx) : null;
   const holdNudge = writes ? await jobHolds.nudgeSetting(ctx) : null;
+  /** Who the nudge can be given to: the people who work here, named by somebody who may open tasks. */
+  const holdPeople = holdNudge && can(user.actor, "task:read") ? await taskRules.assignable(ctx) : [];
   const keeping = writes ? await noticeUpkeep.keeping(ctx) : null;
 
   return (
@@ -139,12 +141,29 @@ export default async function SettingsPage() {
           <h2 className="font-medium text-ink-900">Jobs on hold</h2>
           <p className="mt-1 max-w-prose text-sm text-ink-500">
             Say how many days a job can wait on hold before the office gets a task about it. The task names the job,
-            why it is on hold and for how long, and closes itself when the job comes off hold. Leave the box empty
-            and nobody is nudged.
+            why it is on hold and for how long, and closes itself when the job comes off hold. Leave the first box
+            empty and nobody is nudged. "Days to do it by" gives the task a due date, so it counts as late and the
+            rules under Tasks can act on it. "Remind again" raises a new task that many days later if the job is still
+            on hold and the last task has been closed. Leave either box empty to turn it off.
           </p>
-          <ActionForm action={setHoldNudge} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
-            <TextField label="Days on hold before a nudge" name="days" type="number" min={1} max={90} step={1}
-                       defaultValue={holdNudge.days === null ? "" : String(holdNudge.days)} className="block w-40" />
+          <ActionForm action={setHoldNudge} submit="Save" className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <TextField label="Days on hold before a nudge" name="days" type="number" min={1} max={90} step={1}
+                         defaultValue={holdNudge.days === null ? "" : String(holdNudge.days)} className="block w-40" />
+              <TextField label="Days to do it by" name="dueDays" type="number" min={0} max={30} step={1}
+                         defaultValue={holdNudge.dueDays === null ? "" : String(holdNudge.dueDays)} className="block w-40" />
+              <TextField label="Remind again every (days)" name="repeatDays" type="number" min={1} max={90} step={1}
+                         defaultValue={holdNudge.repeatDays === null ? "" : String(holdNudge.repeatDays)} className="block w-48" />
+            </div>
+            <Select label="Who gets the task" name="assignTo" className="block max-w-md"
+                    defaultValue={holdNudge.assignTo === "person" && holdNudge.assigneeUserId ? `person:${holdNudge.assigneeUserId}` : holdNudge.assignTo}
+                    options={[
+                      { value: "nobody", label: "Nobody in particular (the office queue)" },
+                      { value: "placed_by", label: "Whoever put the job on hold" },
+                      ...holdPeople.map((p) => ({ value: `person:${p.userId}`, label: p.name })),
+                      ...(holdNudge.assignTo === "person" && holdNudge.assigneeUserId && !holdPeople.some((p) => p.userId === holdNudge.assigneeUserId)
+                        ? [{ value: `person:${holdNudge.assigneeUserId}`, label: holdNudge.assigneeName ?? "Somebody who has left" }] : []),
+                    ]} />
           </ActionForm>
         </section>
       )}

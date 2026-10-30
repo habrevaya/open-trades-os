@@ -120,3 +120,73 @@ test("a job left on hold raises one task for the office, the board says why, and
     await expect(region.getByText("Nobody is nudged about a job on hold.")).toBeVisible();
   }
 });
+
+test("the owner gives the nudge a due date and a person, and a job left on hold is nudged again once the first task is closed", async ({ owner }) => {
+  test.setTimeout(120_000);
+  const customerName = `Waiting Walt ${run}`;
+  const customerId = await newCustomer(owner, {
+    name: customerName, address: { street: `${run.slice(-4)} Patience Pl`, city: "Austin", state: "TX", zip: "78702" },
+  });
+  const { data } = await api<{ data: { id: string }[] }>(owner, "get", `/v1/properties?customerId=${customerId}`);
+  const start = new Date(`${companyToday()}T15:00:00Z`);
+  const job = await api<{ id: string; number: number }>(owner, "post", "/v1/jobs", {
+    customerId, propertyId: data[0]!.id, summary: `Wait for the permit ${run}`,
+    visit: { windowStart: start.toISOString(), windowEnd: new Date(start.getTime() + 2 * 3_600_000).toISOString() },
+  });
+
+  const region = owner.getByRole("region", { name: "Jobs on hold" });
+  const save = async (fields: { days: string; dueDays: string; repeatDays: string; who: string }) => {
+    await owner.goto("/settings");
+    await region.getByLabel("Days on hold before a nudge").fill(fields.days);
+    await region.getByLabel("Days to do it by").fill(fields.dueDays);
+    await region.getByLabel("Remind again every (days)").fill(fields.repeatDays);
+    await region.getByLabel("Who gets the task").selectOption({ label: fields.who });
+    await region.getByRole("button", { name: "Save" }).click();
+  };
+
+  try {
+    await save({ days: "2", dueDays: "1", repeatDays: "3", who: "Whoever put the job on hold" });
+    await expect(region.getByText("The office gets a task when a job has been on hold 2 days.")).toBeVisible();
+
+    /** What was saved is what the form shows next time. */
+    await owner.goto("/settings");
+    await expect(region.getByLabel("Days to do it by")).toHaveValue("1");
+    await expect(region.getByLabel("Remind again every (days)")).toHaveValue("3");
+    await expect(region.getByLabel("Who gets the task")).toHaveValue("placed_by");
+
+    await owner.goto(`/jobs/${job.id}`);
+    await owner.locator("summary", { hasText: "Put on hold" }).click();
+    await owner.getByLabel("Why is the job waiting?").selectOption("customer");
+    await owner.getByRole("button", { name: "Put on hold" }).click();
+    await expect(owner.getByRole("region", { name: "On hold" })).toContainText("Waiting on the customer");
+
+    await ageHold(job.id, 3);
+    await workerPass();
+    const [first] = await tasksAbout(job.id);
+    expect(first).toBeDefined();
+
+    /** It has a due date, and it is the person who put the job on hold's, not the queue's. */
+    await owner.goto(`/tasks/${first!.id}`);
+    await expect(owner.getByText("Due", { exact: true })).toBeVisible();
+    await expect(owner.getByText("The office queue")).toHaveCount(0);
+
+    /** Closed by hand while the job is still on hold: three days on, it is raised again, and says so. */
+    const db = createClient();
+    try {
+      await db.execute(sql`update public.task set status = 'dismissed', outcome = 'Rang them' where id = ${first!.id}::uuid`);
+      await db.execute(sql`update public.job_hold set nudged_at = now() - interval '4 days' where job_id = ${job.id}::uuid and released_at is null`);
+    } finally {
+      await db.$close();
+    }
+    await workerPass();
+    const raised = await tasksAbout(job.id);
+    expect(raised.map((t) => t.status)).toEqual(["dismissed", "open"]);
+    expect(raised[1]!.title).toBe(`Job ${job.number} is still on hold 3 days: waiting on the customer`);
+    await owner.goto(`/tasks/${raised[1]!.id}`);
+    await expect(owner.getByText("This is reminder 2 for this hold.")).toBeVisible();
+  } finally {
+    /** Everything off again, so no other spec is nudged. */
+    await save({ days: "", dueDays: "", repeatDays: "", who: "Nobody in particular (the office queue)" });
+    await expect(region.getByText("Nobody is nudged about a job on hold.")).toBeVisible();
+  }
+});

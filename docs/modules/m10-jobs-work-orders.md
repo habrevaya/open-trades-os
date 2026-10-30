@@ -207,20 +207,51 @@ and `PATCH /v1/job-hold-nudge` sets it, or turns it off with `null`
 in the office queue (`/tasks`, M34), about the job and linked to it: "Job 1042
 has been on hold 5 days: waiting on a part", with the customer, the job's
 summary, the reason and what was written about it, who put it on hold and when,
-and how long the company asked to wait. It is one task for each hold: the hold
-carries `nudged_at` and `nudge_task_id`, claimed with an update that only lands
-on a hold not yet claimed, in the transaction that writes the task, so a pass
-cut short and run again, or two workers at once, raise it once. A task somebody
-closed by hand is not raised again for the same hold; a later hold on the same
-job is a new hold and earns its own. Taking the job off hold (the button,
-`POST /v1/job-holds/{id}/released`, or any ordinary status change, cancelling
-included) closes the task as done with "The job came off hold."; a task already
-finished or dismissed is left as it was. The task names no purchase order,
-because it is read by everybody who reads the queue; the order is on the job's
-page for those who may read purchasing. Turning the setting on, or lowering it,
-nudges the holds already past the number on the next pass; tasks already raised
-stay where they are when it is turned off. The audit log has `job.hold_nudged`
-and `organization.hold_nudge_set`.
+and how long the company asked to wait. It is one task for each nudge: the hold
+carries `nudged_at`, `nudge_count` and `nudge_task_id`, claimed with an update
+that only lands on the count the pass read, in the transaction that writes the
+task, so a pass cut short and run again, or two workers at once, raise it once.
+Taking the job off hold (the button, `POST /v1/job-holds/{id}/released`, or any
+ordinary status change, cancelling included) closes the task as done with "The
+job came off hold."; a task already finished or dismissed is left as it was. The
+task names no purchase order, because it is read by everybody who reads the
+queue; the order is on the job's page for those who may read purchasing. Turning
+the setting on, or lowering it, nudges the holds already past the number on the
+next pass; tasks already raised stay where they are when it is turned off. The
+audit log has `job.hold_nudged` and `organization.hold_nudge_set` (with what the
+settings were and what they became).
+
+Three more settings sit under the same heading, each empty (off) until the
+company fills it, so a company that never asked gets exactly the task above.
+Each is a field of the same `PATCH /v1/job-hold-nudge`, which is a patch: a
+field left out keeps what the company had, so a caller that only sends `days`
+changes only the days. They apply to tasks raised from then on.
+
+- **Days to do it by** (`dueDays`, 0 to 30). The task is due at the end of the
+  company's day that many days after the day it is raised (0 is the same day), so
+  it is late the morning after. The queue's late rules (M34, `/tasks/escalation`)
+  then act on it like any other late task: this is the whole point of a due date,
+  and nothing else in the nudge chases it.
+- **Remind again every** (`repeatDays`, 1 to 90). While the job is still on hold,
+  the nudge is raised again that many days after the last one, with the title "Job
+  1042 is still on hold 9 days: waiting on a part" and "This is reminder 2 for
+  this hold." at the top. A new task is raised only once the last one has been
+  closed, done or dismissed: while it is open it is the nudge, and if it has a due
+  date the late rules chase it, so a second open task for one hold would only be
+  noise. The count of days runs from the day the last one was raised. A hold last
+  nudged before repeats existed counts as nudged once. Taking the job off hold
+  ends the reminders and closes the latest task. With this empty, a task closed by
+  hand is not raised again for the same hold; a later hold on the job is a new
+  hold and earns its own.
+- **Who gets the task** (`assignTo`). "Nobody in particular" leaves it in the
+  office queue, as before. "Whoever put the job on hold" (`placed_by`) gives it to
+  that person: a job has no owner of its own, and the person who put it on hold
+  is the one who knows what it is waiting for. A named colleague (`person`, with
+  `assigneeUserId`) must be somebody who works here now when it is saved. The
+  person is told by the bell, like any task given to them, and the task is still
+  marked as the office queue's so the office can find it there. Somebody who has
+  left since is skipped and the task stays in the office queue, unassigned,
+  rather than being lost on a person who will never open it.
 
 **The dispatch board says why a job is on hold.** A card whose job is on hold
 (a visit booked before the job was held stays on the board) carries, under the
@@ -453,11 +484,12 @@ held for without an order in this product (bought over the counter, say) can
 be held for "something else" with words, but it is not "held for a part
 order", so the first time fix rate counts it. A hold names one order; a job
 waiting on two orders names the one the work is waiting for. The nudge for a job
-left on hold is one number for the whole company: a job waiting on the weather
+left on hold is one set of numbers for the whole company: a job waiting on the weather
 is nudged after as many days as one waiting on a part, and a branch cannot set
-its own. It nudges once for a hold, in the office queue and to nobody in
-particular, and a hold that goes on for weeks raises nothing more; the task has
-no due date, so the queue's late rules (M34) never act on it. A job's crew hour budget is added up from its estimate only
+its own, nor can a reason, a trade or a customer. Who the nudge goes to is
+whoever put the job on hold or one named colleague: there is no "the dispatcher
+on duty", no "whoever manages this branch" and no list of people. A reminder is
+never raised on top of a nudge that is still open. A job's crew hour budget is added up from its estimate only
 for the lines that say their quantity is crew hours, so an estimate whose labour is priced as a flat
 amount, or typed without the tick, budgets nothing and the office types the budget. Hours are never
 guessed from a price or from the price book's labour minutes. A supply is marked billed back by the office, one line

@@ -62,3 +62,55 @@ describe("what the office is told", () => {
     expect(work.holdOnBoard({ reason: "inspection", note: "Rough in", held: 1 })).toBe("On hold 1 day. Waiting on an inspection: Rough in");
   });
 });
+
+describe("when the nudge is due, how often it comes back and who gets it", () => {
+  it("reads a company that never asked as off in every way", () => {
+    expect(work.holdNudgeRules(undefined)).toEqual(work.HOLD_NUDGE_OFF);
+    expect(work.holdNudgeRules({ days: 3 })).toEqual({ ...work.HOLD_NUDGE_OFF, days: 3 });
+  });
+
+  it("keeps good settings and reads anything else as off", () => {
+    expect(work.holdNudgeRules({ days: 3, dueDays: 0, repeatDays: 7, assignTo: "placed_by" })).toEqual({
+      days: 3, dueDays: 0, repeatDays: 7, assignTo: "placed_by", assigneeUserId: null,
+    });
+    expect(work.holdNudgeRules({ days: 3, dueDays: 31, repeatDays: 0, assignTo: "somebody" })).toEqual({
+      days: 3, dueDays: null, repeatDays: null, assignTo: "nobody", assigneeUserId: null,
+    });
+    expect(work.holdNudgeRules({ days: 3, assignTo: "person" }).assignTo).toBe("nobody");
+    expect(work.holdNudgeRules({ days: 3, assignTo: "person", assigneeUserId: "u1" }))
+      .toMatchObject({ assignTo: "person", assigneeUserId: "u1" });
+    expect(work.holdNudgeRules({ days: 3, assignTo: "nobody", assigneeUserId: "u1" }).assigneeUserId).toBeNull();
+  });
+
+  it("refuses numbers out of range, and a person left unnamed", () => {
+    const ok = { ...work.HOLD_NUDGE_OFF, days: 3 };
+    expect(work.holdNudgeRulesProblem(ok)).toBeNull();
+    expect(work.holdNudgeRulesProblem({ ...ok, dueDays: 0 })).toBeNull();
+    expect(work.holdNudgeRulesProblem({ ...ok, dueDays: 30, repeatDays: 90 })).toBeNull();
+    expect(work.holdNudgeRulesProblem({ ...ok, dueDays: 31 })).toMatch(/from 0 to 30/);
+    expect(work.holdNudgeRulesProblem({ ...ok, dueDays: -1 })).toMatch(/from 0 to 30/);
+    expect(work.holdNudgeRulesProblem({ ...ok, repeatDays: 0 })).toMatch(/from 1 to 90/);
+    expect(work.holdNudgeRulesProblem({ ...ok, repeatDays: 1.5 })).toMatch(/from 1 to 90/);
+    expect(work.holdNudgeRulesProblem({ ...ok, assignTo: "person" })).toMatch(/Choose which person/);
+    expect(work.holdNudgeRulesProblem({ ...ok, assignTo: "person", assigneeUserId: "u1" })).toBeNull();
+  });
+
+  it("is due again that many calendar days after the last nudge, and never when not asked for", () => {
+    expect(work.holdNudgeRepeatDue("2026-10-10", "2026-10-12", 3)).toBe(false);
+    expect(work.holdNudgeRepeatDue("2026-10-10", "2026-10-13", 3)).toBe(true);
+    expect(work.holdNudgeRepeatDue("2026-09-29", "2026-10-02", 3)).toBe(true);
+    expect(work.holdNudgeRepeatDue("2026-01-01", "2026-12-31", null)).toBe(false);
+  });
+
+  it("says a reminder is a reminder, and leaves the first nudge's words as they were", () => {
+    expect(work.holdNudgeTitle({ jobLabel: "1042", reason: "part", held: 9, again: true }))
+      .toBe("Job 1042 is still on hold 9 days: waiting on a part");
+    const base = {
+      customerName: "Dana Whitfield", summary: "No cool", reason: "part", note: null, held: 9,
+      since: "October 1, 2026", placedBy: null, days: 3,
+    };
+    expect(work.holdNudgeBody(base)).not.toContain("reminder");
+    expect(work.holdNudgeBody({ ...base, reminder: 1 })).not.toContain("reminder");
+    expect(work.holdNudgeBody({ ...base, reminder: 3 })).toMatch(/^This is reminder 3 for this hold\. Dana Whitfield/);
+  });
+});

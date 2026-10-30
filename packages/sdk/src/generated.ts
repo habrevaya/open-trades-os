@@ -9682,6 +9682,11 @@ export interface GetJobExpensesOutput {
 
 export interface GetJobHoldNudgeOutput {
   days: number | null;
+  dueDays: number | null;
+  repeatDays: number | null;
+  assignTo: "nobody" | "placed_by" | "person";
+  assigneeUserId: string | null;
+  assigneeName: string | null;
 }
 
 export interface GetJobMaterialCostOutput {
@@ -25136,11 +25141,20 @@ export interface SetJobCoverageOutput {
 }
 
 export interface SetJobHoldNudgeInput {
-  days: number | null;
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assignTo?: "nobody" | "placed_by" | "person";
+  assigneeUserId?: string | null;
 }
 
 export interface SetJobHoldNudgeOutput {
   days: number | null;
+  dueDays: number | null;
+  repeatDays: number | null;
+  assignTo: "nobody" | "placed_by" | "person";
+  assigneeUserId: string | null;
+  assigneeName: string | null;
 }
 
 export interface SetJobPartiesInput {
@@ -39834,7 +39848,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * How long a job may stay on hold before the office is nudged.
+   * How a job left on hold is nudged: after how long, due when, raised again, and for whom.
    *
    * GET /v1/job-hold-nudge. Needs settings:read.
    */
@@ -45873,11 +45887,11 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set how long a job may stay on hold before the office is nudged.
+   * Set how a job left on hold is nudged.
    *
    * PATCH /v1/job-hold-nudge. Needs settings:write.
    */
-  setJobHoldNudge(input: SetJobHoldNudgeInput, options?: CallOptions): Promise<SetJobHoldNudgeOutput> {
+  setJobHoldNudge(input: SetJobHoldNudgeInput = {} as SetJobHoldNudgeInput, options?: CallOptions): Promise<SetJobHoldNudgeOutput> {
     return this.call("setJobHoldNudge", input, options);
   }
 

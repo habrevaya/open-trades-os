@@ -110,10 +110,10 @@ const turnOn = (days: number | null) => jobHolds.setNudge(owner(), { days });
 
 run("the hold nudge setting", () => {
   it("is off until the company turns it on, and reads back what was set", async () => {
-    expect(await jobHolds.nudgeSetting(owner())).toEqual({ days: null });
-    expect(await turnOn(5)).toEqual({ days: 5 });
-    expect(await jobHolds.nudgeSetting(owner())).toEqual({ days: 5 });
-    expect(await turnOn(null)).toEqual({ days: null });
+    expect(await jobHolds.nudgeSetting(owner())).toMatchObject({ days: null });
+    expect(await turnOn(5)).toMatchObject({ days: 5 });
+    expect(await jobHolds.nudgeSetting(owner())).toMatchObject({ days: 5 });
+    expect(await turnOn(null)).toMatchObject({ days: null });
     const audited = await raw<{ action: string }[]>`
       select action from public.audit_log where organization_id = ${ORG} and action = 'organization.hold_nudge_set'`;
     expect(audited).toHaveLength(2);
@@ -124,20 +124,21 @@ run("the hold nudge setting", () => {
       await expect(turnOn(days)).rejects.toBeInstanceOf(ConflictError);
     }
     await expect(turnOn(0)).rejects.toThrow(/whole number from 1 to 90/);
-    expect(await jobHolds.nudgeSetting(owner())).toEqual({ days: null });
+    expect(await jobHolds.nudgeSetting(owner())).toMatchObject({ days: null });
   });
 
   it("is the company's to change, not a technician's or a dispatcher's", async () => {
     await expect(jobHolds.setNudge(as("technician"), { days: 4 })).rejects.toThrow(PermissionError);
     await expect(jobHolds.setNudge(as("dispatcher"), { days: 4 })).rejects.toThrow(PermissionError);
-    expect(await jobHolds.nudgeSetting(owner())).toEqual({ days: null });
+    expect(await jobHolds.nudgeSetting(owner())).toMatchObject({ days: null });
   });
 });
 
 run("a job left on hold", () => {
   it("raises nothing while the setting is off, however long the job has waited", async () => {
     await holdFor(await booked(), 30);
-    expect(await pass()).toEqual([]);
+    // Only this company's result: another test file's company may have its own nudges on, side by side.
+    expect((await pass()).filter((r) => r.organizationId === ORG)).toEqual([]);
     expect(await nudgeTasks()).toHaveLength(0);
   });
 
