@@ -160,6 +160,21 @@ export const reviewPolicy = pgTable("review_policy", {
   reminderEmailSubject: text("reminder_email_subject"),
   reminderEmailBody: text("reminder_email_body"),
 
+  /**
+   * A SECOND REMINDER, this many days after the first one went. Null is off,
+   * and off is the default, for the reason the first is: how often a company
+   * writes to a customer who did not answer is the company's decision. Only
+   * read while the first is on, and only after the first actually went.
+   */
+  secondReminderAfterDays: integer("second_reminder_after_days"),
+  /**
+   * THE FOLLOW UP BY EMAIL on an ask that went by text and got no answer, this
+   * many days after it, for a company that asks by text first and then email.
+   * "Text, then email" was a fallback for a text that could not go; this makes
+   * it a follow up for one that was ignored too. Null is off, the default.
+   */
+  followUpAfterDays: integer("follow_up_after_days"),
+
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({
@@ -252,6 +267,18 @@ export const reviewRequest = pgTable("review_request", {
   reminderMessageId: uuid("reminder_message_id"),
   /** Why it was not sent, in words, when it was not. */
   reminderDetail: text("reminder_detail"),
+  /**
+   * THE FOLLOW UP BY EMAIL, and the SECOND REMINDER: each claimed the way the
+   * first reminder is (the time set before anybody is messaged, only the pass
+   * whose update landed sends), with the message that carried it, or why it
+   * was not sent. Null until each is sent or decided against for good.
+   */
+  followUpAt: timestamp("follow_up_at", { withTimezone: true }),
+  followUpMessageId: uuid("follow_up_message_id"),
+  followUpDetail: text("follow_up_detail"),
+  secondReminderAt: timestamp("second_reminder_at", { withTimezone: true }),
+  secondReminderMessageId: uuid("second_reminder_message_id"),
+  secondReminderDetail: text("second_reminder_detail"),
   ...timestamps,
 }, (t) => ({
   /**

@@ -127,7 +127,24 @@ export const priceBookItemVersion = pgTable("price_book_item_version", {
   name: text("name").notNull(),
   /** Customer-facing copy. Shown verbatim on good/better/best proposals. */
   description: text("description"),
+  /**
+   * A web address a person typed for the picture. Kept and offered on the API
+   * and the item screen as it always was, and never fetched by the server or
+   * drawn for a customer: whatever a staff member pasted is not this company's
+   * to hand a customer's browser to.
+   */
   imageUrl: text("image_url"),
+  /**
+   * THE ITEM'S PICTURE, AS A FILE IN THE COMPANY'S OWN STORE. The storage key
+   * of a picture uploaded onto the item (`stored_file`, sniffed as an image
+   * when it was kept), carried forward by every revision like any other field,
+   * so an estimate line keeps the picture of the version it was priced from.
+   * Set only by an upload of the bytes, never by naming a key, so nobody can
+   * point an item at a file they could not otherwise read. Drawn for staff
+   * under `pricebook:read`, and for a customer only through the estimate whose
+   * lines were priced from this version (`proposal-templates.proposalPhotoWithin`).
+   */
+  pictureKey: text("picture_key"),
   /** What we charge. Flat rate, not hourly, for kind = service. */
   price: money("price").notNull(),
   /** What it costs us. Drives job costing and margin reporting. */

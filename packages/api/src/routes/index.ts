@@ -109,6 +109,8 @@ export const handlers = {
   revisePriceBookItem: priceBook.revise,
   getPriceBookItem: (ctx, input) => priceBook.detail(ctx, input),
   updatePriceBookItem: priceBook.updateItem,
+  uploadPriceBookPicture: (ctx, input) => priceBook.uploadPicture(ctx, input),
+  removePriceBookPicture: (ctx, input) => priceBook.removePicture(ctx, input),
 
   // Work
   createJob: jobs.create,

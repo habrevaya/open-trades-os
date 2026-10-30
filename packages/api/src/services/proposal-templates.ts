@@ -392,13 +392,37 @@ export async function layoutWithin(tx: Database, estimateId: string, stored: unk
   return { templateName, cover: layout.cover, sections, showOptionPhotos: layout.showOptionPhotos, optionPhotos };
 }
 
+/** The prefix of an item picture's photograph id on a proposal: `item-` and the price book version. */
+export const ITEM_PICTURE = "item-";
+const ITEM_PICTURE_ID = /^item-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/** Whether a photograph id is one a proposal's picture route could serve, before anything is read. */
+export const isProposalPhotoId = (photoId: string) =>
+  photoId === "cover" || /^[0-9a-f-]{36}$/i.test(photoId) || ITEM_PICTURE_ID.test(photoId);
+
 /**
  * The bytes of one photograph a proposal shows, when it is one: the cover
- * its estimate's layout names, or a photograph on one of its options. Any
+ * its estimate's layout names, a photograph on one of its options, or the
+ * picture of a price book version one of its lines was priced from. Any
  * other key is not found, so a link to a proposal cannot be turned into a
- * way to read the company's other files.
+ * way to read the company's other files, or the pictures of items the
+ * estimate does not have on it.
  */
 export async function proposalPhotoWithin(tx: Database, estimateId: string, photoId: string) {
+  const item = ITEM_PICTURE_ID.exec(photoId);
+  if (item) {
+    const [line] = await tx.select({ key: schema.priceBookItemVersion.pictureKey })
+      .from(schema.estimateLine)
+      .innerJoin(schema.estimateOption, eq(schema.estimateOption.id, schema.estimateLine.optionId))
+      .innerJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.id, schema.estimateLine.priceBookItemVersionId))
+      .where(and(eq(schema.estimateOption.estimateId, estimateId), eq(schema.estimateLine.priceBookItemVersionId, item[1]!)))
+      .limit(1);
+    if (!line?.key) throw new NotFoundError("Photograph");
+    const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
+      .from(schema.storedFile).where(and(eq(schema.storedFile.storageKey, line.key), isNull(schema.storedFile.deletedAt))).limit(1);
+    if (!file || !file.contentType.startsWith("image/")) throw new NotFoundError("Photograph");
+    return { bytes: await bytesOf(file), contentType: file.contentType };
+  }
   const [estimate] = await tx.select({ layout: schema.estimate.proposalLayout }).from(schema.estimate)
     .where(eq(schema.estimate.id, estimateId)).limit(1);
   if (!estimate) throw new NotFoundError("Photograph");

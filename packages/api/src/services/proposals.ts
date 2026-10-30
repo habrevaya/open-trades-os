@@ -1,10 +1,10 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, estimate as est, money as m } from "@opentradesos/core";
 import { contactOf, guardedRead, type ServiceContext } from "./context";
 import { assertEstimateVisible, loadEstimate } from "./estimates";
 import { inGrant, peek, requireScope } from "./portal";
-import { layoutWithin, proposalPhotoWithin, type ResolvedLayout } from "./proposal-templates";
+import { ITEM_PICTURE, layoutWithin, proposalPhotoWithin, type ResolvedLayout } from "./proposal-templates";
 
 /**
  * THE PROPOSAL, AS A DOCUMENT
@@ -44,6 +44,14 @@ export interface ProposalLine {
   memberPlan: string | null;
   isOptional: boolean;
   isSelected: boolean;
+  /**
+   * The picture uploaded onto the price book version this line was priced
+   * from, as the photograph id the proposal's own picture route takes
+   * (`item-` and the version), or null. A line typed by hand, or priced from a
+   * version with no uploaded picture, has none. A typed web address is never
+   * here: nothing draws it for a customer.
+   */
+  picture: string | null;
 }
 
 export interface ProposalOption {
@@ -152,6 +160,7 @@ export async function proposalWithin(
   const [stored] = await tx.select({ layout: schema.estimate.proposalLayout })
     .from(schema.estimate).where(eq(schema.estimate.id, estimateId)).limit(1);
   const layout = await layoutWithin(tx, estimateId, stored?.layout ?? null);
+  const pictures = await linePicturesWithin(tx, estimateId);
 
   return {
     company: {
@@ -209,10 +218,27 @@ export async function proposalWithin(
           memberPlan: line["memberAgreementId"] ? plans.get(line["memberAgreementId"] as string) ?? null : null,
           isOptional: line["isOptional"] as boolean,
           isSelected: line["isSelected"] as boolean,
+          picture: pictures.get(line["id"] as string) ?? null,
         })),
       };
     }),
   };
+}
+
+/**
+ * Which lines of an estimate show an item's picture: each line priced from a
+ * price book version that carries an uploaded one, by line, as the photograph
+ * id the proposal's picture route takes. Read from the lines themselves
+ * rather than the shaped document, so nothing about access to a line's other
+ * fields decides whether its picture is drawn.
+ */
+export async function linePicturesWithin(tx: Database, estimateId: string): Promise<Map<string, string>> {
+  const rows = await tx.select({ lineId: schema.estimateLine.id, versionId: schema.priceBookItemVersion.id })
+    .from(schema.estimateLine)
+    .innerJoin(schema.estimateOption, eq(schema.estimateOption.id, schema.estimateLine.optionId))
+    .innerJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.id, schema.estimateLine.priceBookItemVersionId))
+    .where(and(eq(schema.estimateOption.estimateId, estimateId), isNotNull(schema.priceBookItemVersion.pictureKey)));
+  return new Map(rows.map((row) => [row.lineId, `${ITEM_PICTURE}${row.versionId}`]));
 }
 
 /** The office's copy, to read, print or hand over. */

@@ -466,20 +466,87 @@ export function checkSettingsProblem(config: Record<string, unknown> | undefined
       return `"${field}" is not a field's key. A key is lowercase letters, digits and underscores, like status.`;
     }
     const compare = config?.["compare"];
-    if (compare !== undefined && compare !== "event" && compare !== "value") {
+    if (compare !== undefined && !(FIELD_COMPARISONS as readonly unknown[]).includes(compare)) {
       return "Compare the field with what the event said, or with a value you type.";
     }
-    if (compare === "value") {
+    if (compare === "value" || compare === "greater" || compare === "less") {
       const value = config?.["value"];
       if (typeof value !== "string" || value.trim() === "") {
-        return `Type the value ${field.trim()} has to still be, or compare it with what the event said.`;
+        return compare === "value"
+          ? `Type the value ${field.trim()} has to still be, or compare it with what the event said.`
+          : `Type the value ${field.trim()} has to stay ${compare === "greater" ? "greater" : "less"} than.`;
       }
       if (value.trim().length > MAX_TYPED_VALUE) {
         return `The value to compare with is longer than ${MAX_TYPED_VALUE} letters.`;
       }
     }
+    if (compare === "one_of") {
+      const values = typedValues(config);
+      if (values.length === 0) return `Type the values ${field.trim()} may be, one to a line.`;
+      if (values.length > MAX_TYPED_VALUES) return `Type at most ${MAX_TYPED_VALUES} values ${field.trim()} may be.`;
+      if (values.some((v) => v.length > MAX_TYPED_VALUE)) {
+        return `One of the values to compare with is longer than ${MAX_TYPED_VALUE} letters.`;
+      }
+    }
   }
   return null;
+}
+
+/**
+ * HOW THE RECORD QUESTION COMPARES ITS FIELD.
+ *
+ *   event    still says what the event carried (the default)
+ *   value    is a value typed into the step
+ *   greater  is greater than a value typed into the step: a number, or a date (later)
+ *   less     is less than one: a smaller number, or an earlier date
+ *   one_of   is one of several values typed into the step, one to a line
+ *   blank    is still blank: nobody has filled it in
+ *
+ * Greater and less are asked only of a number or a date field, and one of
+ * not of a field with several choices; which kind the field is, is only known
+ * when the step runs (the automation does not say which kind of record it will
+ * meet), so a field of another kind fails the step there, in words.
+ */
+export const FIELD_COMPARISONS = ["event", "value", "greater", "less", "one_of", "blank"] as const;
+export type FieldComparison = (typeof FIELD_COMPARISONS)[number];
+
+/** The most values a "one of" may list. */
+export const MAX_TYPED_VALUES = 20;
+
+/** The values a "one of" step lists, trimmed, blanks dropped: a list, or lines of one string. */
+export function typedValues(config: Record<string, unknown> | undefined): string[] {
+  const raw = config?.["values"];
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/\r?\n/) : [];
+  return list.filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter((v) => v !== "");
+}
+
+/** What a comparison asks, in the words a run's "why it stopped" ends with. */
+export const COMPARISON_WORDS: Record<FieldComparison, string> = {
+  event: "still says what it did",
+  value: "is the value typed in",
+  greater: "is greater than",
+  less: "is less than",
+  one_of: "is one of",
+  blank: "is still blank",
+};
+
+/**
+ * One stored value against a typed one, for greater or less, already read as
+ * the field's kind by `custom-fields.typedValue`. A number is compared as a
+ * number and a date as a date (`2026-03-01` sorts as it reads). Anything else,
+ * or a blank field, is not comparable: the caller says which.
+ */
+export function ordered(
+  dataType: string, compare: "greater" | "less", stored: unknown, wanted: unknown,
+): "holds" | "not" | "blank" | "not_ordered" {
+  if (dataType !== "number" && dataType !== "date") return "not_ordered";
+  if (stored === null || stored === undefined || stored === "") return "blank";
+  if (dataType === "number") {
+    if (typeof stored !== "number" || typeof wanted !== "number") return "not";
+    return (compare === "greater" ? stored > wanted : stored < wanted) ? "holds" : "not";
+  }
+  if (typeof stored !== "string" || typeof wanted !== "string") return "not";
+  return (compare === "greater" ? stored > wanted : stored < wanted) ? "holds" : "not";
 }
 
 /** The longest value a step may be told to compare a field with: a label or a number, not a paragraph. */
@@ -490,8 +557,8 @@ export const MAX_TYPED_VALUE = 200;
  * event carried (the default, and what every step made before this had), or a
  * value typed into the step.
  */
-export const fieldComparison = (config: Record<string, unknown> | undefined): "event" | "value" =>
-  config?.["compare"] === "value" ? "value" : "event";
+export const fieldComparison = (config: Record<string, unknown> | undefined): FieldComparison =>
+  (FIELD_COMPARISONS as readonly unknown[]).includes(config?.["compare"]) ? config!["compare"] as FieldComparison : "event";
 
 /** Whether a check asks about a field the step names. What the canvas draws a box for. */
 export const checkNeedsField = (check: unknown): boolean =>

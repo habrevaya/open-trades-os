@@ -810,7 +810,8 @@ async function recordFieldUnchanged(
   if (!field) return { holds: false, because: "the step names no field" };
   const id = idOf(event, ["record.id", "recordId"], "custom_object_record");
   if (!id) return { holds: false, because: "the event names no record" };
-  const typed = automation.fieldComparison(config) === "value";
+  const compare = automation.fieldComparison(config);
+  const typed = compare !== "event";
   const fields = readPath(event.payload, "record.fields");
   if (!typed && (!fields || typeof fields !== "object")) return { holds: false, because: "the event carries no fields" };
   const [row] = await tx.select({
@@ -830,9 +831,61 @@ async function recordFieldUnchanged(
   }
 
   const definition = (await definitionsWithin(tx, row.organizationId, `object:${row.kind}`)).find((d) => d.key === field);
-  if (!definition) return { failed: `${row.kindLabel} has no field called ${field}, so there is nothing to compare with ${JSON.stringify(String(config["value"]))}.` };
+  if (!definition) {
+    return { failed: compare === "blank" || compare === "one_of"
+      ? `${row.kindLabel} has no field called ${field}, so there is nothing to ask about.`
+      : `${row.kindLabel} has no field called ${field}, so there is nothing to compare with ${JSON.stringify(String(config["value"]))}.` };
+  }
+
+  /** Still blank: nobody has filled it in. Needs no value, so nothing can be misread. */
+  if (compare === "blank") {
+    if (!fieldRules.isMissing(now)) return { holds: false, because: `${row.title}'s ${definition.label} has been filled in` };
+    return { holds: true };
+  }
+
+  /**
+   * One of several values, each read as the field's own kind, so a typo in any
+   * one of them fails the step rather than quietly never matching. Not for a
+   * field with several choices, whose value is itself a list: whether "one of"
+   * means it holds any of them or is exactly one of them is a question the
+   * step cannot answer for its author.
+   */
+  if (compare === "one_of") {
+    if (definition.dataType === "multiselect") {
+      return { failed: `${definition.label} holds several choices, so it cannot be asked whether it is one of a list. Ask whether it is a value instead.` };
+    }
+    const values = automation.typedValues(config);
+    const read: unknown[] = [];
+    for (const text of values) {
+      const one = fieldRules.typedValue(definition, text);
+      if (!one.ok) return { failed: `A value typed into this step cannot be compared: ${one.message}` };
+      read.push(one.value);
+    }
+    if (fieldRules.isMissing(now)) return { holds: false, because: `${row.title}'s ${definition.label} is blank now` };
+    if (!read.some((value) => automation.sameValue(value, now))) {
+      return { holds: false, because: `${row.title}'s ${definition.label} is not one of ${values.join(", ")} now` };
+    }
+    return { holds: true };
+  }
+
   const wanted = fieldRules.typedValue(definition, String(config["value"] ?? ""));
   if (!wanted.ok) return { failed: `The value typed into this step cannot be compared: ${wanted.message}` };
+
+  /** Greater or less: a number as a number, a date as a date, and nothing else. */
+  if (compare === "greater" || compare === "less") {
+    const word = compare === "greater" ? (definition.dataType === "date" ? "later than" : "greater than")
+      : (definition.dataType === "date" ? "earlier than" : "less than");
+    const answer = automation.ordered(definition.dataType, compare, now, wanted.value);
+    if (answer === "not_ordered") {
+      return { failed: `${definition.label} is not a number or a date, so it cannot be greater or less than something. Ask whether it is a value instead.` };
+    }
+    if (answer === "blank") return { holds: false, because: `${row.title}'s ${definition.label} is blank now` };
+    if (answer === "not") {
+      return { holds: false, because: `${row.title}'s ${definition.label} is not ${word} ${String(config["value"]).trim()} now` };
+    }
+    return { holds: true };
+  }
+
   if (!automation.sameValue(wanted.value, now)) {
     return { holds: false, because: `${row.title}'s ${definition.label} is not ${String(config["value"]).trim()} now` };
   }

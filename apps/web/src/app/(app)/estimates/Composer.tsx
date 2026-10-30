@@ -36,7 +36,8 @@ export function EstimateComposer({
   action: (previous: FormState, form: FormData) => Promise<FormState>;
   hidden: Record<string, string>;
   properties: { id: string; label: string }[];
-  items: { id: string; name: string; price: string; crewHours?: boolean | undefined }[];
+  /** `picture` is the version whose uploaded picture to draw beside a line of the item, when it has one. */
+  items: { id: string; name: string; price: string; crewHours?: boolean | undefined; picture?: string | null | undefined }[];
   defaultPropertyId?: string | undefined;
   offers?: EstimateOffer[] | undefined;
   /** The company's own fields for a new estimate, drawn above the button. */
@@ -171,6 +172,10 @@ export function EstimateComposer({
                 <label className="inline-flex items-center gap-1 text-sm sm:col-span-1">
                   <input type="checkbox" name={`${at}.taxable`} aria-label={`Taxable, ${n}`} disabled={Boolean(fromBook)} /> Tax
                 </label>
+                {fromBook?.picture ? (
+                  <img src={`/pricebook/pictures/${fromBook.picture}`} alt={`Picture of ${fromBook.name}`}
+                       className="h-16 w-24 rounded border border-steel-200 object-cover sm:col-span-12" />
+                ) : null}
                 {fromBook ? (fromBook.crewHours ? (
                   <p className="text-xs text-ink-500 sm:col-span-12">
                     The quantity is crew hours (people times hours). The job is budgeted from these lines.

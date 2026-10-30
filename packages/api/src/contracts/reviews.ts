@@ -130,6 +130,22 @@ const Reminders = z.object({
     /** Why it was not sent, in words, when it was not. */
     detail: z.string().nullable(),
   })),
+  /** Days after the first reminder went before a second one. Null is off, which is how a company starts. */
+  secondAfterDays: z.number().int().nullable(),
+  /** Days after an ask that went by text before the ask goes again by email, for a company that asks by text and then email. Null is off. */
+  followUpAfterDays: z.number().int().nullable(),
+  /** Whether the company asks by text and then email, which is the only way the follow up by email is sent. */
+  followUpApplies: z.boolean(),
+  /** The latest follow ups by email and second reminders, sent or decided against for good, newest first. */
+  later: z.array(z.object({
+    requestId: Uuid,
+    jobNumber: z.number().int(),
+    customerName: z.string(),
+    kind: z.enum(["follow_up", "second_reminder"]),
+    at: z.string().datetime(),
+    sent: z.boolean(),
+    detail: z.string().nullable(),
+  })),
 });
 
 export const getReviewReminders = defineRoute({
@@ -145,9 +161,9 @@ export const getReviewReminders = defineRoute({
 export const setReviewReminders = defineRoute({
   method: "put",
   path: "/v1/reviews/reminders",
-  summary: "Turn the one reminder on or off, and change its words",
+  summary: "Turn the reminders and the follow up by email on or off, and change the first reminder's words",
   description:
-    "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy.",
+    "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy. `secondAfterDays` turns on a second reminder that many days after the first went, under the same rules, in words that say it is the last; it needs the first on, and turning the first off turns it off. `followUpAfterDays` sends the ask again by email that many days after it went by text, for a company that asks by text and then email, under the same rules. Both are off (`null`) unless the company says how many days, 3 to 60.",
   module: "M20",
   permissions: ["settings:write"],
   idempotent: true,
@@ -162,6 +178,10 @@ export const setReviewReminders = defineRoute({
      * stars; refused in words otherwise.
      */
     wording: ReviewWording.nullable().optional(),
+    /** Days after the first reminder before a second. Left out, it stays as it was; null is off. */
+    secondAfterDays: z.number().int().min(3).max(60).nullable().optional(),
+    /** Days after a text ask before the ask goes again by email. Left out, it stays as it was; null is off. */
+    followUpAfterDays: z.number().int().min(3).max(60).nullable().optional(),
   }),
   output: Reminders,
 });

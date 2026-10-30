@@ -4411,6 +4411,7 @@ export interface CreatePriceBookItemOutput {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  hasPicture: boolean;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
   quantityIsCrewHours: boolean;
@@ -11618,6 +11619,7 @@ export interface GetPriceBookItemOutput {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  hasPicture: boolean;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
   quantityIsCrewHours: boolean;
@@ -11661,6 +11663,7 @@ export interface GetPriceBookItemOutput {
     effectiveFrom: string;
     effectiveTo: string | null;
     state: "in_force" | "scheduled" | "past";
+    hasPicture: boolean;
   }>;
 }
 
@@ -12506,6 +12509,18 @@ export interface GetReviewRemindersOutput {
     customerName: string;
     askedAt: string;
     remindedAt: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
+  secondAfterDays: number | null;
+  followUpAfterDays: number | null;
+  followUpApplies: boolean;
+  later: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    kind: "follow_up" | "second_reminder";
+    at: string;
     sent: boolean;
     detail: string | null;
   }>;
@@ -17274,6 +17289,7 @@ export interface ListPriceBookOutput {
     name: string;
     description: string | null;
     imageUrl: string | null;
+    hasPicture: boolean;
     categoryId: string | null;
     feeRole: "diagnostic" | "after_hours" | null;
     quantityIsCrewHours: boolean;
@@ -22843,6 +22859,53 @@ export interface RemovePriceBookCategoryOutput {
   removed: true;
 }
 
+export type RemovePriceBookPictureInput = Record<string, unknown>;
+
+export interface RemovePriceBookPictureOutput {
+  id: string;
+  versionId: string;
+  version: number;
+  kind: "service" | "material" | "equipment" | "labor" | "fee" | "discount";
+  code: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  hasPicture: boolean;
+  categoryId: string | null;
+  feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
+  chemical: {
+    unit: string;
+    epaRegistrationNumber: string | null;
+  } | null;
+  price: string;
+  taxable: boolean;
+  taxClass: string | null;
+  laborMinutes: number | null;
+  warrantyMonths: number | null;
+  warrantyRegistrationDays: number | null;
+  components: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
+  units: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  } | null;
+  active: boolean;
+  cost?: string | null;
+  costPerUse?: string;
+  margin?: string | null;
+  commissionRate?: string | null;
+  externalRef: {
+    source: string;
+    id: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type RemovePurchaseApprovalRuleInput = Record<string, unknown>;
 
 export interface RemovePurchaseApprovalRuleOutput {
@@ -24045,6 +24108,7 @@ export interface RevisePriceBookItemOutput {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  hasPicture: boolean;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
   quantityIsCrewHours: boolean;
@@ -26717,6 +26781,8 @@ export interface SetReviewRemindersInput {
     emailSubject: string;
     emailBody: string;
   } | null;
+  secondAfterDays?: number | null;
+  followUpAfterDays?: number | null;
 }
 
 export interface SetReviewRemindersOutput {
@@ -26733,6 +26799,18 @@ export interface SetReviewRemindersOutput {
     customerName: string;
     askedAt: string;
     remindedAt: string;
+    sent: boolean;
+    detail: string | null;
+  }>;
+  secondAfterDays: number | null;
+  followUpAfterDays: number | null;
+  followUpApplies: boolean;
+  later: Array<{
+    requestId: string;
+    jobNumber: number;
+    customerName: string;
+    kind: "follow_up" | "second_reminder";
+    at: string;
     sent: boolean;
     detail: string | null;
   }>;
@@ -29479,6 +29557,7 @@ export type UpdatePriceBookItemOutput = {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  hasPicture: boolean;
   categoryId: string | null;
   feeRole: "diagnostic" | "after_hours" | null;
   quantityIsCrewHours: boolean;
@@ -30215,6 +30294,56 @@ export interface UploadAttachmentOutput {
   entityType: "customer" | "property" | "job" | "visit" | "estimate" | "invoice";
   entityId: string;
   alreadyHeld: boolean;
+}
+
+export interface UploadPriceBookPictureInput {
+  fileName: string;
+  bytes: string;
+}
+
+export interface UploadPriceBookPictureOutput {
+  id: string;
+  versionId: string;
+  version: number;
+  kind: "service" | "material" | "equipment" | "labor" | "fee" | "discount";
+  code: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  hasPicture: boolean;
+  categoryId: string | null;
+  feeRole: "diagnostic" | "after_hours" | null;
+  quantityIsCrewHours: boolean;
+  chemical: {
+    unit: string;
+    epaRegistrationNumber: string | null;
+  } | null;
+  price: string;
+  taxable: boolean;
+  taxClass: string | null;
+  laborMinutes: number | null;
+  warrantyMonths: number | null;
+  warrantyRegistrationDays: number | null;
+  components: Array<{
+    itemId: string;
+    quantity: number;
+  }>;
+  units: {
+    buy: string;
+    use: string;
+    usePerBuy: string;
+  } | null;
+  active: boolean;
+  cost?: string | null;
+  costPerUse?: string;
+  margin?: string | null;
+  commissionRate?: string | null;
+  externalRef: {
+    source: string;
+    id: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UploadProposalCoverInput {
@@ -34191,6 +34320,10 @@ export interface RemovePriceBookCategoryParams {
   id: string;
 }
 
+export interface RemovePriceBookPictureParams {
+  id: string;
+}
+
 export interface RemovePurchaseApprovalRuleParams {
   id: string;
 }
@@ -35045,6 +35178,10 @@ export interface UpdateWebhookEndpointParams {
 }
 
 export interface UpgradeTradePackParams {
+  id: string;
+}
+
+export interface UploadPriceBookPictureParams {
   id: string;
 }
 
@@ -36045,6 +36182,7 @@ export interface OperationTypes {
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
   removePortalFile: { input: RemovePortalFileParams & RemovePortalFileInput; output: RemovePortalFileOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
+  removePriceBookPicture: { input: RemovePriceBookPictureParams & RemovePriceBookPictureInput; output: RemovePriceBookPictureOutput };
   removePurchaseApprovalRule: { input: RemovePurchaseApprovalRuleParams & RemovePurchaseApprovalRuleInput; output: RemovePurchaseApprovalRuleOutput };
   removeRecordingPolicy: { input: RemoveRecordingPolicyParams & RemoveRecordingPolicyInput; output: RemoveRecordingPolicyOutput };
   removeRentalCharge: { input: RemoveRentalChargeParams & RemoveRentalChargeInput; output: RemoveRentalChargeOutput };
@@ -36366,6 +36504,7 @@ export interface OperationTypes {
   updateWebhookEndpoint: { input: UpdateWebhookEndpointParams & UpdateWebhookEndpointInput; output: UpdateWebhookEndpointOutput };
   upgradeTradePack: { input: UpgradeTradePackParams & UpgradeTradePackInput; output: UpgradeTradePackOutput };
   uploadAttachment: { input: UploadAttachmentInput; output: UploadAttachmentOutput };
+  uploadPriceBookPicture: { input: UploadPriceBookPictureParams & UploadPriceBookPictureInput; output: UploadPriceBookPictureOutput };
   uploadProposalCover: { input: UploadProposalCoverParams & UploadProposalCoverInput; output: UploadProposalCoverOutput };
   validateCustomFields: { input: ValidateCustomFieldsInput; output: ValidateCustomFieldsOutput };
   verifyCertification: { input: VerifyCertificationParams & VerifyCertificationInput; output: VerifyCertificationOutput };
@@ -37291,6 +37430,7 @@ export const OPERATIONS = {
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePortalFile: { method: "POST", path: "/v1/portal/files/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  removePriceBookPicture: { method: "DELETE", path: "/v1/pricebook/items/{id}/picture", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   removePurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeRecordingPolicy: { method: "DELETE", path: "/v1/recording-policies/{jurisdiction}", pathParams: ["jurisdiction"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeRentalCharge: { method: "POST", path: "/v1/rental-charges/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -37612,6 +37752,7 @@ export const OPERATIONS = {
   updateWebhookEndpoint: { method: "PATCH", path: "/v1/webhooks/endpoints/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   upgradeTradePack: { method: "POST", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   uploadAttachment: { method: "POST", path: "/v1/attachments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
+  uploadPriceBookPicture: { method: "POST", path: "/v1/pricebook/items/{id}/picture", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   uploadProposalCover: { method: "POST", path: "/v1/proposal-templates/{id}/cover", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   validateCustomFields: { method: "POST", path: "/v1/custom-fields/validate", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   verifyCertification: { method: "POST", path: "/v1/certifications/{id}/verify", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -45699,6 +45840,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take the uploaded picture off a price book item.
+   *
+   * DELETE /v1/pricebook/items/{id}/picture. Needs pricebook:write.
+   */
+  removePriceBookPicture(input: RemovePriceBookPictureParams & RemovePriceBookPictureInput, options?: CallOptions): Promise<RemovePriceBookPictureOutput> {
+    return this.call("removePriceBookPicture", input, options);
+  }
+
+  /**
    * Stop asking for an approval step.
    *
    * POST /v1/purchase-approval-rules/{id}/remove. Needs settings:write.
@@ -47445,7 +47595,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Turn the one reminder on or off, and change its words.
+   * Turn the reminders and the follow up by email on or off, and change the first reminder's words.
    *
    * PUT /v1/reviews/reminders. Needs settings:write.
    */
@@ -48585,6 +48735,15 @@ export abstract class GeneratedOperations {
    */
   uploadAttachment(input: UploadAttachmentInput, options?: CallOptions): Promise<UploadAttachmentOutput> {
     return this.call("uploadAttachment", input, options);
+  }
+
+  /**
+   * Put a picture on a price book item.
+   *
+   * POST /v1/pricebook/items/{id}/picture. Needs pricebook:write.
+   */
+  uploadPriceBookPicture(input: UploadPriceBookPictureParams & UploadPriceBookPictureInput, options?: CallOptions): Promise<UploadPriceBookPictureOutput> {
+    return this.call("uploadPriceBookPicture", input, options);
   }
 
   /**

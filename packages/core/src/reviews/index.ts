@@ -690,6 +690,73 @@ export function decideReminder(facts: ReminderFacts, policy: ReminderPolicy, now
   return { remind: true, sendAt, readyNow: sendAt.getTime() <= now.getTime() };
 }
 
+/**
+ * THE LATER MESSAGES ON AN ASK NOBODY ANSWERED, beside the first reminder:
+ *
+ *   follow_up        the ask by email, for a company that asks by text and then
+ *                    email, when the text went and nothing came back
+ *   second_reminder  a second reminder, after the first one went
+ *
+ * Each is off until the company turns it on, waits its days from the message
+ * before it (the ask, or the first reminder), and is held to exactly the first
+ * reminder's rules (`decideReminder`): never to a customer who opted out, never
+ * once a review that is or may be theirs has come in since the ask, not while
+ * a complaint or a return visit is open, and only in the company's sending
+ * hours. One of each, ever.
+ */
+export type LaterMessage = "follow_up" | "second_reminder";
+
+export interface LaterFacts {
+  jobId: string;
+  customerId: string;
+  /** When the message this one follows went: the ask for a follow up, the first reminder for a second. */
+  previousAt: Date;
+  /** This one has been sent, or decided against for good, already. */
+  done: boolean;
+  reviewSince: boolean;
+  optedOut: boolean;
+  complaintOpen: boolean;
+  callback: Callback | null;
+}
+
+const LATER_WORDS: Record<LaterMessage, { name: string; off: string; done: string; previous: string }> = {
+  follow_up: {
+    name: "follow up by email",
+    off: "The follow up by email is off. Turn it on and say how many days to wait.",
+    done: "The one follow up by email this job gets has already gone out.",
+    previous: "The ask went out",
+  },
+  second_reminder: {
+    name: "second reminder",
+    off: "The second reminder is off. Turn it on and say how many days to wait.",
+    done: "The second reminder this job gets has already gone out.",
+    previous: "The first reminder went out",
+  },
+};
+
+export function decideLaterMessage(
+  kind: LaterMessage, facts: LaterFacts,
+  policy: { timeZone: string; afterDays: number | null; earliestHour: number; latestHour: number }, now: Date,
+): ReminderDecision {
+  const words = LATER_WORDS[kind];
+  const decision = decideReminder({
+    jobId: facts.jobId, customerId: facts.customerId, askedAt: facts.previousAt, reminded: facts.done,
+    reviewSince: facts.reviewSince, optedOut: facts.optedOut, complaintOpen: facts.complaintOpen, callback: facts.callback,
+  }, {
+    timeZone: policy.timeZone, reminderAfterDays: policy.afterDays,
+    earliestHour: policy.earliestHour, latestHour: policy.latestHour,
+  }, now);
+  if (decision.remind) return decision;
+  switch (decision.withheld) {
+    case "reminders_off": return { ...decision, explanation: words.off };
+    case "reminder_already_sent": return { ...decision, explanation: words.done };
+    case "review_since_ask":
+      return { ...decision, explanation: `A review has come in since the ask that is, or may be, this customer's, so a ${words.name} would be a nudge to somebody who has already answered.` };
+    case "too_soon": return { ...decision, explanation: `${words.previous} less than ${policy.afterDays} days ago.` };
+    default: return decision;
+  }
+}
+
 /* ========================================================================
  * 2b. WHAT THE REPLY IS FOR
  * ===================================================================== */

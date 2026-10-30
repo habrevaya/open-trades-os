@@ -1278,6 +1278,21 @@ and the product owner has not been asked for another.
 same delivery as a schedule, runs as whoever published the automation, and is
 sent once per run, so a run resumed after a wait does not send it again.
 
+The step's "Report or dashboard" list also offers every dashboard the author can
+open, the ones that ship and the ones somebody assembled (`dashboard:{slug}` and
+`savedDashboard:{id}` in the step's `report`, the pair the schedule form uses).
+A dashboard picked there is a dashboard schedule fired by an event instead of a
+clock: one PDF of every tile, through the same delivery, each person in the
+company drawn as themselves with the tiles they may not see named and left out,
+an outside address sent the publisher's copy, the same outbox and do-not-email
+list. It is checked at publish as a dashboard schedule is at its save, with the
+step's number in the refusal: the author must be able to open it and see
+something on it, every person picked must too, it goes to people and never to
+the customer the event is about, and it takes no dates of its own ("Everything,
+with no dates" is its only period, and the canvas hides the choice). On the day,
+the delivery asks all of it again of the publisher as they are then, and a
+publisher who can no longer see it fails the step and sends nothing.
+
 ## Permissions
 
 | Role | Access |
@@ -1537,9 +1552,9 @@ measure at a time. A tile is cut by one of its report's two groupings and drawn
 along the other: a report grouped by three things is still refused on a tile,
 because the third would be added up out of sight, and the cut is chosen on the
 tile once it is added ("Add a tile" always starts on the second).
-A dashboard is printed and emailed whole (above), and only on a schedule: the
-"Run and email a report" step of an automation sends a report and not a
-dashboard. A dashboard emailed or printed takes no dates of its own, and its
+A dashboard is printed and emailed whole (above), on a schedule or from an
+automation's "Run and email a report" step, and never to a customer: there is no
+narrowing of a dashboard to one customer's records. A dashboard emailed or printed takes no dates of its own, and its
 PDF prints the screen's chart with the usual scale, never "Around the data".
 No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

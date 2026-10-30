@@ -8,6 +8,8 @@ import {
 } from "./context";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { closeMatching, textFilter } from "./text-search";
+import { attach, bytesOf, decode, put, HELD } from "./files";
+import { remember, replayed } from "./once";
 import type {
   listPriceBook, createPriceBookItem, revisePriceBookItem,
 } from "../contracts/pricebook";
@@ -229,6 +231,8 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     name: row.version.name,
     description: row.version.description ?? null,
     imageUrl: row.version.imageUrl ?? null,
+    /** An uploaded picture is on this version, drawn from the company's own store. */
+    hasPicture: row.version.pictureKey !== null,
     categoryId: row.item.categoryId,
     feeRole: row.item.feeRole,
     quantityIsCrewHours: row.item.quantityIsCrewHours,
@@ -466,6 +470,12 @@ export interface RevisionChanges {
   components?: Array<{ itemId: string; quantity: number }>;
   /** The picture's https address; null takes it off, left out it carries forward. */
   imageUrl?: string | null;
+  /**
+   * The storage key of an uploaded picture, set only by `uploadPicture` from
+   * bytes it has just kept; null takes it off, left out it carries forward.
+   * Never taken from a caller, so no route can point an item at a file.
+   */
+  pictureKey?: string | null;
   /** What a seller is paid on it, as a share of the line; null goes back to their plan, left out it carries forward. */
   commissionRate?: string | null;
   /** Bought in one unit and used in another, already checked by `checkedUnits`; all null takes them off, left out they carry forward. */
@@ -570,6 +580,7 @@ export async function reviseWithin(
     name: changes.name ?? current.version.name,
     description: changes.description ?? current.version.description,
     imageUrl: changes.imageUrl !== undefined ? changes.imageUrl : current.version.imageUrl,
+    pictureKey: changes.pictureKey !== undefined ? changes.pictureKey : current.version.pictureKey,
     price: changes.price ?? current.version.price,
     cost: changes.cost ?? current.version.cost,
     laborMinutes: changes.laborMinutes ?? current.version.laborMinutes,
@@ -590,12 +601,12 @@ export async function reviseWithin(
     tx, ctx, "pricebook.item_revised", "price_book_item", current.item.id,
     {
       version: current.version.version, price: current.version.price,
-      imageUrl: current.version.imageUrl, commissionRate: current.version.commissionRate,
+      imageUrl: current.version.imageUrl, pictureKey: current.version.pictureKey, commissionRate: current.version.commissionRate,
       ...(changes.units ? { units: unitsOf(current.version) } : {}),
     },
     {
       version: version!.version, price: version!.price,
-      imageUrl: version!.imageUrl, commissionRate: version!.commissionRate,
+      imageUrl: version!.imageUrl, pictureKey: version!.pictureKey, commissionRate: version!.commissionRate,
       ...(changes.units ? { units: unitsOf(version!) } : {}),
     },
   );
@@ -624,6 +635,138 @@ export async function load(tx: Database, itemId: string): Promise<ItemRow | unde
 /** Exported for the tests that check version windows never gap or overlap. */
 export const currentVersionFilter = inForceAt;
 
+/* ------------------------------------------------------- the picture */
+
+/** The largest picture an item takes: a phone photograph, comfortably, and small enough to print a page of them. */
+export const PICTURE_LIMIT = 4 * 1024 * 1024;
+
+/**
+ * The kinds every customer's browser draws. A HEIC (an iPhone's own format)
+ * or an icon is a file the store keeps, but a customer on another phone would
+ * see a broken picture on the proposal, so neither is taken here.
+ */
+const PICTURE_TYPES: readonly string[] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+/**
+ * Refused while a revision waits. The picture is written as a new version in
+ * force now, and the waiting revision was written from the version before it,
+ * so on its day it would take the picture off again without anybody asking.
+ */
+async function assertNothingWaiting(tx: Database, itemId: string, now: Date) {
+  const [waiting] = await tx.select({ id: schema.priceBookItemVersion.id }).from(schema.priceBookItemVersion)
+    .where(and(
+      eq(schema.priceBookItemVersion.itemId, itemId),
+      gt(schema.priceBookItemVersion.effectiveFrom, now),
+      isNull(schema.priceBookItemVersion.deletedAt),
+    )).limit(1);
+  if (waiting) {
+    throw new ConflictError(
+      "This item has a price change waiting to come in. Bring it forward or call it off first, then change the picture.",
+    );
+  }
+}
+
+/**
+ * PUT A PICTURE ON AN ITEM, as a file in the company's own store.
+ *
+ * The bytes are kept by `files.put`, which decides the type from the bytes
+ * and caps the size, and anything that is not a picture is refused. The
+ * picture is written into a NEW VERSION, in force now, like a change of name:
+ * an estimate already written keeps the version it was priced from, and so
+ * the picture it showed. The file is attached to the item so it is counted as
+ * used, and it is never let go when the picture changes, because older
+ * versions, and the estimates priced from them, still show it.
+ *
+ * The same bytes again, on an item already showing them, write nothing: a
+ * retry, or a second press, is the same picture.
+ */
+export async function uploadPicture(
+  ctx: ServiceContext, input: { id: string; fileName: string; bytes: string | Uint8Array }, now: Date = new Date(),
+) {
+  return guardedWrite(ctx, "pricebook:write", async (tx) => {
+    const again = await replayed<ReturnType<typeof shape>>(tx, ctx, "price_book_item_picture");
+    if (again) return again;
+    const current = await load(tx, input.id);
+    if (!current) throw new NotFoundError("Price book item");
+    const bytes = typeof input.bytes === "string" ? decode(input.bytes) : input.bytes;
+    const { file } = await put(tx, ctx.actor.organizationId, {
+      bytes, maxBytes: PICTURE_LIMIT, uploadedByUserId: ctx.actor.userId,
+    });
+    if (!PICTURE_TYPES.includes(file.contentType)) {
+      throw new ConflictError("An item's picture is a JPEG, a PNG, a GIF or a WebP. Save it as one of those and upload it again.");
+    }
+    if (current.version.pictureKey === file.storageKey) return shape(ctx, current);
+    await assertNothingWaiting(tx, current.item.id, now);
+
+    const [held] = await tx.select({ id: schema.attachment.id }).from(schema.attachment).where(and(
+      eq(schema.attachment.entityType, "price_book_item"), eq(schema.attachment.entityId, current.item.id),
+      eq(schema.attachment.storageKey, file.storageKey), isNull(schema.attachment.deletedAt),
+    )).limit(1);
+    if (!held) {
+      await attach(tx, ctx.actor.organizationId, {
+        entityType: "price_book_item", entityId: current.item.id, storageKey: file.storageKey, kind: "picture",
+        fileName: input.fileName, contentType: file.contentType, sizeBytes: file.sizeBytes,
+        uploadedByUserId: ctx.actor.userId,
+      });
+    }
+    const version = await reviseWithin(tx, ctx, current, { pictureKey: file.storageKey }, now);
+    const answer = shape(ctx, { item: current.item, version });
+    await remember(tx, ctx, "price_book_item_picture", current.item.id, answer);
+    return answer;
+  });
+}
+
+/**
+ * Take the uploaded picture off, as a new version in force now. The file is
+ * kept: the versions before this one, and every estimate priced from them,
+ * still show it. An item with no picture writes nothing.
+ */
+export async function removePicture(ctx: ServiceContext, input: { id: string }, now: Date = new Date()) {
+  return guardedWrite(ctx, "pricebook:write", async (tx) => {
+    const again = await replayed<ReturnType<typeof shape>>(tx, ctx, "price_book_item_picture_off");
+    if (again) return again;
+    const current = await load(tx, input.id);
+    if (!current) throw new NotFoundError("Price book item");
+    if (current.version.pictureKey === null) return shape(ctx, current);
+    await assertNothingWaiting(tx, current.item.id, now);
+    const version = await reviseWithin(tx, ctx, current, { pictureKey: null }, now);
+    const answer = shape(ctx, { item: current.item, version });
+    await remember(tx, ctx, "price_book_item_picture_off", current.item.id, answer);
+    return answer;
+  });
+}
+
+/**
+ * The bytes of the picture on one version of an item, for the office: the
+ * item page, the version history and the estimate composer. Under
+ * `pricebook:read`, which is what reading the item is, and only the key the
+ * version names, which only an upload of those bytes can set, so this reads
+ * nothing a price book reader could not already see on the item. Served as
+ * the type it was sniffed as when it was kept.
+ */
+export async function pictureOfVersion(ctx: ServiceContext, input: { versionId: string }) {
+  return guardedRead(ctx, "pricebook:read", async (tx) => {
+    const [version] = await tx.select({ key: schema.priceBookItemVersion.pictureKey })
+      .from(schema.priceBookItemVersion)
+      .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
+      .where(and(
+        eq(schema.priceBookItemVersion.id, input.versionId),
+        isNull(schema.priceBookItemVersion.deletedAt),
+        isNull(schema.priceBookItem.deletedAt),
+      )).limit(1);
+    if (!version?.key) throw new NotFoundError("Picture");
+    return storedPicture(tx, version.key);
+  });
+}
+
+/** A kept picture's bytes and sniffed type, or not found. Only ever called with a key a version names. */
+export async function storedPicture(tx: Database, key: string) {
+  const [file] = await tx.select({ ...HELD, contentType: schema.storedFile.contentType })
+    .from(schema.storedFile).where(and(eq(schema.storedFile.storageKey, key), isNull(schema.storedFile.deletedAt))).limit(1);
+  if (!file || !file.contentType.startsWith("image/")) throw new NotFoundError("Picture");
+  return { bytes: await bytesOf(file), contentType: file.contentType };
+}
+
 /* ------------------------------------------------------- one item, whole */
 
 export interface VersionView {
@@ -637,6 +780,8 @@ export interface VersionView {
   effectiveTo: string | null;
   /** In force now, waiting to come into force, or finished. */
   state: "in_force" | "scheduled" | "past";
+  /** An uploaded picture is on this version. */
+  hasPicture: boolean;
 }
 
 /**
@@ -690,6 +835,7 @@ export async function detail(ctx: ServiceContext, input: { id: string }, now: Da
           effectiveTo: v.effectiveTo?.toISOString() ?? null,
           state: v.effectiveFrom > now ? "scheduled"
             : v.effectiveTo === null || v.effectiveTo > now ? "in_force" : "past",
+          hasPicture: v.pictureKey !== null,
         };
       }),
     };

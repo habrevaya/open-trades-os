@@ -1,4 +1,4 @@
-import { reports, deliverySchedules, type ServiceContext } from "@opentradesos/api/services";
+import { dashboards, reports, deliverySchedules, type ServiceContext } from "@opentradesos/api/services";
 import { can, reporting } from "@opentradesos/core";
 import type { StepOption } from "@/app/(app)/automations/Canvas";
 
@@ -16,6 +16,9 @@ export async function withStepChoices(ctx: ServiceContext, steps: StepOption[]):
     reports: [
       ...reports.builtIn(ctx).map((r) => ({ value: `builtIn:${r.slug}`, label: r.name })),
       ...(await reports.list(ctx)).map((r) => ({ value: `saved:${r.id}`, label: `${r.name} (saved)` })),
+      /** Whole dashboards, sent as one PDF through the same delivery a dashboard schedule uses. */
+      ...dashboards.catalogue(ctx).map((d) => ({ value: `dashboard:${d.slug}`, label: `${d.title} (dashboard)` })),
+      ...(await dashboards.list(ctx)).map((d) => ({ value: `savedDashboard:${d.id}`, label: `${d.name} (saved dashboard)` })),
     ],
     people: (await deliverySchedules.recipientChoices(ctx)).map((p) => ({ userId: p.userId, name: p.name })),
     periods: reporting.PERIODS.map((p) => ({ key: p.key, label: p.label })),

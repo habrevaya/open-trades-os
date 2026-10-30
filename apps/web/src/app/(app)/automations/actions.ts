@@ -84,7 +84,12 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
        * To the customer the event is about: nobody else in the same step, so the
        * people and addresses are dropped rather than carried along unseen.
        */
-      if (text("to") === "customer") {
+      /**
+       * A whole dashboard goes to people, as it stands: no dates of its own and
+       * never to a customer, the same as a dashboard schedule.
+       */
+      const dashboard = text("report").startsWith("dashboard:") || text("report").startsWith("savedDashboard:");
+      if (text("to") === "customer" && !dashboard) {
         return { report: text("report"), to: "customer", userIds: [], addresses: [], period: text("period") || "all" };
       }
       const ids = Array.isArray(raw["userIds"]) ? raw["userIds"] : [];
@@ -92,16 +97,29 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
         report: text("report"),
         userIds: ids.map((id) => String(id).trim()).filter((id) => id !== ""),
         addresses: text("addresses").split(/[\s,;]+/).filter((a) => a !== ""),
-        period: text("period") || "all",
+        period: dashboard ? "all" : text("period") || "all",
       };
     }
     case "stop_unless":
       /** The field is kept only for the check that reads one, so a changed check drops it. */
       if (!automation.checkNeedsField(text("check"))) return { check: text("check") };
-      /** What the field is compared with: the event's value, or one typed here (kept only then). */
-      return text("compare") === "value"
-        ? { check: text("check"), field: text("field"), compare: "value", value: text("value") }
-        : { check: text("check"), field: text("field") };
+      /**
+       * What the field is compared with: the event's value (nothing kept), one
+       * value typed here (equal, greater or less), several (one of, one to a
+       * line) or nothing at all (still blank). Each keeps only what it reads.
+       */
+      switch (text("compare")) {
+        case "value":
+        case "greater":
+        case "less":
+          return { check: text("check"), field: text("field"), compare: text("compare"), value: text("value") };
+        case "one_of":
+          return { check: text("check"), field: text("field"), compare: "one_of", values: automation.typedValues({ values: raw["values"] }) };
+        case "blank":
+          return { check: text("check"), field: text("field"), compare: "blank" };
+        default:
+          return { check: text("check"), field: text("field") };
+      }
     case "send_estimate":
     case "send_review_request": {
       /**

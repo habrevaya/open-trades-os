@@ -170,6 +170,11 @@ export const REDACTED: Record<string, Record<string, string>> = {
  * `inbound_secret` to a table, nobody has to notice.
  */
 export const EXPORTED_DELIBERATELY: Record<string, Record<string, string>> = {
+  price_book_item_version: {
+    picture_key: "Where an item's uploaded picture is kept in the company's own file store, the same "
+      + "storage key an attachment row carries. A key in the sense of a lookup, not a credential: "
+      + "reading the file still needs a signed in reader or a customer's link to an estimate that uses it.",
+  },
   app_plugin: {
     key: "A connected application's own name for a job workflow, pricing rule or report type it "
       + "registered, such as install_stages. A key in the sense of a lookup, not a credential.",

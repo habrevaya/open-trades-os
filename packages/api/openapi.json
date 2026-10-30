@@ -104166,6 +104166,267 @@
         ]
       }
     },
+    "/v1/pricebook/items/{id}/picture": {
+      "description": "Served at this path: DELETE, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "POST"
+      ],
+      "delete": {
+        "operationId": "removePriceBookPicture",
+        "summary": "Take the uploaded picture off a price book item",
+        "description": "Saved as a new version in force now, without the picture. Earlier versions keep it, so estimates already written still show it. An item with no picture writes nothing.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M06"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemovePriceBookPictureInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take the uploaded picture off a price book item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovePriceBookPictureOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      },
+      "post": {
+        "operationId": "uploadPriceBookPicture",
+        "summary": "Put a picture on a price book item",
+        "description": "A JPEG, PNG, GIF or WebP, base64, up to four megabytes, decided from the bytes rather than from what the upload claims. Saved as a new version in force now; the same picture again writes nothing. Refused while a revision of the item is waiting to come in. Shown on the item and, for a customer, only on the proposal of an estimate with a line priced from a version that carries it. The PDF prints a JPEG or an eight bit PNG and names the others.\n\nRequires a session holding: pricebook:write.",
+        "tags": [
+          "M06"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadPriceBookPictureInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Put a picture on a price book item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPriceBookPictureOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "pricebook:write"
+        ]
+      }
+    },
     "/v1/pricebook/items/{id}/revise": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -124746,8 +125007,8 @@
       },
       "put": {
         "operationId": "setReviewReminders",
-        "summary": "Turn the one reminder on or off, and change its words",
-        "description": "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy.\n\nRequires a session holding: settings:write.",
+        "summary": "Turn the reminders and the follow up by email on or off, and change the first reminder's words",
+        "description": "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy. `secondAfterDays` turns on a second reminder that many days after the first went, under the same rules, in words that say it is the last; it needs the first on, and turning the first off turns it off. `followUpAfterDays` sends the ask again by email that many days after it went by text, for a company that asks by text and then email, under the same rules. Both are off (`null`) unless the company says how many days, 3 to 60.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M20"
         ],
@@ -124774,7 +125035,7 @@
         },
         "responses": {
           "200": {
-            "description": "Turn the one reminder on or off, and change its words",
+            "description": "Turn the reminders and the follow up by email on or off, and change the first reminder's words",
             "content": {
               "application/json": {
                 "schema": {
@@ -175848,6 +176109,9 @@
               "null"
             ]
           },
+          "hasPicture": {
+            "type": "boolean"
+          },
           "categoryId": {
             "type": [
               "string",
@@ -176038,6 +176302,7 @@
           "name",
           "description",
           "imageUrl",
+          "hasPicture",
           "categoryId",
           "feeRole",
           "quantityIsCrewHours",
@@ -213316,6 +213581,9 @@
               "null"
             ]
           },
+          "hasPicture": {
+            "type": "boolean"
+          },
           "categoryId": {
             "type": [
               "string",
@@ -213543,6 +213811,9 @@
                     "scheduled",
                     "past"
                   ]
+                },
+                "hasPicture": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -213552,7 +213823,8 @@
                 "price",
                 "effectiveFrom",
                 "effectiveTo",
-                "state"
+                "state",
+                "hasPicture"
               ]
             }
           }
@@ -213566,6 +213838,7 @@
           "name",
           "description",
           "imageUrl",
+          "hasPicture",
           "categoryId",
           "feeRole",
           "quantityIsCrewHours",
@@ -218095,12 +218368,78 @@
                 "detail"
               ]
             }
+          },
+          "secondAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpApplies": {
+            "type": "boolean"
+          },
+          "later": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "follow_up",
+                    "second_reminder"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sent": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "jobNumber",
+                "customerName",
+                "kind",
+                "at",
+                "sent",
+                "detail"
+              ]
+            }
           }
         },
         "required": [
           "afterDays",
           "wording",
-          "recent"
+          "recent",
+          "secondAfterDays",
+          "followUpAfterDays",
+          "followUpApplies",
+          "later"
         ]
       },
       "GetReviewWorkListOutput": {
@@ -243288,6 +243627,9 @@
                     "null"
                   ]
                 },
+                "hasPicture": {
+                  "type": "boolean"
+                },
                 "categoryId": {
                   "type": [
                     "string",
@@ -243478,6 +243820,7 @@
                 "name",
                 "description",
                 "imageUrl",
+                "hasPicture",
                 "categoryId",
                 "feeRole",
                 "quantityIsCrewHours",
@@ -271430,6 +271773,265 @@
           "removed"
         ]
       },
+      "RemovePriceBookPictureInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemovePriceBookPictureOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service",
+              "material",
+              "equipment",
+              "labor",
+              "fee",
+              "discount"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasPicture": {
+            "type": "boolean"
+          },
+          "categoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "feeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "diagnostic",
+              "after_hours"
+            ]
+          },
+          "quantityIsCrewHours": {
+            "type": "boolean"
+          },
+          "chemical": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "unit": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "epaRegistrationNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "unit",
+              "epaRegistrationNumber"
+            ]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "taxClass": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "laborMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "warrantyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "warrantyRegistrationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "itemId",
+                "quantity"
+              ]
+            }
+          },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "cost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "margin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "commissionRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "versionId",
+          "version",
+          "kind",
+          "code",
+          "name",
+          "description",
+          "imageUrl",
+          "hasPicture",
+          "categoryId",
+          "feeRole",
+          "quantityIsCrewHours",
+          "chemical",
+          "price",
+          "taxable",
+          "taxClass",
+          "laborMinutes",
+          "warrantyMonths",
+          "warrantyRegistrationDays",
+          "components",
+          "units",
+          "active",
+          "externalRef",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "RemovePurchaseApprovalRuleInput": {
         "type": "object",
         "properties": {}
@@ -277101,6 +277703,9 @@
               "null"
             ]
           },
+          "hasPicture": {
+            "type": "boolean"
+          },
           "categoryId": {
             "type": [
               "string",
@@ -277291,6 +277896,7 @@
           "name",
           "description",
           "imageUrl",
+          "hasPicture",
           "categoryId",
           "feeRole",
           "quantityIsCrewHours",
@@ -290097,6 +290703,22 @@
               "emailSubject",
               "emailBody"
             ]
+          },
+          "secondAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 3,
+            "maximum": 60
+          },
+          "followUpAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 3,
+            "maximum": 60
           }
         }
       },
@@ -290178,12 +290800,78 @@
                 "detail"
               ]
             }
+          },
+          "secondAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpAfterDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "followUpApplies": {
+            "type": "boolean"
+          },
+          "later": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": "integer"
+                },
+                "customerName": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "follow_up",
+                    "second_reminder"
+                  ]
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sent": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "jobNumber",
+                "customerName",
+                "kind",
+                "at",
+                "sent",
+                "detail"
+              ]
+            }
           }
         },
         "required": [
           "afterDays",
           "wording",
-          "recent"
+          "recent",
+          "secondAfterDays",
+          "followUpAfterDays",
+          "followUpApplies",
+          "later"
         ]
       },
       "SetSafetyTalkScheduleActiveInput": {
@@ -304405,6 +305093,9 @@
               "null"
             ]
           },
+          "hasPicture": {
+            "type": "boolean"
+          },
           "categoryId": {
             "type": [
               "string",
@@ -304595,6 +305286,7 @@
           "name",
           "description",
           "imageUrl",
+          "hasPicture",
           "categoryId",
           "feeRole",
           "quantityIsCrewHours",
@@ -308235,6 +308927,280 @@
           "entityType",
           "entityId",
           "alreadyHeld"
+        ]
+      },
+      "UploadPriceBookPictureInput": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "bytes": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5600000
+          }
+        },
+        "required": [
+          "fileName",
+          "bytes"
+        ]
+      },
+      "UploadPriceBookPictureOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service",
+              "material",
+              "equipment",
+              "labor",
+              "fee",
+              "discount"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasPicture": {
+            "type": "boolean"
+          },
+          "categoryId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "feeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "diagnostic",
+              "after_hours"
+            ]
+          },
+          "quantityIsCrewHours": {
+            "type": "boolean"
+          },
+          "chemical": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "unit": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "epaRegistrationNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "unit",
+              "epaRegistrationNumber"
+            ]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "taxable": {
+            "type": "boolean"
+          },
+          "taxClass": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "laborMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "warrantyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "warrantyRegistrationDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "itemId",
+                "quantity"
+              ]
+            }
+          },
+          "units": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "buy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "use": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "usePerBuy": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,6})?$"
+              }
+            },
+            "required": [
+              "buy",
+              "use",
+              "usePerBuy"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "cost": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "costPerUse": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "margin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "commissionRate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          },
+          "externalRef": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "source": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,49}$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "source",
+              "id"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "versionId",
+          "version",
+          "kind",
+          "code",
+          "name",
+          "description",
+          "imageUrl",
+          "hasPicture",
+          "categoryId",
+          "feeRole",
+          "quantityIsCrewHours",
+          "chemical",
+          "price",
+          "taxable",
+          "taxClass",
+          "laborMinutes",
+          "warrantyMonths",
+          "warrantyRegistrationDays",
+          "components",
+          "units",
+          "active",
+          "externalRef",
+          "createdAt",
+          "updatedAt"
         ]
       },
       "UploadProposalCoverInput": {

@@ -135,6 +135,16 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
         }));
         return { message: from ? `The parts are saved as a new version, in force from ${from}.` : "The parts are saved as a new version, in force now." };
       }
+      case "picture": {
+        const file = form.get("picture");
+        if (!(file instanceof File) || file.size === 0) throw new ConflictError("Choose a picture to upload.");
+        if (file.size > priceBook.PICTURE_LIMIT) throw new ConflictError("That picture is over 4 MB. Choose a smaller one.");
+        await priceBook.uploadPicture(ctx, { id, fileName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+        return { message: "Picture saved as a new version, in force now." };
+      }
+      case "picture-off":
+        await priceBook.removePicture(ctx, { id });
+        return { message: "Picture taken off as a new version. Estimates already written keep theirs." };
       case "identity":
         await priceBook.updateItem(ctx, parsed(updatePriceBookItem.input, {
           id, kind: field(form, "kind"), code: field(form, "code"),

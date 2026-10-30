@@ -230,7 +230,9 @@ they are on the day it runs, through the same delivery a scheduled report uses
 would see it, the delivery is recorded with each recipient's outcome, and it is keyed
 on the run and the step, so a run resumed after a wait does not send it twice. The
 report and the people are checked against the author at publish, with the step's
-number in the refusal.
+number in the refusal. The step can name a whole dashboard instead (M21): it is
+then sent as one PDF to the people picked, each drawn as they would see it, never to
+a customer and with no dates of its own, checked the way a dashboard schedule is.
 
 **A report can go to the customer the event is about, and is then about them
 only.** The step names "the customer this is about" instead of people, and the
@@ -636,10 +638,22 @@ the field's own kind, from the definition of the record's kind as it is when the
 runs (the kind is only known then): a number field takes 12 or 12.50, a date field a
 real date like 2026-03-01, a yes or no field yes, no, true or false, a choice field
 one of its options exactly as listed, a field with several choices the options
-separated by commas in any order, a text field the words as typed. A step with no
-field, a field that is not a key, a typed comparison with no value or one longer than
-two hundred letters, or a comparison that is neither the event nor a value, is refused
-at publish with its number. A typed value that cannot be read as that field, or a
+separated by commas in any order, a text field the words as typed. Four more
+comparisons ask more than "is": "Greater than a value I type" and "Less than a value I
+type" (`compare: "greater"` or `"less"` with `value`) ask it of a number field, as a
+number, or of a date field, where greater is later and less is earlier; a blank field is
+never greater or less, so the run stops. "One of several values I type"
+(`compare: "one_of"` and `values`, a list, one to a line on the canvas, up to twenty)
+carries on while the field is any of them, each read as the field's kind; it is not for a
+field with several choices, because whether that means "holds any of them" or "is exactly
+one of them" is a question the step cannot answer for its author, so such a field fails
+the step and says to ask whether it is a value instead. "Still blank" (`compare: "blank"`,
+no value) carries on while nobody has filled the field in and stops once somebody does. A
+step with no field, a field that is not a key, a typed comparison (equal, greater or less)
+with no value or one longer than two hundred letters, a "one of" with no values, more than
+twenty or one longer than two hundred letters, or a comparison the step does not know, is
+refused at publish with its number. Greater or less on a field that is not a number or a
+date fails the step when it runs, in words, like a typo. A typed value that cannot be read as that field, or a
 field the kind does not have, FAILS the step when it runs, with the reason in words,
 rather than ending the run as finished: a typo is the author's to see, and a quiet
 "no" would hide it forever. A record removed since is still a quiet no.) Each reads the record the event names
@@ -845,11 +859,12 @@ its settings are whole numbers only, with no review site or other choice from
 the company's own setup; and only the HVAC pack declares one, as the example.
 `stop_unless` asks ten questions, from a catalogue in core, and a company
 cannot write its own: a question is a query, and a workflow never carries one.
-The record question compares one field with what the event carried or with a
-value typed into the step, equal only: it cannot ask "greater than" or "one of
-these", and it cannot ask about two fields at once (two steps do). A typed value
-is checked against the field only when the step runs, not when it is published,
-because the automation does not say which kind of record it will meet, so a
-typo shows as a failed step and not a refused publish. An empty field cannot be
-compared with, because a typed comparison needs a value: "still blank" is not
-something it can say. The plain message step emails only transactional mail.
+The record question compares one field at a time: with what the event carried,
+or is, is greater than, is less than or is one of values typed into the step, or is
+still blank. It cannot ask about two fields at once (two steps do), it cannot ask
+"between" (a greater step and a less step do), and greater and less are only for
+numbers and dates: text and choices have no order it could use. "One of" is not
+asked of a field with several choices. A typed value, and which kind the field is,
+are checked only when the step runs, not when it is published, because the
+automation does not say which kind of record it will meet, so a typo or a text field
+asked "greater than" shows as a failed step and not a refused publish. The plain message step emails only transactional mail.

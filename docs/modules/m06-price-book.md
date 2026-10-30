@@ -93,20 +93,46 @@ writing no version, because no document points at any of those. The item can be 
 vendors who sell it to us are listed with their part numbers (M16).
 `/pricebook` can include retired items.
 
-**A picture and a commission rate**, in the same "Change the price or wording" form,
+**The item's picture** is uploaded in the "Picture" panel on the item's screen
+(`POST /v1/pricebook/items/{id}/picture`, `pricebook:write`): a JPEG, PNG, GIF or WebP up
+to 4 MB, kept in the company's own file store. Its kind is decided from the bytes, so a
+file that only claims to be a picture is refused in words, and a HEIC or an icon is refused
+too, because a customer on another phone could not see it. The picture is written into a
+new version in force now, like a change of name, and every later revision carries it
+forward (a price change, a kit change, a bulk change), so an estimate keeps the picture of
+the version it was priced from. "Take the picture off" (`DELETE .../picture`) is a new
+version without it; earlier versions keep theirs. The same picture sent again writes
+nothing, and both are refused while a revision of the item is waiting to come in, because
+that revision would take the picture off again on its day. The version history shows which
+versions carry one. The file is attached to the item and never let go when the picture
+changes, because the old versions still show it.
+
+The picture is drawn on the item's screen and beside a line of the item in the estimate
+composer, through `/pricebook/pictures/{versionId}`, which needs `pricebook:read` and serves
+only the picture that version names. On a proposal it is drawn beside each line priced from
+a version that carries one: on the office's `/estimates/{id}/proposal` under the estimate's
+own read and scope, on the customer's `/e/{token}/proposal` through their link, and in both
+PDFs, once per option with the line's name under it. The customer's link serves the picture
+of a version only when a line of that estimate was priced from it (`item-` and the version,
+beside the cover and the option photographs), so it reads no other file in the store and no
+other estimate's items. Nothing names a stored file by its key: a picture can only be put on
+an item by uploading the bytes, so no route can point an item at a file somebody could not
+already read.
+
+**A typed web address and a commission rate**, in the same "Change the price or wording" form,
 are versioned like everything else there (`imageUrl` and `commissionRate` on
 `POST /v1/pricebook/items/{id}/revise`): left alone they carry forward through a price
-change, a kit change and a bulk change, whoever makes it; empty takes the picture off or
-puts the commission back to "no rate on this item". The picture is a web address that
-starts with `https://` (at most 2,000 characters, no spaces); nothing else is taken, so
-a stored address can never be a script or a file on somebody's phone if a screen ever
-draws it. The commission is typed as a percent ("8.5") and kept as a share of the line
+change, a kit change and a bulk change, whoever makes it; empty takes the address off or
+puts the commission back to "no rate on this item". The address starts with `https://`
+(at most 2,000 characters, no spaces); nothing else is taken. It is kept for the company's
+own reference only: the server never fetches it and no customer is shown it, because it is
+whatever a staff member pasted. The commission is typed as a percent ("8.5") and kept as a share of the line
 ("0.085", never above 1). A commission rate is a pay term, so it is shown only to
 somebody who may read commission (`commission:read`), and setting or clearing one needs
 `commission:configure` as well as `pricebook:write`: an editor of the price book without
 it can still raise a price, change the picture and revise everything else, and the form
 does not show them the box. Both are in the audit line of the revision, before and after.
-No screen draws an item's picture (see "What is not built"). The commission rate is paid by the company's
+The commission rate is paid by the company's
 choice on `/payroll/commissions` (M17, `POST /v1/commissions/item-rule`): the plan only,
 which is the default and pays nothing from the item's rate; the item's rate instead of
 the plan on its line; whichever of the two comes to more; or the item's rate on top of
@@ -283,6 +309,8 @@ screen.
 | `PATCH /v1/pricebook/items/{id}` | `pricebook:write` |
 | `POST /v1/pricebook/items/{id}/revise` | `pricebook:write` |
 | `POST /v1/pricebook/items/{id}/active` | `pricebook:write` |
+| `POST /v1/pricebook/items/{id}/picture` | `pricebook:write` |
+| `DELETE /v1/pricebook/items/{id}/picture` | `pricebook:write` |
 | `GET /v1/pricebook/scheduled` | `pricebook:read` |
 | `POST /v1/pricebook/scheduled/{versionId}/publish` | `pricebook:publish` |
 | `POST /v1/pricebook/scheduled/{versionId}/discard` | `pricebook:publish` |
@@ -316,13 +344,13 @@ different permission from editing the book.
 
 An item with a revision already scheduled is left out of a bulk change, dated
 ahead or not, rather than given a version beside it. A bulk change reaches at most
-two thousand items at a time. Nothing draws an item's picture, on purpose, and it is not a small step. The picture is a web address a person typed
-(`imageUrl`, always `https://`), not a file in the company's store, so there is no file read path or permission to draw it
-through: showing it on the item page, in the composer, on the customer's proposal or in its PDF would make the browser
-(and, for the PDF, this server) fetch whatever address a staff member pasted, and hand a customer's address to that host.
-Drawing it needs the picture uploaded and kept as a stored file the way proposal photographs are (a storage key on the
-item's version, carried forward by a revision, drawn through `/files/{key}` for staff and a token route and the PDF's image
-step for the customer), which is not built; the address is still stored and offered on the API and the item screen. An item's commission rate is
+two thousand items at a time. An item's uploaded picture is not drawn on the customer's
+approval page (`/e/{token}`), which lists the lines in words; "See the full proposal" beside
+it draws them. A picture cannot be uploaded or taken off while a revision of the item is
+waiting, and it cannot be dated ahead: it is in force from the moment it is uploaded. The
+API has no call that returns a picture's bytes; the office's and the customer's pages read
+them through their own routes. A proposal PDF prints at most twelve item pictures an option.
+A typed web address is never drawn anywhere, by design. An item's commission rate is
 paid only on an invoice line priced from the item: a line typed by hand, or a kit's
 parts inside a kit line, pays the plan, and a kit pays its own rate, not its parts'.
 The choice of how it works with the plan is one for the whole company (M17): there is

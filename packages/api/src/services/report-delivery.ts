@@ -850,10 +850,12 @@ export function composeReportEmail(input: {
  * The step's settings, read from a workflow definition.
  *
  * `report` is `builtIn:{slug}` or `saved:{id}`, the same pair a dashboard tile
- * points at, so the canvas offers one list of reports for both.
+ * points at, so the canvas offers one list of reports for both; or a whole
+ * dashboard, `dashboard:{slug}` for one that ships and `savedDashboard:{id}`
+ * for one somebody assembled, the pair the schedule form uses.
  */
 export function readReportStep(config: Record<string, unknown>): {
-  source: ReportSource | null;
+  source: DeliverySource | null;
   userIds: string[];
   addresses: string[];
   period: reporting.Period;
@@ -861,9 +863,10 @@ export function readReportStep(config: Record<string, unknown>): {
   audience: "people" | "customer";
 } {
   const report = typeof config["report"] === "string" ? config["report"] : "";
-  const source: ReportSource | null = report.startsWith("builtIn:")
-    ? { builtIn: report.slice("builtIn:".length) }
-    : report.startsWith("saved:") ? { reportId: report.slice("saved:".length) } : null;
+  const source: DeliverySource | null = report.startsWith("builtIn:") ? { builtIn: report.slice("builtIn:".length) }
+    : report.startsWith("saved:") ? { reportId: report.slice("saved:".length) }
+      : report.startsWith("dashboard:") ? { builtInDashboard: report.slice("dashboard:".length) }
+        : report.startsWith("savedDashboard:") ? { dashboardId: report.slice("savedDashboard:".length) } : null;
   const list = (value: unknown) => (Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [])
     .map((v) => String(v).trim()).filter((v) => v !== "");
   const period = typeof config["period"] === "string" && reporting.isPeriod(config["period"])
@@ -886,6 +889,7 @@ export async function checkReportStep(
 ): Promise<string | null> {
   const step = readReportStep(config);
   if (!step.source) return "Pick the report this step emails.";
+  if (isDashboard(step.source)) return checkDashboardStep(tx, ctx, step.source, step);
   const named = await sourceOf(tx, step.source);
   if (!named) return "The report this step emails does not exist.";
   const decision = reporting.resolveReport(named.definition, await catalogueFor(tx, ctx.actor.organizationId), permissionsFor(ctx.actor));
@@ -914,6 +918,46 @@ export async function checkReportStep(
     if (!person) return "One of the people picked is not in this company.";
     const refusal = await mayReceive(tx, ctx.actor.organizationId, userId, named.definition);
     if (refusal) return `${person.name ?? person.email} ${refusal}, so it cannot be sent to them.`;
+  }
+  return null;
+}
+
+/**
+ * Whether an "email a report" step that sends a whole DASHBOARD can be
+ * published by this author: the checks a dashboard schedule gets at its save
+ * (`delivery-schedules.checkReportSchedule`), in the same words. The author
+ * can open it and see something on it, it goes to people and never to a
+ * customer, it takes no dates of its own, and everybody picked could open it
+ * themselves. At run time `deliverDashboard` asks all of it again of the
+ * publisher as they are that day.
+ */
+async function checkDashboardStep(
+  tx: Database, ctx: ServiceContext, source: DashboardSource, step: ReturnType<typeof readReportStep>,
+): Promise<string | null> {
+  if (!(await dashboardSourceOf(tx, source))) return "The dashboard this step emails does not exist.";
+  const refusal = await couldOpen(tx, ctx.actor, source);
+  if (refusal) return `You cannot email a dashboard you cannot open yourself: you ${refusal}.`;
+  if (step.audience === "customer") {
+    return "A dashboard is the company's own, so it is never sent to a customer. Pick the people to send it to.";
+  }
+  if (step.period !== "all") {
+    return "A dashboard is sent as it stands, each tile with its own report's dates, so it does not take dates of its own. "
+      + "Choose \"Everything, with no dates\" for which days it covers.";
+  }
+  let addresses: string[];
+  try {
+    addresses = cleanAddresses(step.addresses);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  if (step.userIds.length === 0 && addresses.length === 0) return "Pick somebody to email the dashboard to.";
+  const people = await companyPeople(tx);
+  for (const userId of step.userIds) {
+    const person = people.get(userId);
+    if (!person) return "One of the people picked is not in this company.";
+    const actor = await memberActor(tx, ctx.actor.organizationId, userId);
+    const theirs = actor ? await couldOpen(tx, actor, source) : "is no longer an active member of the company";
+    if (theirs) return `${person.name ?? person.email} ${theirs}, so it cannot be sent to them.`;
   }
   return null;
 }

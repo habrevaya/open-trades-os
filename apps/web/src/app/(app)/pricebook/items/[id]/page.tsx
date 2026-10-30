@@ -83,6 +83,41 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
         {!item.inForce ? " Not in force yet: its only version starts later." : null}
       </p>
 
+      {item.hasPicture || writes ? (
+        <section aria-label="Picture" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="text-sm font-semibold">Picture</h2>
+          {item.hasPicture ? (
+            <img src={`/pricebook/pictures/${item.versionId}`} alt={`Picture of ${item.name}`}
+                 className="mt-3 max-h-48 rounded border border-steel-200 object-contain" />
+          ) : (
+            <p className="mt-1 text-sm text-ink-700">No picture yet.</p>
+          )}
+          {writes ? (
+            <>
+              <p className="mt-2 text-sm text-ink-700">
+                Customers see it beside this item on proposals and in the proposal PDF. A JPEG, PNG, GIF or WebP, up to 4 MB.
+                Saved as a new version, so estimates already written keep the picture they had.
+              </p>
+              {scheduled ? (
+                <p className="mt-2 text-sm text-ink-700">A price change is waiting. Bring it forward or call it off below before you change the picture.</p>
+              ) : item.inForce ? (
+                <div className="mt-3 flex flex-wrap items-center gap-4">
+                  <ActionForm action={actOnItem} submit={item.hasPicture ? "Upload a new picture" : "Upload the picture"}
+                              hidden={{ ...hidden, op: "picture" }} className="flex flex-wrap items-center gap-3">
+                    <input type="file" name="picture" accept="image/jpeg,image/png,image/gif,image/webp"
+                           aria-label="Picture file" className="text-sm" />
+                  </ActionForm>
+                  {item.hasPicture ? (
+                    <ActionForm action={actOnItem} submit="Take the picture off" tone="quiet"
+                                hidden={{ ...hidden, op: "picture-off" }} className="inline" />
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
       {writes ? (
         <section aria-label="Change the price or wording" className="mt-8 rounded-md border border-steel-200 p-4">
           <h2 className="text-sm font-semibold">Change the price or wording</h2>
@@ -98,7 +133,8 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
                            defaultValue={item.imageUrl ?? ""} placeholder="https://" />
                 <input type="hidden" name="imageUrlWas" value={item.imageUrl ?? ""} />
                 <p className="mt-1 text-xs text-ink-500">
-                  Kept with this version of the item and shown by nothing yet. Empty takes it off.
+                  Kept with this version for your own reference. It is never shown to a customer and nothing opens it.
+                  To show a picture, upload one above. Empty takes it off.
                 </p>
               </div>
               {setsCommission ? (
@@ -126,7 +162,7 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
           <>
             <Th>Version</Th><Th>Name</Th><Th className="text-right">Price</Th>
             {seesCost ? <Th className="text-right">Cost</Th> : null}
-            <Th>From</Th><Th>Until</Th><Th>State</Th>
+            <Th>Picture</Th><Th>From</Th><Th>Until</Th><Th>State</Th>
           </>
         }>
           {item.versions.map((v) => (
@@ -135,6 +171,11 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
               <Td>{v.name}</Td>
               <Td className="text-right"><Money value={v.price} /></Td>
               {seesCost ? <Td className="text-right"><Money value={v.cost ?? null} muted /></Td> : null}
+              <Td>
+                {v.hasPicture
+                  ? <img src={`/pricebook/pictures/${v.id}`} alt={`Picture on version ${v.version}`} className="h-8 w-10 rounded object-cover" />
+                  : <span className="text-ink-500">None</span>}
+              </Td>
               <Td className="text-ink-700">{formatIn(v.effectiveFrom, user.organizationTimezone, { month: "short", day: "numeric", year: "numeric" })}</Td>
               <Td className="text-ink-700">{v.effectiveTo ? formatIn(v.effectiveTo, user.organizationTimezone, { month: "short", day: "numeric", year: "numeric" }) : ""}</Td>
               <Td>

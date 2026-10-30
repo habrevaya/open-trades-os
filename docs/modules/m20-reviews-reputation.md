@@ -118,7 +118,10 @@ shows the numbers the API stores for a field left out
 (`POLICY_STARTING_POINT` in the service) and says
 nobody is asked yet; saving goes through `PUT /v1/reviews/policy`'s own service
 and schema, so bands that leave a rating out and a time zone that is not one
-are refused in words. The time zone is now checked by the API too. Saving it
+are refused in words. The time zone is now checked by the API too. The table of
+bands draws five rows, one for each star rating, which is every band a policy can have
+(each reaches a higher whole rating than the one before); a policy stored with more is
+drawn with all of them, so saving from the screen never drops one. Saving it
 keeps the reminder and its words. Reading needs `settings:read` and saving
 `settings:write`; `/reviews` links to it.
 
@@ -236,6 +239,39 @@ claimed on the request before anybody is messaged, a refusal (no number, replied
 written on the request and is final, and two workers send it once. Core's
 `decideReminder` holds the rules, with a test that proxies its input as the ask's does.
 
+### A second reminder, and the follow up by email
+
+Both off, and off is how a company starts; both are under The reminder on
+`/settings/reviews` (`secondAfterDays` and `followUpAfterDays` on
+`PUT /v1/reviews/reminders`, 3 to 60 days or `null` for off, left out they stay;
+`GET /v1/reviews/reminders` reads both, says whether the follow up applies to the way
+the company asks, and lists the latest of each with what happened).
+
+**A second reminder** goes that many days after the first reminder WENT: never when the
+first was decided against or refused. It needs the first on (asked for without it, it is
+refused in words), and turning the first off turns it off. It goes the way the company
+asks, in words we ship that say it is the last ("One last note"), and with it on the
+first reminder's shipped words drop "This is the only reminder we will send", which would
+be untrue; words a company wrote itself are left as they are. Its own words cannot be
+changed yet.
+
+**The follow up by email** is for a company that asks by text, then email (the review
+automation's way of asking). "Text, then email" sends the email when the text cannot go;
+with the follow up on, an ask that went by text and got nothing back is sent again by
+email that many days later, in the ask's own email words (the subject, the first name and
+the link, as the company wrote them on the canvas). An ask that already went by email
+gets none, and a company that asks by text alone or by email alone gets none, however the
+setting is; the screen says which applies. With both on, the first reminder waits until
+the follow up has been settled and counts its days from the follow up when it went.
+
+Each is held to the first reminder's rules (core's `decideLaterMessage`, which asks
+`decideReminder`): never to a customer who opted out or is marked do not service, never
+once a review that is or may be theirs has come in since the ask, waiting while a
+complaint or a return visit is open, and only in the company's sending hours, through the
+same consent and suppression gate as the ask. Each is claimed on the request before
+anybody is messaged (`follow_up_at`, `second_reminder_at`), so two workers send it once,
+and once only, ever; a refusal is written on the request in words.
+
 ### Requests the office queued
 
 A request made with `POST /v1/reviews/requests` (the reviews screen) whose
@@ -317,7 +353,7 @@ doing this grants it.
 | `GET /v1/reviews/policy` | `settings:read` |
 | `PUT /v1/reviews/policy` | `settings:write` |
 | `GET /v1/reviews/reminders` | `review:respond` |
-| `PUT /v1/reviews/reminders` | `settings:write` |
+| `PUT /v1/reviews/reminders` | `settings:write` (the reminders, the second reminder and the follow up by email) |
 | `GET /v1/reviews/platforms` | `settings:read` |
 | `POST /v1/reviews/sync` | `review:respond` |
 | `POST /v1/reviews/{id}/match` | `review:respond` |
@@ -374,17 +410,20 @@ by the recommended automation, which starts from a paid invoice (or, by its inst
 credit note that settled one, or a finished job), and by the worker for what the office
 queues by hand. How to ask
 is by text, by email, or by text first and then email, and nothing else: no
-third channel, and at most one reminder, which a company has to turn on. The reminder
-cannot tell that an unmatched review was left by the person asked, because a review is
-matched to a customer only when somebody says so; it holds off for a suspected match and
-does not for a review nobody has tied to anyone. Text first and then email is a fallback
-when the text cannot go, not a follow up when it was ignored. The reminder uses the
-way the company asks, in its own words, which the company can change: the check on
-them is a match on plain words that offer something or ask for stars, not a reading of
-what a message means, and the words need not say it is the only reminder. The ask's
-own words, on the automation canvas, are not held to that check. The policy screen
-edits the bands as up to five rows, in order from the lowest rating; a policy with
-more than five bands set through the API shows its first five. The
+third channel. After the ask, at most a follow up by email, a reminder and a second
+reminder, each of which a company has to turn on, and nothing more. None of them can
+tell that an unmatched review was left by the person asked, because a review is
+matched to a customer only when somebody says so; they hold off for a suspected match and
+do not for a review nobody has tied to anyone. "No reply" means no review that is or may
+be theirs: a text the customer sends back is not read as an answer. The follow up by email
+is only for a company asking by text, then email; one asking by text alone is not emailed,
+because email is not a way it said it asks. The second reminder goes in words we ship and
+cannot be changed on the screen; the first reminder uses the way the company asks, in its
+own words, which the company can change: the check on them is a match on plain words that
+offer something or ask for stars, not a reading of what a message means, and the words
+need not say whether a second follows. The ask's own words, on the automation canvas, are
+not held to that check. The policy's bands are whole star ratings, so a policy has at most
+five; the screen draws five rows, or every band of a policy stored with more. The
 email ask is tested against the fake email provider, not a live inbox, and the
 worker's due list uses the wording and way of the company's installed automation
 or the default by text, not a choice of its own per request. Both messages go as

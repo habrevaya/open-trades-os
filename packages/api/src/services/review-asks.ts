@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { automation, reviews as rv, SYSTEM_USER_ID, type Actor } from "@opentradesos/core";
 import { inTenant, ConflictError, type ServiceContext } from "./context";
@@ -345,15 +345,24 @@ export async function remindDueFor(
       isNull(schema.reviewRequest.deletedAt),
       lte(schema.reviewRequest.sentAt, cutoff),
     )).orderBy(asc(schema.reviewRequest.sentAt)).limit(options.limit ?? 50);
-    return { policy, rows, style: await askStyleFor(tx) };
+    const style = await askStyleFor(tx);
+    return { policy, rows, style, texted: await textedAsks(tx, rows, followUpApplies(policy, style)) };
   });
-  if (!candidates) return 0;
+  if (!candidates) return laterPasses(db, organizationId, now, options.limit ?? 50);
 
   let sent = 0;
   for (const row of candidates.rows) {
+    /**
+     * WITH A FOLLOW UP BY EMAIL ON, the reminder comes after it: it waits while
+     * a text ask's follow up has not been settled, and counts its days from the
+     * follow up once it went. Off, nothing here changes.
+     */
+    const waitsForFollowUp = candidates.texted.has(row.id);
+    if (waitsForFollowUp && row.followUpAt === null) continue;
     try {
       const done = await inTenant(ctx, async (tx) => {
         const sentAt = row.sentAt!;
+        const countFrom = waitsForFollowUp && row.followUpMessageId !== null && row.followUpAt ? row.followUpAt : sentAt;
         const since = await tx.select({
           customerId: schema.review.customerId, jobId: schema.review.jobId,
           suggestedCustomerId: schema.review.suggestedCustomerId, suggestedJobId: schema.review.suggestedJobId,
@@ -369,7 +378,7 @@ export async function remindDueFor(
           || (r.dismissed === null && (r.suggestedCustomerId === row.customerId || r.suggestedJobId === row.jobId)));
         const job = await reviews.factsFor(tx, organizationId, row.jobId);
         const decision = rv.decideReminder({
-          jobId: row.jobId, customerId: row.customerId, askedAt: sentAt, reminded: row.reminderAt !== null,
+          jobId: row.jobId, customerId: row.customerId, askedAt: countFrom, reminded: row.reminderAt !== null,
           reviewSince: theirs, optedOut: job.optedOut, complaintOpen: job.complaintOpen, callback: job.callback,
         }, {
           timeZone: candidates.policy.timeZone, reminderAfterDays: candidates.policy.reminderAfterDays,
@@ -412,7 +421,152 @@ export async function remindDueFor(
       /** Left for the next pass: nothing was claimed, because the claim and the send are one transaction. */
     }
   }
+  return sent + await laterPasses(db, organizationId, now, options.limit ?? 50);
+}
+
+/* ------------------------------------------- the follow up and the second */
+
+type Policy = typeof schema.reviewPolicy.$inferSelect;
+
+/** The follow up by email is on, and the company asks by text and then email, the only way it is sent. */
+const followUpApplies = (policy: Policy, style: { channel: AskChannel }) =>
+  policy.followUpAfterDays !== null && style.channel === "sms_then_email";
+
+/**
+ * Which of these asks went by text, when the follow up applies: read from the
+ * message that carried each, because "text, then email" may already have sent
+ * the ask by email when the text could not go, and that ask needs no follow up.
+ */
+async function textedAsks(tx: Database, rows: RequestRow[], applies: boolean): Promise<Set<string>> {
+  const ids = rows.map((r) => r.messageId).filter((id): id is string => id !== null);
+  if (!applies || ids.length === 0) return new Set();
+  const texts = await tx.select({ id: schema.message.id }).from(schema.message)
+    .where(and(inArray(schema.message.id, ids), eq(schema.message.channel, "sms")));
+  const sms = new Set(texts.map((t) => t.id));
+  return new Set(rows.filter((r) => r.messageId !== null && sms.has(r.messageId)).map((r) => r.id));
+}
+
+/**
+ * The follow up by email and the second reminder, each turned on by the
+ * company and off until it is, each held to the first reminder's rules
+ * (`rv.decideLaterMessage`): the customer's choice not to be asked, a review
+ * since the ask that is or may be theirs, an open complaint or return visit,
+ * and the sending hours. Each claimed on the request before anybody is
+ * messaged, so two workers send it once, and once only, ever.
+ */
+async function laterPasses(db: Database, organizationId: string, now: Date, limit: number): Promise<number> {
+  const ctx: ServiceContext = { actor: workerActor(organizationId), db };
+  const found = await inTenant(ctx, async (tx) => {
+    const [policy] = await tx.select().from(schema.reviewPolicy).where(and(
+      eq(schema.reviewPolicy.organizationId, organizationId),
+      eq(schema.reviewPolicy.active, true),
+      isNull(schema.reviewPolicy.deletedAt),
+    )).limit(1);
+    if (!policy) return null;
+    const style = await askStyleFor(tx);
+    const followUps = followUpApplies(policy, style) ? await tx.select().from(schema.reviewRequest).where(and(
+      eq(schema.reviewRequest.organizationId, organizationId),
+      eq(schema.reviewRequest.state, "sent"),
+      isNull(schema.reviewRequest.followUpAt),
+      isNull(schema.reviewRequest.reminderAt),
+      isNull(schema.reviewRequest.deletedAt),
+      lte(schema.reviewRequest.sentAt, new Date(now.getTime() - policy.followUpAfterDays! * 86_400_000)),
+    )).orderBy(asc(schema.reviewRequest.sentAt)).limit(limit) : [];
+    const texted = await textedAsks(tx, followUps, true);
+    const seconds = policy.reminderAfterDays !== null && policy.secondReminderAfterDays !== null
+      ? await tx.select().from(schema.reviewRequest).where(and(
+        eq(schema.reviewRequest.organizationId, organizationId),
+        eq(schema.reviewRequest.state, "sent"),
+        isNotNull(schema.reviewRequest.reminderMessageId),
+        isNull(schema.reviewRequest.secondReminderAt),
+        isNull(schema.reviewRequest.deletedAt),
+        lte(schema.reviewRequest.reminderAt, new Date(now.getTime() - policy.secondReminderAfterDays * 86_400_000)),
+      )).orderBy(asc(schema.reviewRequest.reminderAt)).limit(limit) : [];
+    return { policy, style, followUps: followUps.filter((r) => texted.has(r.id)), seconds };
+  });
+  if (!found) return 0;
+
+  let sent = 0;
+  const jobs: { row: RequestRow; kind: rv.LaterMessage }[] = [
+    ...found.followUps.map((row) => ({ row, kind: "follow_up" as const })),
+    ...found.seconds.map((row) => ({ row, kind: "second_reminder" as const })),
+  ];
+  for (const { row, kind } of jobs) {
+    try {
+      if (await inTenant(ctx, (tx) => laterOne(tx, ctx, row, kind, found.policy, found.style, now))) sent += 1;
+    } catch {
+      /** Left for the next pass: the claim and the send are one transaction. */
+    }
+  }
   return sent;
+}
+
+async function laterOne(
+  tx: Database, ctx: ServiceContext, row: RequestRow, kind: rv.LaterMessage,
+  policy: Policy, style: { channel: AskChannel; wording: AskWording }, now: Date,
+): Promise<boolean> {
+  const column = kind === "follow_up" ? schema.reviewRequest.followUpAt : schema.reviewRequest.secondReminderAt;
+  const sentAt = row.sentAt!;
+  const since = await tx.select({
+    customerId: schema.review.customerId, jobId: schema.review.jobId,
+    suggestedCustomerId: schema.review.suggestedCustomerId, suggestedJobId: schema.review.suggestedJobId,
+    dismissed: schema.review.suggestionDismissedAt,
+  }).from(schema.review).where(and(
+    eq(schema.review.organizationId, ctx.actor.organizationId),
+    isNull(schema.review.deletedAt),
+    gte(schema.review.postedAt, sentAt),
+  )).limit(2000);
+  const theirs = since.some((r) =>
+    r.customerId === row.customerId || r.jobId === row.jobId
+    || (r.dismissed === null && (r.suggestedCustomerId === row.customerId || r.suggestedJobId === row.jobId)));
+  const job = await reviews.factsFor(tx, ctx.actor.organizationId, row.jobId);
+  const decision = rv.decideLaterMessage(kind, {
+    jobId: row.jobId, customerId: row.customerId,
+    previousAt: kind === "follow_up" ? sentAt : row.reminderAt!,
+    done: (kind === "follow_up" ? row.followUpAt : row.secondReminderAt) !== null,
+    reviewSince: theirs, optedOut: job.optedOut, complaintOpen: job.complaintOpen, callback: job.callback,
+  }, {
+    timeZone: policy.timeZone,
+    afterDays: kind === "follow_up" ? policy.followUpAfterDays : policy.secondReminderAfterDays,
+    earliestHour: policy.earliestHour, latestHour: policy.latestHour,
+  }, now);
+
+  if (!decision.remind) {
+    if (decision.clearsOnItsOwn) return false;
+    const detail = `Not sent: ${decision.explanation}`;
+    const settled = kind === "follow_up"
+      ? { followUpAt: now, followUpDetail: detail, updatedAt: now }
+      : { secondReminderAt: now, secondReminderDetail: detail, updatedAt: now };
+    await tx.update(schema.reviewRequest).set(settled)
+      .where(and(eq(schema.reviewRequest.id, row.id), isNull(column)));
+    return false;
+  }
+  if (!decision.readyNow) return false;
+
+  /** The claim comes first: only the pass that lands it sends. */
+  const claim = kind === "follow_up" ? { followUpAt: now, updatedAt: now } : { secondReminderAt: now, updatedAt: now };
+  const [claimed] = await tx.update(schema.reviewRequest).set(claim)
+    .where(and(eq(schema.reviewRequest.id, row.id), eq(schema.reviewRequest.state, "sent"), isNull(column)))
+    .returning({ id: schema.reviewRequest.id });
+  if (!claimed) return false;
+
+  const outcome = await sendAsk(tx, ctx, row, kind === "follow_up"
+    /** The ask again, in the company's own email words, by email. */
+    ? { channel: "email", wording: style.wording }
+    : { channel: style.channel, wording: { ...automation.REVIEW_SECOND_REMINDER_WORDING } });
+  if (outcome.kind === "sent") {
+    const carried = kind === "follow_up"
+      ? { followUpMessageId: outcome.messageId, updatedAt: new Date() }
+      : { secondReminderMessageId: outcome.messageId, updatedAt: new Date() };
+    await tx.update(schema.reviewRequest).set(carried).where(eq(schema.reviewRequest.id, row.id));
+    return true;
+  }
+  const why = outcome.kind === "refused" ? outcome.refused : outcome.reason;
+  const refused = kind === "follow_up"
+    ? { followUpDetail: `Not sent: ${why}`, updatedAt: new Date() }
+    : { secondReminderDetail: `Not sent: ${why}`, updatedAt: new Date() };
+  await tx.update(schema.reviewRequest).set(refused).where(eq(schema.reviewRequest.id, row.id));
+  return false;
 }
 
 /**
