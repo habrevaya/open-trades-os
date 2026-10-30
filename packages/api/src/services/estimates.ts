@@ -967,7 +967,7 @@ export async function sendWithin(
     const today = time.dateIn(sentAt, await timezoneOf(tx, ctx.actor.organizationId));
     const pastItsDate = current.expiresOn !== null && current.expiresOn !== undefined && current.expiresOn < today;
     await tx.update(schema.estimate)
-      .set({ status: pastItsDate ? "expired" : "sent", ...(options.quiet ? {} : { sentAt }), updatedAt: sentAt })
+      .set({ status: pastItsDate ? "expired" : "sent", sentAt: options.quiet ? sql<Date>`${schema.estimate.sentAt}` : sentAt, updatedAt: sentAt })
       .where(eq(schema.estimate.id, input.id));
 
     await tx.insert(schema.portalEvent).values({
