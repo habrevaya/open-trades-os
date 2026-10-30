@@ -80,6 +80,8 @@ export const OPERATION_KINDS = [
   "truck.water",
   // The moment a driver put a container down on a site, or emptied one at the facility.
   "haul.time",
+  // A part the technician needs, in words, for the office to order and hold the job for.
+  "part.request",
 ] as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -246,6 +248,14 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
    * one hire are two values, not one edited twice.
    */
   "haul.time": "edit",
+
+  /**
+   * Asking the office for a part adds a request and a task nothing else has
+   * seen: its id was made on the phone, so a retry writes it once. It decides
+   * nothing (the hold is the office's, against the order), so nothing the
+   * office did meanwhile can contradict it.
+   */
+  "part.request": "append",
 };
 
 export interface FieldOperation {

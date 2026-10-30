@@ -310,6 +310,14 @@ audit entry and the cancellation rate cannot tell the two apart. Only a visit
 on the person's own day today that nobody has started; anything else is
 refused in words and stays the office's.
 
+A technician asks the office for a part from the field, on `/my-day` and the
+phone's visit screen (`part.request`, an append), in their own words: one office
+task names the job, the part and who asked, and the office places the real hold
+against the purchase order from that task (`partRequestId` on
+`POST /v1/jobs/{id}/holds`), which finishes it; the phone never places a hold.
+The job's page and `GET /v1/jobs/{id}/part-requests` list what was asked, and
+the phone's day says whether the office has held the job for each.
+
 Not done, and named so nobody assumes otherwise: running the app on a real
 phone, and a store listing, so a push notice has never been seen on a handset.
 `/my-day` opens with no signal once it has been opened on that phone, through

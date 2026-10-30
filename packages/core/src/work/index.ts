@@ -214,6 +214,27 @@ export function holdOnBoard(input: { reason: string; note: string | null; held: 
 }
 
 /**
+ * A PART ASKED FOR FROM THE FIELD, AS THE OFFICE QUEUE READS IT
+ *
+ * One task per request, naming the job, the part in the technician's words and
+ * who asked, and saying what to do: order it, then put the job on hold for the
+ * part from the task, naming the order. The phone never places the hold.
+ */
+export function partRequestTitle(input: { jobLabel: string; part: string }): string {
+  const part = input.part.length > 120 ? `${input.part.slice(0, 117)}...` : input.part;
+  return `Part needed for job ${input.jobLabel}: ${part}`;
+}
+
+export function partRequestBody(input: {
+  technicianName: string; customerName: string; address: string; summary: string; part: string; note: string | null;
+}): string {
+  return `${input.technicianName} asked for this part from ${input.customerName}, ${input.address} (${input.summary}): `
+    + `${input.part}.${input.note ? ` They said: ${input.note}` : ""} `
+    + "Order it, then put the job on hold for the part from this task, naming the purchase order it is on. "
+    + "This task is finished when the hold is placed.";
+}
+
+/**
  * WHY THE COMPANY CALLED A DAY OFF
  *
  * Cleaning's cancellation rate leaves out the visits the company called off

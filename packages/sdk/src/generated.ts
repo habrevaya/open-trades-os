@@ -9006,6 +9006,13 @@ export interface GetFieldSnapshotOutput {
       storageKey: string;
       addedAt: string;
     }>;
+    partsAsked?: Array<{
+      id: string;
+      part: string;
+      note: string | null;
+      requestedAt: string;
+      held: boolean;
+    }>;
     customerNotes?: Array<{
       id: string;
       body: string;
@@ -14537,7 +14544,7 @@ export interface ListComplianceDocumentsOutput {
 export interface ListConflictsOutput {
   data: Array<{
     id: string;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "visit.call_off" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water" | "haul.time";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "visit.call_off" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water" | "haul.time" | "part.request";
     subjectId: string | null;
     technicianId: string;
     technicianName: string;
@@ -15969,6 +15976,23 @@ export interface ListJobLinesOutput {
     billedBackAt?: string | null;
     rentalId?: string | null;
     occurredAt: string;
+  }>;
+}
+
+export interface ListJobPartRequestsOutput {
+  data: Array<{
+    id: string;
+    jobId: string;
+    visitId: string | null;
+    part: string;
+    note: string | null;
+    requestedAt: string;
+    requestedBy: string | null;
+    taskId: string | null;
+    taskStatus: string | null;
+    holdId: string | null;
+    purchaseOrderId: string | null;
+    purchaseOrderNumber: number | null;
   }>;
 }
 
@@ -19819,6 +19843,7 @@ export interface PlaceJobHoldInput {
   reason: "part" | "inspection" | "customer" | "weather" | "other";
   purchaseOrderId?: string;
   note?: string;
+  partRequestId?: string;
 }
 
 export interface PlaceJobHoldOutput {
@@ -27090,7 +27115,7 @@ export interface SyncOperationsInput {
   operations: Array<{
     clientId: string;
     sequence: number;
-    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "visit.call_off" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water" | "haul.time";
+    kind: "visit.en_route" | "visit.arrive" | "visit.start" | "visit.complete" | "visit.pause" | "visit.note" | "visit.call_off" | "timeclock.punch_in" | "timeclock.punch_out" | "service_report.set_field" | "service_report.submit" | "visit.checklist_item" | "visit.add_line" | "equipment.record" | "attachment.attach" | "signature.capture" | "payment.collect" | "inspection.record" | "estimate.create" | "estimate.approve" | "estimate.decline" | "invoice.raise" | "task.claim" | "task.close" | "task.tick" | "tip.record" | "safety.sign" | "expense.record" | "notice.read" | "truck.water" | "haul.time" | "part.request";
     subjectId?: string;
     occurredAt: string;
     payload?: Record<string, unknown>;
@@ -32410,6 +32435,10 @@ export interface ListJobLinesInput {
   id: string;
 }
 
+export interface ListJobPartRequestsInput {
+  id: string;
+}
+
 export interface ListJobPermitInspectionsInput {
   id: string;
 }
@@ -34914,6 +34943,7 @@ export interface OperationTypes {
   listJobClocks: { input: ListJobClocksInput; output: ListJobClocksOutput };
   listJobHolds: { input: ListJobHoldsInput; output: ListJobHoldsOutput };
   listJobLines: { input: ListJobLinesInput; output: ListJobLinesOutput };
+  listJobPartRequests: { input: ListJobPartRequestsInput; output: ListJobPartRequestsOutput };
   listJobPermitInspections: { input: ListJobPermitInspectionsInput; output: ListJobPermitInspectionsOutput };
   listJobTypes: { input: ListJobTypesInput; output: ListJobTypesOutput };
   listJobs: { input: ListJobsInput; output: ListJobsOutput };
@@ -36129,6 +36159,7 @@ export const OPERATIONS = {
   listJobClocks: { method: "GET", path: "/v1/jobs/{id}/deadlines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobHolds: { method: "GET", path: "/v1/jobs/{id}/holds", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobLines: { method: "GET", path: "/v1/jobs/{id}/lines", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  listJobPartRequests: { method: "GET", path: "/v1/jobs/{id}/part-requests", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobPermitInspections: { method: "GET", path: "/v1/jobs/{id}/permit-inspections", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read","document:read"] },
   listJobTypes: { method: "GET", path: "/v1/job-types", pathParams: [], queryParams: ["includeInactive"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listJobs: { method: "GET", path: "/v1/jobs", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","propertyId","technicianId","scheduledFrom","scheduledTo","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields","fieldMatch"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["job:read"] },
@@ -41991,6 +42022,15 @@ export abstract class GeneratedOperations {
    */
   listJobLines(input: ListJobLinesInput, options?: CallOptions): Promise<ListJobLinesOutput> {
     return this.call("listJobLines", input, options);
+  }
+
+  /**
+   * Parts a technician asked for from the field.
+   *
+   * GET /v1/jobs/{id}/part-requests. Needs job:read.
+   */
+  listJobPartRequests(input: ListJobPartRequestsInput, options?: CallOptions): Promise<ListJobPartRequestsOutput> {
+    return this.call("listJobPartRequests", input, options);
   }
 
   /**

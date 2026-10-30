@@ -1,15 +1,16 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { tasks, taskChecklist, taskRules, NotFoundError } from "@opentradesos/api/services";
+import { inventory, partRequests, tasks, taskChecklist, taskRules, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
-import { ActionForm, TextField } from "@/components/ActionForm";
+import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { TASK_PRIORITY, label } from "@/lib/labels";
 import { formatIn } from "@/lib/dates";
 import { LINKS, RECORD_NOUN } from "@/lib/record-links";
 import { tickItem, addItem, removeItem, finishTask } from "../rule-actions";
+import { holdForPart } from "../part-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,17 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
   const tz = user.organizationTimezone;
   /** The record the task is about, so following it up opens the thing rather than a description of it. */
   const about = task.entityType && task.entityId ? LINKS[task.entityType]?.(task.entityId) : undefined;
+  /**
+   * A part a technician asked for from the field, when this task was raised
+   * for one. Whoever may change the job and read purchase orders puts the job
+   * on hold for it here, naming the order, which finishes the task.
+   */
+  const asked = await partRequests.forTask(ctx, { taskId: id });
+  const holds = asked !== null && !asked.holdId && can(user.actor, "job:write") && can(user.actor, "po:read");
+  const orders = holds
+    ? (await inventory.purchaseOrders(ctx))
+      .filter((o) => ["draft", "submitted", "acknowledged", "partially_received"].includes(o.status))
+    : [];
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">
@@ -63,6 +75,42 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
         <Fact label="Outcome">{task.outcome}</Fact>
         <Fact label="Closed with items unticked because">{task.checklistOverrideReason}</Fact>
       </Facts>
+
+      {asked ? (
+        <section aria-label="The part asked for" className="mt-8 rounded-md border border-steel-200 p-4">
+          <h2 className="text-base font-semibold">The part asked for</h2>
+          <p className="mt-1 text-sm">
+            <span className="font-medium">{asked.part}</span>
+            {asked.requestedBy ? `, asked for by ${asked.requestedBy}` : ""} on {formatIn(asked.requestedAt, tz)}.
+          </p>
+          {asked.note ? <p className="mt-1 text-sm text-ink-700">They said: {asked.note}</p> : null}
+          {asked.holdId ? (
+            <p className="mt-2 text-sm">
+              The job is on hold for it
+              {asked.purchaseOrderNumber !== null && asked.purchaseOrderId ? (
+                <>, on <a href={`/purchasing/${asked.purchaseOrderId}`} className="underline underline-offset-4">purchase order {asked.purchaseOrderNumber}</a></>
+              ) : null}.
+            </p>
+          ) : holds ? (
+            <ActionForm action={holdForPart} submit="Put the job on hold for this part"
+                        hidden={{ jobId: asked.jobId, taskId: id, partRequestId: asked.id }} className="mt-3 space-y-3">
+              <p className="text-sm text-ink-700">
+                Order the part first, then name the order it is on. The technician never holds the job; this does.
+              </p>
+              <Select label="The purchase order the part is on" name="purchaseOrderId" defaultValue=""
+                      options={[
+                        { value: "", label: orders.length === 0 ? "No open orders. Write one under Purchasing first." : "Choose the order" },
+                        ...orders.map((o) => ({ value: o.id, label: `Order ${o.number}, ${o.vendorName}` })),
+                      ]} />
+              <TextField label="What it is waiting for" name="note" maxLength={2000} defaultValue={asked.part} />
+            </ActionForm>
+          ) : (
+            <p className="mt-2 text-sm text-ink-700">
+              Somebody who may change the job and see purchase orders puts the job on hold for it, naming the order.
+            </p>
+          )}
+        </section>
+      ) : null}
 
       <section aria-label="Checklist" className="mt-8">
         <h2 className="text-base font-semibold">Checklist</h2>

@@ -12,7 +12,7 @@ import {
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
   apps, comms, consent, contacts, customerNotes, secrets, equipment, warrantyRegistration, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, kpis, backups, restore, spreadsheetImports,
-  dispatchMap, dispatchDays, geocoding, visits, visitCancellations,
+  dispatchMap, dispatchDays, geocoding, visits, visitCancellations, partRequests,
   liveLocation, invites,
   reports, deliverySchedules, statementDelivery,
   agreements, agreementNotices, visitChanges, vendorCatalogue, proposals,
@@ -127,6 +127,7 @@ export const handlers = {
   releaseJobHold: jobHolds.handlers.releaseJobHold,
   getJobHoldNudge: jobHolds.handlers.getJobHoldNudge,
   setJobHoldNudge: jobHolds.handlers.setJobHoldNudge,
+  listJobPartRequests: partRequests.handlers.listJobPartRequests,
 
   // Money
   createInvoice: (ctx, input) => billing.create(ctx, input, { requireFields: true }),

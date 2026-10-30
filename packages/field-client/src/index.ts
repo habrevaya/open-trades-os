@@ -27,3 +27,4 @@ export * from "./customer-notes";
 export * from "./events";
 export * from "./own-contact";
 export * from "./call-off";
+export * from "./part-request";

@@ -31,8 +31,8 @@ right answer is different for different things.
 
 ## Key concepts
 
-**Writes are named intents, not row diffs.** Thirty one operation kinds and the
-list is closed (`visit.call_off` is a visit called off from the door, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
+**Writes are named intents, not row diffs.** Thirty two operation kinds and the
+list is closed (`visit.call_off` is a visit called off from the door and `part.request` a part asked of the office, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -258,6 +258,20 @@ office's call off lands (M09): the same columns, the same audit entry and the
 same figures. The choices and the checks are in `packages/field-client`
 (`CALL_OFF_CHOICES`, `checkCallOff`, `canCallOff`, `recordCallOff`), the four
 company reasons held to core's list by a test.
+
+### Asking the office for a part
+
+"Ask the office for a part" on the visit screen (and under the visit on
+`/my-day`) takes the part in the technician's own words and an optional note,
+checked on the phone as the server checks them (`checkPartRequest`: up to 300
+characters for the part, 1,000 for the note). It is `part.request`, an append:
+its id is made on the phone, so a retry writes it once, and nothing the office
+did meanwhile contradicts a request. The server raises one office task naming
+the job, the part and who asked (M10); the phone never places a hold. The
+visit lists the parts asked for on its job, "waiting to send" while still on
+the phone, then "with the office", then "ordered, and the job is on hold for
+it" once the office has placed the hold against the order (`partsAsked` on the
+day).
 
 ### Money on site
 
@@ -792,7 +806,7 @@ regulated.
 
 | Role | Access |
 |---|---|
-| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`); with `field:sync` alone, calls off a visit on their own day that nobody has started (`visit.call_off`), where the office needs `visit:reschedule` |
+| Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`); with `field:sync` alone, calls off a visit on their own day that nobody has started (`visit.call_off`), where the office needs `visit:reschedule`, and asks the office for a part on a visit they are on (`part.request`), never placing a hold |
 | Crew lead | The same, scoped to the crew |
 | Dispatcher | Reads and resolves conflicts |
 | Office manager | Reads service reports and publishes them |

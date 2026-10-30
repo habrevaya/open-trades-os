@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FieldApi, FieldQueue, IndexedDbFiles, UploadQueue, WebStorage, formatAmount, isOffline, isOwing, parseAmount,
-  chemicalsIn, clockWords, mobilisationPunch, projectDay, recordApproval, recordCallOff, recordCashTip, recordDecline, recordEstimate, recordExpense, recordHaulTime, recordInvoice, recordPayment, recordWater, tipChoices,
+  chemicalsIn, clockWords, mobilisationPunch, projectDay, recordApproval, recordCallOff, recordPartRequest, recordCashTip, recordDecline, recordEstimate, recordExpense, recordHaulTime, recordInvoice, recordPayment, recordWater, tipChoices,
   type DayVisit, type FieldAbilities, type FieldSnapshot, type KeptReceipt, type KeptSignature, type PriceBookEntry,
   type QueuedOperation, type UploadTransport, checkExpenseDraft,
 } from "@opentradesos/field-client";
@@ -17,6 +17,7 @@ import { ExpensesPanel } from "./Expenses";
 import { TruckWaterPanel } from "./TruckWater";
 import { HaulsPanel } from "./Hauls";
 import { CallOff } from "./CallOff";
+import { PartAsk } from "./PartAsk";
 import { ProductsApplied } from "./ProductsApplied";
 import { InspectionRun, type VisitInspection } from "./InspectionRun";
 import { inspectionPayload, type FieldInspectionProgram } from "@opentradesos/field-client";
@@ -632,6 +633,12 @@ export function Day({
                     <InvoicePanel visit={projectedVisit(v.id)!} priceBook={priceBook} abilities={can} handlers={sellHandlers(v.id)} />
                   </>
                 ) : null}
+                partAsk={projectedVisit(v.id) ? (
+                  <PartAsk asked={projectedVisit(v.id)!.partsAsked}
+                           onAsk={({ part, note }) => perform((phone) => recordPartRequest(phone.queue, {
+                             visitId: v.id, requestId: crypto.randomUUID(), part, note,
+                           }))} />
+                ) : null}
                 callOff={date === today && CALLABLE_OFF.has(statusOf(v)) ? (
                   <CallOff onCallOff={async (payload) => {
                     const failed = await perform((phone) => recordCallOff(phone.queue, { visitId: v.id, payload }));
@@ -773,7 +780,7 @@ const NEXT_ACTION: Record<string, { kind: "visit.en_route" | "visit.arrive" | "v
 
 function VisitCard({
   visit, index, status, expanded, onToggle, onRecord, onPhoto, photos, payments, timezone, inspection, products,
-  projected, abilities, onPay, sale, cashTip, callOff,
+  projected, abilities, onPay, sale, cashTip, callOff, partAsk,
 }: {
   visit: Visit;
   index: number;
@@ -803,6 +810,8 @@ function VisitCard({
   cashTip?: React.ReactNode;
   /** Calling the visit off from the door, offered only on today's visits nobody has started. */
   callOff?: React.ReactNode;
+  /** Asking the office for a part, with the parts already asked for. */
+  partAsk?: React.ReactNode;
 }) {
   const [note, setNote] = useState("");
   const [sendingEta, setSendingEta] = useState(false);
@@ -1029,6 +1038,8 @@ function VisitCard({
           <Photos photos={photos} onPhoto={onPhoto} />
 
           {products}
+
+          {partAsk}
 
           {inspection}
 

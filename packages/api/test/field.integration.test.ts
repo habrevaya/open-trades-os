@@ -944,6 +944,7 @@ run("every operation does something", () => {
       { kind: "truck.water", subjectId: waterTruck!.id, payload: { field: companyToday(), onDay: companyToday(), gallons: "410" } },
       { kind: "haul.time", subjectId: haul!.id, payload: { field: "tipped", at: new Date(Date.now() - 3_600_000).toISOString() } },
       { kind: "visit.call_off", subjectId: turnedAway.visitId, payload: { by: "customer" } },
+      { kind: "part.request", subjectId: uuid(), payload: { visitId, part: "Condenser fan motor" } },
       { kind: "visit.complete", subjectId: visitId, payload: {} },
     ];
 

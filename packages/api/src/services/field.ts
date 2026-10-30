@@ -17,6 +17,7 @@ import * as safetyTalks from "./safety-talks";
 import * as truckWater from "./truck-water";
 import * as haulTimes from "./haul-times";
 import * as cancellations from "./visit-cancellations";
+import * as partRequests from "./part-requests";
 import * as equipment from "./equipment";
 import { RecordedAnswer } from "../contracts/inspections";
 import type {
@@ -1254,6 +1255,8 @@ async function effect(
       return truckWater.waterOperation(tx, ctx, op, await technicianForDevice(tx, op.deviceId));
     case "haul.time":
       return haulTimes.haulTimeOperation(tx, ctx, op, await technicianForDevice(tx, op.deviceId));
+    case "part.request":
+      return partRequests.requestOperation(tx, ctx, op, await technicianForDevice(tx, op.deviceId));
 
     default:
       /**

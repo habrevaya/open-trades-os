@@ -214,7 +214,20 @@ export interface DayInspection {
 /** What an older server's day means for tax: none on recorded work, as it charged. */
 const NO_TAX: VisitTax = { rate: "0", percent: "0", label: null, source: "none", note: "No rate applies." };
 
-export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "tax" | "estimates" | "billable" | "invoices" | "rateOffers"> {
+/** A part asked for on the job: the server's, with one asked on this phone and not sent yet marked `waiting`. */
+export interface DayPartAsked {
+  id: string;
+  part: string;
+  note: string | null;
+  requestedAt: string;
+  /** The office has put the job on hold for it. */
+  held: boolean;
+  waiting: boolean;
+}
+
+export interface DayVisit extends Omit<FieldVisit, "checklist" | "report" | "parts" | "inspections" | "member" | "tax" | "estimates" | "billable" | "invoices" | "rateOffers" | "partsAsked"> {
+  /** Parts asked for on the job from the field, the server's with this phone's laid over. */
+  partsAsked: DayPartAsked[];
   checklist: DayChecklistItem[];
   /**
    * The after hours or holiday rate on offer for an estimate and for an invoice, each with why. What this phone
@@ -318,6 +331,7 @@ export function projectDay(input: {
         fields: (visit.report?.fields ?? []).map((f) => ({ ...f, waiting: false })),
       },
       parts: (visit.parts ?? []).map((part) => ({ ...part, waiting: false })),
+      partsAsked: (visit.partsAsked ?? []).map((p) => ({ ...p, waiting: false })),
       amountDue: visit.amountDue ?? null,
       member: visit.member ?? null,
       tax: visit.tax ?? NO_TAX,
@@ -526,7 +540,7 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
   if (op.kind === "service_report.set_field" || op.kind === "service_report.submit"
     || op.kind === "inspection.record" || op.kind === "estimate.create" || op.kind === "estimate.approve"
     || op.kind === "estimate.decline" || op.kind === "invoice.raise" || op.kind === "equipment.record"
-    || op.kind === "haul.time") {
+    || op.kind === "haul.time" || op.kind === "part.request") {
     const visitId = op.payload["visitId"];
     return typeof visitId === "string" ? visitId : undefined;
   }
@@ -541,6 +555,15 @@ export function visitOf(op: Pick<QueuedOperation, "kind" | "subjectId" | "payloa
 function overlay(visit: DayVisit, op: QueuedOperation, waiting: boolean): void {
   const p = op.payload;
   switch (op.kind) {
+    case "part.request": {
+      /** The server's copy wins once the day carries it. */
+      if (!op.subjectId || typeof p["part"] !== "string" || visit.partsAsked.some((a) => a.id === op.subjectId)) return;
+      visit.partsAsked.push({
+        id: op.subjectId, part: p["part"], note: typeof p["note"] === "string" ? p["note"] : null,
+        requestedAt: op.occurredAt, held: false, waiting,
+      });
+      return;
+    }
     case "visit.checklist_item": {
       const item = visit.checklist.find((i) => i.id === p["itemId"]);
       if (!item) return;

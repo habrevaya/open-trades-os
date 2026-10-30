@@ -28,6 +28,7 @@ import * as truckWater from "./truck-water";
 import * as haulTimes from "./haul-times";
 import * as customObjects from "./custom-objects";
 import * as files from "./files";
+import * as partRequests from "./part-requests";
 import * as customerNotes from "./customer-notes";
 import * as plugins from "./plugins";
 
@@ -1017,6 +1018,8 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
     })));
     const records = await customObjects.forVisits(tx, ctx, rows.map((r) => ({ visitId: r.visit.id, jobId: r.jobId })));
     const customerFiles = await files.customerFilesForVisits(tx, ctx, rows.map((r) => ({ visitId: r.visit.id, jobId: r.jobId })));
+    /** The parts asked for from the field on each job, and whether the office has held the job for each yet. */
+    const partsAsked = await partRequests.forField(tx, rows.map((r) => r.jobId));
     /** What the office marked for the field about each customer, and nothing else they wrote (M03). */
     const fieldNotes = await customerNotes.forField(tx, rows.map((r) => r.customerId));
     const sales = await fieldSales.salesFor(tx, ctx, rows.map((r) => ({
@@ -1071,6 +1074,7 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
         ...sales.get(r.visit.id)!,
         records: records.get(r.visit.id) ?? [],
         customerFiles: customerFiles.get(r.visit.id) ?? [],
+        partsAsked: partsAsked.get(r.jobId) ?? [],
         customerNotes: fieldNotes.get(r.customerId) ?? [],
       })),
       priceBook,

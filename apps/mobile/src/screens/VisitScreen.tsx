@@ -9,6 +9,7 @@ import { AskSection, CashTipSection, InvoiceSection, SellSection } from "./Visit
 import { CustomerFilesSection } from "./CustomerFiles";
 import { CustomerNotesSection } from "./CustomerNotes";
 import { CallOffSection } from "./CallOff";
+import { PartAskSection } from "./PartAsk";
 import { color, space, type } from "../components/theme";
 import type { Navigate } from "../shell/App";
 
@@ -209,6 +210,7 @@ export function VisitScreen({ visitId, nav }: { visitId: string; nav: Navigate }
         <ChecklistSection visit={visit} />
         <ReadingsSection visit={visit} />
         <PartsSection visit={visit} />
+        <PartAskSection visit={visit} />
         <UnitSection visit={visit} />
         <SellSection visit={visit} nav={nav} />
         <InvoiceSection visit={visit} nav={nav} />

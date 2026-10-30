@@ -129,6 +129,11 @@ Among the things that put work in the queue without anybody creating it:
 - A job left on hold longer than the company said it may be (M10), linked to the
   job: one task for each hold, naming the job, the reason and the days, closed as
   done when the job comes off hold. Off until the company sets the days.
+- A part a technician asked for from the field (M10), linked to the job: one
+  task for each request, in the office queue and nobody's name, naming the job,
+  the part in their words and who asked. Its page offers "Put the job on hold
+  for this part", naming the purchase order, which places the hold and finishes
+  the task.
 
 ### A checklist inside a task
 
