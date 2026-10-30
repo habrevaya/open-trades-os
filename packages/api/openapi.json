@@ -128635,6 +128635,144 @@
         ]
       }
     },
+    "/v1/safety/schedules/{id}": {
+      "description": "Served at this path: PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PATCH"
+      ],
+      "patch": {
+        "operationId": "updateSafetyTalkSchedule",
+        "summary": "Change a scheduled talk's topic, audience, time or holidays",
+        "description": "Changes what the schedule raises from the next talk on: the topic (`topicId`, one that is not retired), who it is for (any one of `crewId`, `technicianId`, `role`, `roleId`, `branchId` or `everybody: true`, which replaces the old audience whole; none of them leaves it as it is), the time (`heldMinutes`), where (`location`) and who leads it (`ledBy`), and `skipHolidays`. A field left out is kept. A talk already raised keeps what it was given: its words, the people on its sheet, its time and its place are not touched. A talk not yet raised, today's included when the worker has not come round to it, uses the new settings. Which days it comes round on is not changed here: pause it and make a new schedule. The audit log has the schedule before and after (`safety.schedule_changed`).\n\nRequires a session holding: safety:write.",
+        "tags": [
+          "M23"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSafetyTalkScheduleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a scheduled talk's topic, audience, time or holidays",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateSafetyTalkScheduleOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "safety:write"
+        ]
+      }
+    },
     "/v1/safety/schedules/{id}/active": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -304217,6 +304355,242 @@
           "permissions",
           "scopes",
           "namesNoScope"
+        ]
+      },
+      "UpdateSafetyTalkScheduleInput": {
+        "type": "object",
+        "properties": {
+          "topicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "admin",
+              "office_manager",
+              "branch_manager",
+              "dispatcher",
+              "csr",
+              "technician",
+              "crew_lead",
+              "accountant",
+              "readonly"
+            ]
+          },
+          "roleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "everybody": {
+            "type": "boolean"
+          },
+          "heldMinutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1439
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300
+          },
+          "ledBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "skipHolidays": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateSafetyTalkScheduleOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "topicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "topicTitle": {
+            "type": "string"
+          },
+          "topicRetired": {
+            "type": "boolean"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "crew",
+              "person",
+              "role",
+              "branch",
+              "company"
+            ]
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "technicianId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "who": {
+            "type": "string"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekdays",
+              "weekly",
+              "every_other_week",
+              "monthly",
+              "last_weekday_of_month"
+            ]
+          },
+          "weekday": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "monthDay": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "heldMinutes": {
+            "type": "integer"
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ledBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "skipHolidays": {
+            "type": "boolean"
+          },
+          "lastRaisedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "nextOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "id",
+          "topicId",
+          "topicTitle",
+          "topicRetired",
+          "audience",
+          "crewId",
+          "technicianId",
+          "role",
+          "roleId",
+          "branchId",
+          "who",
+          "frequency",
+          "weekday",
+          "monthDay",
+          "heldMinutes",
+          "startsOn",
+          "location",
+          "ledBy",
+          "active",
+          "skipHolidays",
+          "lastRaisedOn",
+          "schedule",
+          "nextOn"
         ]
       },
       "UpdateSafetyTopicInput": {

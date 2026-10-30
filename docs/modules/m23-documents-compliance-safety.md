@@ -163,6 +163,7 @@ the change is in the audit log with the old words beside the new.
 
 **Talks on a schedule.** `/compliance/safety/schedules` puts a topic on a schedule
 (`GET /v1/safety/schedules`, `POST /v1/safety/schedules`,
+`PATCH /v1/safety/schedules/{id}` to change one,
 `POST /v1/safety/schedules/{id}/active` to pause and resume), on the same
 schedules a recurring task uses (M34): every day, every weekday, a weekday every
 week or every other week, a date every month, or the last given weekday of the
@@ -199,8 +200,22 @@ day is a working day and is not skipped. A talk for a branch also honours that
 branch's own days off; every other audience only the company's own list, because a
 crew or a person may work across branches and one branch's day off is not theirs.
 It is off for a schedule written before this existed, which raised its talks on
-holidays and keeps doing so until a new schedule is made, and a schedule's audience,
-topic and days are not edited (it is paused and a new one made).
+holidays and keeps doing so until somebody switches it on from the schedule's own page.
+
+*Changing a schedule.* Each row on `/compliance/safety/schedules` has "Change", which opens
+`/compliance/safety/schedules/{id}` with the schedule as it is: the topic (not a retired one),
+who it is for, the time, where, who leads it, and "Skip the days the company is closed"
+(`PATCH /v1/safety/schedules/{id}`, `safety:write`, with an idempotency key; a field left
+out is kept). It applies from the next talk raised. A talk the worker already raised keeps
+what it was given: its words (copies of the topic's), the people on its sheet, its time and
+its place are separate records and are not touched, and the unsigned list and the signatures
+on it stand. What is not yet raised uses the new settings, including today's when the worker
+has not come round to it yet, which is what "next" means for a schedule that is due today.
+Naming an audience replaces the old one whole (the same one-of choice as when it was made);
+naming none leaves it. The days it comes round on (how often, the weekday or date, and when
+it starts) are not changed here, because moving them moves which week is the on week; pause
+the schedule and put the talk on a new one. A paused schedule can be changed and stays paused.
+The audit log has `safety.schedule_changed` with the whole schedule before and after.
 
 **Signed on the phone app.** The talks on a technician's own sheet lines come with
 their day on the phone, and "Toolbox talks to sign" opens them: what was covered,
@@ -322,7 +337,7 @@ talk with `field:sync`.
 | `POST /v1/safety/meetings` | `safety:write` |
 | `POST /v1/safety/meetings/{id}/sign` | `field:sync`, for your own line |
 | `GET /v1/safety/topics`, `GET /v1/safety/schedules`, `GET /v1/safety/schedule-audiences`, `GET /v1/safety/unsigned` | `safety:read` |
-| `POST /v1/safety/topics`, `PATCH /v1/safety/topics/{id}`, `POST /v1/safety/schedules` | `safety:write` |
+| `POST /v1/safety/topics`, `PATCH /v1/safety/topics/{id}`, `POST /v1/safety/schedules`, `PATCH /v1/safety/schedules/{id}` | `safety:write` |
 | `POST /v1/safety/incidents` | `safety:report` |
 | `GET /v1/safety/incidents` | `safety:report`; the register needs `safety:read` |
 | `POST /v1/safety/incidents/{id}/follow-ups` | `safety:write` |
@@ -375,9 +390,10 @@ Incident reports are not sent to anybody: no authority form (an OSHA 300 log, fo
 one) is produced, and nothing decides whether an incident is reportable. The talk
 library holds only what the company writes; no topic is shipped, deliberately. A scheduled talk for a role, a branch or the whole company is put in front of the
 people who work in the field (an active account and an active technician profile), not
-the office staff who have no phone to sign on, and a schedule is paused rather than
-changed: a different topic, audience or time is a new schedule. A schedule written
-before holidays could be skipped raises its talks on them until it is replaced. A
+the office staff who have no phone to sign on, and a schedule is changed from the
+next talk on (topic, audience, time, place, who leads it, holidays) but not its days, which
+are a new schedule. A schedule written
+before holidays could be skipped raises its talks on them until somebody switches skipping on. A
 branch's own days off are honoured only by a talk for that branch.
 The phone app signs a talk; it does not record one, add people to one or close
 one, which stay with the office. A signature refused on the phone is told to the

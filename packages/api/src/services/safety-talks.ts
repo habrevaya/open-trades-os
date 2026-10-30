@@ -229,8 +229,8 @@ export async function listSchedules(ctx: ServiceContext): Promise<ScheduleView[]
   });
 }
 
-export async function createSchedule(ctx: ServiceContext, input: ScheduleInput): Promise<ScheduleView> {
-  assertCan(ctx.actor, "safety:write");
+/** The audience a request names: exactly one of them, or a refusal in words. Null when it names none. */
+function chosenAudience(input: AudienceInput): Audience | null {
   const chosen = [
     input.crewId ? "crew" : null, input.technicianId ? "person" : null,
     input.role || input.roleId ? "role" : null, input.branchId ? "branch" : null, input.everybody ? "company" : null,
@@ -241,11 +241,54 @@ export async function createSchedule(ctx: ServiceContext, input: ScheduleInput):
   if (input.role && input.roleId) {
     throw new ConflictError("Choose a role from the list, either one the company defined or one that came with it, not both.");
   }
-  const audience = chosen[0];
+  if (input.role && !ROLE_IDS.includes(input.role)) throw new ConflictError("That is not a role.");
+  return chosen[0] ?? null;
+}
+
+type AudienceInput = Pick<ScheduleInput, "crewId" | "technicianId" | "role" | "roleId" | "branchId" | "everybody">;
+
+/** The people an audience names have to be here: a crew, a person, a role, an open branch. */
+async function mustExist(tx: Database, input: AudienceInput): Promise<void> {
+  if (input.crewId) {
+    const [crew] = await tx.select({ id: schema.crew.id }).from(schema.crew).where(eq(schema.crew.id, input.crewId)).limit(1);
+    if (!crew) throw new NotFoundError("Crew");
+  }
+  if (input.technicianId) {
+    const [tech] = await tx.select({ id: schema.technician.id }).from(schema.technician)
+      .where(eq(schema.technician.id, input.technicianId)).limit(1);
+    if (!tech) throw new NotFoundError("Technician");
+  }
+  if (input.roleId) {
+    const [found] = await tx.select({ id: schema.role.id }).from(schema.role)
+      .where(and(eq(schema.role.id, input.roleId), isNull(schema.role.deletedAt))).limit(1);
+    if (!found) throw new NotFoundError("Role");
+  }
+  if (input.branchId) {
+    const [found] = await tx.select({ id: schema.businessUnit.id, active: schema.businessUnit.active }).from(schema.businessUnit)
+      .where(eq(schema.businessUnit.id, input.branchId)).limit(1);
+    if (!found) throw new NotFoundError("Branch");
+    if (!found.active) throw new ConflictError("That branch has been closed, so nobody works in it to hold a talk for.");
+  }
+}
+
+/** The columns that name an audience, and no others, as the table's own check wants them. */
+function audienceColumns(audience: Audience, input: AudienceInput) {
+  return {
+    audience,
+    crewId: audience === "crew" ? input.crewId ?? null : null,
+    technicianId: audience === "person" ? input.technicianId ?? null : null,
+    audienceRole: audience === "role" ? input.role ?? null : null,
+    audienceRoleId: audience === "role" ? input.roleId ?? null : null,
+    audienceBusinessUnitId: audience === "branch" ? input.branchId ?? null : null,
+  };
+}
+
+export async function createSchedule(ctx: ServiceContext, input: ScheduleInput): Promise<ScheduleView> {
+  assertCan(ctx.actor, "safety:write");
+  const audience = chosenAudience(input);
   if (!audience) {
     throw new ConflictError("Choose who the talk is for: a crew, a person, a role, a branch, or everybody.");
   }
-  if (input.role && !ROLE_IDS.includes(input.role)) throw new ConflictError("That is not a role.");
   const held = input.heldMinutes ?? 7 * 60;
   if (!Number.isInteger(held) || held < 0 || held >= 24 * 60) throw new ConflictError("The time it is held has to be a time of day.");
   return guardedWrite(ctx, "safety:write", async (tx) => {
@@ -261,36 +304,12 @@ export async function createSchedule(ctx: ServiceContext, input: ScheduleInput):
     const [topic] = await tx.select().from(schema.safetyTopic).where(eq(schema.safetyTopic.id, input.topicId)).limit(1);
     if (!topic) throw new NotFoundError("Topic");
     if (topic.retiredAt) throw new ConflictError(`"${topic.title}" is retired. Put it back in the library first.`);
-    if (input.crewId) {
-      const [crew] = await tx.select({ id: schema.crew.id }).from(schema.crew).where(eq(schema.crew.id, input.crewId)).limit(1);
-      if (!crew) throw new NotFoundError("Crew");
-    }
-    if (input.technicianId) {
-      const [tech] = await tx.select({ id: schema.technician.id }).from(schema.technician)
-        .where(eq(schema.technician.id, input.technicianId)).limit(1);
-      if (!tech) throw new NotFoundError("Technician");
-    }
-    if (input.roleId) {
-      const [found] = await tx.select({ id: schema.role.id }).from(schema.role)
-        .where(and(eq(schema.role.id, input.roleId), isNull(schema.role.deletedAt))).limit(1);
-      if (!found) throw new NotFoundError("Role");
-    }
-    if (input.branchId) {
-      const [found] = await tx.select({ id: schema.businessUnit.id, active: schema.businessUnit.active }).from(schema.businessUnit)
-        .where(eq(schema.businessUnit.id, input.branchId)).limit(1);
-      if (!found) throw new NotFoundError("Branch");
-      if (!found.active) throw new ConflictError("That branch has been closed, so nobody works in it to hold a talk for.");
-    }
+    await mustExist(tx, input);
 
     const [row] = await tx.insert(schema.safetyTalkSchedule).values({
       organizationId: ctx.actor.organizationId,
       topicId: topic.id,
-      audience,
-      crewId: input.crewId ?? null,
-      technicianId: input.technicianId ?? null,
-      audienceRole: input.role ?? null,
-      audienceRoleId: input.roleId ?? null,
-      audienceBusinessUnitId: input.branchId ?? null,
+      ...audienceColumns(audience, input),
       skipHolidays: input.skipHolidays ?? false,
       frequency: input.frequency,
       weekday: taskRules.NEEDS_WEEKDAY.includes(input.frequency) ? input.weekday ?? null : null,
@@ -304,6 +323,70 @@ export async function createSchedule(ctx: ServiceContext, input: ScheduleInput):
     await audit(tx, ctx, "safety.schedule_added", "safety_talk_schedule", row!.id, null, row);
     const [view] = await scheduleViews(tx, [row!], today);
     await remember(tx, ctx, "safety_talk_schedule", row!.id, view!);
+    return view!;
+  });
+}
+
+export interface ScheduleChange extends AudienceInput {
+  topicId?: string | undefined;
+  heldMinutes?: number | undefined;
+  location?: string | null | undefined;
+  ledBy?: string | null | undefined;
+  skipHolidays?: boolean | undefined;
+}
+
+/**
+ * CHANGE A SCHEDULED TALK: ITS TOPIC, ITS AUDIENCE, ITS TIME, WHERE, WHO LEADS
+ * IT, AND WHETHER IT SKIPS HOLIDAYS.
+ *
+ * It applies from the next talk raised. A talk the worker already raised keeps
+ * what it was given: its title and words are copies of the topic's, its sheet
+ * is the people who were put on it, its time is the time it was held at, and
+ * none of it is touched here. What is not yet raised, today's included when the
+ * worker has not come round to it, takes the new settings. The audit log holds
+ * the schedule before and after.
+ *
+ * The audience is replaced whole when the request names one (a crew, a
+ * person, a role, a branch or everybody), and is left alone when it names
+ * none. The days it comes round on (how often, which weekday, which date, and
+ * the day it starts) are not changed: counting from the first occurrence is
+ * what says which week is the on week, and moving it is a new schedule, with
+ * the old one paused.
+ */
+export async function updateSchedule(ctx: ServiceContext, input: ScheduleChange & { id: string }): Promise<ScheduleView> {
+  assertCan(ctx.actor, "safety:write");
+  const audience = chosenAudience(input);
+  if (input.heldMinutes !== undefined && (!Number.isInteger(input.heldMinutes) || input.heldMinutes < 0 || input.heldMinutes >= 24 * 60)) {
+    throw new ConflictError("The time it is held has to be a time of day.");
+  }
+  const changing = audience !== null || input.topicId !== undefined || input.heldMinutes !== undefined
+    || input.location !== undefined || input.ledBy !== undefined || input.skipHolidays !== undefined;
+  if (!changing) throw new ConflictError("Say what to change: the topic, who it is for, the time, where, who leads it, or whether it skips holidays.");
+  return guardedWrite(ctx, "safety:write", async (tx) => {
+    const seen = await replayed<ScheduleView>(tx, ctx, "safety_talk_schedule_changed");
+    if (seen) return seen;
+    const [before] = await tx.select().from(schema.safetyTalkSchedule)
+      .where(eq(schema.safetyTalkSchedule.id, input.id)).limit(1);
+    if (!before) throw new NotFoundError("Talk schedule");
+    if (input.topicId !== undefined && input.topicId !== before.topicId) {
+      const [topic] = await tx.select().from(schema.safetyTopic).where(eq(schema.safetyTopic.id, input.topicId)).limit(1);
+      if (!topic) throw new NotFoundError("Topic");
+      if (topic.retiredAt) throw new ConflictError(`"${topic.title}" is retired. Put it back in the library first.`);
+    }
+    if (audience) await mustExist(tx, input);
+    const [after] = await tx.update(schema.safetyTalkSchedule).set({
+      ...(input.topicId !== undefined ? { topicId: input.topicId } : {}),
+      ...(audience ? audienceColumns(audience, input) : {}),
+      ...(input.heldMinutes !== undefined ? { heldMinutes: input.heldMinutes } : {}),
+      ...(input.location !== undefined ? { location: input.location?.trim() || null } : {}),
+      ...(input.ledBy !== undefined ? { ledBy: input.ledBy?.trim() || null } : {}),
+      ...(input.skipHolidays !== undefined ? { skipHolidays: input.skipHolidays } : {}),
+      updatedAt: new Date(),
+    }).where(eq(schema.safetyTalkSchedule.id, input.id)).returning();
+    await audit(tx, ctx, "safety.schedule_changed", "safety_talk_schedule", input.id, before, after);
+    const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+    const [view] = await scheduleViews(tx, [after!], today);
+    await remember(tx, ctx, "safety_talk_schedule_changed", input.id, view!);
     return view!;
   });
 }
@@ -670,5 +753,6 @@ export const handlers = {
   listSafetyTalkAudiences: (ctx: ServiceContext) => audienceChoices(ctx),
   createSafetyTalkSchedule: (ctx: ServiceContext, input: ScheduleInput) => createSchedule(ctx, input),
   setSafetyTalkScheduleActive: (ctx: ServiceContext, input: { id: string; active: boolean }) => setScheduleActive(ctx, input),
+  updateSafetyTalkSchedule: (ctx: ServiceContext, input: Parameters<typeof updateSchedule>[1]) => updateSchedule(ctx, input),
   listUnsignedSafetyLines: async (ctx: ServiceContext) => ({ lines: await unsigned(ctx) }),
 } as const;

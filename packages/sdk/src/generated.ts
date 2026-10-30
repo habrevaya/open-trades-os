@@ -29635,6 +29635,46 @@ export interface UpdateRoleOutput {
   namesNoScope: boolean;
 }
 
+export interface UpdateSafetyTalkScheduleInput {
+  topicId?: string;
+  crewId?: string | null;
+  technicianId?: string | null;
+  role?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "technician" | "crew_lead" | "accountant" | "readonly" | null;
+  roleId?: string | null;
+  branchId?: string | null;
+  everybody?: boolean;
+  heldMinutes?: number;
+  location?: string | null;
+  ledBy?: string | null;
+  skipHolidays?: boolean;
+}
+
+export interface UpdateSafetyTalkScheduleOutput {
+  id: string;
+  topicId: string;
+  topicTitle: string;
+  topicRetired: boolean;
+  audience: "crew" | "person" | "role" | "branch" | "company";
+  crewId: string | null;
+  technicianId: string | null;
+  role: string | null;
+  roleId: string | null;
+  branchId: string | null;
+  who: string;
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month";
+  weekday: number | null;
+  monthDay: number | null;
+  heldMinutes: number;
+  startsOn: string;
+  location: string | null;
+  ledBy: string | null;
+  active: boolean;
+  skipHolidays: boolean;
+  lastRaisedOn: string | null;
+  schedule: string;
+  nextOn: string | null;
+}
+
 export interface UpdateSafetyTopicInput {
   title?: string;
   body?: string;
@@ -34741,6 +34781,10 @@ export interface UpdateRoleParams {
   id: string;
 }
 
+export interface UpdateSafetyTalkScheduleParams {
+  id: string;
+}
+
 export interface UpdateSafetyTopicParams {
   id: string;
 }
@@ -36082,6 +36126,7 @@ export interface OperationTypes {
   updateRetentionPolicy: { input: UpdateRetentionPolicyParams & UpdateRetentionPolicyInput; output: UpdateRetentionPolicyOutput };
   updateRingGroup: { input: UpdateRingGroupParams & UpdateRingGroupInput; output: UpdateRingGroupOutput };
   updateRole: { input: UpdateRoleParams & UpdateRoleInput; output: UpdateRoleOutput };
+  updateSafetyTalkSchedule: { input: UpdateSafetyTalkScheduleParams & UpdateSafetyTalkScheduleInput; output: UpdateSafetyTalkScheduleOutput };
   updateSafetyTopic: { input: UpdateSafetyTopicParams & UpdateSafetyTopicInput; output: UpdateSafetyTopicOutput };
   updateServiceReportTemplate: { input: UpdateServiceReportTemplateParams & UpdateServiceReportTemplateInput; output: UpdateServiceReportTemplateOutput };
   updateTask: { input: UpdateTaskParams & UpdateTaskInput; output: UpdateTaskOutput };
@@ -37320,6 +37365,7 @@ export const OPERATIONS = {
   updateRetentionPolicy: { method: "PATCH", path: "/v1/compliance/retention/rules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   updateRingGroup: { method: "PUT", path: "/v1/ring-groups/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateRole: { method: "PATCH", path: "/v1/roles/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["role:write"] },
+  updateSafetyTalkSchedule: { method: "PATCH", path: "/v1/safety/schedules/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   updateSafetyTopic: { method: "PATCH", path: "/v1/safety/topics/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   updateServiceReportTemplate: { method: "PATCH", path: "/v1/service-report-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   updateTask: { method: "PATCH", path: "/v1/tasks/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
@@ -48117,6 +48163,15 @@ export abstract class GeneratedOperations {
    */
   updateRole(input: UpdateRoleParams & UpdateRoleInput, options?: CallOptions): Promise<UpdateRoleOutput> {
     return this.call("updateRole", input, options);
+  }
+
+  /**
+   * Change a scheduled talk's topic, audience, time or holidays.
+   *
+   * PATCH /v1/safety/schedules/{id}. Needs safety:write.
+   */
+  updateSafetyTalkSchedule(input: UpdateSafetyTalkScheduleParams & UpdateSafetyTalkScheduleInput, options?: CallOptions): Promise<UpdateSafetyTalkScheduleOutput> {
+    return this.call("updateSafetyTalkSchedule", input, options);
   }
 
   /**

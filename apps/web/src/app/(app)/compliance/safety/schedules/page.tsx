@@ -62,6 +62,7 @@ export default async function TalkSchedulesPage() {
               <Td className="text-ink-700">{s.schedule}, at {clock(s.heldMinutes)}{s.location ? `, ${s.location}` : ""}</Td>
               <Td>{s.nextOn ? formatDay(s.nextOn, tz) : "None"}</Td>
               <Td>
+                {writes ? <a href={`/compliance/safety/schedules/${s.id}`} className="mr-3 text-sm underline underline-offset-4">Change<span className="sr-only"> {s.topicTitle}</span></a> : null}
                 {writes ? (
                   <ActionForm action={setScheduleActive} tone="quiet" className="flex items-center gap-2"
                               submit={s.active ? "Pause" : "Resume"} hidden={{ id: s.id, active: s.active ? "no" : "yes" }} />
