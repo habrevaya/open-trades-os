@@ -38,7 +38,7 @@ test("a scheduled talk is changed on its page and the list says the new topic, p
     await expect(owner.getByRole("heading", { name: `Change: ${heat}` })).toBeVisible();
     await owner.getByLabel("Topic").selectOption({ label: ladders });
     await owner.getByLabel("For").selectOption({ label: "Everybody with the Technician role" });
-    await owner.getByLabel("At").fill("06:30");
+    await owner.getByLabel("At", { exact: true }).fill("06:30");
     await owner.getByLabel("Where (optional)").fill("The yard");
     await owner.getByRole("checkbox", { name: /Skip the days the company is closed/ }).check();
     await owner.getByRole("button", { name: "Save changes" }).click();
@@ -52,7 +52,7 @@ test("a scheduled talk is changed on its page and the list says the new topic, p
 
     // The page opens with what the schedule has now.
     await row.getByRole("link", { name: `Change ${ladders}` }).click();
-    await expect(owner.getByLabel("At")).toHaveValue("06:30");
+    await expect(owner.getByLabel("At", { exact: true })).toHaveValue("06:30");
     await expect(owner.getByLabel("Where (optional)")).toHaveValue("The yard");
     await expect(owner.getByRole("checkbox", { name: /Skip the days the company is closed/ })).toBeChecked();
   } finally {
