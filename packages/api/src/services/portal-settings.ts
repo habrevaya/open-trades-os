@@ -47,6 +47,8 @@ export interface PortalSettingsInput {
   jobPhotos?: cp.PhotoSharing | undefined;
   bankAccounts?: boolean | undefined;
   chatReplyNotice?: boolean | undefined;
+  /** Whole days, or null to stop closing idle chats. Left out keeps what the company had. */
+  chatIdleCloseDays?: number | null | undefined;
 }
 
 /**
@@ -68,7 +70,10 @@ export async function set(ctx: ServiceContext, input: PortalSettingsInput): Prom
       jobPhotos: input.jobPhotos ?? before.jobPhotos,
       bankAccounts: input.bankAccounts ?? before.bankAccounts,
       chatReplyNotice: input.chatReplyNotice ?? before.chatReplyNotice,
+      chatIdleCloseDays: input.chatIdleCloseDays !== undefined ? input.chatIdleCloseDays : before.chatIdleCloseDays,
     };
+    const problem = cp.chatIdleCloseProblem(after.chatIdleCloseDays);
+    if (problem) throw new ConflictError(problem);
     await tx.update(schema.organization).set({
       settings: sql`${schema.organization.settings} || ${JSON.stringify({ portal: after })}::jsonb`,
       updatedAt: new Date(),

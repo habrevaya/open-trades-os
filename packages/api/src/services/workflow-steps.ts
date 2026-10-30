@@ -654,10 +654,21 @@ async function holds(
        * GIVEN LONGER SINCE IT WAS SENT is a no too. The office talked to the
        * customer and moved the date by hand; a chase waiting from the send
        * and carrying on afterwards would ask "did you see it?" of somebody
-       * who just asked for more time. Sending it again starts a new one.
+       * who just asked for more time. Sending it again starts a new one, and
+       * so does the office asking for the follow up to start again from the
+       * day it gave longer: that run is started by the extension itself, with
+       * `restartedAt` on its event, and it stops only if the date was moved
+       * again after that.
        */
-      if (row.expiryExtendedAt && (!row.sentAt || row.expiryExtendedAt.getTime() > row.sentAt.getTime())) {
-        return { holds: false, because: `estimate #${row.number} was given longer by the office since it was sent` };
+      const restartedAt = readPath(payload, "estimate.restartedAt");
+      if (row.expiryExtendedAt) {
+        if (typeof restartedAt === "string") {
+          if (row.expiryExtendedAt.getTime() > new Date(restartedAt).getTime() + 1_000) {
+            return { holds: false, because: `estimate #${row.number} was given longer again since this follow up started` };
+          }
+        } else if (!row.sentAt || row.expiryExtendedAt.getTime() > row.sentAt.getTime()) {
+          return { holds: false, because: `estimate #${row.number} was given longer by the office since it was sent` };
+        }
       }
       /**
        * SENT AGAIN SINCE is a no as well. A revised estimate sent on day two

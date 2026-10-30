@@ -12,6 +12,7 @@ import { MessageFiles, type MessageFile } from "./MessageFiles";
 import { IntakeDraft } from "../drafts/IntakeDraft";
 import { draftFromThread } from "../drafts/actions";
 import { ActionForm } from "@/components/ActionForm";
+import { closeChat } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -75,10 +76,22 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
           The customer closed this chat on {formatIn(new Date(thread.customerClosedAt), user.organizationTimezone)}. If they write again, it opens a new one.
         </p>
       )}
-      {fromAccount && !thread.customerClosedAt && (
+      {fromAccount && thread.officeClosedAt && (
+        <p className="mt-2 text-sm font-medium text-ink-900">
+          {thread.closedBy === "idle"
+            ? `This chat was closed on ${formatIn(new Date(thread.officeClosedAt), user.organizationTimezone)} because it went quiet.`
+            : `${thread.closedByName ?? "Someone in the office"} closed this chat on ${formatIn(new Date(thread.officeClosedAt), user.organizationTimezone)}.`}
+          {" "}The customer can see it was closed. If they write again, it opens a new one.
+        </p>
+      )}
+      {fromAccount && !thread.customerClosedAt && !thread.officeClosedAt && (
         <p className="mt-2 text-sm text-ink-700">
           {thread.customerNotice ?? "They are told by email or text when you answer, once until they read it."}
         </p>
+      )}
+      {fromAccount && !thread.customerClosedAt && !thread.officeClosedAt && can(user.actor, "message:send") && (
+        <ActionForm action={closeChat} submit="Close this chat" tone="quiet" hidden={{ conversationId: id }} className="mt-2"
+                    done="Closed." />
       )}
 
       {byChat ? null : <ConsentSummary

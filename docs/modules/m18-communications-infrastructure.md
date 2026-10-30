@@ -492,7 +492,11 @@ shows as closed, `GET /v1/conversations` says `closedByCustomer`, the thread giv
 `customerClosedAt` and the inbox says so ("The customer closed this chat on ..."),
 and a reply into it is refused (`chat_closed`, in words) because it would have
 nowhere to go. What the customer wrote stays unread for the office until a person
-opens it. Their next message opens a new conversation.
+opens it. Their next message opens a new conversation. The office can close one too
+(`POST /v1/conversations/{id}/closed`, "Close this chat" in the inbox), and a company can
+choose a number of quiet days after which an account chat it answered last closes itself
+(M05): the list and the thread then say `closedBy` (`customer`, `office` or `idle`), the thread
+gives `officeClosedAt` and `closedByName`, and a reply is refused the same way.
 
 ### Templates
 

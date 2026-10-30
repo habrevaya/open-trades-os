@@ -395,6 +395,17 @@ export const aiChatSession = pgTable("ai_chat_session", {
    * new conversation; this one stays as it was.
    */
   customerClosedAt: timestamp("customer_closed_at", { withTimezone: true }),
+  /**
+   * When the company closed this chat (status `closed` with this set), and how:
+   * `office`, a person pressing "Close this chat" in the inbox (their id in
+   * `office_closed_by_user_id`), or `idle`, the worker closing a chat the
+   * company answered last and the customer has not written in for the days
+   * the company chose (no person). A chat has one closer: the customer's
+   * `customer_closed_at` and this are never both set.
+   */
+  officeClosedAt: timestamp("office_closed_at", { withTimezone: true }),
+  officeClosedByUserId: uuid("office_closed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  officeCloseKind: text("office_close_kind").$type<"office" | "idle">(),
   ...timestamps,
 }, (t) => ({
   tokenIdx: uniqueIndex("ai_chat_session_token_idx").on(t.tokenHash)

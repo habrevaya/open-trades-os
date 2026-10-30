@@ -19,6 +19,8 @@ import { renewalsPass } from "./agreements";
 import { sendDue } from "./campaigns";
 import { askPass as reviewAskPass } from "./review-asks";
 import { releasePass as chatNoticePass } from "./portal-chat-notice";
+import { idleClosePass as chatIdleClosePass } from "./portal-chat";
+import { reminderPass as appRequestReminderPass } from "./app-request-reminders";
 import { taskPass } from "./task-rules";
 import { expiryPass } from "./estimate-expiry";
 import { nightlyPass as truckFillPass } from "./truck-fills";
@@ -469,6 +471,31 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] chat notices:", (error as Error).message);
+    }
+    /**
+     * Account chats gone quiet, for each company that chose a number of days: a
+     * chat the company wrote last in is closed once the customer has not written
+     * for that long. Its own try, and a company's failure stays with that company.
+     * It tells nobody; the customer sees it the next time they open the chat.
+     */
+    try {
+      for (const result of await chatIdleClosePass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] quiet chats ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] quiet chats:", (error as Error).message);
+    }
+    /**
+     * An app request nobody has answered, chased once: the people who could
+     * approve it are told again, by the notice path the first telling used. Its
+     * own try, for the reason every pass here has one.
+     */
+    try {
+      for (const result of await appRequestReminderPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] app request reminders ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] app request reminders:", (error as Error).message);
     }
     /**
      * Estimates past their date, marked expired in each company's own

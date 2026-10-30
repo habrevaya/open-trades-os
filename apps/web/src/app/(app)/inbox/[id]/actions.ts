@@ -4,7 +4,7 @@ import { refused } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { comms, ConflictError } from "@opentradesos/api/services";
+import { comms, portalChat, ConflictError } from "@opentradesos/api/services";
 
 /**
  * The reply goes through the service, which checks consent again.
@@ -36,4 +36,23 @@ export async function sendReply(_previous: unknown, form: FormData) {
 
   revalidatePath(`/inbox/${conversationId}`);
   return { sent: true };
+}
+
+/**
+ * The office closes a chat from a customer's account. The customer is told in
+ * words on their chat page, not by text or email, and what they wrote stays here.
+ * A chat already closed is a close already made.
+ */
+export async function closeChat(_previous: unknown, form: FormData) {
+  const user = await requireSetupUser();
+  const conversationId = String(form.get("conversationId") ?? "");
+  try {
+    await portalChat.closeFromOffice({ actor: user.actor, db: getDb() }, { id: conversationId });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath(`/inbox/${conversationId}`);
+  revalidatePath("/inbox");
+  return { done: true, message: "Closed. The customer will see that you closed it." };
 }

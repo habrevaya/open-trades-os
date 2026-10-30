@@ -2269,6 +2269,14 @@ export interface CloseAccountingPeriodOutput {
   closedAt: string;
 }
 
+export type CloseConversationInput = Record<string, unknown>;
+
+export interface CloseConversationOutput {
+  id: string;
+  closedBy: "customer" | "office" | "idle";
+  closedAt: string;
+}
+
 export type CloseDisposalFacilityInput = Record<string, unknown>;
 
 export interface CloseDisposalFacilityOutput {
@@ -2305,6 +2313,7 @@ export interface ClosePortalChatInput {
 export interface ClosePortalChatOutput {
   assistant: boolean;
   status: "open" | "handed_off" | "closed" | null;
+  closedBy?: "customer" | "office" | "idle" | null;
   bookingTaken: boolean;
   messages: Array<{
     id: string;
@@ -6683,6 +6692,7 @@ export interface ExportPayerInvoicesOutput {
 export interface ExtendEstimateExpiryInput {
   expiresOn: string;
   reason: string;
+  restartFollowUp?: boolean;
 }
 
 export interface ExtendEstimateExpiryOutput {
@@ -6980,6 +6990,10 @@ export interface GetAiUsageOutput {
     estimatedCostMicros: number | null;
     pricedCalls: number;
   }>;
+}
+
+export interface GetAppRequestReminderOutput {
+  days: number | null;
 }
 
 export interface GetAppSelfOutput {
@@ -7818,6 +7832,9 @@ export interface GetConversationOutput {
   }>;
   customerNotice: string | null;
   customerClosedAt: string | null;
+  officeClosedAt: string | null;
+  closedBy: "customer" | "office" | "idle" | null;
+  closedByName: string | null;
   canReply: boolean;
   blockedReason: string | null;
   blockedExplanation: string | null;
@@ -9689,6 +9706,11 @@ export interface GetJobExpensesOutput {
 
 export interface GetJobHoldNudgeOutput {
   days: number | null;
+  dueDays: number | null;
+  repeatDays: number | null;
+  assignTo: "nobody" | "placed_by" | "person";
+  assigneeUserId: string | null;
+  assigneeName: string | null;
 }
 
 export interface GetJobMaterialCostOutput {
@@ -11272,6 +11294,7 @@ export interface GetPortalBookingOptionsOutput {
 export interface GetPortalChatOutput {
   assistant: boolean;
   status: "open" | "handed_off" | "closed" | null;
+  closedBy?: "customer" | "office" | "idle" | null;
   bookingTaken: boolean;
   messages: Array<{
     id: string;
@@ -11345,6 +11368,7 @@ export interface GetPortalSettingsOutput {
   jobPhotos: "chosen" | "all";
   bankAccounts: boolean;
   chatReplyNotice: boolean;
+  chatIdleCloseDays: number | null;
   signInUrl: string;
 }
 
@@ -14696,6 +14720,7 @@ export interface ListConversationsOutput {
     awaitingReply: boolean;
     unread: number;
     closedByCustomer: boolean;
+    closedBy: "customer" | "office" | "idle" | null;
   }>;
   hasMore: boolean;
   nextCursor: string | null;
@@ -24052,6 +24077,7 @@ export interface SayInPortalChatInput {
 export interface SayInPortalChatOutput {
   assistant: boolean;
   status: "open" | "handed_off" | "closed" | null;
+  closedBy?: "customer" | "office" | "idle" | null;
   bookingTaken: boolean;
   messages: Array<{
     id: string;
@@ -24603,6 +24629,14 @@ export interface SetAnsweringPhoneOutput {
   name: string;
   email: string;
   phone: string | null;
+}
+
+export interface SetAppRequestReminderInput {
+  days: number | null;
+}
+
+export interface SetAppRequestReminderOutput {
+  days: number | null;
 }
 
 export interface SetArrivalWindowsInput {
@@ -25183,11 +25217,20 @@ export interface SetJobCoverageOutput {
 }
 
 export interface SetJobHoldNudgeInput {
-  days: number | null;
+  days?: number | null;
+  dueDays?: number | null;
+  repeatDays?: number | null;
+  assignTo?: "nobody" | "placed_by" | "person";
+  assigneeUserId?: string | null;
 }
 
 export interface SetJobHoldNudgeOutput {
   days: number | null;
+  dueDays: number | null;
+  repeatDays: number | null;
+  assignTo: "nobody" | "placed_by" | "person";
+  assigneeUserId: string | null;
+  assigneeName: string | null;
 }
 
 export interface SetJobPartiesInput {
@@ -25785,6 +25828,7 @@ export interface SetPortalSettingsInput {
   jobPhotos?: "chosen" | "all";
   bankAccounts?: boolean;
   chatReplyNotice?: boolean;
+  chatIdleCloseDays?: number | null;
 }
 
 export interface SetPortalSettingsOutput {
@@ -25795,6 +25839,7 @@ export interface SetPortalSettingsOutput {
   jobPhotos: "chosen" | "all";
   bankAccounts: boolean;
   chatReplyNotice: boolean;
+  chatIdleCloseDays: number | null;
   signInUrl: string;
 }
 
@@ -30868,6 +30913,10 @@ export interface ClearTruckMinimumParams {
   id: string;
 }
 
+export interface CloseConversationParams {
+  id: string;
+}
+
 export interface CloseDisposalFacilityParams {
   id: string;
 }
@@ -31194,6 +31243,8 @@ export type GetAgreementRenewalNoticesInput = Record<string, never>;
 export type GetAiStatusInput = Record<string, never>;
 
 export type GetAiUsageInput = Record<string, never>;
+
+export type GetAppRequestReminderInput = Record<string, never>;
 
 export type GetAppSelfInput = Record<string, never>;
 
@@ -34504,6 +34555,7 @@ export interface OperationTypes {
   clearReorderPolicy: { input: ClearReorderPolicyInput; output: ClearReorderPolicyOutput };
   clearTruckMinimum: { input: ClearTruckMinimumParams & ClearTruckMinimumInput; output: ClearTruckMinimumOutput };
   closeAccountingPeriod: { input: CloseAccountingPeriodInput; output: CloseAccountingPeriodOutput };
+  closeConversation: { input: CloseConversationParams & CloseConversationInput; output: CloseConversationOutput };
   closeDisposalFacility: { input: CloseDisposalFacilityParams & CloseDisposalFacilityInput; output: CloseDisposalFacilityOutput };
   closeIncident: { input: CloseIncidentParams & CloseIncidentInput; output: CloseIncidentOutput };
   closePayPeriod: { input: ClosePayPeriodInput; output: ClosePayPeriodOutput };
@@ -34673,6 +34725,7 @@ export interface OperationTypes {
   getAgreementRenewalNotices: { input: GetAgreementRenewalNoticesInput; output: GetAgreementRenewalNoticesOutput };
   getAiStatus: { input: GetAiStatusInput; output: GetAiStatusOutput };
   getAiUsage: { input: GetAiUsageInput; output: GetAiUsageOutput };
+  getAppRequestReminder: { input: GetAppRequestReminderInput; output: GetAppRequestReminderOutput };
   getAppSelf: { input: GetAppSelfInput; output: GetAppSelfOutput };
   getArAging: { input: GetArAgingInput; output: GetArAgingOutput };
   getAssetComplianceOutlook: { input: GetAssetComplianceOutlookInput; output: GetAssetComplianceOutlookOutput };
@@ -35389,6 +35442,7 @@ export interface OperationTypes {
   setAfterHoursRates: { input: SetAfterHoursRatesInput; output: SetAfterHoursRatesOutput };
   setAiSpendLimit: { input: SetAiSpendLimitInput; output: SetAiSpendLimitOutput };
   setAnsweringPhone: { input: SetAnsweringPhoneParams & SetAnsweringPhoneInput; output: SetAnsweringPhoneOutput };
+  setAppRequestReminder: { input: SetAppRequestReminderInput; output: SetAppRequestReminderOutput };
   setArrivalWindows: { input: SetArrivalWindowsInput; output: SetArrivalWindowsOutput };
   setAssetMaintenancePlan: { input: SetAssetMaintenancePlanParams & SetAssetMaintenancePlanInput; output: SetAssetMaintenancePlanOutput };
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
@@ -35723,6 +35777,7 @@ export const OPERATIONS = {
   clearReorderPolicy: { method: "POST", path: "/v1/reorder-policies/clear", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   clearTruckMinimum: { method: "POST", path: "/v1/truck-minimums/{id}/clear", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   closeAccountingPeriod: { method: "POST", path: "/v1/accounting/periods/close", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:close"] },
+  closeConversation: { method: "POST", path: "/v1/conversations/{id}/closed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
   closeDisposalFacility: { method: "DELETE", path: "/v1/disposal-facilities/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   closeIncident: { method: "POST", path: "/v1/safety/incidents/{id}/close", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   closePayPeriod: { method: "POST", path: "/v1/payroll/periods/close", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
@@ -35892,6 +35947,7 @@ export const OPERATIONS = {
   getAgreementRenewalNotices: { method: "GET", path: "/v1/agreement-renewal-notices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getAiStatus: { method: "GET", path: "/v1/ai/connections", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getAiUsage: { method: "GET", path: "/v1/ai/usage", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
+  getAppRequestReminder: { method: "GET", path: "/v1/app-request-reminder", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getAppSelf: { method: "GET", path: "/v1/apps/me", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: [] },
   getArAging: { method: "GET", path: "/v1/reports/ar-aging", pathParams: [], queryParams: ["asOf"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   getAssetComplianceOutlook: { method: "GET", path: "/v1/assets/compliance", pathParams: [], queryParams: ["now","lookaheadDays"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
@@ -36608,6 +36664,7 @@ export const OPERATIONS = {
   setAfterHoursRates: { method: "PUT", path: "/v1/after-hours-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   setAiSpendLimit: { method: "PUT", path: "/v1/ai/spend-limit", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   setAnsweringPhone: { method: "PUT", path: "/v1/answering-phones/{userId}", pathParams: ["userId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setAppRequestReminder: { method: "PATCH", path: "/v1/app-request-reminder", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   setArrivalWindows: { method: "PUT", path: "/v1/booking/arrival-windows", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setAssetMaintenancePlan: { method: "POST", path: "/v1/assets/{assetId}/maintenance-plans", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -37709,6 +37766,15 @@ export abstract class GeneratedOperations {
    */
   closeAccountingPeriod(input: CloseAccountingPeriodInput, options?: CallOptions): Promise<CloseAccountingPeriodOutput> {
     return this.call("closeAccountingPeriod", input, options);
+  }
+
+  /**
+   * Close a chat from a customer's account.
+   *
+   * POST /v1/conversations/{id}/closed. Needs message:send.
+   */
+  closeConversation(input: CloseConversationParams & CloseConversationInput, options?: CallOptions): Promise<CloseConversationOutput> {
+    return this.call("closeConversation", input, options);
   }
 
   /**
@@ -39233,6 +39299,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * When the approvers are reminded of an app request nobody has answered.
+   *
+   * GET /v1/app-request-reminder. Needs settings:read.
+   */
+  getAppRequestReminder(input: GetAppRequestReminderInput = {} as GetAppRequestReminderInput, options?: CallOptions): Promise<GetAppRequestReminderOutput> {
+    return this.call("getAppRequestReminder", input, options);
+  }
+
+  /**
    * What this app token may do.
    *
    * GET /v1/apps/me.
@@ -39917,7 +39992,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * How long a job may stay on hold before the office is nudged.
+   * How a job left on hold is nudged: after how long, due when, raised again, and for whom.
    *
    * GET /v1/job-hold-nudge. Needs settings:read.
    */
@@ -45677,6 +45752,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Set when the approvers are reminded of an app request nobody has answered.
+   *
+   * PATCH /v1/app-request-reminder. Needs integration:write.
+   */
+  setAppRequestReminder(input: SetAppRequestReminderInput, options?: CallOptions): Promise<SetAppRequestReminderOutput> {
+    return this.call("setAppRequestReminder", input, options);
+  }
+
+  /**
    * Set the arrival windows customers may choose.
    *
    * PUT /v1/booking/arrival-windows. Needs booking:configure.
@@ -45983,11 +46067,11 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Set how long a job may stay on hold before the office is nudged.
+   * Set how a job left on hold is nudged.
    *
    * PATCH /v1/job-hold-nudge. Needs settings:write.
    */
-  setJobHoldNudge(input: SetJobHoldNudgeInput, options?: CallOptions): Promise<SetJobHoldNudgeOutput> {
+  setJobHoldNudge(input: SetJobHoldNudgeInput = {} as SetJobHoldNudgeInput, options?: CallOptions): Promise<SetJobHoldNudgeOutput> {
     return this.call("setJobHoldNudge", input, options);
   }
 

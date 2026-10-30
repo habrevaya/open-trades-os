@@ -76,17 +76,23 @@ export const SHAPES: DwellShape[] = [
      * is exactly the customer worth chasing.
      */
     /**
-     * Not one the office gave longer since it was sent: that was a choice
+     * Not one the office gave longer since it was sent, UNLESS the office
+     * asked for the follow up to start again from that day: that was a choice
      * made by hand, and chasing it the moment it was open again, on the old
-     * send date, is the follow up restarting by itself. Sending it again
-     * after that starts it again.
+     * send date, is the follow up restarting by itself. Asked for, it counts
+     * its days from the day it was started again (`follow_up_from`) and
+     * chases once for each time that moves, which is what `generation` is
+     * for. Sending it again starts it from the send.
      */
-    sql: `select e.id, e.customer_id, e.number, e.sent_at as since
+    sql: `select e.id, e.customer_id, e.number,
+                 greatest(e.sent_at, coalesce(e.follow_up_from, e.sent_at)) as since,
+                 case when e.follow_up_from > e.sent_at then e.follow_up_from end as generation
           from public.estimate e
           where e.status in ('sent', 'viewed')
             and e.sent_at is not null
-            and e.sent_at < $cutoff
-            and (e.expiry_extended_at is null or e.sent_at > e.expiry_extended_at)
+            and greatest(e.sent_at, coalesce(e.follow_up_from, e.sent_at)) < $cutoff
+            and (e.expiry_extended_at is null or e.sent_at > e.expiry_extended_at
+                 or e.follow_up_from >= e.expiry_extended_at)
             and e.deleted_at is null`,
   },
   {
@@ -252,6 +258,8 @@ export async function sweepOne(
       : shape.sql.replace("$cutoff", `'${cutoff.toISOString()}'::timestamptz`);
     const records = await tx.execute<{
       id: string; customer_id: string | null; number: number | null; since: Date;
+      /** Set by a shape the office can start again: each start is a record's new turn to be chased. */
+      generation?: Date | null;
     }>(sql.raw(text));
 
     const runs: RunSummary[] = [];
@@ -275,7 +283,9 @@ export async function sweepOne(
         ? record.since.toISOString().slice(0, 10) : String(record.since).slice(0, 10);
       const key = until
         ? `dwell:${row.workflow_id}:${shape.key}:${record.id}:${sinceDay}`
-        : `dwell:${row.workflow_id}:${shape.key}:${record.id}`;
+        : record.generation
+          ? `dwell:${row.workflow_id}:${shape.key}:${record.id}:again-${new Date(record.generation).getTime()}`
+          : `dwell:${row.workflow_id}:${shape.key}:${record.id}`;
       const [seen] = await tx.select({ id: schema.workflowRun.id })
         .from(schema.workflowRun)
         .where(sql`${schema.workflowRun.idempotencyKey} = ${key}`)

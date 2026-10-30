@@ -439,6 +439,8 @@ const PortalSettings = z.object({
   bankAccounts: z.boolean(),
   /** Whether a customer is told by email or text when the office answers their account chat. On unless turned off. */
   chatReplyNotice: z.boolean(),
+  /** Days of quiet after which an account chat the company answered last is closed. Null: never. */
+  chatIdleCloseDays: z.number().int().min(1).max(90).nullable(),
 });
 
 export const getPortalSettings = defineRoute({
@@ -456,7 +458,7 @@ export const setPortalSettings = defineRoute({
   path: "/v1/portal-settings",
   summary: "Turn tipping, bank payments and chat reply notices on or off, and choose which job photographs customers see",
   description:
-    "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail. The chat reply notice is ON until turned off: a customer who chats from their account is told by email or text, once until they read it, that the office answered.",
+    "Tipping is off until it is turned on. Suggested tips are one to four whole percentages up to 50. Job photographs are either the ones somebody chose, one by one, or every one on the job. Bank payments are off until turned on: a payment from a bank account is pending for days and can still fail. The chat reply notice is ON until turned off: a customer who chats from their account is told by email or text, once until they read it, that the office answered. `chatIdleCloseDays` is off (null) until set: when it is, the worker closes an account chat whose last message is the company's (the assistant's or a person's) and where the customer has not written for that many company days; a chat the customer wrote last in is never closed this way. The customer is told on their chat page.",
   module: "M05",
   permissions: ["settings:write"],
   idempotent: true,
@@ -470,6 +472,8 @@ export const setPortalSettings = defineRoute({
     bankAccounts: z.boolean().optional(),
     /** Tell a customer by email or text when the office answers their account chat. */
     chatReplyNotice: z.boolean().optional(),
+    /** Close an account chat the company answered last once the customer has not written for this many days (1 to 90). Null stops it. */
+    chatIdleCloseDays: z.number().int().min(1).max(90).nullable().optional(),
   }),
   output: PortalSettings.extend({ signInUrl: z.string() }),
 });

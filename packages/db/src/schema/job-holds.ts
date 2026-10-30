@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, uuid, text, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { pk, timestamps } from "./_shared";
 import { organization, technician, user } from "./tenancy";
@@ -62,6 +62,13 @@ export const jobHold = pgTable("job_hold", {
    * the task.
    */
   nudgedAt: timestamp("nudged_at", { withTimezone: true }),
+  /**
+   * How many times the nudge has been raised for this hold. 0 for a hold
+   * nudged before repeats existed reads as 1 when `nudged_at` is set. When the
+   * company asks for the nudge to come back, `nudged_at` is the last time and
+   * `nudge_task_id` the latest task.
+   */
+  nudgeCount: integer("nudge_count").notNull().default(0),
   nudgeTaskId: uuid("nudge_task_id").references(() => task.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({

@@ -288,6 +288,23 @@ export interface PortalSettings {
    * reads as on, the one setting here where a hand edited blob reads as on.
    */
   chatReplyNotice: boolean;
+  /**
+   * Close an account chat the company answered last once the customer has not
+   * written in for this many days. Null (the default) never does: a chat nobody
+   * closes stays open, as it always has. Whole days, one to ninety.
+   */
+  chatIdleCloseDays: number | null;
+}
+
+export const CHAT_IDLE_CLOSE_MOST_DAYS = 90;
+
+/** Why an idle close setting is refused, or null when it is a whole number of days from one to ninety, or off. */
+export function chatIdleCloseProblem(days: unknown): string | null {
+  if (days === null) return null;
+  if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > CHAT_IDLE_CLOSE_MOST_DAYS) {
+    return `Give the days as a whole number from 1 to ${CHAT_IDLE_CLOSE_MOST_DAYS}, or leave it empty.`;
+  }
+  return null;
 }
 
 /** The portal's settings out of the company's settings blob, defaulting to everything off but the chat reply notice. */
@@ -299,6 +316,8 @@ export function readPortalSettings(stored: unknown): PortalSettings {
     jobPhotos: photos === "all" ? "all" : "chosen",
     bankAccounts: blob["bankAccounts"] === true,
     chatReplyNotice: blob["chatReplyNotice"] !== false,
+    chatIdleCloseDays: typeof blob["chatIdleCloseDays"] === "number" && chatIdleCloseProblem(blob["chatIdleCloseDays"]) === null
+      ? blob["chatIdleCloseDays"] : null,
   };
 }
 

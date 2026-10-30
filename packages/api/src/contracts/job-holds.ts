@@ -114,15 +114,34 @@ export const releaseJobHold = defineRoute({
   output: Holds,
 });
 
+const HoldNudgeAssign = z.enum(["nobody", "placed_by", "person"]);
+
 const HoldNudge = z.object({
   /** How many days on hold before the office is nudged. Null: off. */
   days: z.number().int().min(1).max(90).nullable(),
+  /** Company days the office has to act on the task, from the day it is raised. Null: no due date. */
+  dueDays: z.number().int().min(0).max(30).nullable(),
+  /** Days after one nudge to raise it again while the job is still on hold. Null: never. */
+  repeatDays: z.number().int().min(1).max(90).nullable(),
+  /** Who the task goes to: nobody (the office queue), whoever put the job on hold, or a named person. */
+  assignTo: HoldNudgeAssign,
+  assigneeUserId: Uuid.nullable(),
+  assigneeName: z.string().nullable(),
+});
+
+/** Every field is optional: one left out keeps what the company had. */
+const HoldNudgeChange = z.object({
+  days: HoldNudge.shape.days.optional(),
+  dueDays: HoldNudge.shape.dueDays.optional(),
+  repeatDays: HoldNudge.shape.repeatDays.optional(),
+  assignTo: HoldNudgeAssign.optional(),
+  assigneeUserId: Uuid.nullable().optional(),
 });
 
 export const getJobHoldNudge = defineRoute({
   method: "get",
   path: "/v1/job-hold-nudge",
-  summary: "How long a job may stay on hold before the office is nudged",
+  summary: "How a job left on hold is nudged: after how long, due when, raised again, and for whom",
   module: "M10",
   permissions: ["settings:read"],
   input: z.object({}),
@@ -132,13 +151,13 @@ export const getJobHoldNudge = defineRoute({
 export const setJobHoldNudge = defineRoute({
   method: "patch",
   path: "/v1/job-hold-nudge",
-  summary: "Set how long a job may stay on hold before the office is nudged",
+  summary: "Set how a job left on hold is nudged",
   description:
-    "Whole days from 1 to 90, counted in the company's own calendar, or null to turn it off (it is off until a company turns it on). When a hold has lasted that long the worker raises one task in the office queue about the job, naming the job, the reason it is held and how long; ending the hold closes it. One task per hold: a task somebody closed by hand is not raised again for the same hold. Holds already past the new number are nudged on the next pass, and tasks already raised stay where they are.",
+    "`days`: whole days from 1 to 90, counted in the company's own calendar, or null to turn nudging off (it is off until a company turns it on). When a hold has lasted that long the worker raises one task in the office queue about the job, naming the job, the reason it is held and how long; ending the hold closes it. `dueDays`: the task is due that many company days after it is raised (0 to 30), so the queue's late rules act on it; null leaves it without a due date. `repeatDays`: while the job is still on hold, raise the task again that many days after the last one (1 to 90), but only once the last one has been closed; null never raises it again. `assignTo` is `nobody` (the office queue), `placed_by` (whoever put the job on hold; a job has no owner of its own) or `person` (with `assigneeUserId`, somebody who works here now); a person who has left is skipped and the task stays in the office queue. A field left out keeps what the company had. Without repeats, a task somebody closed by hand is not raised again for the same hold. Holds already past a new `days` are nudged on the next pass, and tasks already raised stay where they are.",
   module: "M10",
   permissions: ["settings:write"],
   idempotent: true,
-  input: HoldNudge,
+  input: HoldNudgeChange,
   output: HoldNudge,
 });
 

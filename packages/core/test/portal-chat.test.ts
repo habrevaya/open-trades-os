@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  CHAT_PICTURES, checkChatPicture, chatReplyMessage, readPortalSettings,
+  CHAT_PICTURES, checkChatPicture, chatReplyMessage, readPortalSettings, chatIdleCloseProblem,
 } from "../src/customer-portal/index.js";
 
 /**
@@ -77,5 +77,24 @@ describe("a picture in the chat", () => {
     expect(CHAT_PICTURES.shownInPage).toContain("image/jpeg");
     expect(CHAT_PICTURES.shownInPage).not.toContain("image/heic");
     expect(CHAT_PICTURES.types).toContain("image/heic");
+  });
+});
+
+describe("closing a quiet chat", () => {
+  it("is off until the company chooses a number of days", () => {
+    expect(readPortalSettings(undefined).chatIdleCloseDays).toBeNull();
+    expect(readPortalSettings({ chatIdleCloseDays: 7 }).chatIdleCloseDays).toBe(7);
+    for (const bad of [0, 91, 2.5, "7", null, true]) {
+      expect(readPortalSettings({ chatIdleCloseDays: bad }).chatIdleCloseDays).toBeNull();
+    }
+  });
+
+  it("refuses anything but a whole number of days from one to ninety, or off", () => {
+    expect(chatIdleCloseProblem(null)).toBeNull();
+    expect(chatIdleCloseProblem(1)).toBeNull();
+    expect(chatIdleCloseProblem(90)).toBeNull();
+    for (const bad of [0, -3, 91, 1.5, "3", undefined, Number.NaN]) {
+      expect(chatIdleCloseProblem(bad)).toMatch(/whole number from 1 to 90/);
+    }
   });
 });

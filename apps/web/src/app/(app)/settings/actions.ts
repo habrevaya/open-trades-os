@@ -344,11 +344,27 @@ export async function setCancelNotice(_previous: FormState, form: FormData): Pro
  * they are.
  */
 export async function setHoldNudge(_previous: FormState, form: FormData): Promise<FormState> {
-  const said = field(form, "days");
-  const days = said === undefined ? null : Number(said);
-  if (days !== null && !Number.isInteger(days)) return refused(form, "Give the days as a whole number, or leave it empty.");
+  /** A box left empty is "off" (null); a box with something that is not a whole number is refused. */
+  const count = (name: string): number | null | "bad" => {
+    const said = field(form, name);
+    if (said === undefined) return null;
+    const n = Number(said);
+    return Number.isInteger(n) ? n : "bad";
+  };
+  const days = count("days");
+  const dueDays = count("dueDays");
+  const repeatDays = count("repeatDays");
+  if (days === "bad" || dueDays === "bad" || repeatDays === "bad") {
+    return refused(form, "Give the days as whole numbers, or leave a box empty.");
+  }
+  /** One choice: nobody, whoever put the job on hold, or "person:<id>" for a colleague. */
+  const who = field(form, "assignTo") ?? "nobody";
+  const person = who.startsWith("person:") ? who.slice("person:".length) : null;
+  const assignTo = person ? "person" : who === "placed_by" ? "placed_by" : "nobody";
   const result = await attempt(form, async () => {
-    const saved = await jobHolds.setNudge(await ctx(), { days });
+    const saved = await jobHolds.setNudge(await ctx(), {
+      days, dueDays, repeatDays, assignTo, assigneeUserId: person,
+    });
     return {
       message: saved.days === null
         ? "Saved. Nobody is nudged about a job on hold."

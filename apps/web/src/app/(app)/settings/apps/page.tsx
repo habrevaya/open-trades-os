@@ -1,11 +1,13 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { apps as appService } from "@opentradesos/api/services";
+import { apps as appService, appRequestReminders } from "@opentradesos/api/services";
 import {
   can, PERMISSIONS, SENSITIVE_PERMISSIONS, SCOPED_RESOURCES, SCOPES, permissionsFor,
 } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
+import { ActionForm as Form, TextField } from "@/components/ActionForm";
 import { Apps } from "./AppsView";
+import { setRequestReminder } from "./actions";
 import { InstallApp, IssueToken, RevokeToken, RevokeApp } from "./ActionForm";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +51,7 @@ export default async function AppsPage() {
   const list = await appService.list(ctx);
   const waiting = list.filter((app) => app.status === "pending" && !app.request?.expired);
   const writes = can(user.actor, "integration:write");
+  const reminder = await appRequestReminders.reminderSetting(ctx);
 
   const sensitive = new Set<string>(SENSITIVE_PERMISSIONS);
   const held = [...permissionsFor(user.actor)].sort();
@@ -83,6 +86,27 @@ export default async function AppsPage() {
           </ul>
         </section>
       ) : null}
+
+      {/*
+        An application that asks is told to everybody who could approve it once. This is
+        the second, and last, telling, for a request that is still waiting.
+      */}
+      <section aria-label="Reminders" className="mt-6 rounded-md border border-steel-200 p-4">
+        <h2 className="text-sm font-medium text-ink-900">Reminders for waiting requests</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-500">
+          When an application asks to connect, everyone who can approve it is told. If nobody has answered after this
+          many days, they are told once more. A request that nobody answers ends after seven days. Leave the box
+          empty for no reminder.
+        </p>
+        {writes ? (
+          <Form action={setRequestReminder} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Days before a reminder" name="days" type="number" min={1} max={6} step={1}
+                       defaultValue={reminder.days === null ? "" : String(reminder.days)} className="block w-48" />
+          </Form>
+        ) : (
+          <p className="mt-2 text-sm">{reminder.days === null ? "No reminder." : `After ${reminder.days} ${reminder.days === 1 ? "day" : "days"}.`}</p>
+        )}
+      </section>
 
       <Apps
         apps={list}

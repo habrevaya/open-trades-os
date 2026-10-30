@@ -128,8 +128,11 @@ Among the things that put work in the queue without anybody creating it:
   another way before their plan renews.
 - The estimate follow up's call (M07 and M29), linked to the estimate.
 - A job left on hold longer than the company said it may be (M10), linked to the
-  job: one task for each hold, naming the job, the reason and the days, closed as
-  done when the job comes off hold. Off until the company sets the days.
+  job: naming the job, the reason and the days, closed as done when the job comes
+  off hold. Off until the company sets the days. It can be given a due date (so the
+  late rules below act on it), be raised again every so many days while the job
+  stays on hold (only once the last one is closed), and be given to whoever put the
+  job on hold or a named colleague, all off until the company asks.
 - A part a technician asked for from the field (M10), linked to the job: one
   task for each request, in the office queue and nobody's name, naming the job,
   the part in their words and who asked. Its page offers "Put the job on hold

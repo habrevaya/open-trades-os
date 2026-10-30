@@ -331,7 +331,36 @@ export const refuseAppRequest = defineRoute({
   output: Decision,
 });
 
+const RequestReminder = z.object({
+  /** Days after an app asks before the approvers are reminded, once. Null: never. */
+  days: z.number().int().min(1).max(6).nullable(),
+});
+
+export const getAppRequestReminder = defineRoute({
+  method: "get",
+  path: "/v1/app-request-reminder",
+  summary: "When the approvers are reminded of an app request nobody has answered",
+  module: "M26",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: RequestReminder,
+});
+
+export const setAppRequestReminder = defineRoute({
+  method: "patch",
+  path: "/v1/app-request-reminder",
+  summary: "Set when the approvers are reminded of an app request nobody has answered",
+  description:
+    "Whole days from 1 to 6, counted in the company's own calendar from the day the app asked (a request nobody answers ends after seven days), or null for no reminder. It is three days until a company says otherwise. When a request has waited that long, everybody who could approve it is told once more, by the same notice as the first (the bell, the phone and a text as each of them chose, and an email when the company sends email); a request is reminded at most once, and not at all once it is answered or has ended.",
+  module: "M26",
+  permissions: ["integration:write"],
+  idempotent: true,
+  input: RequestReminder,
+  output: RequestReminder,
+});
+
 export const appRoutes = {
   getAppSelf, listApps, installApp, updateApp, revokeApp, issueAppToken, revokeAppToken,
   requestAppInstall, claimAppCredential, reviewAppRequest, approveAppRequest, refuseAppRequest,
+  getAppRequestReminder, setAppRequestReminder,
 } as const;

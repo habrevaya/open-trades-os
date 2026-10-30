@@ -138,7 +138,31 @@ is refused.
 **Somebody is told.** When a request arrives, everybody in the company who could
 approve it (holding `integration:write`) is emailed the app's name and the page to
 decide on, through the company's own email provider. With no provider connected
-nothing is sent and the request still waits on the Applications screen.
+nothing is sent and the request still waits on the Applications screen. A
+notice on the bell, the phone and a text goes either way, as each of them chose
+(M34).
+
+**A request nobody answers is chased once.** The first telling is the one that
+gets buried, and a request waits up to seven days. After a number of days the
+company sets, the same people are told once more, through the same path: the
+notice on the bell, the phone and a text as each of them chose, and the email when
+the company sends email. The notice says "{App} is still waiting for an answer"
+and how many days ago it asked, and names no more than the first did. The days are
+on **Applications** under "Reminders for waiting requests", whole days from 1 to 6
+(a request ends on the seventh), counted in the company's calendar days from the day
+the app asked, and three until the company says otherwise; empty means no reminder.
+`GET /v1/app-request-reminder` reads it (`settings:read`) and
+`PATCH /v1/app-request-reminder` sets it (`integration:write`, the permission that
+approves); both are on the audit log as `organization.app_request_reminder_set`
+with what it was. A request is reminded at most once: `connected_app.reminded_at`
+is set by an update that only lands on a request that has none, in the transaction
+that tells them, and the reminder carries a notice key of its own, so a pass cut
+short and run again, or two workers at once, remind once (`app.request_reminded` is
+on the audit log). Only a request still waiting is reminded: one answered either
+way, or ended, is not. Lowering the number reminds a request already past it on the
+next pass, once. The worker asks the database which companies could have one due
+(`app.app_request_reminder_organizations`, which skips a suspended company), at
+most once a minute.
 
 **The SDK is generated, never written.** The contracts produce the OpenAPI document,
 and the document produces the TypeScript client, in the same command; a test fails
@@ -335,6 +359,8 @@ particular.
 | `POST /v1/public/app-requests` | nothing: counted per address, at most twenty waiting per company |
 | `POST /v1/public/app-requests/{id}/claim` | nothing: the claim secret is the proof |
 | `GET /v1/apps/{id}/request` | `settings:read` |
+| `GET /v1/app-request-reminder` | `settings:read` |
+| `PATCH /v1/app-request-reminder` | `integration:write` |
 | `POST /v1/apps/{id}/approve` | `integration:write`, and holding everything it is given |
 | `POST /v1/apps/{id}/refuse` | `integration:write` |
 | `POST /v1/public/touches` | nothing: counted per company, address and visitor |
@@ -381,8 +407,10 @@ its own claim secret; one the server made is shown once and cannot be handed out
 again, so a retry without one leaves a second request waiting. The notice of a
 request is an email, only to people who can approve and only when an email provider
 is connected, and a notice (M34) on the bell, the phone app or a text as each of those
-people chose, whether or not email is connected. Nobody is reminded while a request
-waits: each approver is told once, and an unanswered request ends on its own date.
+people chose, whether or not email is connected. Each approver is told twice at
+most, once when it asks and once as a reminder, and a request nobody answers still ends on
+its own date; the reminder is one number for the whole company, is not sent
+at all by a company that left it empty, and never repeats.
 
 Delivery history is kept for thirty days and a thousand attempts per endpoint and
 not longer; an older answer is gone. A replay cannot reach further back than the

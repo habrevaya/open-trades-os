@@ -610,6 +610,39 @@ audit log naming the sign in (and the contact, when a contact signed in as the c
 Closing a chat that is closed, or before there was one, changes nothing. Twelve a minute
 per customer, like writing.
 
+**The office closes a chat too.** On a chat from a customer's account, the inbox has **Close this
+chat** under the conversation's heading (`POST /v1/conversations/{id}/closed`, `message:send`,
+held to the conversations that person may see). It ends the conversation the way the customer's
+close does, whoever has it, and nothing the office has not read is marked read and no task is
+closed. The inbox then says who closed it and when ("Mona Ruiz closed this chat on ..."), the list
+marks it **Closed by the office** (`closedBy` on `GET /v1/conversations` and
+`GET /v1/conversations/{id}`, with `closedByName` and `officeClosedAt` on the thread), a reply into it
+is refused in words, and `portal.chat_closed_by_office` is on the audit log. What the customer sees
+is different from their own close, on purpose: their chat page says "{Company} closed this chat. You
+can still read it below. Write below to start a new one." and keeps showing what was said, because
+an answer that came just before the close is one they may not have read yet, and hiding it with the
+close would make the close a way of losing it. Opening the page reads it. The next thing they write
+opens a new conversation. A notice that quiet hours were holding for an answer still goes, because
+its link leads to that transcript. Only a chat from a customer's account can be closed here: a
+website visitor's chat ends when they leave, and a text or an email thread has no end. Closing a
+closed chat changes nothing, so a double click and a retry are the same close; a chat the customer
+closed stays theirs.
+
+**A chat that goes quiet closes itself, if the company asks.** On `/settings/portal`, under **Quiet
+chats**, the company says how many days of quiet should close a chat (1 to 90, counted in the
+company's calendar days, `chatIdleCloseDays` on `PATCH /v1/portal-settings`, `settings:write`). It is
+empty, and nothing is closed, until the company chooses. The worker then closes an account chat whose
+last message is the company's, the assistant's or a person's, once that was written on or before the
+day that many days back. A chat where the customer wrote last is never closed this way, however old:
+they are waiting for an answer, and telling them "we closed your chat" would turn the office's delay
+into the customer's fault. It is closed exactly like the office's close, marked as closed for going
+quiet (`closedBy` is `idle`, no person), the customer's page says "{Company} closed this chat because
+it had been quiet for a while. You can still read it below.", the inbox says "This chat was closed
+on ... because it went quiet.", and `portal.chat_closed_idle` is on the audit log. Nobody is texted
+or emailed about it. The worker asks the database which companies have the setting on and a portal
+chat still open (`app.portal_chat_idle_organizations`, which skips a suspended company), at most
+once a minute, and a company's failure stays with that company.
+
 ### Readings in a narrow band
 
 A reading is drawn from zero unless the trade says otherwise. A trade pack can
@@ -912,6 +945,7 @@ in from, and which codes failed, are the office's business.
 | `GET /v1/portal/chat` | nothing: a sign in only (asking marks the chat read) |
 | `POST /v1/portal/chat/messages` | nothing: a sign in only, counted per customer |
 | `POST /v1/portal/chat/close` | nothing: a sign in only, counted per customer |
+| `POST /v1/conversations/{id}/closed` | `message:send`, in the conversations that person may see |
 | `GET /v1/portal/chat/unread` | nothing: a sign in only |
 | `GET /v1/portal/chat/pictures/{messageId}/{index}` | nothing: a sign in only, a message in the customer's own chat |
 | `POST /v1/attachments/{id}/seen` | `document:read` |
@@ -999,8 +1033,15 @@ Booking from the account asks for a technician; the office still books it,
 and nothing puts it on the board until somebody does. The chat from the account
 takes photos (not PDFs, which go through "Send us a photo or a PDF"), and the
 customer cannot clear a chat or take a picture back, and cannot read a chat they
-closed again (the office keeps it; their page starts empty). Only the customer closes
-a chat: the office has no button for it, and a chat nobody closes stays open for good.
+closed again (the office keeps it; their page starts empty). A chat the office or the quiet
+chat rule closed they can still read, but only the one chat they last had: older ones are not
+listed. The office closes only a chat from a customer's account, not a website visitor's, a
+text thread or an email thread, and closing is not undone: the customer writing again opens a
+new conversation, and the office cannot reopen the old one. The quiet chat rule is one number for the whole
+company, applies only to a chat the company wrote last in, and does not tell the customer by
+text or email, so a customer who is not looking at the page learns of it when they next open
+the chat. A chat the customer wrote last in and nobody answered stays open for good until a
+person closes it.
 The automated assistant, once a person has answered, does not take the conversation back, and
 never answers a message with a picture. The notice that the office answered is
 sent once and, apart from the one quiet hours held (above), not retried on its

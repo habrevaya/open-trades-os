@@ -167,6 +167,87 @@ export function holdNudgeDays(saved: unknown): number | null {
   return typeof saved === "number" && holdNudgeProblem(saved) === null ? saved : null;
 }
 
+/**
+ * WHEN THE NUDGE IS DUE, HOW OFTEN IT COMES BACK, AND WHO GETS IT
+ *
+ * Beside the number of days, a company may say how long the office has to act
+ * on the nudge (a due date on the task, so the queue's late rules have
+ * something to act on), how many days later it is raised again while the job
+ * is still on hold, and who it is given to. All three are off by default, so a
+ * company that never asked gets the task it always got: no due date, raised
+ * once, for nobody in particular.
+ *
+ * Who it is given to:
+ *   nobody      the office queue, as before
+ *   placed_by   whoever put the job on hold. A job has no owner of its own, and
+ *               the person who put it on hold is the one who knows what it is
+ *               waiting for
+ *   person      a named colleague
+ */
+export const HOLD_NUDGE_MOST_DUE_DAYS = 30;
+export const HOLD_NUDGE_MOST_REPEAT_DAYS = 90;
+
+export type HoldNudgeAssign = "nobody" | "placed_by" | "person";
+export const HOLD_NUDGE_ASSIGN: HoldNudgeAssign[] = ["nobody", "placed_by", "person"];
+
+export interface HoldNudgeRules {
+  /** Days on hold before the first nudge. Null: no nudges at all. */
+  days: number | null;
+  /** Days the office has to act, counted from the day it is raised; null: no due date. */
+  dueDays: number | null;
+  /** Days after one nudge to raise it again while the job is still on hold; null: never. */
+  repeatDays: number | null;
+  assignTo: HoldNudgeAssign;
+  /** Who, when `assignTo` is "person". */
+  assigneeUserId: string | null;
+}
+
+export const HOLD_NUDGE_OFF: HoldNudgeRules = {
+  days: null, dueDays: null, repeatDays: null, assignTo: "nobody", assigneeUserId: null,
+};
+
+/** Why one of the extra settings is refused, or null when it is a whole number in range, or empty. */
+export function holdNudgeCountProblem(value: unknown, most: number, what: string, least = 1): string | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < least || value > most) {
+    return `Give ${what} as a whole number from ${least} to ${most}, or leave it empty.`;
+  }
+  return null;
+}
+
+/** Why a whole set of rules is refused, or null when it is fine. */
+export function holdNudgeRulesProblem(rules: HoldNudgeRules): string | null {
+  return holdNudgeProblem(rules.days)
+    ?? holdNudgeCountProblem(rules.dueDays, HOLD_NUDGE_MOST_DUE_DAYS, "the days the office has", 0)
+    ?? holdNudgeCountProblem(rules.repeatDays, HOLD_NUDGE_MOST_REPEAT_DAYS, "the days before it is raised again")
+    ?? (!HOLD_NUDGE_ASSIGN.includes(rules.assignTo) ? "Choose who the task goes to." : null)
+    ?? (rules.assignTo === "person" && !rules.assigneeUserId ? "Choose which person the task goes to." : null);
+}
+
+/** The rules as saved, with anything that is not good read as off. Never throws. */
+export function holdNudgeRules(saved: unknown): HoldNudgeRules {
+  const raw = (saved && typeof saved === "object" ? saved : {}) as Record<string, unknown>;
+  const count = (v: unknown, most: number, least: number): number | null =>
+    typeof v === "number" && holdNudgeCountProblem(v, most, "", least) === null ? v : null;
+  const assignTo = HOLD_NUDGE_ASSIGN.includes(raw["assignTo"] as HoldNudgeAssign) ? raw["assignTo"] as HoldNudgeAssign : "nobody";
+  const assigneeUserId = typeof raw["assigneeUserId"] === "string" ? raw["assigneeUserId"] : null;
+  return {
+    days: holdNudgeDays(raw["days"]),
+    dueDays: count(raw["dueDays"], HOLD_NUDGE_MOST_DUE_DAYS, 0),
+    repeatDays: count(raw["repeatDays"], HOLD_NUDGE_MOST_REPEAT_DAYS, 1),
+    assignTo: assignTo === "person" && !assigneeUserId ? "nobody" : assignTo,
+    assigneeUserId: assignTo === "person" ? assigneeUserId : null,
+  };
+}
+
+/**
+ * Whether a nudge already raised is due to be raised again: the company asked
+ * for repeats, and that many calendar days have passed since the last one.
+ */
+export function holdNudgeRepeatDue(lastNudgedOn: string, today: string, repeatDays: number | null): boolean {
+  return repeatDays !== null && daysHeld(lastNudgedOn, today) >= repeatDays;
+}
+
 /** How many calendar days a hold has lasted: placed on the 10th, today the 13th, is 3. Never negative. */
 export function daysHeld(placedOn: string, today: string): number {
   const days = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${placedOn}T00:00:00Z`)) / 864e5);
@@ -188,8 +269,8 @@ export function holdWords(reason: string, note: string | null | undefined): stri
 }
 
 /** The task the office is given: the job, the reason and how long, in one line. */
-export function holdNudgeTitle(input: { jobLabel: string; reason: string; held: number }): string {
-  return `Job ${input.jobLabel} has been on hold ${dayCount(input.held)}: ${holdReasonLabel(input.reason).toLowerCase()}`;
+export function holdNudgeTitle(input: { jobLabel: string; reason: string; held: number; again?: boolean }): string {
+  return `Job ${input.jobLabel} ${input.again ? "is still on hold" : "has been on hold"} ${dayCount(input.held)}: ${holdReasonLabel(input.reason).toLowerCase()}`;
 }
 
 /**
@@ -200,8 +281,11 @@ export function holdNudgeTitle(input: { jobLabel: string; reason: string; held: 
 export function holdNudgeBody(input: {
   customerName: string; summary: string; reason: string; note: string | null; held: number;
   since: string; placedBy: string | null; days: number;
+  /** Which reminder this is, from 2, when the nudge has been raised before for this hold. */
+  reminder?: number;
 }): string {
-  return `${input.customerName}: ${input.summary}. ${holdWords(input.reason, input.note)}. `
+  const again = input.reminder && input.reminder > 1 ? `This is reminder ${input.reminder} for this hold. ` : "";
+  return `${again}${input.customerName}: ${input.summary}. ${holdWords(input.reason, input.note)}. `
     + `On hold since ${input.since}${input.placedBy ? `, put there by ${input.placedBy}` : ""}, which is ${dayCount(input.held)}. `
     + `Your company asked to be told after ${dayCount(input.days)}. `
     + "Chase whoever it is waiting on, or take the job off hold on its page when the wait is over. "

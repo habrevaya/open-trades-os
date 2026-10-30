@@ -1,7 +1,11 @@
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customerPortal as cp } from "@opentradesos/core";
-import { ConflictError, NotFoundError, audit, inTenant, type RequestMeta } from "./context";
+import { customerPortal as cp, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
+import {
+  ConflictError, NotFoundError, audit, guardedWrite, inTenant, scopeOf, timezoneOf, type RequestMeta, type ServiceContext,
+} from "./context";
+import { conversationScopeFilter } from "./scope";
+import { settingsWithin } from "./portal-settings";
 import * as base from "./agents";
 import { chatReader, chatTranscript, disclosure, handOff, inbound, answerChat } from "./agent-chat";
 import { companyOf } from "./agent-facts";
@@ -57,6 +61,17 @@ import type { AiDeps } from "./ai";
  * and closes the page must not drop out of the office's sight. The customer's
  * page starts empty again, and the old conversation is theirs no more to read.
  *
+ * THE OFFICE CAN CLOSE IT TOO, and so can a rule. "Close this chat" in the inbox
+ * (`closeFromOffice`) ends the conversation the same way, but the customer's page
+ * says the company closed it and keeps showing them what was said, because an
+ * answer they have not yet seen must not vanish with the close. The company can
+ * also choose a number of quiet days (`chatIdleCloseDays` in the portal settings,
+ * off until chosen): the worker then closes a chat the company wrote last in and
+ * the customer has not written to for that long (`idleClosePass`). A chat the
+ * customer wrote last in is never closed that way, because a customer waiting on
+ * an answer is not an idle one. Neither tells the customer by text or email; they
+ * see it the next time they open the chat. A chat has one closer.
+ *
  * WHAT THE CUSTOMER HAS SEEN. Opening the chat, or writing in it, marks it
  * read (`customer_read_at`). A reply from the office newer than that is an
  * unread one: the account page marks it, and the notice that tells the
@@ -70,6 +85,12 @@ export interface PortalChatView {
   assistant: boolean;
   /** Null before the customer has written anything. */
   status: "open" | "handed_off" | "closed" | null;
+  /**
+   * Who closed it, when it is closed: the customer (the page is empty), or the
+   * company (a person, or the quiet chat rule), in which case the page still
+   * shows what was said and says the company closed it.
+   */
+  closedBy?: "customer" | "office" | "idle" | null;
   bookingTaken: boolean;
   messages: {
     id: string; from: "visitor" | "assistant" | "person"; text: string; at: string;
@@ -153,10 +174,21 @@ export async function read(db: Database, input: { token: string; after?: string 
     const found = await find(tx, session);
     if (!found) return { assistant, status: null, bookingTaken: false, messages: [] };
     /** A chat the customer closed shows as closed and empty until they write again. */
-    if (found.chat.status === "closed") return { assistant, status: "closed" as const, bookingTaken: false, messages: [] };
+    if (found.chat.status === "closed" && !found.chat.officeClosedAt) {
+      return { assistant, status: "closed" as const, closedBy: "customer" as const, bookingTaken: false, messages: [] };
+    }
+    /**
+     * A chat the company closed still shows what was said, and is read as it is
+     * opened: the answer that came just before the close is the one they have
+     * not seen yet.
+     */
     await tx.update(schema.aiChatSession).set({ customerReadAt: sql`now()` })
       .where(eq(schema.aiChatSession.id, found.chat.id));
-    return { assistant, ...(await viewOf(tx, found.chat, input.after)) };
+    return {
+      assistant,
+      ...(found.chat.status === "closed" ? { closedBy: found.chat.officeCloseKind ?? "office" } : {}),
+      ...(await viewOf(tx, found.chat, input.after)),
+    };
   });
 }
 
@@ -399,6 +431,153 @@ export async function close(
   return read(db, input);
 }
 
+/**
+ * A person in the office closes a chat from a customer's account.
+ *
+ * `message:send`, because it is the inbox's own reply box that closes it, held to
+ * the same conversation scope as reading it. Only an account chat: a website
+ * visitor's chat ends when they leave, and a text or an email thread has no end.
+ * The conversation is closed, the chat is marked closed by the office with who
+ * and when, and a reply into it is refused from then on. Nothing the office has
+ * not read is marked read, no task is closed, and a notice that quiet hours were
+ * holding still goes (the link leads to the transcript). Closing a closed chat
+ * changes nothing, so a double click and a retry are the same close.
+ */
+export function closeFromOffice(ctx: ServiceContext, input: { id: string }) {
+  return guardedWrite(ctx, "message:send", async (tx) => {
+    const [row] = await tx.select({ conversation: schema.conversation, chat: schema.aiChatSession })
+      .from(schema.conversation)
+      .leftJoin(schema.aiChatSession, eq(schema.aiChatSession.conversationId, schema.conversation.id))
+      .where(and(
+        eq(schema.conversation.id, input.id),
+        isNull(schema.conversation.deletedAt),
+        conversationScopeFilter(scopeOf(ctx, "conversation"), ctx.actor),
+      ))
+      .limit(1);
+    if (!row) throw new NotFoundError("Conversation");
+    if (!row.chat || row.chat.channel !== "portal") {
+      throw new ConflictError("Only a chat the customer started from their account can be closed here.");
+    }
+    const found = { conversation: row.conversation, chat: row.chat };
+    const answer = (chat: typeof found.chat) => ({
+      id: found.conversation.id,
+      closedBy: chat.customerClosedAt ? "customer" as const : (chat.officeCloseKind ?? "office"),
+      closedAt: (chat.customerClosedAt ?? chat.officeClosedAt ?? chat.updatedAt).toISOString(),
+    });
+    if (found.chat.status === "closed") return answer(found.chat);
+
+    const now = new Date();
+    const [closed] = await tx.update(schema.aiChatSession).set({
+      status: "closed",
+      officeClosedAt: now,
+      officeClosedByUserId: ctx.actor.userId,
+      officeCloseKind: "office",
+      writing: null,
+      updatedAt: now,
+    }).where(eq(schema.aiChatSession.id, found.chat.id)).returning();
+    await tx.update(schema.conversation).set({ status: "closed", updatedAt: now })
+      .where(eq(schema.conversation.id, found.conversation.id));
+    await audit(tx, ctx, "portal.chat_closed_by_office", "conversation", found.conversation.id,
+      { status: found.chat.status }, { status: "closed", closedBy: "office" });
+    return answer(closed!);
+  });
+}
+
+/* ------------------------------------------------------ chats gone quiet */
+
+/** What the worker acts as here: it closes chats and writes the audit line, and nothing else. */
+function idleActor(organizationId: string): Actor {
+  return { userId: SYSTEM_USER_ID, organizationId, roles: [], grants: [], agentId: "portal-chat-idle" };
+}
+
+/** The most one pass closes for one company; the rest wait for the next pass. */
+const IDLE_CLOSES_PER_PASS = 200;
+
+/**
+ * Close this company's account chats that have gone quiet, as of `now`.
+ *
+ * Only when the company chose a number of days. A chat is quiet when the last
+ * thing in it is the company's (the assistant's or a person's) and that was
+ * written at or before the day that many company days back: a chat where the
+ * customer wrote last is waiting for an answer, not idle, and is never closed
+ * here. Returns the conversations it closed.
+ */
+export async function closeIdleIn(tx: Database, ctx: ServiceContext, now = new Date()): Promise<string[]> {
+  const organizationId = ctx.actor.organizationId;
+  const days = (await settingsWithin(tx, organizationId)).chatIdleCloseDays;
+  if (days === null) return [];
+  const zone = await timezoneOf(tx, organizationId);
+  const today = time.dateIn(now, zone);
+  /** Written on or before this day has been quiet the days: the first instant after it is the bound. */
+  const quietBefore = time.startOfDayIn(time.addDays(today, 1 - days), zone);
+  const due = await tx.execute<{ chat_id: string; conversation_id: string }>(sql`
+    select s.id as chat_id, s.conversation_id
+      from public.ai_chat_session s
+      join public.conversation c on c.id = s.conversation_id
+      cross join lateral (
+        select m.direction::text as direction, m.created_at
+          from public.message m
+         where m.conversation_id = s.conversation_id
+         order by m.created_at desc, m.id desc limit 1
+      ) last
+     where s.organization_id = ${organizationId}::uuid
+       and s.channel = 'portal'
+       and s.status <> 'closed'
+       and c.deleted_at is null
+       and last.direction = 'outbound'
+       and last.created_at < ${quietBefore.toISOString()}::timestamptz
+     order by last.created_at
+     limit ${IDLE_CLOSES_PER_PASS}`);
+  const closed: string[] = [];
+  for (const row of due) {
+    /** The claim: only the pass whose update lands closes it and writes the line. */
+    const [claimed] = await tx.update(schema.aiChatSession).set({
+      status: "closed", officeClosedAt: now, officeClosedByUserId: null, officeCloseKind: "idle", writing: null, updatedAt: now,
+    }).where(and(eq(schema.aiChatSession.id, row.chat_id), sql`${schema.aiChatSession.status} <> 'closed'`))
+      .returning({ id: schema.aiChatSession.id });
+    if (!claimed) continue;
+    await tx.update(schema.conversation).set({ status: "closed", updatedAt: now })
+      .where(eq(schema.conversation.id, row.conversation_id));
+    await audit(tx, ctx, "portal.chat_closed_idle", "conversation", row.conversation_id,
+      { status: "open" }, { status: "closed", closedBy: "idle", quietDays: days });
+    closed.push(row.conversation_id);
+  }
+  return closed;
+}
+
+export interface IdleClosePassResult { organizationId: string; closed: number; failed: string | null }
+
+let lastIdlePass: number | null = null;
+
+/**
+ * Every company that chose a number of quiet days and has an account chat that
+ * could be due, once a minute at most per process: it is counted in days, and
+ * nothing gains from asking more often. One company's failure is kept to that
+ * company.
+ */
+export async function idleClosePass(
+  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean; force?: boolean } = {},
+): Promise<IdleClosePassResult[]> {
+  const at = (options.now ?? new Date()).getTime();
+  if (!options.force && lastIdlePass !== null && at - lastIdlePass < 60_000 && at >= lastIdlePass) return [];
+  lastIdlePass = at;
+  const rows = await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.portal_chat_idle_organizations(${options.limit ?? 200})`,
+  );
+  const results: IdleClosePassResult[] = [];
+  for (const row of rows) {
+    if (options.shouldStop?.()) break;
+    const ctx: ServiceContext = { actor: idleActor(row.organization_id), db };
+    try {
+      const closed = await inTenant(ctx, (tx) => closeIdleIn(tx, ctx, options.now ?? new Date()));
+      results.push({ organizationId: row.organization_id, closed: closed.length, failed: null });
+    } catch (error) {
+      results.push({ organizationId: row.organization_id, closed: 0, failed: (error as Error).message });
+    }
+  }
+  return results;
+}
+
 /** A picture as the customer sent it. The name and type are the browser's word; what it is comes from the bytes. */
 export interface PortalChatPictureInput {
   fileName: string;
@@ -414,6 +593,7 @@ export const handlers = {
     meta?: RequestMeta,
   ) => say(db, input, meta),
   closePortalChat: (db: Database, input: { token: string }) => close(db, input),
+  closeConversation: (ctx: ServiceContext, input: { id: string }) => closeFromOffice(ctx, input),
   getPortalChatUnread: (db: Database, input: { token: string }) => unreadReplies(db, input),
   getPortalChatPicture: async (db: Database, input: { token: string; messageId: string; index: number }) => {
     const found = await picture(db, input);

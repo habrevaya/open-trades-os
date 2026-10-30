@@ -126,6 +126,15 @@ export const estimate = pgTable("estimate", {
    * starts the follow up again.
    */
   expiryExtendedAt: timestamp("expiry_extended_at", { withTimezone: true }),
+  /**
+   * When the office started the follow up again from the day it gave the
+   * customer longer (the tick on "Give them longer to answer" that is left
+   * alone by default). The "estimate nobody answered" sweep then counts its
+   * days from here instead of from the send, and chases once for each time
+   * this moves. Null: never started again. A later send moves `sent_at` past
+   * it and starts the follow up from the send.
+   */
+  followUpFrom: timestamp("follow_up_from", { withTimezone: true }),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   declineReason: text("decline_reason"),
   /** Which option the customer actually chose. Drives close-rate and mix reporting. */
