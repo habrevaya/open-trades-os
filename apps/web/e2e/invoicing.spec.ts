@@ -101,7 +101,8 @@ test("a payment the service refuses keeps everything that was typed, so only the
   await owner.getByLabel("Cheque number").fill("2210");
   await owner.getByLabel("Notes").fill(`Left in the mailbox ${run}`);
   await owner.getByRole("button", { name: "Record payment" }).click();
-  await expect(owner.getByRole("alert")).toBeVisible();
+  // The refusal itself, not Next's empty route announcer, which also has the alert role.
+  await expect(owner.getByRole("alert").filter({ hasText: "Allocations total" })).toBeVisible();
 
   // Nothing typed was lost under the refusal.
   await expect(owner.getByLabel("How it was paid")).toHaveValue("check");
