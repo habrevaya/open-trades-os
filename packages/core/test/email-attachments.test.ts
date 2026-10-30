@@ -53,8 +53,11 @@ describe("the limits", () => {
     expect(files.checkEmailAttachment({ fileName: "a.pdf", contentType: "application/pdf", bytes: big }, { bytesAlreadyKept: 0 }).ok).toBe(false);
     expect(files.checkEmailAttachment({ fileName: "a.pdf", contentType: "application/pdf", bytes: pdf },
       { bytesAlreadyKept: files.EMAIL_ATTACHMENTS.maxTotalBytes }).ok).toBe(false);
-    expect(files.checkEmailAttachment({ fileName: "notes.txt", contentType: "text/plain", bytes: new TextEncoder().encode("hello") },
+    /** A text file is a kept type since Word, spreadsheet, text and zip files were allowed on a reply; bytes that are none of them are not. */
+    expect(files.checkEmailAttachment({ fileName: "notes.bin", contentType: "application/octet-stream", bytes: Uint8Array.from([1, 2, 3, 4]) },
       { bytesAlreadyKept: 0 }).ok).toBe(false);
+    expect(files.checkEmailAttachment({ fileName: "notes.txt", contentType: "text/plain", bytes: new TextEncoder().encode("hello") },
+      { bytesAlreadyKept: 0 })).toMatchObject({ ok: true, contentType: "text/plain", extension: "txt" });
     expect(files.checkEmailAttachment({ fileName: "a.pdf", contentType: "application/pdf", bytes: pdf }, { bytesAlreadyKept: 0 }))
       .toMatchObject({ ok: true, contentType: "application/pdf", extension: "pdf" });
   });
