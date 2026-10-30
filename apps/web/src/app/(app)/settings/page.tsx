@@ -231,14 +231,13 @@ export default async function SettingsPage() {
                 {applying.keptOwn > 0 ? ` (${applying.keptOwn} ${applying.keptOwn === 1 ? "person has" : "people have"} some)` : ""}.
                 {" "}Texts are not changed. Save the table above first: this gives what is saved.
               </p>
-              {applying.changed > 0 ? (
-                <ActionForm action={applyNoticeDefaults} submit="Apply to everybody" tone="quiet" className="mt-3 space-y-2">
-                  <label className="flex items-start gap-2 text-sm">
-                    <input type="checkbox" name="confirmed" value="yes" required className="mt-0.5 h-4 w-4" />
-                    <span>Yes, give everybody these, except where they chose their own.</span>
-                  </label>
-                </ActionForm>
-              ) : null}
+              {/* Always drawn, so what it did stays on screen after the page shows nobody left to change. */}
+              <ActionForm action={applyNoticeDefaults} submit="Apply to everybody" tone="quiet" className="mt-3 space-y-2">
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" name="confirmed" value="yes" required className="mt-0.5 h-4 w-4" />
+                  <span>Yes, give everybody these, except where they chose their own.</span>
+                </label>
+              </ActionForm>
             </div>
           ) : null}
         </section>
