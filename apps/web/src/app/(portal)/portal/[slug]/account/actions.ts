@@ -124,6 +124,20 @@ export async function setAutopayBackup(
   return { ok: true };
 }
 
+/** The backup cards in a new order, in one step: every backup, in the order they should be tried. */
+export async function orderAutopayBackups(
+  slug: string, cardIds: string[],
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    await cardOnFile.orderBackups(getDb(), { token: session.token, cardIds });
+  } catch (error) {
+    return { ok: false, message: refusalOf(error) ?? fault };
+  }
+  revalidatePath(home(slug));
+  return { ok: true };
+}
+
 export async function withdrawCharges(slug: string, cardId: string): Promise<{ ok: true } | { ok: false; message: string }> {
   const session = await requirePortalSession(slug);
   try {

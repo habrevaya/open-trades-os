@@ -335,3 +335,85 @@ run("a backup when the automatic payment fails", () => {
     expect(listed.cards.find((c) => c.id === master)!.agreement!.autopayRank).toBeNull();
   });
 });
+
+run("putting the backups in a new order", () => {
+  it("swaps them in one step, keeps each agreed as it was, and the next run tries them in the new order", async () => {
+    await setUp([master, amex]);
+    const before = await raw<{ id: string; saved_payment_method_id: string; autopay_wording: string; autopay_at: Date }[]>`
+      select id, saved_payment_method_id, autopay_wording, autopay_at from public.payment_agreement
+       where customer_id = ${remy} and withdrawn_at is null order by saved_payment_method_id`;
+
+    const ordered = await cardOnFile.orderBackups(db(), { token, cardIds: [amex, master] });
+    expect(ordered.backups.map((b) => [b.cardId, b.autopayRank])).toEqual([[amex, 2], [master, 3]]);
+
+    /** Nothing stopped, no words asked again: the same agreements, words and times, in new places. */
+    const after = await raw<{ id: string; saved_payment_method_id: string; autopay_wording: string; autopay_at: Date }[]>`
+      select id, saved_payment_method_id, autopay_wording, autopay_at from public.payment_agreement
+       where customer_id = ${remy} and withdrawn_at is null order by saved_payment_method_id`;
+    expect(after.map((r) => [r.id, r.autopay_wording, r.autopay_at.getTime()]))
+      .toEqual(before.map((r) => [r.id, r.autopay_wording, r.autopay_at.getTime()]));
+    const listed = await savedCards.list(db(), { token });
+    expect(Object.fromEntries(listed.cards.map((c) => [c.id, c.agreement?.autopayRank]))).toEqual({
+      [visa]: 1, [amex]: 2, [master]: 3,
+    });
+
+    const [audited] = await raw<{ before: { order: string[] }; after: { order: string[] } }[]>`
+      select before, after from public.audit_log
+       where organization_id = ${ORG} and action = 'portal.card.autopay_backups_ordered' and entity_id = ${remy}`;
+    const id = (card: string) => before.find((r) => r.saved_payment_method_id === card)!.id;
+    expect(audited!.before.order).toEqual([id(master), id(amex)]);
+    expect(audited!.after.order).toEqual([id(amex), id(master)]);
+
+    stripe.answers.set("4242", { code: "card_declined", message: "Your card was declined." });
+    stripe.answers.set("0005", { code: "expired_card", message: "Your card has expired." });
+    const invoiceId = await anInvoice(remy, "60.00");
+    await cardOnFile.autopayFor(db(), ORG, { deps: deps() });
+    expect((await charges(invoiceId)).map((r) => [r.card_rank, r.saved_payment_method_id, r.status])).toEqual([
+      [1, visa, "failed"], [2, amex, "failed"], [3, master, "submitted"],
+    ]);
+  });
+
+  it("closes a gap left by a stopped backup, and changes nothing when the order is the same", async () => {
+    const fourth = (await saveACard(token)).id;
+    await setUp([master, amex]);
+    await cardOnFile.setBackup(db(), { token, cardId: master, on: false });
+    await cardOnFile.agree(db(), { token, cardId: fourth, wording: (await wordsFor(token, fourth)).agreement });
+    await cardOnFile.setBackup(db(), { token, cardId: fourth, on: true, wording: (await wordsFor(token, fourth)).backup });
+
+    const same = await cardOnFile.orderBackups(db(), { token, cardIds: [amex, fourth] });
+    /** The amex was third and the new card fourth; asked in the same order, they close up to second and third. */
+    expect(same.backups.map((b) => [b.cardId, b.autopayRank])).toEqual([[amex, 2], [fourth, 3]]);
+    const audits = await raw`select 1 from public.audit_log where organization_id = ${ORG} and action = 'portal.card.autopay_backups_ordered'`;
+    expect(audits).toHaveLength(1);
+    await cardOnFile.orderBackups(db(), { token, cardIds: [amex, fourth] });
+    expect(await raw`select 1 from public.audit_log where organization_id = ${ORG} and action = 'portal.card.autopay_backups_ordered'`).toHaveLength(1);
+  });
+
+  it("refuses a list that is not exactly the backups there are, and changes nothing", async () => {
+    await setUp([master, amex]);
+    const refusal = /Your backup cards have changed since this page was opened/;
+    for (const cardIds of [[master], [amex, master, visa], [amex, amex], [visa, master], []]) {
+      await expect(cardOnFile.orderBackups(db(), { token, cardIds })).rejects.toThrow(refusal);
+    }
+    const listed = await savedCards.list(db(), { token });
+    expect(Object.fromEntries(listed.cards.map((c) => [c.id, c.agreement?.autopayRank]))).toEqual({
+      [visa]: 1, [master]: 2, [amex]: 3,
+    });
+  });
+
+  it("is the customer's own sign in only: a link to their account, or another customer's sign in, cannot do it", async () => {
+    await setUp([master, amex]);
+    const link = await inTenant(owner(), (tx) => portal.mintGrant(tx, {
+      organizationId: ORG, customerId: remy, scope: "customer", expiresInDays: 7,
+    }));
+    await expect(cardOnFile.orderBackups(db(), { token: link.token, cardIds: [amex, master] })).rejects.toThrow();
+
+    const someone = (await customers.create(owner(), {
+      type: "residential", name: "Someone Else", email: "else@backup.test", paymentTermsDays: 0, taxExempt: false, tags: [], customFields: {},
+    })).id as string;
+    const theirs = await signedIn(someone);
+    await expect(cardOnFile.orderBackups(db(), { token: theirs, cardIds: [amex, master] })).rejects.toThrow(/have changed/);
+    const listed = await savedCards.list(db(), { token });
+    expect(listed.cards.find((c) => c.id === master)!.agreement!.autopayRank).toBe(2);
+  });
+});

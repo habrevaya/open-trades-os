@@ -218,6 +218,16 @@ export const StatementDelivery = z.object({
     typed: z.boolean(),
     messageStatus: z.string().nullable(),
     error: z.string().nullable(),
+    /**
+     * The link that opens only this statement, on a copy to a typed address:
+     * its id (stopped with `POST /v1/portal/grants/{id}/revoke`), whether it
+     * still opens, and until when. Null on a copy to the customer's own people.
+     */
+    link: z.object({
+      id: Uuid,
+      state: z.enum(["open", "expired", "stopped"]),
+      expiresAt: z.string().datetime(),
+    }).nullable().optional(),
   })).optional(),
   createdAt: z.string().datetime(),
 });
@@ -324,7 +334,27 @@ export const setStatementCopy = defineRoute({
   output: z.object({ customerId: Uuid, contactId: Uuid.nullable(), name: z.string().nullable() }),
 });
 
+/**
+ * The statement a statement only link opens, for whoever holds it: an address
+ * the office typed for a copy. The period comes from the statement that went,
+ * never the request, and nothing else of the customer's account is reachable
+ * with the link. A read, so opening it does not spend it.
+ */
+export const viewStatementLink = defineRoute({
+  method: "get",
+  path: "/v1/portal/statement",
+  summary: "One statement, for the holder of a link to it",
+  description:
+    "For a link of the `statement` scope only: every other kind of link is refused here, and this kind is refused everywhere else. The statement for the period it was sent for, read from the books when opened, and when the link stops opening it. Expired or stopped, it opens nothing.",
+  module: "M13",
+  permissions: [],
+  authorization: "grant",
+  input: z.object({ token: z.string().min(20).max(200) }),
+  output: CustomerStatement.extend({ linkExpiresAt: z.string().datetime() }),
+});
+
 export const statementRoutes = {
+  viewStatementLink,
   getCustomerStatement, emailCustomerStatement, textCustomerStatement, listStatementDeliveries,
   getStatementSchedule, setStatementSchedule, getStatementCopy, setStatementCopy,
 } as const;

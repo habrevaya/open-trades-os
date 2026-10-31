@@ -35,6 +35,13 @@ const OrderView = z.object({
   acceptanceIsIrreversible: z.boolean(),
   acceptsViaInvoiceOnly: z.boolean(),
   jobId: Uuid.nullable(),
+  /** Who the order is for, as one of our customers, when the sync or the office said. */
+  customerId: Uuid.nullable(),
+  clientName: z.string().nullable(),
+  /** The client's own codes for the work, as they sent them. */
+  clientCodes: z.array(z.object({
+    code: z.string(), quantity: z.string().nullable(), description: z.string().nullable(),
+  })),
   payload: z.record(z.unknown()),
   lastSyncedAt: z.string().nullable(),
   pendingPush: z.boolean(),
@@ -60,6 +67,14 @@ export const receiveExternalWorkOrder = defineRoute({
     payload: z.record(z.unknown()).optional(),
     acceptanceIsIrreversible: z.boolean().optional(),
     acceptsViaInvoiceOnly: z.boolean().optional(),
+    /** The client the order is for, as one of our customers. Left alone on a resend once a job is on the order. */
+    customerId: Uuid.nullable().optional(),
+    /** The client's own codes for the work. Replaced on a resend that sends them, never mapped on the way in. */
+    codes: z.array(z.object({
+      code: z.string().min(1).max(100),
+      quantity: z.string().max(20).nullable().optional(),
+      description: z.string().max(500).nullable().optional(),
+    })).max(50).optional(),
   }),
   output: OrderView,
 });
@@ -213,7 +228,146 @@ export const listExternalWorkSources = defineRoute({
   }),
 });
 
+/* ------------------------------------------- a client's codes, mapped to ours */
+
+const CodeRow = z.object({
+  id: Uuid,
+  code: z.string(),
+  description: z.string().nullable(),
+  jobTypeId: Uuid.nullable(),
+  jobTypeName: z.string().nullable(),
+  jobTypeActive: z.boolean(),
+  priceBookItemId: Uuid.nullable(),
+  itemCode: z.string().nullable(),
+  itemName: z.string().nullable(),
+  /** False when the item is switched off, removed, or has no price today: the code then adds no line. */
+  itemSold: z.boolean(),
+  quantity: z.string(),
+  updatedAt: z.string(),
+});
+
+const CodeList = z.object({ customerId: Uuid, clientName: z.string(), data: z.array(CodeRow) });
+
+export const listClientWorkCodes = defineRoute({
+  method: "get",
+  path: "/v1/customers/{customerId}/work-codes",
+  summary: "A client's own work order codes, and what each means here",
+  description:
+    "One list per client, because two clients' PLB-07 are two different things. Each code maps to a kind of work (a job type), a price book item and how many, or both. A code whose item is no longer sold or whose job type is switched off is still listed, marked, and adds nothing to a proposal.",
+  module: "M31",
+  permissions: ["contract:read"],
+  idempotent: true,
+  input: z.object({ customerId: Uuid }),
+  output: CodeList,
+});
+
+export const setClientWorkCodes = defineRoute({
+  method: "put",
+  path: "/v1/customers/{customerId}/work-codes",
+  summary: "Replace a client's list of codes",
+  description:
+    "The whole list in one call: a row left out is taken off. Codes are matched without capitals or spaces at the ends. A code twice, a row mapped to nothing, a quantity that is not a number more than nothing, and a job type or item that is not this company's or not in use are each refused in words before anything is written. Audited with the list before and after.",
+  module: "M31",
+  permissions: ["contract:write"],
+  idempotent: true,
+  input: z.object({
+    customerId: Uuid,
+    codes: z.array(z.object({
+      code: z.string().min(1).max(100),
+      description: z.string().max(500).nullable().optional(),
+      jobTypeId: Uuid.nullable().optional(),
+      priceBookItemId: Uuid.nullable().optional(),
+      quantity: z.string().max(20).optional(),
+    })).max(200),
+  }),
+  output: CodeList,
+});
+
+export const setExternalWorkOrderClient = defineRoute({
+  method: "put",
+  path: "/v1/external-work-orders/{id}/client",
+  summary: "Say which client an order is for",
+  description:
+    "The codes on an order mean nothing until somebody knows whose they are. Refused once a job is on the order, because the job was made for that customer.",
+  module: "M31",
+  permissions: ["contract:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, customerId: Uuid }),
+  output: OrderView,
+});
+
+const CodeReading = z.object({
+  code: z.string(),
+  description: z.string().nullable(),
+  quantity: z.string().nullable(),
+  mappingId: z.string().nullable(),
+  jobTypeName: z.string().nullable(),
+  itemName: z.string().nullable(),
+  words: z.string(),
+  unmapped: z.boolean(),
+});
+
+export const getExternalWorkOrderProposal = defineRoute({
+  method: "get",
+  path: "/v1/external-work-orders/{id}/proposal",
+  summary: "The job an order's codes propose, for the office to confirm",
+  description:
+    "A read. The client's codes on the order against the client's list: the kind of work when every code that names one names the same one (otherwise none, with a sentence saying which codes said what), a line per mapped item with its quantity times the order's, each priced by the client's card when it has one (matched on our item, then on their code) or by our price book, and every code nothing came of named in words. `refusal` says why the order cannot be taken this way (no client yet, a job already on it, or accepting not allowed from where it stands). `key` is sent back with the confirmation.",
+  module: "M31",
+  permissions: ["contract:read"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    orderId: Uuid,
+    customerId: Uuid.nullable(),
+    clientName: z.string().nullable(),
+    refusal: z.string().nullable(),
+    jobTypeId: Uuid.nullable(),
+    jobTypeName: z.string().nullable(),
+    jobTypeNote: z.string().nullable(),
+    codes: z.array(CodeReading),
+    lines: z.array(z.object({
+      code: z.string(),
+      priceBookItemId: Uuid,
+      name: z.string(),
+      quantity: z.string(),
+      ourPrice: z.string(),
+      unitPrice: z.string(),
+      pricedBy: z.string(),
+      note: z.string().nullable(),
+      outOfScope: z.boolean(),
+    })),
+    unmapped: z.array(z.string()),
+    places: z.array(z.object({ propertyId: Uuid, label: z.string(), siteNumber: z.string().nullable() })),
+    key: z.string(),
+  }),
+});
+
+export const acceptExternalWorkOrderAsProposed = defineRoute({
+  method: "post",
+  path: "/v1/external-work-orders/{id}/accept-as-proposed",
+  summary: "Accept an order and make its job from the proposal",
+  description:
+    "Never silently: it carries the proposal's `key`, and a list or codes changed since the proposal was shown is refused, asking for another look. In one transaction it makes the job for the client at one of their addresses with the kind of work the office confirmed (the proposal's, another, or none), a line per mapped item at our price with the client's code on it so their card prices it by that code when it is billed, the codes nothing came of in the job's notes, and accepts the order with the job on it, owing the client a push. Refused, with nothing written, on an order that already has a job or that accepting is not allowed from. Accepting by hand (`/move`) is unchanged. A retry with the same idempotency key answers with the first job.",
+  module: "M31",
+  permissions: ["contract:write", "job:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    key: z.string().min(1).max(64),
+    propertyId: Uuid,
+    jobTypeId: Uuid.nullable(),
+    summary: z.string().max(300).optional(),
+  }),
+  output: z.object({ order: OrderView, jobId: Uuid }),
+});
+
 export const externalWorkRoutes = {
+  listClientWorkCodes,
+  setClientWorkCodes,
+  setExternalWorkOrderClient,
+  getExternalWorkOrderProposal,
+  acceptExternalWorkOrderAsProposed,
   receiveExternalWorkOrder,
   moveExternalWorkOrder,
   acceptExternalWorkOrderViaInvoice,

@@ -62,10 +62,20 @@ export interface FakeStripe {
   close(): Promise<void>;
 }
 
-export async function fakeStripeApi(): Promise<FakeStripe> {
+export async function fakeStripeApi(options: {
+  /**
+   * The cards saved, in turn: the first card setup is the first of these, the
+   * next the second, and so on round. A Visa ending 4242 every time unless a
+   * spec asks for others, so specs that do not ask see what they always saw.
+   */
+  cards?: ReadonlyArray<{ brand: string; last4: string }>;
+} = {}): Promise<FakeStripe> {
   const intents: FakeIntent[] = [];
   const refunds: FakeRefund[] = [];
   const setups = new Map<string, { customer: string; kind: string }>();
+  const cards = options.cards?.length ? options.cards : [{ brand: "visa", last4: "4242" }];
+  /** Which of `cards` each card setup is, by setup id, in the order they were started. */
+  const cardOf = new Map<string, { brand: string; last4: string }>();
   const stamp = Date.now().toString(36);
   const json = (response: import("node:http").ServerResponse, value: unknown) => {
     response.writeHead(200, { "content-type": "application/json" });
@@ -88,6 +98,7 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
         const params = new URLSearchParams(body);
         const id = `seti_e2e_${stamp}_${setups.size + 1}`;
         setups.set(id, { customer: params.get("customer") ?? "", kind: params.get("payment_method_types[0]") ?? "card" });
+        if (setups.get(id)!.kind !== "us_bank_account") cardOf.set(id, cards[cardOf.size % cards.length]!);
         json(response, { id, object: "setup_intent", client_secret: `${id}_secret_fake`, status: "requires_payment_method" });
         return;
       }
@@ -104,7 +115,10 @@ export async function fakeStripeApi(): Promise<FakeStripe> {
           id: read[1], object: "setup_intent", status: "succeeded", customer: setup.customer,
           payment_method: setup.kind === "us_bank_account"
             ? { id: pm, type: "us_bank_account", us_bank_account: { bank_name: "Frost Bank", last4: "6789" } }
-            : { id: pm, type: "card", card: { brand: "visa", last4: "4242", exp_month: 4, exp_year: 2031 } },
+            : {
+              id: pm, type: "card",
+              card: { ...(cardOf.get(decodeURIComponent(read[1]!)) ?? cards[0]!), exp_month: 4, exp_year: 2031 },
+            },
         });
         return;
       }

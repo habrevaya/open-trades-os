@@ -5,6 +5,7 @@ import { organization } from "./tenancy";
 import { customer, property, contact } from "./crm";
 import { coverageSource } from "./entitlement";
 import { job, jobType } from "./work";
+import { priceBookItem } from "./pricebook";
 import { invoice, invoiceLine } from "./billing";
 import { message } from "./comms";
 import { portalGrant } from "./portal";
@@ -158,6 +159,21 @@ export const externalWorkOrder = pgTable("external_work_order", {
   /** Some accept only by submitting an invoice, with no separate accept call. */
   acceptsViaInvoiceOnly: boolean("accepts_via_invoice_only").notNull().default(false),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+  /**
+   * WHO THE ORDER IS FOR: the client, as one of our customers. A facilities
+   * network carries many clients, and each writes its own codes, so the codes
+   * on an order mean nothing until we know whose they are. Null until the
+   * sync or the office says.
+   */
+  customerId: uuid("customer_id").references(() => customer.id, { onDelete: "set null" }),
+  /**
+   * The client's own codes for the work, as they sent them, with a quantity
+   * and their words when they gave them. Read against `client_work_code` to
+   * propose the job; never mapped on the way in.
+   */
+  clientCodes: jsonb("client_codes")
+    .$type<Array<{ code: string; quantity: string | null; description: string | null }>>()
+    .notNull().default([]),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   /** Set when a local change is waiting to be pushed back. */
   pendingPush: boolean("pending_push").notNull().default(false),
@@ -166,6 +182,37 @@ export const externalWorkOrder = pgTable("external_work_order", {
 }, (t) => ({
   uniq: uniqueIndex("external_work_order_uniq_idx").on(t.organizationId, t.sourceSystem, t.externalId),
   pushIdx: index("external_work_order_push_idx").on(t.organizationId, t.pendingPush),
+}));
+
+/**
+ * A CLIENT'S OWN CODES, MAPPED TO OURS.
+ *
+ * A facilities client writes "PLB-07 Leaking tap" on every order; we call it
+ * a plumbing call and a tap washer. One row says what one code of one client
+ * means here: the kind of work (a job type), a price book item and how many,
+ * or both. Accepting an order PROPOSES the job from these rows and the office
+ * confirms it; nothing is put on a job without somebody looking. A code with
+ * no row is named on the proposal in words rather than dropped.
+ *
+ * Per client, because two clients' "PLB-07" are two different things. The
+ * code is matched without capitals or spaces at the ends, and one client
+ * cannot map the same code twice.
+ */
+export const clientWorkCode = pgTable("client_work_code", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").notNull().references(() => customer.id, { onDelete: "cascade" }),
+  /** As the client writes it. */
+  code: text("code").notNull(),
+  /** What it means to them, for the person reading the list. */
+  description: text("description"),
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "set null" }),
+  priceBookItemId: uuid("price_book_item_id").references(() => priceBookItem.id, { onDelete: "set null" }),
+  /** How many of the item one of their code is. Times the quantity on the order, when it gives one. */
+  quantity: money("quantity").notNull().default("1"),
+  ...timestamps,
+}, (t) => ({
+  codeIdx: uniqueIndex("client_work_code_code_idx").on(t.organizationId, t.customerId, sql`lower(${t.code})`),
 }));
 
 // ---------------------------------------------------------------------------

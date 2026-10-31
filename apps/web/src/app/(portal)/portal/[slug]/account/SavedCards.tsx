@@ -39,6 +39,8 @@ export interface AgreementActions {
   autopay: (cardId: string, on: boolean, wording?: string) => Promise<AgreementResult>;
   /** Keep a card as a backup for paying automatically, or stop. Absent, no backup is offered. */
   backup?: (cardId: string, on: boolean, wording?: string) => Promise<AgreementResult>;
+  /** Put every backup in a new order, in one step. Absent, the order is not offered. */
+  order?: (cardIds: string[]) => Promise<AgreementResult>;
   withdraw: (cardId: string) => Promise<AgreementResult>;
 }
 
@@ -178,6 +180,10 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
         </ul>
       )}
 
+      {agreements?.order && payingWith && backups.length >= 2 && (
+        <BackupOrder backups={backups} first={cardLabel(payingWith)} order={agreements.order} />
+      )}
+
       {canSave && (state === "idle" || state === "loading") && (
         <button
           type="button"
@@ -224,6 +230,57 @@ export function SavedCards({ cards, canSave, canSaveBank = false, start, remove,
       )}
       {error && <p className="mt-3 rounded bg-red-tint px-3 py-2 text-sm text-red-600">{error}</p>}
     </section>
+  );
+}
+
+/**
+ * THE ORDER THE BACKUPS ARE TRIED IN, changed in one step.
+ *
+ * Each backup was agreed in words that name no place, so moving one up asks
+ * for no new words and stops nothing: the whole new order goes to the server
+ * at once, which refuses it if the backups changed in another window.
+ */
+function BackupOrder({ backups, first, order }: {
+  backups: CardRow[];
+  first: string;
+  order: (cardIds: string[]) => Promise<AgreementResult>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+
+  async function moveUp(index: number) {
+    const ids = backups.map((b) => b.id);
+    [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
+    setBusy(true);
+    setError(null);
+    setSaid(null);
+    const result = await order(ids);
+    setBusy(false);
+    if (!result.ok) setError(result.message);
+    else setSaid(`Saved. ${cardLabel(backups[index]!)} is now tried before ${cardLabel(backups[index - 1]!)}.`);
+  }
+
+  return (
+    <div className="mt-4 rounded border border-steel-200 p-3 text-sm" role="group" aria-label="Order of backups">
+      <p className="font-medium text-ink-900">If {first} does not go through, we try these in this order</p>
+      <ol className="mt-2 space-y-1">
+        {backups.map((card, index) => (
+          <li key={card.id} className="flex items-center justify-between gap-3">
+            <span>{index + 1}. {cardLabel(card)}</span>
+            {index > 0 && (
+              <button type="button" disabled={busy} onClick={() => void moveUp(index)}
+                      className="text-sm text-ink-700 underline underline-offset-4 disabled:opacity-40">
+                Try {cardLabel(card)} before {cardLabel(backups[index - 1]!)}
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-xs text-ink-500">Changing the order keeps every backup as you agreed it.</p>
+      {said && <p role="status" className="mt-2 text-ink-700">{said}</p>}
+      {error && <p role="alert" className="mt-2 rounded bg-red-tint px-3 py-2 text-red-600">{error}</p>}
+    </div>
   );
 }
 

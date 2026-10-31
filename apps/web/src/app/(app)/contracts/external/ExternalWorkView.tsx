@@ -14,6 +14,8 @@ export interface OrderRow {
   acceptanceIsIrreversible: boolean;
   acceptsViaInvoiceOnly: boolean;
   jobId: string | null;
+  /** Who the order is for, when the sync or the office said. */
+  clientName?: string | null | undefined;
   lastSyncedAt: string | null;
   pendingPush: boolean;
   lastPushError: string | null;
@@ -86,8 +88,12 @@ export function Orders({
       {orders.map((order) => (
         <tr key={order.id}>
           <Td>
-            <span className="font-medium">{order.externalNumber ?? order.externalId}</span>
-            <span className="block text-xs text-ink-500">{order.sourceLabel}</span>
+            <a href={`/contracts/external/${order.id}`} className="font-medium hover:underline">
+              {order.externalNumber ?? order.externalId}
+            </a>
+            <span className="block text-xs text-ink-500">
+              {order.sourceLabel}{order.clientName ? `, for ${order.clientName}` : ""}
+            </span>
             {order.acceptanceIsIrreversible ? (
               /*
                 On the row rather than in a dialogue, because the thing a

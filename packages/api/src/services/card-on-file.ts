@@ -371,6 +371,62 @@ export async function setBackup(
   });
 }
 
+/**
+ * PUT THE BACKUPS IN A NEW ORDER, in one step, from the customer's own sign in.
+ *
+ * `cardIds` is every backup there is, in the order they should be tried. Each
+ * was agreed as a backup in words that say "a backup before this one" without
+ * naming a place, so a new order needs no new words and nothing is stopped:
+ * every backup keeps its agreement, its words and when it was given, and only
+ * where it stands changes. The list must name exactly the backups there are,
+ * once each; a backup chosen or stopped in another window since the page was
+ * drawn is refused with "refresh", rather than guessed at. The first card is
+ * not in it: changing which card pays first is turning paying automatically on
+ * for another card. Audited with the order before and after.
+ *
+ * The places are written in two steps, out of the way and then into place, so
+ * the index that keeps one card at each place never sees two cards in one.
+ */
+export async function orderBackups(
+  db: Database, input: { token: string; cardIds: readonly string[] },
+): Promise<{ backups: AgreementView[] }> {
+  const session = await sessionFor(db, input.token);
+  return inGrant(db, session.grant, async (tx, ctx) => {
+    /** Locked, so the worker's run and another window see the order before or after, never half of it. */
+    const live = await tx.select().from(schema.paymentAgreement).where(and(
+      eq(schema.paymentAgreement.customerId, session.customerId),
+      isNull(schema.paymentAgreement.withdrawnAt),
+      sql`${schema.paymentAgreement.autopayAt} is not null`,
+    )).for("update");
+    const backups = live.filter((r) => r.autopayRank > 1).sort((a, b) => a.autopayRank - b.autopayRank);
+    const asked = [...input.cardIds];
+    const sameSet = asked.length === backups.length && new Set(asked).size === asked.length
+      && backups.every((b) => asked.includes(b.savedPaymentMethodId));
+    if (!sameSet) {
+      throw new ConflictError("Your backup cards have changed since this page was opened. Refresh it and put them in order again.");
+    }
+    const ordered = asked.map((cardId) => backups.find((b) => b.savedPaymentMethodId === cardId)!);
+    const unchanged = ordered.every((row, i) => row.autopayRank === i + 2);
+    if (!unchanged) {
+      for (const [i, row] of ordered.entries()) {
+        await tx.update(schema.paymentAgreement).set({ autopayRank: 100 + i, updatedAt: new Date() })
+          .where(eq(schema.paymentAgreement.id, row.id));
+      }
+      for (const [i, row] of ordered.entries()) {
+        await tx.update(schema.paymentAgreement).set({ autopayRank: i + 2, updatedAt: new Date() })
+          .where(eq(schema.paymentAgreement.id, row.id));
+      }
+      await audit(tx, ctx, "portal.card.autopay_backups_ordered", "customer", session.customerId,
+        { order: backups.map((b) => b.id) }, { order: ordered.map((b) => b.id) });
+    }
+    const after = await tx.select().from(schema.paymentAgreement)
+      .where(inArray(schema.paymentAgreement.id, ordered.map((r) => r.id)));
+    const views: AgreementView[] = [];
+    for (const row of ordered) views.push(await viewOf(tx, after.find((a) => a.id === row.id)!));
+    return { backups: views };
+  });
+}
+
 /** Withdraw the agreement: nothing further is charged to this card without the customer pressing Pay. */
 export async function withdraw(
   db: Database, input: { token: string; cardId: string },
@@ -1063,6 +1119,15 @@ async function nextBackup(ctx: ServiceContext, row: typeof schema.cardOnFileChar
       sql`${schema.paymentAgreement.autopayAt} is not null`,
       sql`${schema.paymentAgreement.autopayRank} > ${row.cardRank}`,
       isNull(schema.savedPaymentMethod.removedAt),
+      /**
+       * Never a card this bill has already been tried on today: a customer who
+       * puts their backups in a new order while a run is going would otherwise
+       * move a card that just failed behind the one now failing, and have it
+       * tried twice.
+       */
+      sql`not exists (select 1 from public.card_on_file_charge c
+        where c.invoice_id = ${row.invoiceId} and c.attempt = ${row.attempt}
+          and c.saved_payment_method_id = ${schema.paymentAgreement.savedPaymentMethodId})`,
     ))
     .orderBy(asc(schema.paymentAgreement.autopayRank))
     .limit(1));
@@ -1519,6 +1584,7 @@ export const handlers = {
   setPortalCardAutopayBackup: (db: Database, input: { token: string; cardId: string; on: boolean; wording?: string | undefined }) =>
     setBackup(db, input),
   withdrawPortalCardAgreement: (db: Database, input: { token: string; cardId: string }) => withdraw(db, input),
+  orderPortalCardAutopayBackups: (db: Database, input: { token: string; cardIds: string[] }) => orderBackups(db, input),
   listInvoiceCardsOnFile: (ctx: ServiceContext, input: { id: string }) => forInvoice(ctx, { invoiceId: input.id }),
   chargeInvoiceCardOnFile: (ctx: ServiceContext, input: { id: string; cardId: string; amount?: string | undefined }) =>
     charge(ctx, { invoiceId: input.id, cardId: input.cardId, amount: input.amount }),

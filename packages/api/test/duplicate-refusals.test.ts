@@ -173,6 +173,8 @@ const REFUSED: Record<string, Refused> = {
   technician_skill_open_idx: {
     file: "people-records.ts", how: "check", says: "already has",
   },
+  /** A client's code typed twice on their list: which of two rows somebody meant is not something to guess. */
+  client_work_code_code_idx: { file: "external-work-codes.ts", how: "check", says: "is in the list twice" },
   /** A second application, or a second key of one, deciding how one job type moves. */
   app_plugin_job_type_idx: {
     file: "plugins.ts", how: "check", says: "Only one workflow per job type can be in force",

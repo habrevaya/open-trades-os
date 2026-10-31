@@ -1247,6 +1247,13 @@
       "when": 1793454378575,
       "tag": "0177_ancient_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1793460928466,
+      "tag": "0178_modern_victor_mancha",
+      "breakpoints": true
     }
   ]
 }

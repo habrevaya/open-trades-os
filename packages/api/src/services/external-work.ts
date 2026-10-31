@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { externalWork as ew } from "@opentradesos/core";
 import {
@@ -55,6 +55,35 @@ export interface ReceiveInput {
   /** Overrides for the network's defaults, when the caller knows better. */
   acceptanceIsIrreversible?: boolean | undefined;
   acceptsViaInvoiceOnly?: boolean | undefined;
+  /** The client the order is for, as one of our customers. */
+  customerId?: string | null | undefined;
+  /** The client's own codes for the work. Kept as sent, never mapped on the way in. */
+  codes?: ReadonlyArray<{ code: string; quantity?: string | null | undefined; description?: string | null | undefined }> | undefined;
+}
+
+/** The client's codes as they are kept: trimmed, empties dropped, a quantity only when it is one. */
+export function codesOf(codes: ReceiveInput["codes"]) {
+  if (codes === undefined) return undefined;
+  return codes
+    .map((c) => ({
+      code: c.code.trim(),
+      quantity: ew.quantityOf(c.quantity ?? null),
+      description: c.description?.trim() ? c.description.trim() : null,
+    }))
+    .filter((c) => c.code !== "");
+}
+
+/** A customer of this company, not removed, or a refusal. */
+export async function assertClient(tx: Database, ctx: ServiceContext, customerId: string) {
+  const [found] = await tx.select({ id: schema.customer.id, name: schema.customer.name }).from(schema.customer)
+    .where(and(
+      eq(schema.customer.organizationId, ctx.actor.organizationId),
+      eq(schema.customer.id, customerId),
+      isNull(schema.customer.deletedAt),
+    ))
+    .limit(1);
+  if (!found) throw new NotFoundError("Customer");
+  return found;
 }
 
 /**
@@ -83,6 +112,8 @@ export function receive(ctx: ServiceContext, input: ReceiveInput) {
 
     const defaults = ew.defaultsFor(sourceSystem);
     const existing = await findWithin(tx, ctx, sourceSystem, externalId);
+    if (input.customerId) await assertClient(tx, ctx, input.customerId);
+    const codes = codesOf(input.codes);
 
     if (existing) {
       /**
@@ -96,13 +127,21 @@ export function receive(ctx: ServiceContext, input: ReceiveInput) {
         externalNumber: input.externalNumber?.trim() ?? existing.externalNumber,
         externalStatus: input.externalStatus?.trim() ?? existing.externalStatus,
         payload: input.payload ?? existing.payload,
+        /**
+         * Their codes are theirs, like the payload, and a resend replaces them.
+         * The client is left alone once a job is on the order: the job was made
+         * for that customer, and moving the order under another would leave the
+         * two disagreeing about whose work it is.
+         */
+        ...(codes !== undefined ? { clientCodes: codes } : {}),
+        ...(input.customerId && existing.jobId === null ? { customerId: input.customerId } : {}),
         lastSyncedAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(schema.externalWorkOrder.id, existing.id)).returning();
 
       await audit(tx, ctx, "external_work_order.resync", "external_work_order", existing.id,
         existing, updated);
-      return view(updated!);
+      return await viewOne(tx, updated!);
     }
 
     const [row] = await tx.insert(schema.externalWorkOrder).values({
@@ -117,12 +156,14 @@ export function receive(ctx: ServiceContext, input: ReceiveInput) {
         input.acceptanceIsIrreversible ?? defaults.acceptanceIsIrreversible,
       acceptsViaInvoiceOnly: input.acceptsViaInvoiceOnly ?? defaults.acceptsViaInvoiceOnly,
       payload: input.payload ?? {},
+      customerId: input.customerId ?? null,
+      clientCodes: codes ?? [],
       lastSyncedAt: new Date(),
       pendingPush: false,
     }).returning();
 
     await audit(tx, ctx, "external_work_order.receive", "external_work_order", row!.id, null, row);
-    return view(row!);
+    return await viewOne(tx, row!);
   });
 }
 
@@ -160,7 +201,22 @@ async function loadWithin(tx: Database, ctx: ServiceContext, id: string) {
   return row;
 }
 
-function view(row: typeof schema.externalWorkOrder.$inferSelect) {
+type OrderRow = typeof schema.externalWorkOrder.$inferSelect;
+
+/** Orders as the API gives them, with each client's name read once. */
+export async function viewAll(tx: Database, rows: readonly OrderRow[]) {
+  const ids = [...new Set(rows.map((r) => r.customerId).filter((id): id is string => id !== null))];
+  const names = ids.length === 0 ? [] : await tx.select({ id: schema.customer.id, name: schema.customer.name })
+    .from(schema.customer).where(inArray(schema.customer.id, ids));
+  const byId = new Map(names.map((n) => [n.id, n.name]));
+  return rows.map((row) => view(row, row.customerId ? byId.get(row.customerId) ?? null : null));
+}
+
+export async function viewOne(tx: Database, row: OrderRow) {
+  return (await viewAll(tx, [row]))[0]!;
+}
+
+function view(row: OrderRow, clientName: string | null) {
   const state = ew.isState(row.state) ? row.state : "offered";
   const profile = ew.sourceProfile(row.sourceSystem);
   return {
@@ -176,6 +232,11 @@ function view(row: typeof schema.externalWorkOrder.$inferSelect) {
     acceptanceIsIrreversible: row.acceptanceIsIrreversible,
     acceptsViaInvoiceOnly: row.acceptsViaInvoiceOnly,
     jobId: row.jobId,
+    /** Who the order is for, as one of our customers, when the sync or the office said. */
+    customerId: row.customerId,
+    clientName,
+    /** The client's own codes for the work, as they sent them. */
+    clientCodes: row.clientCodes,
     payload: row.payload,
     lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
     /** True while the client's system has not been told what we last did. */
@@ -186,7 +247,7 @@ function view(row: typeof schema.externalWorkOrder.$inferSelect) {
   };
 }
 
-const flagsOf = (row: typeof schema.externalWorkOrder.$inferSelect): ew.Flags => ({
+const flagsOf = (row: OrderRow): ew.Flags => ({
   acceptanceIsIrreversible: row.acceptanceIsIrreversible,
   acceptsViaInvoiceOnly: row.acceptsViaInvoiceOnly,
 });
@@ -253,7 +314,7 @@ export function move(ctx: ServiceContext, input: MoveInput) {
 
     await audit(tx, ctx, `external_work_order.${input.to}`, "external_work_order", input.id,
       row, { ...updated, note: input.note ?? null });
-    return view(updated!);
+    return await viewOne(tx, updated!);
   });
 }
 
@@ -310,7 +371,7 @@ export function acceptViaInvoice(ctx: ServiceContext, input: { id: string; invoi
 
     await audit(tx, ctx, "external_work_order.accept_via_invoice", "external_work_order",
       input.id, row, updated);
-    return view(updated!);
+    return await viewOne(tx, updated!);
   });
 }
 
@@ -373,7 +434,7 @@ export function applyRemote(ctx: ServiceContext, input: RemoteInput) {
 
       await audit(tx, ctx, "external_work_order.unmapped_status", "external_work_order", input.id,
         row, { externalStatus: status ?? input.state });
-      return { order: view(updated!), conflict: null };
+      return { order: await viewOne(tx, updated!), conflict: null };
     }
 
     const resolution = ew.reconcile({
@@ -411,7 +472,7 @@ export function applyRemote(ctx: ServiceContext, input: RemoteInput) {
       { ...updated, ...(conflict ? { lost: conflict.lost, conflict: conflict.note } : {}) },
     );
 
-    return { order: view(updated!), conflict };
+    return { order: await viewOne(tx, updated!), conflict };
   });
 }
 
@@ -433,7 +494,7 @@ export function pending(ctx: ServiceContext, input: { limit: number }) {
       ))
       .orderBy(schema.externalWorkOrder.updatedAt)
       .limit(input.limit);
-    return { data: rows.map(view) };
+    return { data: await viewAll(tx, rows) };
   });
 }
 
@@ -456,7 +517,7 @@ export function pushed(ctx: ServiceContext, input: { id: string }) {
     }).where(eq(schema.externalWorkOrder.id, input.id)).returning();
     await audit(tx, ctx, "external_work_order.pushed", "external_work_order", input.id, row,
       updated);
-    return view(updated!);
+    return await viewOne(tx, updated!);
   });
 }
 
@@ -484,14 +545,14 @@ export function pushFailed(ctx: ServiceContext, input: { id: string; error: stri
     }).where(eq(schema.externalWorkOrder.id, input.id)).returning();
     await audit(tx, ctx, "external_work_order.push_failed", "external_work_order", input.id,
       row, { error: message });
-    return view(updated!);
+    return await viewOne(tx, updated!);
   });
 }
 
 /* -------------------------------------------------------------- the reads */
 
 export function get(ctx: ServiceContext, input: { id: string }) {
-  return guardedRead(ctx, "contract:read", async (tx) => view(await loadWithin(tx, ctx, input.id)));
+  return guardedRead(ctx, "contract:read", async (tx) => viewOne(tx, await loadWithin(tx, ctx, input.id)));
 }
 
 export function list(ctx: ServiceContext, input: {
@@ -519,7 +580,7 @@ export function list(ctx: ServiceContext, input: {
       ))
       .orderBy(desc(schema.externalWorkOrder.createdAt))
       .limit(input.limit);
-    return { data: rows.map(view) };
+    return { data: await viewAll(tx, rows) };
   });
 }
 

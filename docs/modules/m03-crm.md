@@ -373,7 +373,9 @@ payouts, card charges, financing applications, coverage claims they pay,
 referral rewards, statements sent, saved cards, people, notes, addresses,
 consent and advertising answers, conversations, calls, portal links and sign
 ins, campaign sends and mail pieces, reviews, files and tasks filed on the
-customer, custom records, container holds, and the customers they referred.
+customer, custom records, container holds, work orders from other systems they
+are the client of and their own work order codes (one the record kept already
+maps stays with the duplicate), and the customers they referred.
 All of it inside the one company (every statement names the company as well
 as the customer), in the one transaction, with both customer rows locked
 first, and written to the audit log as `customer.merged`. The lists are in

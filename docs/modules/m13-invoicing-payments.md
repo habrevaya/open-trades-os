@@ -169,6 +169,22 @@ starts a charge on its own. Card numbers never reach this product: a backup is
 the processor's reference to a card saved through its own window, as every
 saved card is.
 
+**Putting the backups in a new order.** With two backups, the account page
+lists them under **If (the card) does not go through, we try these in this
+order**, and one press of **Try (a card) before (another)** puts that card
+first (`PUT /v1/portal/cards/autopay-backups/order`, the whole order at once,
+their own sign in only). Nothing is stopped and no words are asked again: a
+backup's words promise "once, the same day, when the card I pay automatically
+with, or a backup before this one" does not go through, which names no place,
+so each backup keeps its agreement, its words and when it was given, and only
+where it stands changes. The order sent must name exactly the backups there
+are, once each; a backup chosen or stopped in another window since the page was
+drawn is refused, asking for a refresh. The order before and after is audited
+(`portal.card.autopay_backups_ordered`), the office's list of cards on file
+shows the new order, and the next automatic run tries them in it. A run already
+going never tries one card twice on one bill: a backup already tried on that
+bill that day is passed over, whatever its new place.
+
 **A bank payment on its way is not money to chase.** While an ACH payment is
 processing, the invoice shows "Payment on its way" on the office's page and
 the customer's, the collections agent (M27) neither drafts nor sends a
@@ -496,16 +512,35 @@ outbox's message or why not), the list under the button says it for every copy, 
 `GET /v1/statement-deliveries` gives them as `copies`.
 
 **An address the office types** reaches somebody the customer record does not name,
-and carries the same link to the customer's account page every copy carries, so it
-is held to a few rules. It must be shaped like an email address, or like a number a
+so it does not get the link to the customer's account page. Its copy carries a link
+of its own that opens **this statement and nothing else**: a portal link of the
+`statement` scope whose subject is the statement that went, one per typed copy, at
+`/s/{token}`. It shows the statement for the period it was sent for, read from the
+books when it is opened, with **Download PDF** and print, and no way into the
+account: no link back, no invoice links, no period or id taken from the address
+bar (`GET /v1/portal/statement` for the same over the API). Every other page and
+reader behind a link checks for its own kind of link and refuses this one, and this
+one refuses every other kind, so the token opens neither the account page nor its
+statement, files or invoices. It runs out after 45 days, like the statement's own
+link, and the email says until when ("The link opens this statement and nothing
+else, until ..."), in place of the warning that it opens an account. A copy that
+did not go has its link stopped at once. The list under the button says, for each
+typed copy, whether its link still opens and until when, or that it was stopped or
+ran out, and **Stop this link** beside an open one withdraws it
+(`POST /v1/portal/grants/{id}/revoke` with the id from `link` on
+`GET /v1/statement-deliveries`, `portal:revoke`), leaving the customer's own link
+and the other copies' links alone. Such a link is never issued by hand: `POST
+/v1/portal/grants` does not take the `statement` scope. Copies to the customer's
+own people still carry the statement's own link to their account page, as before.
+A typed address is held to a few rules. It must be shaped like an email address, or like a number a
 text can go to; nothing else is known about it. It is marked as typed on its row and
 in the list ("typed by the office"). And it is audited twice over: the line for the
 send lists every copy with where it went, and each typed copy has a line of its own
 (`statement.copied_to_typed_address`, with the address, the channel and whether it
 went), whether or not it went. Copying one of the customer's own people needs
 `invoice:send` like the statement itself. **Copying a typed address needs
-`portal:grant` as well**, because that address is handed the link to the customer's
-account page: without it the send is refused in words before anything is recorded or
+`portal:grant` as well**, because that address is handed a link to the customer's
+statement: without it the send is refused in words before anything is recorded or
 sent (a typed copy among copies to the customer's people stops the whole send), and
 the statement page does not show the box for an address to somebody who lacks it.
 
@@ -645,6 +680,7 @@ different people doing those. The office manager and finance roles hold
 | `GET /v1/customers/{id}/statement-copy` | `invoice:read` |
 | `PUT /v1/customers/{id}/statement-copy` | `invoice:send` |
 | `GET /v1/statement-deliveries` | `invoice:read` |
+| `GET /v1/portal/statement` | nothing: a statement only link |
 | `GET /v1/statement-schedule` | `invoice:read` |
 | `POST /v1/statement-schedule` | `invoice:send` |
 | `GET /v1/credit-notes` | `invoice:read` |
@@ -666,6 +702,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/autopay-backup` | nothing: a sign in only |
+| `PUT /v1/portal/cards/autopay-backups/order` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
 | `GET /v1/invoices/{id}/tips` | `invoice:read` |
 | `GET /v1/invoices/{id}/tip-offer` | `payment:collect` |
@@ -729,10 +766,15 @@ to: the office's **Email statement** and **Text statement** go to the customer's
 address and main contact's number unless the office types another, and the
 invoice email itself goes to the customer as before. A bill is addressed to one
 person. A statement sent by hand can be copied to five people at most, and every
-copy carries the link the statement itself went with: a copy to an address that
-was typed gives that address the same link to the customer's account page, so it
-needs `portal:grant` as well as `invoice:send`, is audited, and the office is told so on the screen, and there is no way yet to
-send a copy a link that opens only the statement. The monthly run copies one
+copy to one of the customer's own people carries the link the statement itself went
+with, to the customer's account page; there is no way to send one of them the
+statement only link instead. A copy to an address that was typed carries a link that
+opens only that statement (above), still needs `portal:grant` as well as
+`invoice:send`, and is audited. That link shows the statement as the books stand
+when it is opened, for the period it was sent for, not as it stood on the day it
+went (the attached PDF is that); it lasts 45 days, the same as the statement's own
+link, with no choice of a shorter or longer life, and stopping it is one link at a
+time. The monthly run copies one
 person, the one the customer record names, by email and never by text, and copies
 nobody whom the record does not name. An old statement's single copy stays in the
 columns it was written in. A tip is taken from the portal, with cash or a check on site, and by the office with a card
@@ -756,9 +798,11 @@ automatic payment takes the whole balance of each bill; only the office
 charges part of one. A backup is tried only in the run that charged the first
 card, never on the next day's try, and a backup is only ever the customer's
 choice: the office cannot set one, because the customer agrees to it in their
-own sign in, as they do to paying automatically. Backups are tried in the
-order chosen; changing the order is stopping one and choosing it again, which
-puts it last. A bank payment chosen as a backup is tried like a card and is on
+own sign in, as they do to paying automatically, and only the customer puts them
+in a new order; the office cannot. A new order made while a run is part way
+through a bill can mean a backup moved ahead of the one that just failed is not
+tried on that bill (one already tried is never tried again), and the customer is
+sent the link as when every card fails. A bank payment chosen as a backup is tried like a card and is on
 its way for days, so the customer is told it paid only when it has. No charge on file carries
 a tip. The customer is told of a
 failure by email to the address on their record, or by text when the email

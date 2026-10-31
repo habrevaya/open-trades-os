@@ -520,6 +520,14 @@ export const jobLine = pgTable("job_line", {
    * from the words on the line. A line naming no haul is no container's.
    */
   rentalId: uuid("rental_id").references(() => rental.id, { onDelete: "set null" }),
+  /**
+   * THE CLIENT'S OWN CODE this line was made from, when a work order from
+   * their system became the job (`client_work_code`). Kept so the client's
+   * card can price the line by their code when it lists the code and not our
+   * item, which is how a facilities client writes most of a schedule. Null on
+   * everything else.
+   */
+  clientCode: text("client_code"),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   ...sourceRef,
   ...timestamps,

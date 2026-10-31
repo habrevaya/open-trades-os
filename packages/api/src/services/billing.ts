@@ -917,6 +917,8 @@ async function priceInvoice(
       kind: recorded ? recorded.kind : rateCards.workKindOfItem(linked?.kind),
       name: linked?.name ?? line.name,
       priceBookItemId: itemId,
+      /** The client's own code, when the job line came from their work order. */
+      externalCode: recorded?.line.clientCode ?? null,
       quantity: line.quantity,
       ourPrice: usd(linked?.price ?? line.unitPrice),
       ourPriceIsBook: book,

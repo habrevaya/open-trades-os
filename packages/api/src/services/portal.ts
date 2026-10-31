@@ -46,7 +46,7 @@ export interface ResolvedGrant {
   grantId: string;
   organizationId: string;
   customerId: string | null;
-  scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer";
+  scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer" | "statement";
   subjectId: string | null;
   usesRemaining: number | null;
   /** The contact this grant acts for, when a contact signed in as the customer. */
@@ -744,6 +744,7 @@ export async function revokeGrant(ctx: ServiceContext, input: z.infer<typeof rev
  */
 export const PORTAL_PATHS = {
   estimate: "e", job: "j", invoice: "i", customer: "c", booking: "b", deposit: "pay", change_order: "co", payer: "p",
+  statement: "s",
 } as const satisfies Record<ResolvedGrant["scope"], string>;
 
 const pathFor = (scope: ResolvedGrant["scope"]) => PORTAL_PATHS[scope];
