@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   guessColumns, headerKey, savedColumns, columnsFromSaved, mappingProblems, parseAmount, parseDate,
   parseJobStatus, parsePaymentMethod, readRow, invoiceAmounts, taxRateOf, naturalKey, readFile,
-  refusedCsv, trimMoney, MAX_BYTES, MAX_ROWS, normalHeader,
+  refusedCsv, trimMoney, MAX_BYTES, MAX_ROWS, normalHeader, technicianEmails, readGroup,
 } from "../src/imports/index.js";
 import { parseCsv } from "../src/custom-objects/index.js";
 
@@ -276,5 +276,70 @@ describe("the refused rows, handed back", () => {
     const csv = refusedCsv(["Name"], [{ row: 7, cells: ["+1 call me"], reason: "Phone missing" }]);
     expect(parseCsv(csv)).toEqual([["Name", "Original row", "Refused because"], ["+1 call me", "7", "Phone missing"]]);
     expect(guessColumns("customers", ["Name", "Original row", "Refused because"])).toEqual(["name", null, null]);
+  });
+});
+
+describe("the last gaps: a note's time, a crew, a discount and the day an estimate was converted", () => {
+  const read = { dayFirst: false, today };
+
+  it("finds a note's time in its own column or after the day, and refuses two that disagree", () => {
+    const own = readRow("notes", ["customerRef", "notedOn", "notedTime", "body"], ["C-1", "2021-03-04", "2:30 PM", "Gate"], read);
+    expect(own.problems).toEqual([]);
+    expect(own.values["notedTime"]).toBe("14:30");
+    const inDay = readRow("notes", ["customerRef", "notedOn", "body"], ["C-1", "3/4/2021 9:15 AM", "Gate"], read);
+    expect(inDay.values).toMatchObject({ notedOn: "2021-03-04", notedTime: "09:15" });
+    const only = readRow("notes", ["customerRef", "notedOn", "body"], ["C-1", "2021-03-04", "Gate"], read);
+    expect(only.values["notedTime"]).toBeUndefined();
+    const both = readRow("notes", ["customerRef", "notedOn", "notedTime", "body"], ["C-1", "2021-03-04 08:00", "09:00", "Gate"], read);
+    expect(both.problems).toEqual(["The day says 08:00 and Time written says 09:00. Keep one of them."]);
+    expect(guessColumns("notes", ["Customer ID", "Created", "Time", "Note"])).toEqual(["customerRef", "notedOn", "notedTime", "body"]);
+  });
+
+  it("splits a crew on semicolons, commas and new lines, each once, in order", () => {
+    expect(technicianEmails("ray@x.test; SAM@x.test,ray@x.test\nlee@x.test")).toEqual(["ray@x.test", "SAM@x.test", "lee@x.test"]);
+    const bad = readRow("visits", ["jobRef", "technicianEmail", "visitedOn", "startTime"], ["J-1", "ray@x.test; nope", "2021-03-04", "09:00"], read);
+    expect(bad.problems).toEqual([`Technician's email: "nope" is not an email address. A visit finds each technician by the email they sign in with.`]);
+    const many = Array.from({ length: 11 }, (_, i) => `t${i}@x.test`).join(";");
+    expect(readRow("visits", ["jobRef", "technicianEmail", "visitedOn", "startTime"], ["J-1", many, "2021-03-04", "09:00"], read).problems)
+      .toEqual(["It names 11 technicians. A visit can name at most 10."]);
+  });
+
+  it("takes a discount off the line and checks Before tax against it", () => {
+    const columns = ["unitPrice", "quantity", "discount", "subtotal"];
+    const line = { ...read, line: true };
+    expect(readRow("invoices", columns, ["50", "2", "10", "90"], line).values["subtotal"]).toBe("90.00");
+    expect(readRow("invoices", columns, ["50", "2", "10", "100"], line).problems)
+      .toEqual(["2 at 50.00 less 10.00 is 90.00, not the 100.00 in Before tax."]);
+    expect(readRow("invoices", columns, ["50", "2", "101", ""], line).problems)
+      .toEqual(["The discount of 101.00 is more than the 100.00 the line comes to before it."]);
+    expect(readRow("invoices", columns, ["50", "2", "-5", ""], line).problems[0]).toMatch(/Discount is below zero/);
+    expect(readRow("invoices", ["discount", "subtotal"], ["5", "95"], line).problems[0]).toMatch(/discount and no price each/);
+    expect(mappingProblems("invoices", ["customerRef", "issuedOn", "discount", "total"]).join(" ")).toMatch(/Discount and none to Price each/);
+  });
+
+  it("carries a line's price book item and discount into the invoice's lines", () => {
+    const rows = [
+      { row: 2, values: { itemRef: "FILTER-1", description: "Filters", unitPrice: "50.00", quantity: "2", discount: "10.00", subtotal: "90.00", tax: "0.00", issuedOn: "2022-04-01", customerRef: "C-1" } },
+      { row: 3, values: { subtotal: "10.00", tax: "0.00", unitPrice: "10.00", quantity: "1", discount: "0.00" } },
+    ];
+    const group = readGroup("invoices", rows);
+    expect(group.problems).toEqual([]);
+    expect(group.lines).toEqual([
+      { name: "Filters", quantity: "2", unitPrice: "50.00", subtotal: "90.00", tax: "0.00", described: true, itemRef: "FILTER-1", discount: "10.00" },
+      { name: "As billed", quantity: "1", unitPrice: "10.00", subtotal: "10.00", tax: "0.00", described: false },
+    ]);
+  });
+
+  it("holds the day an estimate was converted to an approved estimate, after it was approved", () => {
+    const columns = ["customerRef", "issuedOn", "total", "outcome", "decidedOn", "convertedOn"];
+    const ok = readRow("estimates", columns, ["C-1", "2022-02-01", "100", "won", "2022-02-10", "2022-03-01"], read);
+    expect(ok.problems).toEqual([]);
+    expect(ok.values["convertedOn"]).toBe("2022-03-01");
+    expect(readRow("estimates", columns, ["C-1", "2022-02-01", "100", "won", "2022-02-10", "2022-02-05"], read).problems)
+      .toEqual(["It was turned into a job on 2022-02-05, before it was approved on 2022-02-10."]);
+    expect(readRow("estimates", columns, ["C-1", "2022-02-01", "100", "lost", "2022-02-10", "2022-03-01"], read).problems)
+      .toEqual(["It has a day it was turned into a job and says it was declined. Only an approved estimate is turned into a job."]);
+    expect(readRow("estimates", columns, ["C-1", "2022-02-01", "100", "won", "2022-02-10", "2099-01-01"], read).problems[0])
+      .toMatch(/has not happened yet/);
   });
 });

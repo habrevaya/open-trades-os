@@ -3,6 +3,7 @@ import { schema, type Database } from "@opentradesos/db";
 import { customerPortal as cp } from "@opentradesos/core";
 import { audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import { defaultLayouts } from "./portal-blocks";
+import { portalLayoutOfPrimaryPack, restorePortalLayout } from "./trade-pack";
 
 /**
  * THE OFFICE ARRANGING A CUSTOMER'S ACCOUNT PAGE
@@ -43,17 +44,26 @@ export interface LayoutView {
   changed: boolean;
   /** Set when this is a plan's layout: which plan, and whether it has a layout of its own or shows the company's. */
   plan: { id: string; name: string; ownLayout: boolean } | null;
+  /**
+   * The name of the trade pack's page the company's page can go back to, or null
+   * when there is none (no pack, a pack with no page of its own) or the page is
+   * already the pack's, as it set it up. Always null on a plan's page.
+   */
+  goBackTo: string | null;
 }
 
 async function viewWithin(tx: Database, organizationId: string): Promise<LayoutView> {
   const { layouts, blocks } = await defaultLayouts(tx, organizationId);
   const rows = cp.layoutRows(blocks.map((b) => ({ kind: b.kind, title: b.title, config: b.config, visible: b.visible })));
   const first = layouts[0] ?? null;
+  const changed = first !== null && (first.tradePackId === null || first.updatedAt.getTime() !== first.createdAt.getTime());
+  const pack = await portalLayoutOfPrimaryPack(tx, organizationId);
   return {
     blocks: rows.map((row) => ({ ...row, usualTitle: cp.BLOCK_TITLES[row.kind] })),
     startedFrom: first?.tradePackId ? first.name : null,
-    changed: first !== null && (first.tradePackId === null || first.updatedAt.getTime() !== first.createdAt.getTime()),
+    changed,
     plan: null,
+    goBackTo: pack && (changed || first === null) ? pack.content.name : null,
   };
 }
 
@@ -79,13 +89,14 @@ async function planLayoutIn(tx: Database, organizationId: string, planId: string
 async function planViewWithin(tx: Database, organizationId: string, planId: string): Promise<LayoutView> {
   const plan = await planIn(tx, organizationId, planId);
   const own = await planLayoutIn(tx, organizationId, planId);
-  if (!own) return { ...(await viewWithin(tx, organizationId)), plan: { ...plan, ownLayout: false } };
+  if (!own) return { ...(await viewWithin(tx, organizationId)), plan: { ...plan, ownLayout: false }, goBackTo: null };
   const rows = cp.layoutRows(own.blocks.map((b) => ({ kind: b.kind, title: b.title, config: b.config, visible: b.visible })));
   return {
     blocks: rows.map((row) => ({ ...row, usualTitle: cp.BLOCK_TITLES[row.kind] })),
     startedFrom: null,
     changed: true,
     plan: { ...plan, ownLayout: true },
+    goBackTo: null,
   };
 }
 
@@ -122,6 +133,36 @@ export async function set(ctx: ServiceContext, input: { blocks: BlocksInput }): 
       blocks: arranged.blocks.map((b) => ({ kind: b.kind, title: b.title, visible: b.visible })),
     });
     return viewWithin(tx, organizationId);
+  });
+}
+
+/**
+ * Go back to the trade pack's page: the layout the company's primary pack sets
+ * up, as its current version sets it up, in place of whatever the office made of
+ * it. Needs `settings:write`, like saving a layout. A company with no pack, or
+ * a pack with no page of its own, has nothing to go back to and is told so; a
+ * page already as the pack set it up is returned as it is, written and audited
+ * not at all. The company's own arrangement is replaced, which is the point and
+ * cannot be undone, so the screen asks first. Plans' own pages are not touched.
+ */
+export async function resetToPack(ctx: ServiceContext): Promise<LayoutView> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const organizationId = ctx.actor.organizationId;
+    const pack = await portalLayoutOfPrimaryPack(tx, organizationId);
+    if (!pack) {
+      throw new ConflictError("Your trade pack has no account page of its own to go back to, so there is nothing to put back. Arrange the blocks you want and save.");
+    }
+    const before = await viewWithin(tx, organizationId);
+    if (before.goBackTo === null) return before;
+    const { removedOwn } = await restorePortalLayout(tx, organizationId, pack.pack, pack.content);
+    const after = await viewWithin(tx, organizationId);
+    await audit(tx, ctx, "portal.layout_reset_to_pack", "organization", organizationId, {
+      blocks: before.blocks.map((b) => ({ kind: b.kind, title: b.customTitle, visible: b.visible })),
+    }, {
+      pack: pack.pack.id, version: pack.pack.version, ownLayoutsRemoved: removedOwn,
+      blocks: after.blocks.map((b) => ({ kind: b.kind, title: b.customTitle, visible: b.visible })),
+    });
+    return after;
   });
 }
 
@@ -217,6 +258,7 @@ export async function plansWithLayouts(ctx: ServiceContext): Promise<{ plans: Pl
 export const handlers = {
   getPortalLayout: (ctx: ServiceContext) => get(ctx),
   setPortalLayout: (ctx: ServiceContext, input: { blocks: BlocksInput }) => set(ctx, input),
+  resetPortalLayout: (ctx: ServiceContext) => resetToPack(ctx),
   listPlanPortalLayouts: (ctx: ServiceContext) => plansWithLayouts(ctx),
   getPlanPortalLayout: (ctx: ServiceContext, input: { id: string }) => getForPlan(ctx, { planId: input.id }),
   setPlanPortalLayout: (ctx: ServiceContext, input: { id: string; blocks: BlocksInput }) =>

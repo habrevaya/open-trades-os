@@ -260,7 +260,25 @@ export interface ParsedCatalogue {
 
 /** Read the file into rows, with a sentence for anything that is not one. */
 export function parseCatalogue(text: string): ParsedCatalogue {
-  const records = splitRecords(text);
+  return parseRecords(splitRecords(text));
+}
+
+/**
+ * A workbook's sheet, read the way a file is. The sheet reader (M30) has
+ * already turned every cell into text, left out the empty rows and kept each
+ * row's own number from the spreadsheet, so a line on the preview is the row
+ * the person sees in their spreadsheet program. The header is row 1.
+ */
+export function parseCatalogueSheet(
+  header: readonly string[], rows: readonly (readonly string[])[], numbers: readonly number[],
+): ParsedCatalogue {
+  return parseRecords([
+    { line: 1, cells: header.map((cell) => cell.trim()) },
+    ...rows.map((cells, at) => ({ line: numbers[at] ?? at + 2, cells: cells.map((cell) => cell.trim()) })),
+  ]);
+}
+
+function parseRecords(records: { line: number; cells: string[] }[]): ParsedCatalogue {
   const header = records[0];
   if (!header) {
     return { rows: [], problems: [{ line: 1, message: "The file is empty." }], hasVendorColumn: false };

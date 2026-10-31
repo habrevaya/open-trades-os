@@ -238,6 +238,8 @@ export interface RemindersView {
   }[];
   /** Null is off. Days after the first reminder went. */
   secondAfterDays: number | null;
+  /** The words the second reminder goes in, and whether they are the company's own or the ones we ship. */
+  secondWording: rv.ReviewWording & { custom: boolean };
   /** Null is off. Days after a text ask before the ask goes again by email. */
   followUpAfterDays: number | null;
   /** The company asks by text and then email, the only way a follow up by email is sent. */
@@ -295,6 +297,7 @@ export async function reminders(ctx: ServiceContext): Promise<RemindersView> {
         sent: r.messageId !== null, detail: r.detail,
       })),
       secondAfterDays: policy.secondReminderAfterDays,
+      secondWording: { ...secondReminderWording(policy), custom: policy.secondReminderSms !== null },
       followUpAfterDays: policy.followUpAfterDays,
       followUpApplies: (await askStyleFor(tx)).channel === "sms_then_email",
       later,
@@ -325,6 +328,20 @@ export function reminderWording(policy: Pick<typeof schema.reviewPolicy.$inferSe
 }
 
 /**
+ * The words the second reminder goes in: the company's own when it changed
+ * them, else the ones we ship, which say it is the last. The worker and the
+ * screen both read it here.
+ */
+export function secondReminderWording(policy: Pick<typeof schema.reviewPolicy.$inferSelect,
+  "secondReminderSms" | "secondReminderEmailSubject" | "secondReminderEmailBody">): rv.ReviewWording {
+  return {
+    sms: policy.secondReminderSms ?? automation.REVIEW_SECOND_REMINDER_WORDING.sms,
+    emailSubject: policy.secondReminderEmailSubject ?? automation.REVIEW_SECOND_REMINDER_WORDING.emailSubject,
+    emailBody: policy.secondReminderEmailBody ?? automation.REVIEW_SECOND_REMINDER_WORDING.emailBody,
+  };
+}
+
+/**
  * Turn the one reminder on, with how many days to wait, or off, and change
  * the words it goes in. Its own call so that a screen can change it without
  * sending the whole service standard back. Either may be left out and stays
@@ -334,6 +351,8 @@ export function reminderWording(policy: Pick<typeof schema.reviewPolicy.$inferSe
 export async function setReminders(ctx: ServiceContext, input: {
   afterDays?: number | null | undefined;
   wording?: rv.ReviewWording | null | undefined;
+  /** The second reminder's words, under the same checks; null puts back the words we ship. */
+  secondWording?: rv.ReviewWording | null | undefined;
   secondAfterDays?: number | null | undefined;
   followUpAfterDays?: number | null | undefined;
 }) {
@@ -358,6 +377,20 @@ export async function setReminders(ctx: ServiceContext, input: {
       const words = rv.checkReviewWording(typed);
       if (!words.ok) throw new ConflictError(words.reason);
     }
+    const typedSecond = input.secondWording ? {
+      sms: lines(input.secondWording.sms),
+      emailSubject: lines(input.secondWording.emailSubject),
+      emailBody: lines(input.secondWording.emailBody),
+    } : null;
+    if (typedSecond) {
+      const words = rv.checkReviewWording(typedSecond);
+      if (!words.ok) throw new ConflictError(`The second reminder: ${words.reason}`);
+    }
+    /** The shipped second words typed back in are the shipped words, so later improvements to them still reach this company. */
+    const shippedSecond = automation.REVIEW_SECOND_REMINDER_WORDING;
+    const ownSecond = typedSecond && !(typedSecond.sms === shippedSecond.sms
+      && typedSecond.emailSubject === shippedSecond.emailSubject && typedSecond.emailBody === shippedSecond.emailBody)
+      ? typedSecond : null;
     /** The shipped words typed back in are the shipped words, so later improvements to them still reach this company. */
     /**
      * Either shipped version: the screen shows the one without "the only
@@ -391,6 +424,11 @@ export async function setReminders(ctx: ServiceContext, input: {
           reminderEmailSubject: own?.emailSubject ?? null,
           reminderEmailBody: own?.emailBody ?? null,
         } : {}),
+        ...(input.secondWording !== undefined ? {
+          secondReminderSms: ownSecond?.sms ?? null,
+          secondReminderEmailSubject: ownSecond?.emailSubject ?? null,
+          secondReminderEmailBody: ownSecond?.emailBody ?? null,
+        } : {}),
         updatedAt: new Date(),
       })
       .where(eq(schema.reviewPolicy.id, before.id)).returning();
@@ -398,6 +436,8 @@ export async function setReminders(ctx: ServiceContext, input: {
       reminderAfterDays: row.reminderAfterDays,
       secondReminderAfterDays: row.secondReminderAfterDays, followUpAfterDays: row.followUpAfterDays,
       reminderSms: row.reminderSms, reminderEmailSubject: row.reminderEmailSubject, reminderEmailBody: row.reminderEmailBody,
+      secondReminderSms: row.secondReminderSms, secondReminderEmailSubject: row.secondReminderEmailSubject,
+      secondReminderEmailBody: row.secondReminderEmailBody,
     });
     await audit(tx, ctx, "review_policy.reminders_set", "review_policy", before.id, kept(before), kept(after!));
   });

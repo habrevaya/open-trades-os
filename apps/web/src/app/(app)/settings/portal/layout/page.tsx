@@ -6,7 +6,7 @@ import { ActionForm } from "@/components/ActionForm";
 import { can, assertCan } from "@opentradesos/core";
 import { Crumb } from "@/components/Detail";
 import { LayoutEditor } from "./LayoutEditor";
-import { removePlanLayout, saveLayout, savePlanLayout } from "./actions";
+import { removePlanLayout, resetLayout, saveLayout, savePlanLayout } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +82,21 @@ export default async function PortalLayoutPage({ searchParams }: { searchParams:
           {plan?.ownLayout && (
             <ActionForm action={removePlanLayout} submit="Use the company's page for this plan" tone="quiet"
                         hidden={{ planId: plan.id }} className="mt-3" />
+          )}
+          {!plan && layout.goBackTo && (
+            <section aria-label="Go back to your trade pack's page" className="mt-8 max-w-2xl border-t border-steel-200 pt-4">
+              <h2 className="text-sm font-semibold">Go back to your trade pack&apos;s page</h2>
+              <p className="mt-1 text-sm text-ink-700">
+                Put the blocks, their order and their headings back to what &ldquo;{layout.goBackTo}&rdquo; sets up. What you
+                arranged is replaced and cannot be brought back from here. Pages you gave a plan&apos;s members are not touched.
+              </p>
+              <ActionForm action={resetLayout} submit="Go back to the pack's layout" tone="danger" className="mt-3 space-y-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="confirm" />
+                  Yes, replace what I arranged
+                </label>
+              </ActionForm>
+            </section>
           )}
         </>
       ) : (

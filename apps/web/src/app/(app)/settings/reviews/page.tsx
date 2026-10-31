@@ -4,7 +4,7 @@ import { reviews } from "@opentradesos/api/services";
 import { can, reviews as rv } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
-import { resetReminderWords, saveReminder, saveReviewPolicy } from "./actions";
+import { resetReminderWords, resetSecondReminderWords, saveReminder, saveReviewPolicy } from "./actions";
 import { BAND_ROWS, DAYS, hourLabel } from "./fields";
 
 export const dynamic = "force-dynamic";
@@ -203,6 +203,14 @@ export default async function ReviewPolicyPage() {
                   <TextArea label="The text" name="sms" rows={3} defaultValue={reminder.wording.sms} />
                   <TextField label="The email's subject" name="emailSubject" defaultValue={reminder.wording.emailSubject} />
                   <TextArea label="The email" name="emailBody" rows={8} defaultValue={reminder.wording.emailBody} />
+                  <h3 className="pt-2 text-sm font-semibold">The second reminder&apos;s words</h3>
+                  <p className="max-w-2xl text-xs text-ink-500">
+                    {reminder.secondWording.custom ? "These are your own words." : "These are the words we wrote, which say it is the last one."}
+                    {" "}Same rules as above. If you write your own, say whatever is true: with the second turned off, nothing here is sent.
+                  </p>
+                  <TextArea label="Second reminder, text message" name="secondSms" rows={3} defaultValue={reminder.secondWording.sms} />
+                  <TextField label="Second reminder, email subject" name="secondEmailSubject" defaultValue={reminder.secondWording.emailSubject} />
+                  <TextArea label="Second reminder, email body" name="secondEmailBody" rows={8} defaultValue={reminder.secondWording.emailBody} />
                 </ActionForm>
                 {reminder.later.length > 0 ? (
                   <div className="mt-4">
@@ -219,6 +227,10 @@ export default async function ReviewPolicyPage() {
                 ) : null}
                 {reminder.wording.custom ? (
                   <ActionForm action={resetReminderWords} submit="Put back the words we wrote" tone="quiet"
+                              className="mt-3 flex items-center gap-2" />
+                ) : null}
+                {reminder.secondWording.custom ? (
+                  <ActionForm action={resetSecondReminderWords} submit="Put back the words we wrote for the second reminder" tone="quiet"
                               className="mt-3 flex items-center gap-2" />
                 ) : null}
               </>

@@ -1,10 +1,10 @@
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, estimate as est, money as m } from "@opentradesos/core";
 import { contactOf, guardedRead, type ServiceContext } from "./context";
 import { assertEstimateVisible, loadEstimate } from "./estimates";
 import { inGrant, peek, requireScope } from "./portal";
-import { ITEM_PICTURE, layoutWithin, proposalPhotoWithin, type ResolvedLayout } from "./proposal-templates";
+import { layoutWithin, linePicturesWithin, proposalPhotoWithin, type ResolvedLayout } from "./proposal-templates";
 
 /**
  * THE PROPOSAL, AS A DOCUMENT
@@ -223,22 +223,6 @@ export async function proposalWithin(
       };
     }),
   };
-}
-
-/**
- * Which lines of an estimate show an item's picture: each line priced from a
- * price book version that carries an uploaded one, by line, as the photograph
- * id the proposal's picture route takes. Read from the lines themselves
- * rather than the shaped document, so nothing about access to a line's other
- * fields decides whether its picture is drawn.
- */
-export async function linePicturesWithin(tx: Database, estimateId: string): Promise<Map<string, string>> {
-  const rows = await tx.select({ lineId: schema.estimateLine.id, versionId: schema.priceBookItemVersion.id })
-    .from(schema.estimateLine)
-    .innerJoin(schema.estimateOption, eq(schema.estimateOption.id, schema.estimateLine.optionId))
-    .innerJoin(schema.priceBookItemVersion, eq(schema.priceBookItemVersion.id, schema.estimateLine.priceBookItemVersionId))
-    .where(and(eq(schema.estimateOption.estimateId, estimateId), isNotNull(schema.priceBookItemVersion.pictureKey)));
-  return new Map(rows.map((row) => [row.lineId, `${ITEM_PICTURE}${row.versionId}`]));
 }
 
 /** The office's copy, to read, print or hand over. */

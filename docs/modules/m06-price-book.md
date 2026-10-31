@@ -111,8 +111,11 @@ The picture is drawn on the item's screen and beside a line of the item in the e
 composer, through `/pricebook/pictures/{versionId}`, which needs `pricebook:read` and serves
 only the picture that version names. On a proposal it is drawn beside each line priced from
 a version that carries one: on the office's `/estimates/{id}/proposal` under the estimate's
-own read and scope, on the customer's `/e/{token}/proposal` through their link, and in both
-PDFs, once per option with the line's name under it. The customer's link serves the picture
+own read and scope, on the customer's `/e/{token}/proposal` through their link, on the
+customer's approval page `/e/{token}` beside each line of the option they open (as a small
+picture, through the same photograph route, so the link reads no other file; a picture that
+cannot load is left out rather than shown broken), and in both PDFs, once per option with
+the line's name under it. The customer's link serves the picture
 of a version only when a line of that estimate was priced from it (`item-` and the version,
 beside the cover and the option photographs), so it reads no other file in the store and no
 other estimate's items. Nothing names a stored file by its key: a picture can only be put on
@@ -344,9 +347,9 @@ different permission from editing the book.
 
 An item with a revision already scheduled is left out of a bulk change, dated
 ahead or not, rather than given a version beside it. A bulk change reaches at most
-two thousand items at a time. An item's uploaded picture is not drawn on the customer's
-approval page (`/e/{token}`), which lists the lines in words; "See the full proposal" beside
-it draws them. A picture cannot be uploaded or taken off while a revision of the item is
+two thousand items at a time. On the customer's approval page (`/e/{token}`) a picture is drawn only for a line of the
+option they have opened, and only for a line priced from a version that carries one; an
+optional line shows it beside its tick. A picture cannot be uploaded or taken off while a revision of the item is
 waiting, and it cannot be dated ahead: it is in force from the moment it is uploaded. The
 API has no call that returns a picture's bytes; the office's and the customer's pages read
 them through their own routes. A proposal PDF prints at most twelve item pictures an option.

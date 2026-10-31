@@ -553,7 +553,7 @@ async function laterOne(
   const outcome = await sendAsk(tx, ctx, row, kind === "follow_up"
     /** The ask again, in the company's own email words, by email. */
     ? { channel: "email", wording: style.wording }
-    : { channel: style.channel, wording: { ...automation.REVIEW_SECOND_REMINDER_WORDING } });
+    : { channel: style.channel, wording: reviews.secondReminderWording(policy) });
   if (outcome.kind === "sent") {
     const carried = kind === "follow_up"
       ? { followUpMessageId: outcome.messageId, updatedAt: new Date() }

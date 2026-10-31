@@ -219,7 +219,9 @@ estimate written with `POST /v1/estimates` can carry its own terms or none.
 ### Let the customer decide
 
 They open `/e/{token}`, pick an option, tick or untick the optional lines, and
-approve or decline. `POST /v1/portal/estimate/approve` is the same action from
+approve or decline. Each line priced from a price book item with an uploaded picture shows
+it beside the line (`picture` on the line of `GET /v1/portal/estimate`, a photograph id the
+link's own `/e/{token}/proposal/photos/{id}` route serves). `POST /v1/portal/estimate/approve` is the same action from
 the customer's side and takes no permission: the token is the authority.
 
 ### On the technician's phone
@@ -262,7 +264,13 @@ with the reason, or expired on a day. It needs `data:import`, the date is
 checked (not in the future, not before the estimate was written), and a win
 must name its option. Nothing is emitted and no signature is recorded,
 because loading history must not start automations or claim a signature
-nobody gave. An imported win converts like any other.
+nobody gave. An imported win that was never turned into a job in the other system
+converts like any other. One that was carries `outcome.convertedOn`, the day, and
+is recorded as converted on it (`convertedAt` on the estimate, tied to the `jobId`
+given): it is not offered for conversion again, so there is no second job or
+invoice, and it counts as sold. The day is for an approval only, not before it was
+approved, not in the future. A conversion done here stamps `convertedAt` with the
+moment it happened.
 
 ### Turn it into work
 

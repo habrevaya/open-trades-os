@@ -1,4 +1,4 @@
-import { eq, and, isNull, desc, like, inArray } from "drizzle-orm";
+import { eq, and, isNull, desc, like, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { packById, packs, type TradePack } from "@opentradesos/trade-packs";
 import { assertCan, can, isSystem, setup as rules } from "@opentradesos/core";
@@ -318,7 +318,7 @@ type RuleContent = {
   name: string; entityType: string; entityKind: string | null;
   clockStart: typeof schema.retentionPolicy.$inferSelect["clockStart"]; retainMonths: number; basis: string | null;
 };
-type LayoutContent = {
+export type LayoutContent = {
   name: string;
   blocks: { kind: typeof schema.portalBlock.$inferSelect["kind"]; title: string | null; visible: boolean; config: Record<string, unknown> }[];
 };
@@ -376,6 +376,60 @@ async function insertBlocks(tx: Database, org: string, layoutId: string, blocks:
 }
 
 const same = (a: Date, b: Date) => a.getTime() === b.getTime();
+
+/**
+ * THE PACK'S ACCOUNT PAGE, PUT BACK.
+ *
+ * What the company's primary trade pack sets up for a customer's account page
+ * (its current version), or null for a company with no pack, or a pack with no
+ * page of its own. Read by the layout screen to know whether there is something
+ * to go back to.
+ */
+export async function portalLayoutOfPrimaryPack(tx: Database, org: string): Promise<{ pack: TradePack; content: LayoutContent } | null> {
+  const [row] = await tx.select({ primaryTrade: schema.organization.primaryTrade })
+    .from(schema.organization).where(eq(schema.organization.id, org)).limit(1);
+  const pack = row?.primaryTrade ? packById(row.primaryTrade) : undefined;
+  const piece = pack ? setupPiecesOf(pack).find((p) => p.kind === "portal_layout") : undefined;
+  return pack && piece ? { pack, content: piece.content as LayoutContent } : null;
+}
+
+/**
+ * Put the company's account page back to the pack's. The company's own default
+ * layouts (made by saving a page with no pack, or kept aside when a pack was
+ * applied later) are removed so the page reads the pack's again, and the pack's
+ * layout is written as the pack's current version sets it up, marked unchanged.
+ * A pack's layout that is gone is made again. A plan's page is not touched.
+ * Returns what was removed, for the audit.
+ */
+export async function restorePortalLayout(tx: Database, org: string, pack: TradePack, content: LayoutContent): Promise<{ removedOwn: number }> {
+  const own = await tx.delete(schema.portalLayout).where(and(
+    eq(schema.portalLayout.organizationId, org),
+    eq(schema.portalLayout.isDefault, true),
+    isNull(schema.portalLayout.tradePackId),
+    isNull(schema.portalLayout.agreementPlanId),
+  )).returning({ id: schema.portalLayout.id });
+  const tag = `${pack.id}@${pack.version}`;
+  const [mine] = await tx.select({ id: schema.portalLayout.id }).from(schema.portalLayout).where(and(
+    eq(schema.portalLayout.organizationId, org),
+    eq(schema.portalLayout.isDefault, true),
+    isNull(schema.portalLayout.agreementPlanId),
+    like(schema.portalLayout.tradePackId, `${pack.id}@%`),
+  )).orderBy(schema.portalLayout.createdAt).limit(1);
+  if (!mine) {
+    const [made] = await tx.insert(schema.portalLayout).values({
+      organizationId: org, name: content.name, tradePackId: tag, isDefault: true,
+    }).returning({ id: schema.portalLayout.id });
+    await insertBlocks(tx, org, made!.id, content.blocks);
+    return { removedOwn: own.length };
+  }
+  await tx.delete(schema.portalBlock).where(eq(schema.portalBlock.layoutId, mine.id));
+  await insertBlocks(tx, org, mine.id, content.blocks);
+  /** Marked as the pack set it up: unchanged, which is what an upgrade without a record reads. */
+  await tx.update(schema.portalLayout)
+    .set({ name: content.name, tradePackId: tag, updatedAt: sql`${schema.portalLayout.createdAt}` })
+    .where(eq(schema.portalLayout.id, mine.id));
+  return { removedOwn: own.length };
+}
 
 /**
  * The company's side of the rest of the pack: every row this pack set up,

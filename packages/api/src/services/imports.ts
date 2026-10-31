@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, imports as rules, isSystem, money as m, time, type Permission } from "@opentradesos/core";
 import {
@@ -696,6 +696,28 @@ async function jobFor(tx: Database, source: string, ref: string): Promise<string
 }
 
 /**
+ * The price book item an invoice line names: by the id a price book file gave
+ * it under the same "came from" name, else by its code. A code is the item's own
+ * and unique among those still on the book; one that matches two, or none, is a
+ * refusal rather than a guess, because a line linked to the wrong item puts
+ * revenue in the wrong report.
+ */
+async function itemFor(tx: Database, source: string, ref: string): Promise<{ id: string; name: string }> {
+  const fields = { id: schema.priceBookItem.id, name: schema.priceBookItemVersion.name };
+  const named = (where: SQL | undefined) => tx.select(fields).from(schema.priceBookItem)
+    .innerJoin(schema.priceBookItemVersion, and(
+      eq(schema.priceBookItemVersion.itemId, schema.priceBookItem.id), pricebook.inForceAt(), isNull(schema.priceBookItemVersion.deletedAt),
+    ))
+    .where(and(isNull(schema.priceBookItem.deletedAt), where)).limit(2);
+  const [byRef] = await named(byExternal(schema.priceBookItem, { externalSource: source, externalId: ref }));
+  if (byRef) return byRef;
+  const byCode = await named(sql`lower(${schema.priceBookItem.code}) = ${ref.toLowerCase()}`);
+  if (byCode.length === 1) return byCode[0]!;
+  if (byCode.length > 1) throw new ConflictError(`More than one price book item has the code ${ref}. Use the item's id instead.`);
+  throw new ConflictError(`There is no price book item ${ref}. Bring in the price book first, under the same name for where it came from, or clear the item column.`);
+}
+
+/**
  * The technician a visit names, by the email they sign in with, among the
  * people on the board: an active technician of this company. Never by name,
  * for the reason a customer is never found by name, and never somebody who
@@ -861,16 +883,26 @@ async function loadOne(
          * it. The rate is what that tax was charged at, and the invoice
          * checks the two agree to within a cent, line by line.
          */
-        lines: together!.lines.map((line) => {
+        lines: await Promise.all(together!.lines.map(async (line) => {
           const taxed = !m.isZero(m.money(line.tax));
+          /**
+           * A line that names a price book item links it and keeps what the
+           * file charged: `priceAsGiven` is the history rule, so the name,
+           * price and tax are the file's and nothing is re-priced from the
+           * item's version of today. A line the file does not word is called
+           * what the item is called.
+           */
+          const item = line.itemRef !== undefined ? await itemFor(db, run.source, line.itemRef) : null;
           return {
-            name: line.name,
+            name: line.described === false && item ? item.name : line.name,
             quantity: line.quantity,
             unitPrice: line.unitPrice,
+            ...(line.discount !== undefined ? { discountAmount: line.discount } : {}),
             taxable: taxed,
+            ...(item ? { priceBookItemId: item.id, priceAsGiven: true } : {}),
             ...(taxed ? { taxRate: rules.taxRateOf(line.tax, line.subtotal), taxAmount: line.tax } : {}),
           };
-        }),
+        })),
         expectedTotals: { total: v["total"] },
       });
       const invoice = await billing.create(as, input);
@@ -936,6 +968,7 @@ async function loadOne(
           outcome: {
             status: outcome, on: v["decidedOn"],
             ...(outcome === "approved" ? { chosenOption: group.options.findIndex((option) => option.chosen) } : {}),
+            ...(outcome === "approved" && v["convertedOn"] ? { convertedOn: v["convertedOn"] } : {}),
             ...(outcome === "declined" && v["reason"] ? { reason: v["reason"] } : {}),
           },
         } : {}),
@@ -952,7 +985,7 @@ async function loadOne(
           );
         }
       }
-      const how = outcome === "open" ? "open, to send from here" : outcome;
+      const how = outcome === "open" ? "open, to send from here" : v["convertedOn"] ? "approved and turned into a job" : outcome;
       const many = group.options.length > 1 ? `${group.options.length} options, ` : "";
       return { outcome: "loaded", recordId: estimate.id, recordLabel: `Estimate ${estimate.number}, ${many}${how}` };
     }
@@ -967,7 +1000,9 @@ async function loadOne(
       const note = await customerNotes.add(as, addCustomerNote.input.parse({
         id: customer.id,
         body: v["body"],
-        notedAt: instantOf(v["notedOn"]!, clock.today, clock.timeZone),
+        notedAt: v["notedTime"] !== undefined
+          ? time.instantOfLocal(v["notedOn"]!, rules.minutesOf(v["notedTime"]), clock.timeZone).toISOString()
+          : instantOf(v["notedOn"]!, clock.today, clock.timeZone),
         ...(v["forField"] !== undefined ? { forField: v["forField"] === "true" } : {}),
         externalRef,
       }));
@@ -985,7 +1020,15 @@ async function loadOne(
        * hour long, which is the length a visit is booked for when nobody says.
        */
       const jobId = await jobFor(db, run.source, v["jobRef"]!);
-      const technician = await technicianFor(db, v["technicianEmail"]!);
+      /** Everybody who went, each found the same strict way; one who cannot be found refuses the whole visit. */
+      const crew: Array<{ id: string; name: string }> = [];
+      for (const email of rules.technicianEmails(v["technicianEmail"]!)) {
+        const found = await technicianFor(db, email);
+        if (crew.some((t) => t.id === found.id)) {
+          throw new ConflictError(`${email} is the same technician as one already named on this visit.`);
+        }
+        crew.push(found);
+      }
       const start = time.instantOfLocal(v["visitedOn"]!, rules.minutesOf(v["startTime"]!), clock.timeZone);
       const end = v["endTime"] !== undefined
         ? time.instantOfLocal(v["visitedOn"]!, rules.minutesOf(v["endTime"]), clock.timeZone)
@@ -996,13 +1039,13 @@ async function loadOne(
         windowStart: start.toISOString(),
         windowEnd: end.toISOString(),
         estimatedDurationMinutes: minutes,
-        technicianIds: [technician.id],
+        technicianIds: crew.map((t) => t.id),
         completedAt: end.toISOString(),
         ...(v["notes"] ? { technicianNotes: v["notes"] } : {}),
         externalRef,
       }), { requireFields: true });
       const [job] = await db.select({ number: schema.job.number }).from(schema.job).where(eq(schema.job.id, jobId)).limit(1);
-      return { outcome: "loaded", recordId: visit.id, recordLabel: `Visit on job ${job?.number ?? ""} by ${technician.name}` };
+      return { outcome: "loaded", recordId: visit.id, recordLabel: `Visit on job ${job?.number ?? ""} by ${crew.map((t) => t.name).join(" and ")}` };
     }
 
     case "payments": {

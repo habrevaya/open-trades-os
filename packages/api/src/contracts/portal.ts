@@ -69,6 +69,8 @@ export const PortalEstimate = Estimate.omit({ options: true }).extend({
       lineTotal: MoneyString,
       isOptional: z.boolean(),
       isSelected: z.boolean(),
+      /** The picture of the price book item the line was priced from, as the photograph id `/e/{token}/proposal/photos/{id}` serves; null for none. */
+      picture: z.string().nullable(),
     })),
   })),
   depositRequired: MoneyString.nullable(),

@@ -192,6 +192,22 @@ said so. `POST /v1/vendor-catalogue/preview` and
 `pricebook:write`, because an import writes both; an item's own cost is shown
 beside the vendor's only to whoever holds `pricebook.cost:read`.
 
+**A workbook.** The file can be an `.xlsx` as well as a CSV. On the screen the
+person picks it and is asked which sheet holds the prices (a cover sheet or a
+sheet that is not a list is shown with why it cannot be chosen); through the API
+it is sent as `workbook` (base64) with the `sheet` to read, and
+`POST /v1/vendor-catalogue/sheets` lists a workbook's sheets, with the same two
+permissions. It goes through the same reader the spreadsheet import (M30) uses,
+so it has the same limits and the same refusals in the same words: five
+megabytes, a password, an older `.xls`, a workbook that opens into gigabytes, a
+sheet nobody chose when there are several. A formula is read as the answer the
+spreadsheet stored beside it and never worked out. The first row of the sheet is
+the header, with the same columns a CSV has, and the sheet's rows then meet the
+same checks, the same five thousand row cap and the same plan. A line on the
+preview is the row number the spreadsheet shows, so a skipped row can be found.
+A CSV or a workbook is sent, never both, and a CSV has no sheets. The apply audit
+row names the sheet.
+
 **Packs and price breaks.** A file can say how the supplier sells each part:
 a pack column (how many of ours in one of theirs, "Case Qty", "Pack Size"), a
 unit column ("UOM": box, case) and price breaks in pairs of columns ("Break 1
@@ -552,6 +568,7 @@ permission rather than an inventory one, because a delivery is a billable event.
 | `GET /v1/vendor-items` | `vendor:read` |
 | `PUT /v1/vendor-items` | `vendor:write` |
 | `POST /v1/vendor-items/{id}/remove` | `vendor:write` |
+| `POST /v1/vendor-catalogue/sheets` | `vendor:write`, `pricebook:write` |
 | `POST /v1/vendor-catalogue/preview` | `vendor:write`, `pricebook:write` |
 | `POST /v1/vendor-catalogue/apply` | `vendor:write`, `pricebook:write` |
 | `POST /v1/purchase-orders/{id}/status` | `po:write`, and `po:approve` to submit an order no approval step applies to |
@@ -604,8 +621,11 @@ question about it is what to bill.
 
 ## What is not built
 
-A catalogue import reads a CSV, not a spreadsheet file or a supplier's API or
-EDI feed, and at most five thousand rows at a time. It adds the vendors a file
+A catalogue import reads a CSV or an `.xlsx` workbook (one sheet at a time), not
+an older `.xls`, `.ods` or `.numbers` file, a workbook with a password, a
+supplier's API or an EDI feed, and at most five thousand rows at a time. A part
+number typed as a number in the spreadsheet has lost its leading zeros before
+this sees it, so the column has to be formatted as text there. It adds the vendors a file
 names only when asked, and then with their name alone; it never matches a near
 spelling to a vendor already set up. A link keeps two ways to buy a part at most,
 each with a number of its own if it has one; a third (a case beside the box and

@@ -433,6 +433,8 @@ export interface HistoricalOutcome {
   on: string;
   /** For an approval: which option, by its position in the request, from nought. */
   chosenOption?: number | undefined;
+  /** For an approval: the day it was turned into a job in the other system. */
+  convertedOn?: string | undefined;
 }
 
 export type HistoryVerdict = { ok: true } | { ok: false; message: string };
@@ -471,6 +473,20 @@ export function checkHistory(
     }
   } else if (outcome.chosenOption !== undefined) {
     return { ok: false, message: `A ${outcome.status} estimate has no chosen option.` };
+  }
+  if (outcome.convertedOn !== undefined) {
+    if (outcome.status !== "approved") {
+      return { ok: false, message: `Only an approved estimate is turned into a job, and this one is ${outcome.status}.` };
+    }
+    if (!ISO_DAY.test(outcome.convertedOn)) {
+      return { ok: false, message: "The day it was turned into a job has to be a date like 2024-03-18." };
+    }
+    if (outcome.convertedOn > context.today) {
+      return { ok: false, message: "An estimate from history cannot have been turned into a job in the future." };
+    }
+    if (outcome.convertedOn < outcome.on) {
+      return { ok: false, message: `It was turned into a job on ${outcome.convertedOn}, before it was approved on ${outcome.on}.` };
+    }
   }
   return { ok: true };
 }

@@ -59,3 +59,20 @@ export async function closeChat(slug: string): Promise<ChatView> {
   const session = await requirePortalSession(slug);
   return portalChat.close(getDb(), { token: session.token });
 }
+
+/**
+ * The customer takes back a picture they sent, until somebody in the company has opened it.
+ * A refusal ("We have already opened that picture...") is the service's own sentence.
+ */
+export async function takeBackPicture(
+  slug: string, messageId: string, index: number,
+): Promise<{ ok: true; chat: ChatView } | { ok: false; message: string }> {
+  const session = await requirePortalSession(slug);
+  try {
+    return { ok: true, chat: await portalChat.removePicture(getDb(), { token: session.token, messageId, index }) };
+  } catch (error) {
+    const message = refusalOf(error);
+    if (message === null) throw error;
+    return { ok: false, message };
+  }
+}

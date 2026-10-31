@@ -59,20 +59,20 @@ export const KIND_LABEL: Record<ImportKind, { label: string; row: string; summar
   invoices: {
     label: "Past invoices and their payments", row: "invoice",
     summary: "One row per invoice, with its date and total, and what was paid on it and when. "
-      + "An invoice with several lines is several rows with the same invoice number, one per line.",
+      + "An invoice with several lines is several rows with the same invoice number, one per line, and a line can name its price book item and a discount.",
   },
   estimates: {
     label: "Past estimates", row: "estimate",
-    summary: "One row per estimate, with the customer, its amount, the day it was written and sent, and how it ended: approved, declined or expired. "
+    summary: "One row per estimate, with the customer, its amount, the day it was written and sent, and how it ended: approved, declined or expired (and, for one approved, the day it was turned into a job). "
       + "An estimate with several lines or several options is several rows with the same estimate number, one per line, and a column of option names says which option each line is in.",
   },
   notes: {
     label: "Customer notes", row: "note",
-    summary: "One row per note, with the customer it is about, the day it was written and what it says.",
+    summary: "One row per note, with the customer it is about, the day it was written (and the time, if you have it) and what it says.",
   },
   visits: {
     label: "Past visits", row: "visit",
-    summary: "One row per visit on a finished job: the job, the email of the technician who went, the day, "
+    summary: "One row per visit on a finished job: the job, the email of the technician who went (or the emails of the crew, separated by a semicolon), the day, "
       + "the time they started and, if you have it, the time they finished.",
   },
   payments: {
@@ -209,7 +209,9 @@ export const FIELDS: Record<ImportKind, readonly ImportField[]> = {
     { key: "dueOn", label: "Due date", type: "date", words: ["due", "due date", "due on", "date due"] },
     { key: "description", label: "What it was for", type: "text", max: 200, words: ["description", "item", "service", "memo", "details", "line", "for"] },
     { key: "quantity", label: "Quantity", type: "quantity", words: ["quantity", "qty", "hours", "line quantity"] },
+    { key: "itemRef", label: "Price book item's code or id", type: "text", max: MAX_KEY_LENGTH, words: ["item code", "item id", "sku", "product code", "product id", "price book item", "price book code", "price book id", "item number", "item no", "part number"] },
     { key: "unitPrice", label: "Price each", type: "money", words: ["price each", "unit price", "price", "rate", "line rate"] },
+    { key: "discount", label: "Discount on the line", type: "money", words: ["discount", "line discount", "discount amount", "discount given", "discounts", "less discount"] },
     { key: "subtotal", label: "Before tax", type: "money", words: ["subtotal", "sub total", "net", "before tax", "amount before tax", "pre tax", "line amount", "line total"] },
     { key: "tax", label: "Tax", type: "money", words: ["tax", "sales tax", "tax amount", "tax total"] },
     { key: "total", label: "Total", type: "money", words: ["total", "amount", "invoice total", "grand total", "total amount", "total due"] },
@@ -232,6 +234,7 @@ export const FIELDS: Record<ImportKind, readonly ImportField[]> = {
     { key: "total", label: "Total", type: "money", words: ["total", "amount", "estimate total", "quote total", "grand total", "value", "price"] },
     { key: "outcome", label: "How it ended", type: "estimateOutcome", words: ["status", "outcome", "result", "estimate status", "quote status", "stage"] },
     { key: "decidedOn", label: "Decided on", type: "date", words: ["decided", "decided on", "approved on", "declined on", "accepted on", "closed on", "won on", "lost on", "outcome date", "date decided", "date approved", "approved date"] },
+    { key: "convertedOn", label: "Turned into a job on", type: "date", words: ["converted", "converted on", "date converted", "converted date", "converted to job", "converted to job on", "turned into job", "turned into a job on", "job created on"] },
     { key: "reason", label: "Why it was declined", type: "text", max: 1000, words: ["reason", "decline reason", "declined reason", "lost reason", "why"] },
     /* An estimate that arrives whole: the columns that say which line is in which option. */
     { key: "option", label: "Option", type: "text", max: 100, words: ["option", "option name", "package", "package name", "tier", "choice", "proposal option"] },
@@ -256,12 +259,13 @@ export const FIELDS: Record<ImportKind, readonly ImportField[]> = {
     CUSTOMER_EMAIL,
     { key: "body", label: "The note", type: "text", required: true, max: 4000, words: ["note", "notes", "comment", "comments", "text", "body", "note text", "details"] },
     { key: "notedOn", label: "Written on", type: "date", required: true, words: ["date", "note date", "created", "created on", "created at", "written", "written on", "date added", "added on"] },
+    { key: "notedTime", label: "Time written", type: "time", words: ["time", "note time", "time written", "time of note", "created time", "time added", "written at", "time created"] },
     { key: "forField", label: "For the technician", type: "boolean", words: ["for technician", "show technician", "technician note", "field note", "show in field", "for field"] },
   ],
   visits: [
     { ...REF, words: [...REF.words, "visit id", "appointment id"] },
     { key: "jobRef", label: "Job's id or number", type: "text", required: true, max: MAX_KEY_LENGTH, words: ["job id", "job number", "job", "work order", "work order number", "job no"] },
-    { key: "technicianEmail", label: "Technician's email", type: "text", required: true, max: 254, words: ["technician email", "tech email", "employee email", "assigned to email", "assignee email", "technician", "tech", "assigned to"] },
+    { key: "technicianEmail", label: "Technician's email", type: "text", required: true, max: 1000, words: ["technician email", "tech email", "employee email", "assigned to email", "assignee email", "technician", "tech", "assigned to"] },
     { key: "visitedOn", label: "Day", type: "date", required: true, words: ["date", "visit date", "day", "service date", "appointment date", "scheduled date", "start date"] },
     { key: "startTime", label: "Started at", type: "time", required: true, words: ["start", "start time", "time", "started", "started at", "arrival", "arrival time", "arrived", "time in"] },
     { key: "endTime", label: "Finished at", type: "time", words: ["end", "end time", "finish", "finish time", "finished", "finished at", "departed", "time out", "completed at"] },
@@ -398,6 +402,9 @@ export function mappingProblems(kind: ImportKind, columns: readonly (string | nu
   }
   if (kind === "payments" && !has("customerRef") && !has("customerEmail") && !has("invoiceRef")) {
     problems.push("No column is set to Customer's id, Customer's email or Invoice's id or number, so there is no way to tell whose each payment is.");
+  }
+  if (kind === "invoices" && has("discount") && !has("unitPrice")) {
+    problems.push("A column is set to Discount and none to Price each. A discount is taken off a quantity at a price each, so the line can be checked.");
   }
   if ((kind === "invoices" || kind === "estimates") && has("quantity") && !has("unitPrice")) {
     problems.push("A column is set to Quantity and none to Price each. A quantity needs the price of one to make a line.");
@@ -642,6 +649,38 @@ export interface ReadRow {
 }
 
 /**
+ * THE EMAILS A VISIT NAMES. One technician is one email; a crew is several,
+ * separated by a semicolon, a comma or a new line, each the email its
+ * technician signs in with. Written in any case, repeated ones counted once,
+ * in the order the file gives them.
+ */
+export function technicianEmails(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[;,\n]+/)) {
+    const email = part.trim();
+    if (email === "" || seen.has(email.toLowerCase())) continue;
+    seen.add(email.toLowerCase());
+    out.push(email);
+  }
+  return out;
+}
+
+/** The most technicians one past visit may name. */
+export const MAX_CREW = 10;
+
+/**
+ * THE TIME INSIDE A DAY'S CELL. A workbook gives a date written at a time as
+ * one cell, "2021-03-04 14:30", and an export often writes "3/4/2021 2:30 PM".
+ * The day is read by the date's own rules; this finds the time after it, so a
+ * note keeps the hour it was written. Undefined when the cell is only a day.
+ */
+function timeInDay(raw: string): Parsed | undefined {
+  const found = /(?:^|[\sT])(\d{1,2}:\d{2}(?::\d{2})?\s?(?:[ap]\.?m\.?)?)$/i.exec(raw.trim());
+  return found ? parseTime(found[1]!) : undefined;
+}
+
+/**
  * ONE ROW, READ.
  *
  * Every cell of a mapped column is read by its field's type, and the row is
@@ -670,6 +709,17 @@ export function readRow(
     }
   }
   const label = (key: string) => fields.find((f) => f.key === key)?.label ?? key;
+  if (kind === "notes" && values["notedOn"] !== undefined) {
+    /** The hour a note was written is in its Time column or after the day in the same cell; the two may not disagree. */
+    const at = columns.indexOf("notedOn");
+    const inDay = timeInDay(cells[at] ?? "");
+    if (inDay && !inDay.ok) problems.push(`${label("notedOn")}: ${inDay.why}`);
+    else if (inDay?.ok) {
+      if (values["notedTime"] !== undefined && values["notedTime"] !== inDay.value) {
+        problems.push(`The day says ${inDay.value} and ${label("notedTime")} says ${values["notedTime"]}. Keep one of them.`);
+      } else values["notedTime"] = inDay.value;
+    }
+  }
   for (const field of fields) {
     if (field.type === "date" && values[field.key] && values[field.key]! > options.today) {
       problems.push(`${field.label} is ${values[field.key]}, which has not happened yet.`);
@@ -758,9 +808,15 @@ export function readRow(
   }
 
   if (kind === "visits") {
-    const email = values["technicianEmail"];
-    if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      problems.push(`Technician's email: "${email}" is not an email address. A visit finds the technician by the email they sign in with.`);
+    const crew = values["technicianEmail"] === undefined ? [] : technicianEmails(values["technicianEmail"]);
+    for (const email of crew) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        problems.push(`Technician's email: "${email}" is not an email address. A visit finds each technician by the email they sign in with.`);
+      }
+    }
+    if (crew.length > MAX_CREW) problems.push(`It names ${crew.length} technicians. A visit can name at most ${MAX_CREW}.`);
+    if (values["technicianEmail"] !== undefined && crew.length === 0 && !problems.some((p) => p.startsWith("Technician's email"))) {
+      problems.push("Technician's email is empty.");
     }
     const start = values["startTime"];
     const end = values["endTime"];
@@ -776,11 +832,32 @@ export function readRow(
      * has to agree, because a row that disagrees with itself does not say
      * which number is wrong.
      */
-    const before = lineAmount(values["quantity"] ?? "1", values["unitPrice"]);
+    let before = lineAmount(values["quantity"] ?? "1", values["unitPrice"]);
+    const gross = before;
+    /**
+     * A DISCOUNT is the amount taken off the line in all, not off each one,
+     * and Before tax is what the customer was charged after it. The invoice
+     * works the same way: quantity at price each, less the line's discount,
+     * rounded once to the cent.
+     */
+    const discount = kind === "invoices" ? values["discount"] : undefined;
+    if (discount !== undefined) {
+      if (isNegative(money(discount))) {
+        problems.push("Discount is below zero. Write a discount as the amount taken off, as a positive amount.");
+      } else if (compare(money(discount), money(gross)) > 0) {
+        problems.push(`The discount of ${trimMoney(discount)} is more than the ${trimMoney(gross)} the line comes to before it.`);
+      } else {
+        before = trimMoney(toString(round(subtract(multiply(money(values["unitPrice"]), values["quantity"] ?? "1"), money(discount)), 2)));
+      }
+    }
     if (values["subtotal"] !== undefined && compare(money(values["subtotal"]), money(before)) !== 0) {
-      problems.push(`${trimQuantity(values["quantity"] ?? "1")} at ${trimMoney(values["unitPrice"])} is ${trimMoney(before)}, not the ${trimMoney(values["subtotal"])} in Before tax.`);
+      problems.push(discount !== undefined
+        ? `${trimQuantity(values["quantity"] ?? "1")} at ${trimMoney(values["unitPrice"])} less ${trimMoney(discount)} is ${trimMoney(before)}, not the ${trimMoney(values["subtotal"])} in Before tax.`
+        : `${trimQuantity(values["quantity"] ?? "1")} at ${trimMoney(values["unitPrice"])} is ${trimMoney(before)}, not the ${trimMoney(values["subtotal"])} in Before tax.`);
     }
     values["subtotal"] = before;
+  } else if (kind === "invoices" && values["discount"] !== undefined) {
+    problems.push("It has a discount and no price each. Fill in Price each (and the Quantity) so the line's amount can be checked.");
   }
 
   if (kind === "estimates" && !options.line) readEstimate(values, problems, label);
@@ -879,6 +956,16 @@ function estimateOutcome(values: Record<string, string>, problems: string[], lab
   if (values["reason"] !== undefined && outcome !== "declined") {
     problems.push(`It has a reason it was declined and says it was ${outcome}.`);
   }
+  const converted = values["convertedOn"];
+  if (converted !== undefined) {
+    if (outcome !== "approved") {
+      problems.push(`It has a day it was turned into a job and says it was ${outcome === "open" ? "still open" : outcome}. Only an approved estimate is turned into a job.`);
+    } else if (decided !== undefined && converted < decided) {
+      problems.push(`It was turned into a job on ${converted}, before it was approved on ${decided}.`);
+    } else if (written !== undefined && converted < written) {
+      problems.push(`It was turned into a job on ${converted}, before it was written on ${written}.`);
+    }
+  }
 }
 
 /**
@@ -934,7 +1021,15 @@ export function trimQuantity(value: string): string {
 
 /* -------------------------------------------------- several rows, one record */
 
-export interface InvoiceLine { name: string; quantity: string; unitPrice: string; subtotal: string; tax: string }
+export interface InvoiceLine {
+  name: string; quantity: string; unitPrice: string; subtotal: string; tax: string;
+  /** An invoice's line only: the price book item the file names, by its code or the id the file gave it. */
+  itemRef?: string | undefined;
+  /** An invoice's line only: the amount taken off the line, when the file gives one. */
+  discount?: string | undefined;
+  /** An invoice's line only: whether the file words the line; if not, the item's own name is used when it names one. */
+  described?: boolean | undefined;
+}
 export interface Allocation { invoiceRef: string | null; amount: string }
 
 /** One option of an estimate that arrives whole: its lines, what they come to and whether the file calls it recommended or chosen. */
@@ -967,7 +1062,7 @@ const INVOICE_SHARED = ["ref", "number", "customerRef", "customerEmail", "jobRef
 /** What the rows of one payment say once: the payment, not the invoice it paid. */
 const PAYMENT_SHARED = ["ref", "customerRef", "customerEmail", "paidOn", "method", "checkNumber", "memo"];
 /** What the rows of one estimate say once: the estimate and how it ended, not the option or the line. */
-const ESTIMATE_SHARED = ["ref", "number", "customerRef", "customerEmail", "street", "jobRef", "title", "issuedOn", "sentOn", "outcome", "decidedOn", "reason"];
+const ESTIMATE_SHARED = ["ref", "number", "customerRef", "customerEmail", "street", "jobRef", "title", "issuedOn", "sentOn", "outcome", "decidedOn", "convertedOn", "reason"];
 const sharedOf = (kind: ImportKind): string[] =>
   kind === "invoices" ? INVOICE_SHARED : kind === "payments" ? PAYMENT_SHARED : kind === "estimates" ? ESTIMATE_SHARED : [];
 
@@ -1051,6 +1146,9 @@ export function readGroup(
         unitPrice: priced ? v["unitPrice"]! : v["subtotal"]!,
         subtotal: v["subtotal"]!,
         tax: v["tax"] ?? "0",
+        described: v["description"] !== undefined,
+        ...(v["itemRef"] !== undefined ? { itemRef: v["itemRef"] } : {}),
+        ...(v["discount"] !== undefined && !isZero(money(v["discount"])) ? { discount: v["discount"] } : {}),
       };
     });
   if (rows.length === 1) {

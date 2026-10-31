@@ -90,6 +90,14 @@ export async function saveReminder(_previous: FormState, form: FormData): Promis
         emailSubject: String(form.get("emailSubject") ?? ""),
         emailBody: String(form.get("emailBody") ?? ""),
       },
+      /** The second reminder's words travel with the form, so saving the days never loses them. */
+      ...(form.has("secondSms") ? {
+        secondWording: {
+          sms: String(form.get("secondSms") ?? ""),
+          emailSubject: String(form.get("secondEmailSubject") ?? ""),
+          emailBody: String(form.get("secondEmailBody") ?? ""),
+        },
+      } : {}),
     });
     const saved = await reviews.setReminders(await ctx(), input);
     return {
@@ -112,6 +120,16 @@ export async function resetReminderWords(_previous: FormState, form: FormData): 
   const result = await attempt(form, async () => {
     await reviews.setReminders(await ctx(), { wording: null });
     return { message: "The reminder goes in the words we wrote again." };
+  });
+  if (!result?.error) revalidatePath(PATH);
+  return result;
+}
+
+/** The second reminder's words we ship, back. The days and the first reminder's words stay as they are. */
+export async function resetSecondReminderWords(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    await reviews.setReminders(await ctx(), { secondWording: null });
+    return { message: "The second reminder goes in the words we wrote again." };
   });
   if (!result?.error) revalidatePath(PATH);
   return result;

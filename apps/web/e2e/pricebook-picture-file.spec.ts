@@ -76,6 +76,10 @@ test("an item's uploaded picture is drawn on the item, in the composer and on th
   const path = new URL(approvalUrl, "http://x").pathname;
   await stranger.goto(`${path}/proposal`);
   await drawn(stranger.getByRole("article", { name: "Proposal" }).getByRole("img", { name: `Picture of ${name}` }));
+  // The approval page draws it too, beside the line, once the option is opened.
+  await stranger.goto(path);
+  await stranger.getByRole("button", { name: /Replace it/ }).click();
+  await drawn(stranger.getByRole("img", { name: `Picture of ${name}` }));
   const file = await stranger.request.get(`${path}/pdf`);
   expect(file.ok()).toBe(true);
   expect((await file.body()).toString("latin1")).toContain("/Subtype /Image");

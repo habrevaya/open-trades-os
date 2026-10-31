@@ -6,6 +6,7 @@ import * as priceBook from "../src/services/pricebook";
 import * as repricing from "../src/services/repricing";
 import * as estimates from "../src/services/estimates";
 import * as proposals from "../src/services/proposals";
+import * as portal from "../src/services/portal";
 import * as templates from "../src/services/proposal-templates";
 import * as documents from "../src/services/documents";
 import { uploadPriceBookPicture } from "../src/contracts/pricebook";
@@ -200,6 +201,9 @@ run("on an estimate", () => {
     const sent = await estimates.send(owner(), { id: written.id, channel: "link", expiresInDays: 30 });
     const token = tokenOf(sent.approvalUrl);
     expect((await proposals.proposalForToken(db(), token)).options[0]!.lines[0]!.picture).toBe(`item-${shown.versionId}`);
+    /** The approval page's own view of the estimate carries the same ids, line by line, and none for a line without one. */
+    const approval = await portal.viewEstimate(db(), { token });
+    expect(approval.options[0]!.lines.map((l) => l.picture)).toEqual([`item-${shown.versionId}`, null, null]);
     const theirs = await proposals.proposalPhotoForToken(db(), token, `item-${shown.versionId}`);
     expect(theirs).toMatchObject({ contentType: "image/jpeg" });
   });

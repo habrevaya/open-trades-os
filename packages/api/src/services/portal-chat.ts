@@ -11,10 +11,10 @@ import { chatReader, chatTranscript, disclosure, handOff, inbound, answerChat } 
 import { companyOf } from "./agent-facts";
 import { sessionFor, type PortalSession } from "./portal-sign-in";
 import { throttle } from "./website-tracking";
-import { attach, bytesOf, decode, put } from "./files";
+import { attach, bytesOf, decode, put, release } from "./files";
 import { files } from "@opentradesos/core";
 import { countUpload } from "./portal-files";
-import { unreadAnswers } from "./portal-chat-notice";
+import { tellOfIdleClose, unreadAnswers } from "./portal-chat-notice";
 import type { AiDeps } from "./ai";
 
 /**
@@ -69,8 +69,10 @@ import type { AiDeps } from "./ai";
  * off until chosen): the worker then closes a chat the company wrote last in and
  * the customer has not written to for that long (`idleClosePass`). A chat the
  * customer wrote last in is never closed that way, because a customer waiting on
- * an answer is not an idle one. Neither tells the customer by text or email; they
- * see it the next time they open the chat. A chat has one closer.
+ * an answer is not an idle one. The quiet chat rule tells the customer once, by
+ * email or text, that it closed their chat (`tellOfIdleClose`, through the same
+ * gates the answer notice goes through); a person's close does not, because a
+ * person closing it has seen to it. A chat has one closer.
  *
  * WHAT THE CUSTOMER HAS SEEN. Opening the chat, or writing in it, marks it
  * read (`customer_read_at`). A reply from the office newer than that is an
@@ -105,33 +107,67 @@ export interface PortalChatPicture {
   name: string | null;
   /** A browser can draw it. A phone's HEIC is kept and offered to open instead. */
   shown: boolean;
+  /** The customer sent it and nobody in the company has opened it yet, so they can still take it back. */
+  takeBack: boolean;
 }
 
 /** What a customer's own pictures in the chat are filed as, to count what one has sent today. */
 export const CHAT_PICTURE_KIND = "chat_picture";
 
-/** The pictures on these messages, by position, for the view. Nothing refused or not kept. */
-async function picturesOf(tx: Database, ids: string[]): Promise<Map<string, PortalChatPicture[]>> {
+/**
+ * The pictures on these messages, by position, for the view. Nothing refused or not
+ * kept. A picture the customer sent is one they can still take back (`takeBack`)
+ * until somebody in the company has opened it. `taken` lists the messages with a
+ * picture the customer took back, so a message that was only that picture is not
+ * drawn as an empty bubble.
+ */
+async function picturesOf(
+  tx: Database, ids: string[], customerId: string,
+): Promise<{ found: Map<string, PortalChatPicture[]>; taken: Set<string> }> {
   const found = new Map<string, PortalChatPicture[]>();
-  if (ids.length === 0) return found;
+  const taken = new Set<string>();
+  if (ids.length === 0) return { found, taken };
   const rows = await tx.select({ id: schema.message.id, media: schema.message.media }).from(schema.message)
     .where(and(inArray(schema.message.id, ids), sql`jsonb_array_length(${schema.message.media}) > 0`));
+  const own = rows.length === 0 ? [] : await tx.select({
+    entityId: schema.attachment.entityId, storageKey: schema.attachment.storageKey, seenAt: schema.attachment.seenAt,
+  }).from(schema.attachment).where(and(
+    eq(schema.attachment.kind, CHAT_PICTURE_KIND),
+    eq(schema.attachment.entityType, "message"),
+    inArray(schema.attachment.entityId, rows.map((r) => r.id)),
+    eq(schema.attachment.uploadedByCustomerId, customerId),
+    isNull(schema.attachment.deletedAt),
+  ));
+  const unopened = new Set(own.filter((a) => a.seenAt === null).map((a) => `${a.entityId}|${a.storageKey}`));
   for (const row of rows) {
+    if (row.media.some((item) => !item.storageKey && item.refused === TAKEN_BACK)) taken.add(row.id);
     found.set(row.id, row.media.flatMap((item, index) => item.storageKey
       ? [{
         index, contentType: item.contentType, name: item.name ?? null,
         shown: cp.CHAT_PICTURES.shownInPage.includes(item.contentType),
+        takeBack: unopened.has(`${row.id}|${item.storageKey}`),
       }]
       : []));
   }
-  return found;
+  return { found, taken };
 }
 
+/** What the thread says in place of a picture the customer took back, to the office. */
+const TAKEN_BACK = "The customer took this picture back before anyone opened it.";
+
 /** The transcript the page shows: the shared one, with each message's pictures. */
-async function viewOf(tx: Database, chat: typeof schema.aiChatSession.$inferSelect, after?: string | undefined) {
+async function viewOf(
+  tx: Database, chat: typeof schema.aiChatSession.$inferSelect, customerId: string, after?: string | undefined,
+) {
   const transcript = await chatTranscript(tx, chat, after);
-  const pictures = await picturesOf(tx, transcript.messages.map((m) => m.id));
-  return { ...transcript, messages: transcript.messages.map((m) => ({ ...m, pictures: pictures.get(m.id) ?? [] })) };
+  const { found, taken } = await picturesOf(tx, transcript.messages.map((m) => m.id), customerId);
+  return {
+    ...transcript,
+    messages: transcript.messages
+      .map((m) => ({ ...m, pictures: found.get(m.id) ?? [] }))
+      /** A message that was only a picture the customer took back is gone from their page, as it never was. */
+      .filter((m) => !(taken.has(m.id) && m.pictures.length === 0 && m.text.trim() === "")),
+  };
 }
 
 /** The address a customer's account chat is kept under: their own, or the contact's signed in as them. */
@@ -187,7 +223,7 @@ export async function read(db: Database, input: { token: string; after?: string 
     return {
       assistant,
       ...(found.chat.status === "closed" ? { closedBy: found.chat.officeCloseKind ?? "office" } : {}),
-      ...(await viewOf(tx, found.chat, input.after)),
+      ...(await viewOf(tx, found.chat, session.customerId, input.after)),
     };
   });
 }
@@ -233,6 +269,104 @@ export async function picture(
     return { bytes: await bytesOf(file), contentType: file.contentType, name: item.name ?? null };
   });
 }
+
+/**
+ * The customer takes back a picture they sent, until somebody in the company has
+ * opened it.
+ *
+ * "Opened" is the inbox fetching it (`noteChatPictureOpened`, from the inbox's own
+ * picture route): from then it is the company's record of what it was sent, and
+ * stays. Only the customer's own picture in their own conversation: another
+ * customer's, an office picture, a position with nothing kept and a made up id
+ * are all the same not found. The picture is let go like any file the customer
+ * takes back, and the thread says so in its place to the office ("The customer took
+ * this picture back before anyone opened it.") rather than leaving a gap; on the
+ * customer's page a message that was only that picture is gone. A message's words
+ * stay. Taking back one already taken back changes nothing. The audit log has
+ * `portal.chat_picture_removed` naming the sign in (and the contact, when a contact
+ * signed in as the customer).
+ */
+export async function removePicture(
+  db: Database, input: { token: string; messageId: string; index: number },
+): Promise<PortalChatView> {
+  const session = await sessionFor(db, input.token);
+  const organizationId = session.grant.organizationId;
+  await throttle(db, `portal-chat-picture:${organizationId}:${session.customerId}`, LIMITS.perMinute);
+  await inTenant(chatReader(db, organizationId), async (tx) => {
+    const found = await find(tx, session);
+    if (!found) throw new NotFoundError("Picture");
+    const [message] = await tx.select({ id: schema.message.id, media: schema.message.media, direction: schema.message.direction })
+      .from(schema.message)
+      .where(and(eq(schema.message.id, input.messageId), eq(schema.message.conversationId, found.conversation.id)))
+      .limit(1);
+    const item = message?.media[input.index];
+    if (!message || !item) throw new NotFoundError("Picture");
+    /** Already taken back: nothing to do, and the same answer. */
+    if (!item.storageKey) {
+      if (item.refused === TAKEN_BACK) return;
+      throw new NotFoundError("Picture");
+    }
+    const [attachment] = await tx.select().from(schema.attachment).where(and(
+      eq(schema.attachment.kind, CHAT_PICTURE_KIND),
+      eq(schema.attachment.entityType, "message"),
+      eq(schema.attachment.entityId, message.id),
+      eq(schema.attachment.storageKey, item.storageKey),
+      eq(schema.attachment.uploadedByCustomerId, session.customerId),
+      isNull(schema.attachment.deletedAt),
+    )).limit(1);
+    if (!attachment) throw new NotFoundError("Picture");
+    if (attachment.seenAt) {
+      throw new ConflictError("We have already opened that picture, so it stays in the chat. Call us if it should not be there.");
+    }
+    await release(tx, organizationId, attachment.id);
+    /** Every position that points at the same stored file goes with it, so none is left pointing at a file let go. */
+    const media = message.media.map((m) => (m.storageKey === item.storageKey
+      ? { url: "", contentType: m.contentType, refused: TAKEN_BACK }
+      : m));
+    await tx.update(schema.message).set({ media, updatedAt: new Date() }).where(eq(schema.message.id, message.id));
+    await audit(tx, {
+      ...chatReader(db, organizationId), portalGrantId: session.grant.grantId, portalContactId: session.contact?.id ?? null,
+    }, "portal.chat_picture_removed", "message", message.id, { index: input.index, pictures: message.media.length },
+    { removedBy: "customer", attachmentId: attachment.id });
+  });
+  return read(db, { token: input.token });
+}
+
+/**
+ * Somebody in the company opened a picture a customer sent in their chat, by the
+ * inbox's own picture route. From then the customer can no longer take it back.
+ * Called after the picture was served under the reader's own permission and
+ * conversation scope, so it only records; a demo that cannot write records
+ * nothing, and opening it again, or opening a picture the company sent, changes
+ * nothing.
+ */
+export async function noteChatPictureOpened(
+  ctx: ServiceContext, input: { conversationId: string; storageKey: string },
+): Promise<number> {
+  if (ctx.actor.readOnly) return 0;
+  return inTenant(ctx, async (tx) => {
+    const rows = await tx.select({ id: schema.attachment.id }).from(schema.attachment)
+      .innerJoin(schema.message, eq(schema.message.id, schema.attachment.entityId))
+      .where(and(
+        eq(schema.attachment.kind, CHAT_PICTURE_KIND),
+        eq(schema.attachment.entityType, "message"),
+        eq(schema.attachment.storageKey, input.storageKey),
+        eq(schema.message.conversationId, input.conversationId),
+        isNull(schema.attachment.seenAt),
+        isNull(schema.attachment.deletedAt),
+      ));
+    const seenAt = new Date();
+    for (const row of rows) {
+      await tx.update(schema.attachment).set({
+        seenAt, seenByUserId: isSystemUser(ctx.actor.userId) ? null : ctx.actor.userId, updatedAt: seenAt,
+      }).where(and(eq(schema.attachment.id, row.id), isNull(schema.attachment.seenAt)));
+      await audit(tx, ctx, "attachment.seen", "attachment", row.id, { seenAt: null }, { seenAt });
+    }
+    return rows.length;
+  });
+}
+
+const isSystemUser = (userId: string) => userId === SYSTEM_USER_ID;
 
 /**
  * The customer's message, and the assistant's answer when it answers here.
@@ -501,6 +635,9 @@ export async function closeIdleIn(tx: Database, ctx: ServiceContext, now = new D
       .where(eq(schema.conversation.id, row.conversation_id));
     await audit(tx, ctx, "portal.chat_closed_idle", "conversation", row.conversation_id,
       { status: "open" }, { status: "closed", closedBy: "idle", quietDays: days });
+    /** The customer is told it closed, by the way they would rather hear and never inside quiet hours; the close stands whatever happens. */
+    const [conversation] = await tx.select().from(schema.conversation).where(eq(schema.conversation.id, row.conversation_id)).limit(1);
+    if (conversation) await tellOfIdleClose(tx, ctx, conversation, now);
     closed.push(row.conversation_id);
   }
   return closed;
@@ -554,6 +691,7 @@ export const handlers = {
     meta?: RequestMeta,
   ) => say(db, input, meta),
   closePortalChat: (db: Database, input: { token: string }) => close(db, input),
+  removePortalChatPicture: (db: Database, input: { token: string; messageId: string; index: number }) => removePicture(db, input),
   closeConversation: (ctx: ServiceContext, input: { id: string }) => closeFromOffice(ctx, input),
   getPortalChatUnread: (db: Database, input: { token: string }) => unreadReplies(db, input),
   getPortalChatPicture: async (db: Database, input: { token: string; messageId: string; index: number }) => {

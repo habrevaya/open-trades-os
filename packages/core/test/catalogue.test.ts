@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  parseCatalogue, planCatalogue, splitRecords, parseCost, MAX_ROWS, cheaperFirst, choosePack,
+  parseCatalogue, parseCatalogueSheet, planCatalogue, splitRecords, parseCost, MAX_ROWS, cheaperFirst, choosePack,
   type CatalogueState,
 } from "../src/catalogue/index.js";
 
@@ -235,5 +235,25 @@ describe("choosing between two ways to buy a part", () => {
     const refused = choosePack([each, box], "30", "25");
     expect(refused).toEqual({ ok: false, reason: "Order 25 or 50 by the box of 25, not 30." });
     expect(choosePack([each, box], "30", "10")).toMatchObject({ ok: false, reason: expect.stringContaining("do not sell it in packs of 10") });
+  });
+});
+
+describe("a catalogue read from a workbook's sheet", () => {
+  it("reads the same rows as the same file as text, keeping each row's number from the spreadsheet", () => {
+    const text = parseCatalogue("sku,description,cost,pack,unit\nA-1,Filter,5.25,25,box\nB-2,Cap,12,,");
+    const sheet = parseCatalogueSheet(
+      ["sku", "description", "cost", "pack", "unit"],
+      [["A-1", "Filter", "5.25", "25", "box"], ["B-2", "Cap", "12", "", ""]],
+      [2, 7],
+    );
+    expect(sheet.rows.map(({ line: _line, ...row }) => row)).toEqual(text.rows.map(({ line: _line, ...row }) => row));
+    expect(sheet.rows.map((r) => r.line)).toEqual([2, 7]);
+    expect(sheet.problems).toEqual([]);
+  });
+
+  it("says a missing column or a bad cost in the same words, at the sheet's row", () => {
+    expect(parseCatalogueSheet(["name", "price"], [["x", "1"]], [2]).problems[0]!.message).toMatch(/no sku column/);
+    expect(parseCatalogueSheet(["sku", "cost"], [["A", "call us"]], [9]).problems)
+      .toEqual([{ line: 9, message: 'A has a cost of "call us", which is not an amount.' }]);
   });
 });

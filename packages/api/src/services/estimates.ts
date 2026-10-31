@@ -471,8 +471,13 @@ export async function createIn(
 
     if (input.outcome) {
       const { start } = time.dayBoundsIn(input.outcome.on, await timezoneOf(tx, ctx.actor.organizationId));
+      const convertedOn = input.outcome.convertedOn;
       await tx.update(schema.estimate).set({
-        status: input.outcome.status,
+        /** An approval carried to a job in the old system is converted here too, on that day. */
+        status: convertedOn !== undefined ? "converted" : input.outcome.status,
+        ...(convertedOn !== undefined
+          ? { convertedAt: time.dayBoundsIn(convertedOn, await timezoneOf(tx, ctx.actor.organizationId)).start }
+          : {}),
         /** Midday on the day it was sent, in the company's calendar: the day is what history knows. */
         ...(input.sentOn !== undefined
           ? { sentAt: time.instantOfLocal(input.sentOn, 12 * 60, await timezoneOf(tx, ctx.actor.organizationId)) }
@@ -486,6 +491,7 @@ export async function createIn(
       }).where(eq(schema.estimate.id, estimateId));
       await audit(tx, ctx, "estimate.outcome_imported", "estimate", estimateId, null, {
         status: input.outcome.status, on: input.outcome.on, sentOn: input.sentOn ?? null,
+        convertedOn: convertedOn ?? null,
       });
     }
 
@@ -537,6 +543,7 @@ export async function list(ctx: ServiceContext, input: z.infer<typeof listEstima
       sentAt: schema.estimate.sentAt,
       viewedAt: schema.estimate.viewedAt,
       decidedAt: schema.estimate.decidedAt,
+      convertedAt: schema.estimate.convertedAt,
       declineReason: schema.estimate.declineReason,
       selectedOptionId: schema.estimate.selectedOptionId,
       signerName: schema.estimate.signerName,
@@ -1334,6 +1341,7 @@ export async function convertIn(
     await tx.update(schema.estimate).set({
       status: "converted",
       jobId,
+      convertedAt: new Date(),
       updatedAt: new Date(),
     }).where(eq(schema.estimate.id, input.id));
 

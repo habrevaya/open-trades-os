@@ -1,0 +1,1 @@
+ALTER TABLE "estimate" ADD COLUMN "converted_at" timestamp with time zone;

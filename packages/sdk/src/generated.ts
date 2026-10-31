@@ -1244,7 +1244,9 @@ export interface ApplyTradePackOutput {
 }
 
 export interface ApplyVendorCatalogueInput {
-  csv: string;
+  csv?: string;
+  workbook?: string;
+  sheet?: string;
   vendorId?: string | null;
   margin?: string | null;
   ending?: string | null;
@@ -1378,6 +1380,7 @@ export interface ApproveEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -1518,6 +1521,7 @@ export interface ApprovePortalEstimateOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -1549,6 +1553,7 @@ export interface ApprovePortalEstimateOutput {
         lineTotal: string;
         isOptional: boolean;
         isSelected: boolean;
+        picture: string | null;
       }>;
     }>;
     depositRequired: string | null;
@@ -2379,6 +2384,7 @@ export interface ClosePortalChatOutput {
       contentType: string;
       name: string | null;
       shown: boolean;
+      takeBack: boolean;
     }>;
   }>;
 }
@@ -2773,6 +2779,7 @@ export interface ConvertEstimateOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -3631,6 +3638,7 @@ export interface CreateEstimateInput {
     chosenOption?: number;
     signerName?: string;
     reason?: string;
+    convertedOn?: string;
   };
   sentOn?: string;
   taxRate?: string;
@@ -3670,6 +3678,7 @@ export interface CreateEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -5644,6 +5653,7 @@ export interface DeclineEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -8834,6 +8844,7 @@ export interface GetEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -11529,6 +11540,7 @@ export interface GetPlanPortalLayoutOutput {
     name: string;
     ownLayout: boolean;
   } | null;
+  goBackTo: string | null;
 }
 
 export interface GetPortalBookingAvailabilityOutput {
@@ -11575,6 +11587,7 @@ export interface GetPortalChatOutput {
       contentType: string;
       name: string | null;
       shown: boolean;
+      takeBack: boolean;
     }>;
   }>;
 }
@@ -11627,6 +11640,7 @@ export interface GetPortalLayoutOutput {
     name: string;
     ownLayout: boolean;
   } | null;
+  goBackTo: string | null;
 }
 
 export interface GetPortalSettingsOutput {
@@ -12590,6 +12604,12 @@ export interface GetReviewRemindersOutput {
     detail: string | null;
   }>;
   secondAfterDays: number | null;
+  secondWording: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+    custom: boolean;
+  };
   followUpAfterDays: number | null;
   followUpApplies: boolean;
   later: Array<{
@@ -15804,6 +15824,7 @@ export interface ListEstimatesOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -18940,6 +18961,19 @@ export interface ListUnsoldEstimatesOutput {
   }>;
 }
 
+export interface ListVendorCatalogueSheetsInput {
+  workbook: string;
+}
+
+export interface ListVendorCatalogueSheetsOutput {
+  sheets: Array<{
+    name: string;
+    rows: number | null;
+    header: string[];
+    why: string | null;
+  }>;
+}
+
 export interface ListVendorItemsOutput {
   links: Array<{
     id: string;
@@ -20842,7 +20876,9 @@ export interface PreviewTradePackUpgradeOutput {
 }
 
 export interface PreviewVendorCatalogueInput {
-  csv: string;
+  csv?: string;
+  workbook?: string;
+  sheet?: string;
   vendorId?: string | null;
   margin?: string | null;
   ending?: string | null;
@@ -22938,6 +22974,7 @@ export interface RemovePlanPortalLayoutOutput {
     name: string;
     ownLayout: boolean;
   } | null;
+  goBackTo: string | null;
 }
 
 export interface RemovePortalCardInput {
@@ -22946,6 +22983,30 @@ export interface RemovePortalCardInput {
 
 export interface RemovePortalCardOutput {
   ok: true;
+}
+
+export interface RemovePortalChatPictureInput {
+  token: string;
+}
+
+export interface RemovePortalChatPictureOutput {
+  assistant: boolean;
+  status: "open" | "handed_off" | "closed" | null;
+  closedBy?: "customer" | "office" | "idle" | null;
+  bookingTaken: boolean;
+  messages: Array<{
+    id: string;
+    from: "visitor" | "assistant" | "person";
+    text: string;
+    at: string;
+    pictures: Array<{
+      index: number;
+      contentType: string;
+      name: string | null;
+      shown: boolean;
+      takeBack: boolean;
+    }>;
+  }>;
 }
 
 export interface RemovePortalFileInput {
@@ -23477,6 +23538,27 @@ export interface ReserveStockOutput {
     sequence: number;
     occurredAt: string;
   }>;
+}
+
+export type ResetPortalLayoutInput = Record<string, unknown>;
+
+export interface ResetPortalLayoutOutput {
+  blocks: Array<{
+    kind: "visit_timeline" | "service_report" | "readings_trend" | "equipment_register" | "checklist_results" | "photo_gallery" | "documents" | "invoices" | "payments" | "plan_status" | "next_visit" | "recommended_work" | "referral" | "contact_card";
+    title: string;
+    customTitle: string | null;
+    usualTitle: string;
+    visible: boolean;
+    hideable: boolean;
+  }>;
+  startedFrom: string | null;
+  changed: boolean;
+  plan: {
+    id: string;
+    name: string;
+    ownLayout: boolean;
+  } | null;
+  goBackTo: string | null;
 }
 
 export interface ResolveConflictInput {
@@ -24645,6 +24727,7 @@ export interface SayInPortalChatOutput {
       contentType: string;
       name: string | null;
       shown: boolean;
+      takeBack: boolean;
     }>;
   }>;
 }
@@ -24901,6 +24984,7 @@ export interface SendEstimateOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -26429,6 +26513,7 @@ export interface SetPlanPortalLayoutOutput {
     name: string;
     ownLayout: boolean;
   } | null;
+  goBackTo: string | null;
 }
 
 export interface SetPortalCardAutopayBackupInput {
@@ -26503,6 +26588,7 @@ export interface SetPortalLayoutOutput {
     name: string;
     ownLayout: boolean;
   } | null;
+  goBackTo: string | null;
 }
 
 export interface SetPortalSettingsInput {
@@ -26946,6 +27032,11 @@ export interface SetReviewRemindersInput {
     emailSubject: string;
     emailBody: string;
   } | null;
+  secondWording?: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+  } | null;
   secondAfterDays?: number | null;
   followUpAfterDays?: number | null;
 }
@@ -26968,6 +27059,12 @@ export interface SetReviewRemindersOutput {
     detail: string | null;
   }>;
   secondAfterDays: number | null;
+  secondWording: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+    custom: boolean;
+  };
   followUpAfterDays: number | null;
   followUpApplies: boolean;
   later: Array<{
@@ -30892,6 +30989,7 @@ export interface ViewPortalEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -30923,6 +31021,7 @@ export interface ViewPortalEstimateOutput {
       lineTotal: string;
       isOptional: boolean;
       isSelected: boolean;
+      picture: string | null;
     }>;
   }>;
   depositRequired: string | null;
@@ -34490,6 +34589,11 @@ export interface RemovePortalCardParams {
   cardId: string;
 }
 
+export interface RemovePortalChatPictureParams {
+  messageId: string;
+  index: number | null;
+}
+
 export interface RemovePortalFileParams {
   id: string;
 }
@@ -36186,6 +36290,7 @@ export interface OperationTypes {
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
   listUnsignedSafetyLines: { input: ListUnsignedSafetyLinesInput; output: ListUnsignedSafetyLinesOutput };
   listUnsoldEstimates: { input: ListUnsoldEstimatesInput; output: ListUnsoldEstimatesOutput };
+  listVendorCatalogueSheets: { input: ListVendorCatalogueSheetsInput; output: ListVendorCatalogueSheetsOutput };
   listVendorItems: { input: ListVendorItemsInput; output: ListVendorItemsOutput };
   listVendorReturns: { input: ListVendorReturnsInput; output: ListVendorReturnsOutput };
   listVendors: { input: ListVendorsInput; output: ListVendorsOutput };
@@ -36363,6 +36468,7 @@ export interface OperationTypes {
   removePermitInspection: { input: RemovePermitInspectionParams & RemovePermitInspectionInput; output: RemovePermitInspectionOutput };
   removePlanPortalLayout: { input: RemovePlanPortalLayoutParams & RemovePlanPortalLayoutInput; output: RemovePlanPortalLayoutOutput };
   removePortalCard: { input: RemovePortalCardParams & RemovePortalCardInput; output: RemovePortalCardOutput };
+  removePortalChatPicture: { input: RemovePortalChatPictureParams & RemovePortalChatPictureInput; output: RemovePortalChatPictureOutput };
   removePortalFile: { input: RemovePortalFileParams & RemovePortalFileInput; output: RemovePortalFileOutput };
   removePriceBookCategory: { input: RemovePriceBookCategoryParams & RemovePriceBookCategoryInput; output: RemovePriceBookCategoryOutput };
   removePriceBookPicture: { input: RemovePriceBookPictureParams & RemovePriceBookPictureInput; output: RemovePriceBookPictureOutput };
@@ -36397,6 +36503,7 @@ export interface OperationTypes {
   requestTimeOff: { input: RequestTimeOffInput; output: RequestTimeOffOutput };
   resendInvite: { input: ResendInviteParams & ResendInviteInput; output: ResendInviteOutput };
   reserveStock: { input: ReserveStockInput; output: ReserveStockOutput };
+  resetPortalLayout: { input: ResetPortalLayoutInput; output: ResetPortalLayoutOutput };
   resolveConflict: { input: ResolveConflictParams & ResolveConflictInput; output: ResolveConflictOutput };
   resolveContractPrice: { input: ResolveContractPriceInput; output: ResolveContractPriceOutput };
   resolveCoverageFromEquipment: { input: ResolveCoverageFromEquipmentParams & ResolveCoverageFromEquipmentInput; output: ResolveCoverageFromEquipmentOutput };
@@ -37440,6 +37547,7 @@ export const OPERATIONS = {
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listUnsignedSafetyLines: { method: "GET", path: "/v1/safety/unsigned", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listUnsoldEstimates: { method: "GET", path: "/v1/unsold-estimates", pathParams: [], queryParams: ["sort","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
+  listVendorCatalogueSheets: { method: "POST", path: "/v1/vendor-catalogue/sheets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write","pricebook:write"] },
   listVendorItems: { method: "GET", path: "/v1/vendor-items", pathParams: [], queryParams: ["itemId","vendorId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVendorReturns: { method: "GET", path: "/v1/vendor-returns", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listVendors: { method: "GET", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
@@ -37617,6 +37725,7 @@ export const OPERATIONS = {
   removePermitInspection: { method: "DELETE", path: "/v1/permit-inspections/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   removePlanPortalLayout: { method: "POST", path: "/v1/agreement-plans/{id}/portal-layout/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removePortalCard: { method: "POST", path: "/v1/portal/cards/{cardId}/remove", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  removePortalChatPicture: { method: "POST", path: "/v1/portal/chat/pictures/{messageId}/{index}/remove", pathParams: ["messageId","index"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePortalFile: { method: "POST", path: "/v1/portal/files/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   removePriceBookCategory: { method: "POST", path: "/v1/pricebook/categories/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   removePriceBookPicture: { method: "DELETE", path: "/v1/pricebook/items/{id}/picture", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
@@ -37651,6 +37760,7 @@ export const OPERATIONS = {
   requestTimeOff: { method: "POST", path: "/v1/time-off", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["timeclock:own"] },
   resendInvite: { method: "POST", path: "/v1/invitations/{membershipId}/resend", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:invite"] },
   reserveStock: { method: "POST", path: "/v1/stock/reservations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
+  resetPortalLayout: { method: "POST", path: "/v1/portal-layout/reset", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   resolveConflict: { method: "POST", path: "/v1/field/conflicts/{id}/resolve", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
   resolveContractPrice: { method: "GET", path: "/v1/contracts/price", pathParams: [], queryParams: ["customerId","priceBookItemId","externalCode","on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   resolveCoverageFromEquipment: { method: "POST", path: "/v1/jobs/{id}/coverage/from-equipment", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -38447,7 +38557,7 @@ export abstract class GeneratedOperations {
    *
    * POST /v1/vendor-catalogue/apply. Needs vendor:write, pricebook:write.
    */
-  applyVendorCatalogue(input: ApplyVendorCatalogueInput, options?: CallOptions): Promise<ApplyVendorCatalogueOutput> {
+  applyVendorCatalogue(input: ApplyVendorCatalogueInput = {} as ApplyVendorCatalogueInput, options?: CallOptions): Promise<ApplyVendorCatalogueOutput> {
     return this.call("applyVendorCatalogue", input, options);
   }
 
@@ -44464,6 +44574,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The sheets of a supplier's workbook, to choose one.
+   *
+   * POST /v1/vendor-catalogue/sheets. Needs vendor:write, pricebook:write.
+   */
+  listVendorCatalogueSheets(input: ListVendorCatalogueSheetsInput, options?: CallOptions): Promise<ListVendorCatalogueSheetsOutput> {
+    return this.call("listVendorCatalogueSheets", input, options);
+  }
+
+  /**
    * Vendors' part numbers for our items.
    *
    * GET /v1/vendor-items. Needs vendor:read.
@@ -45197,7 +45316,7 @@ export abstract class GeneratedOperations {
    *
    * POST /v1/vendor-catalogue/preview. Needs vendor:write, pricebook:write.
    */
-  previewVendorCatalogue(input: PreviewVendorCatalogueInput, options?: CallOptions): Promise<PreviewVendorCatalogueOutput> {
+  previewVendorCatalogue(input: PreviewVendorCatalogueInput = {} as PreviewVendorCatalogueInput, options?: CallOptions): Promise<PreviewVendorCatalogueOutput> {
     return this.call("previewVendorCatalogue", input, options);
   }
 
@@ -46057,6 +46176,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take back a picture the signed in customer sent in their chat.
+   *
+   * POST /v1/portal/chat/pictures/{messageId}/{index}/remove.
+   */
+  removePortalChatPicture(input: RemovePortalChatPictureParams & RemovePortalChatPictureInput, options?: CallOptions): Promise<RemovePortalChatPictureOutput> {
+    return this.call("removePortalChatPicture", input, options);
+  }
+
+  /**
    * Take back a file the customer added, before the company has opened it.
    *
    * POST /v1/portal/files/{id}/remove.
@@ -46360,6 +46488,15 @@ export abstract class GeneratedOperations {
    */
   reserveStock(input: ReserveStockInput, options?: CallOptions): Promise<ReserveStockOutput> {
     return this.call("reserveStock", input, options);
+  }
+
+  /**
+   * Put the company's account page back to the trade pack's.
+   *
+   * POST /v1/portal-layout/reset. Needs settings:write.
+   */
+  resetPortalLayout(input: ResetPortalLayoutInput = {} as ResetPortalLayoutInput, options?: CallOptions): Promise<ResetPortalLayoutOutput> {
+    return this.call("resetPortalLayout", input, options);
   }
 
   /**
