@@ -9,7 +9,7 @@ import {
 } from "./context";
 import * as email from "./email";
 import { sendTransactional } from "./comms-send";
-import { mintGrant } from "./portal";
+import { inGrant, mintGrant, peek, requireScope } from "./portal";
 import { buildStatement } from "./statements";
 import { statementFileWithin } from "./documents";
 
@@ -151,16 +151,26 @@ export function composeStatementEmail(input: {
    * and why they have it, rather than greeting them as the customer.
    */
   copyTo?: string | undefined;
+  /**
+   * The link opens this statement and nothing else, until this day: a copy to
+   * an address the office typed. Said in place of the warning that the link
+   * opens the customer's account, which it does not.
+   */
+  statementOnlyUntil?: string | undefined;
 }): { subject: string; text: string; html: string } {
   const period = `${said(input.from)} to ${said(input.to)}`;
   const copy = input.copyTo !== undefined;
+  const only = input.statementOnlyUntil !== undefined;
   const subject = copy
     ? `A copy of ${input.customerName}'s statement from ${input.organizationName}`
     : `Your statement from ${input.organizationName}`;
   const opening = copy
-    ? `A copy of ${input.customerName}'s statement from ${input.organizationName} for ${period} is ready. `
-      + `You have it as one of the people on their account.`
+    ? `A copy of ${input.customerName}'s statement from ${input.organizationName} for ${period} is ready.${
+      only ? "" : " You have it as one of the people on their account."}`
     : `Your statement from ${input.organizationName} for ${period} is ready.`;
+  const linkSays = only
+    ? `The link opens this statement and nothing else, until ${said(input.statementOnlyUntil!)}.`
+    : copy ? "The link opens their account without a password, so keep it to yourself." : "The link opens your account without a password.";
   const text = [
     `${copy ? (input.copyTo ? `Hello ${input.copyTo},` : "Hello,") : `Hello ${input.customerName},`}`,
     "",
@@ -170,7 +180,7 @@ export function composeStatementEmail(input: {
     "",
     `${copy ? "Open the statement" : "Open your statement"}: ${input.url}`,
     "",
-    `${copy ? "The link opens their account without a password, so keep it to yourself." : "The link opens your account without a password."} Reply to this email if anything looks wrong.`,
+    `${linkSays} Reply to this email if anything looks wrong.`,
     "",
     input.organizationName,
   ].join("\n");
@@ -185,7 +195,7 @@ export function composeStatementEmail(input: {
     `<p><a href="${escapeHtml(input.url)}" style="display:inline-block;padding:10px 16px;`
     + `background:${escapeHtml(fill)};color:${escapeHtml(onFill)};text-decoration:none;border-radius:6px">`
     + `${copy ? "Open the statement" : "Open your statement"}</a></p>`,
-    `<p style="font-size:14px;color:#4b5563">${copy ? "The link opens their account without a password, so keep it to yourself." : "The link opens your account without a password."} `
+    `<p style="font-size:14px;color:#4b5563">${escapeHtml(linkSays)} `
     + `Reply to this email if anything looks wrong.</p>`,
     `<p style="font-size:14px;color:#4b5563">${escapeHtml(input.organizationName)}</p>`,
     `</div>`,
@@ -456,6 +466,8 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
    * record does not name.
    */
   let firstCopyMessage: string | null = null;
+  /** The day a statement only link stops opening, said in the copy that carries one. */
+  let statementOnlyUntil: string | undefined;
   const went = outcome;
   const copies: StatementCopyDetail[] = [];
   const copied = new Set<string>();
@@ -467,7 +479,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
       organizationId, statementDeliveryId: row.id, position: copies.length - 1,
       contactId: done.detail.contactId, recipientName: done.detail.contactName,
       channel: done.detail.channel, destination: done.detail.destination, typed: done.detail.typed,
-      messageId: done.messageId, error: done.detail.explanation,
+      messageId: done.messageId, error: done.detail.explanation, portalGrantId: done.linkId ?? null,
     });
   }
   const first = copies[0];
@@ -485,7 +497,7 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
   }
 
   /** One copy: the person it is for, whether it can go, and the message it became. Null for one already sent to. */
-  async function copyOne(asked: CopyRequest): Promise<{ detail: StatementCopyDetail; messageId: string | null } | null> {
+  async function copyOne(asked: CopyRequest): Promise<{ detail: StatementCopyDetail; messageId: string | null; linkId?: string } | null> {
     const typed = !asked.contactId;
     let name: string | null = null;
     let contactId: string | null = null;
@@ -533,30 +545,59 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
         destination,
       );
     }
+    /**
+     * AN ADDRESS THE OFFICE TYPED GETS A LINK TO THIS STATEMENT ONLY: a grant
+     * of its own scope whose subject is this statement delivery, which opens
+     * the period this statement is for, read from the books, and its PDF, and
+     * nothing else of the customer's account. One link per copy, so one can be
+     * stopped without the others, and revoked at once when the copy did not go.
+     * The customer's own people keep the statement's own link, as before.
+     */
+    let copyUrl = url;
+    let linkId: string | undefined;
+    if (typed) {
+      const link = await mintGrant(tx, {
+        organizationId, customerId: input.customerId, scope: "statement", subjectId: row!.id,
+        expiresInDays: LINK_DAYS, maxUses: null,
+      });
+      copyUrl = link.url;
+      linkId = link.row.id;
+      statementOnlyUntil = statementOnlyUntil ?? link.row.expiresAt.toISOString().slice(0, 10);
+    }
+    const stopLink = async () => {
+      if (linkId) {
+        await tx.update(schema.portalGrant).set({ revokedAt: new Date() }).where(eq(schema.portalGrant.id, linkId));
+      }
+    };
     if (asked.channel === "sms") {
       const texted = await sendTransactional(tx, {
         organizationId,
         address: destination,
         body: composeStatementCopyText({
-          organizationName, customerName: statement.customerName, from: statement.from, to: statement.to, url,
+          organizationName, customerName: statement.customerName, from: statement.from, to: statement.to, url: copyUrl,
           copyTo: name ?? undefined,
         }),
         customerId: input.customerId,
         sentByUserId: ctx.actor.userId === SYSTEM_USER_ID ? null : ctx.actor.userId,
       });
-      if (!texted.sent) return refusedCopy(texted.explanation, destination);
+      if (!texted.sent) {
+        await stopLink();
+        return refusedCopy(texted.explanation, destination);
+      }
       if (copies.length === 0) firstCopyMessage = texted.messageId;
       return {
         detail: { contactId, contactName: name, channel: "sms", destination, typed, state: "queued", explanation: null },
         messageId: texted.messageId,
+        ...(linkId ? { linkId } : {}),
       };
     }
     const composed = composeStatementEmail({
       organizationName,
       customerName: statement.customerName,
-      from: statement.from, to: statement.to, url,
+      from: statement.from, to: statement.to, url: copyUrl,
       color: identity.color, on: identity.on,
       copyTo: name ?? "",
+      ...(linkId ? { statementOnlyUntil } : {}),
     });
     const printed = await printedOnce();
     const queued = await email.queue(transportContext(ctx, tx), {
@@ -568,11 +609,15 @@ async function sendOne(tx: Database, ctx: ServiceContext, input: {
       customerId: input.customerId,
       attachments: [{ filename: printed.filename, contentType: "application/pdf", content: Buffer.from(printed.bytes) }],
     });
-    if (!queued.queued) return refusedCopy(queued.explanation, destination);
+    if (!queued.queued) {
+      await stopLink();
+      return refusedCopy(queued.explanation, destination);
+    }
     if (copies.length === 0) firstCopyMessage = queued.messageId;
     return {
       detail: { contactId, contactName: name, channel: "email", destination, typed, state: "queued", explanation: null },
       messageId: queued.messageId,
+      ...(linkId ? { linkId } : {}),
     };
   }
 
@@ -665,15 +710,17 @@ function sendByHand(ctx: ServiceContext, input: {
       if (one.contactId) await assertCopyable(tx, customer.id, one.contactId, one.channel);
       else {
         /**
-         * AN ADDRESS NOBODY ON THE CUSTOMER RECORD OWNS is handed the link to
-         * the customer's account page, which is access to their account. That
-         * is the portal's own permission (`portal:grant`, as telling a
-         * customer an estimate was extended needs), not only the right to send
-         * a statement. Refused before anything is recorded or sent.
+         * AN ADDRESS NOBODY ON THE CUSTOMER RECORD OWNS is handed a link. It is
+         * a link to this statement only (its own scope, below in `sendOne`), not
+         * to the customer's account, and it is still a link to the customer's
+         * money that the company hands a stranger: the portal's own permission
+         * (`portal:grant`, as telling a customer an estimate was extended
+         * needs), not only the right to send a statement. Refused before
+         * anything is recorded or sent.
          */
         if (!can(ctx.actor, "portal:grant")) {
           throw new ConflictError(
-            "A copy to an address you type gives that address a link to this customer's account, "
+            "A copy to an address you type gives that address a link to this statement, "
             + "which needs the right to give customers links (portal:grant). Copy one of the customer's own "
             + "people instead, or ask somebody who can.",
           );
@@ -936,8 +983,17 @@ export interface StatementDeliveryRecord {
   copies: {
     contactName: string | null; channel: StatementChannel; destination: string | null; typed: boolean;
     messageStatus: string | null; error: string | null;
+    /** The link that opens only this statement, on a copy to a typed address: whether it still opens, and until when. */
+    link: StatementLinkState | null;
   }[];
   createdAt: Date;
+}
+
+export interface StatementLinkState {
+  id: string;
+  /** `open` until it runs out or somebody stops it. */
+  state: "open" | "expired" | "stopped";
+  expiresAt: Date;
 }
 
 const copyContact = alias(schema.contact, "copy_contact");
@@ -966,8 +1022,10 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
     const ids = rows.map((r) => r.row.id);
     const copyRows = ids.length === 0 ? [] : await tx.select({
       copy: schema.statementDeliveryCopy, messageStatus: schema.message.status,
+      linkExpiresAt: schema.portalGrant.expiresAt, linkRevokedAt: schema.portalGrant.revokedAt,
     }).from(schema.statementDeliveryCopy)
       .leftJoin(schema.message, eq(schema.message.id, schema.statementDeliveryCopy.messageId))
+      .leftJoin(schema.portalGrant, eq(schema.portalGrant.id, schema.statementDeliveryCopy.portalGrantId))
       .where(inArray(schema.statementDeliveryCopy.statementDeliveryId, ids))
       .orderBy(asc(schema.statementDeliveryCopy.statementDeliveryId), asc(schema.statementDeliveryCopy.position));
     return rows.map(({ row, customerName, messageStatus, contactName, copyContactName, copyMessageStatus }) => ({
@@ -988,9 +1046,14 @@ export function deliveries(ctx: ServiceContext, input: { customerId?: string | u
       copyDestination: row.copyDestination,
       copyMessageStatus: copyMessageStatus ?? null,
       copyError: row.copyError,
-      copies: copyRows.filter((c) => c.copy.statementDeliveryId === row.id).map(({ copy, messageStatus: status }) => ({
+      copies: copyRows.filter((c) => c.copy.statementDeliveryId === row.id).map(({ copy, messageStatus: status, linkExpiresAt, linkRevokedAt }) => ({
         contactName: copy.recipientName, channel: copy.channel as StatementChannel, destination: copy.destination,
         typed: copy.typed, messageStatus: status ?? null, error: copy.error,
+        link: copy.portalGrantId && linkExpiresAt ? {
+          id: copy.portalGrantId,
+          state: linkRevokedAt ? "stopped" as const : linkExpiresAt <= new Date() ? "expired" as const : "open" as const,
+          expiresAt: linkExpiresAt,
+        } : null,
       })),
       createdAt: row.createdAt,
     }));
@@ -1064,6 +1127,53 @@ export function setStatementCopy(ctx: ServiceContext, input: { id: string; conta
   });
 }
 
+/* ------------------------------------------------ the statement only link */
+
+/**
+ * The statement a statement only link opens, read from the books now, for the
+ * period that statement was sent for and for nothing else.
+ *
+ * THE SUBJECT COMES FROM THE GRANT, never the request: there is no period, no
+ * customer and no id in the input that a holder could change to reach anything
+ * else. The grant must be of the `statement` scope (`requireScope`), and every
+ * other reader of a link refuses this scope, because each checks for its own.
+ * The delivery is read inside the grant's own tenant and must be the grant's
+ * customer's. Expired or stopped, it opens nothing, like every link.
+ */
+async function statementOfLink(tx: Database, grant: Awaited<ReturnType<typeof peek>>) {
+  const deliveryId = requireScope(grant, "statement");
+  if (!grant.customerId) throw new NotFoundError("Statement");
+  const [delivery] = await tx.select({
+    customerId: schema.statementDelivery.customerId,
+    periodFrom: schema.statementDelivery.periodFrom,
+    periodTo: schema.statementDelivery.periodTo,
+  }).from(schema.statementDelivery)
+    .where(and(
+      eq(schema.statementDelivery.id, deliveryId),
+      eq(schema.statementDelivery.organizationId, grant.organizationId),
+      eq(schema.statementDelivery.customerId, grant.customerId),
+    )).limit(1);
+  if (!delivery) throw new NotFoundError("Statement");
+  return buildStatement(tx, grant.organizationId, delivery.customerId, { from: delivery.periodFrom, to: delivery.periodTo });
+}
+
+/** The statement a statement only link opens, and when the link stops opening it. */
+export async function viewStatementLink(db: Database, input: { token: string }) {
+  const grant = await peek(db, input.token);
+  return inGrant(db, grant, async (tx) => {
+    const statement = await statementOfLink(tx, grant);
+    const [link] = await tx.select({ expiresAt: schema.portalGrant.expiresAt }).from(schema.portalGrant)
+      .where(eq(schema.portalGrant.id, grant.grantId)).limit(1);
+    return { ...statement, linkExpiresAt: (link?.expiresAt ?? new Date()).toISOString() };
+  });
+}
+
+/** The same statement as its PDF, for the holder of a statement only link. */
+export async function statementLinkPdf(db: Database, input: { token: string }) {
+  const grant = await peek(db, input.token);
+  return inGrant(db, grant, async (tx) => statementFileWithin(tx, grant.organizationId, await statementOfLink(tx, grant)));
+}
+
 /* --------------------------------------------------------------- handlers */
 
 export const handlers = {
@@ -1079,4 +1189,5 @@ export const handlers = {
   }) => textStatement(ctx, input),
   listStatementDeliveries: async (ctx: ServiceContext, input: { customerId?: string | undefined; limit?: number | undefined }) =>
     ({ deliveries: await deliveries(ctx, input) }),
+  viewStatementLink: (db: Database, input: { token: string }) => viewStatementLink(db, input),
 } as const;

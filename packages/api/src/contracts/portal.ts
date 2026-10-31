@@ -21,7 +21,7 @@ import { Estimate } from "./estimates";
  * product and their contract is part of the promise.
  */
 
-export const PortalScope = z.enum(["estimate", "job", "invoice", "customer", "booking", "deposit", "change_order", "payer"]);
+export const PortalScope = z.enum(["estimate", "job", "invoice", "customer", "booking", "deposit", "change_order", "payer", "statement"]);
 
 export const PortalSession = z.object({
   organizationName: z.string(),
@@ -219,7 +219,11 @@ export const issuePortalGrant = defineRoute({
   idempotent: true,
   input: z.object({
     customerId: Uuid,
-    scope: PortalScope,
+    /**
+     * Not `statement`: a link to one statement is made only with the statement
+     * copy it goes in, which is what its subject is.
+     */
+    scope: PortalScope.exclude(["statement"]),
     subjectId: Uuid.optional(),
     expiresInDays: z.number().int().min(1).max(365).default(30),
     maxUses: z.number().int().min(1).max(1000).optional(),

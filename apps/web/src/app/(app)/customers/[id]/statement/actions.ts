@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { statementDelivery } from "@opentradesos/api/services";
+import { portal, statementDelivery } from "@opentradesos/api/services";
 import { attempt, field, refused, refusalOf, type FormState } from "@/lib/actions";
 
 type Copy = { contactId?: string; address?: string; channel: "email" | "sms" };
@@ -128,4 +128,22 @@ export async function textStatement(_previous: unknown, form: FormData): Promise
     done: true,
     message: `Texted a link to ${result.destination}. It goes out with the next send from the outbox.${saidCopies(result.copies)}`,
   };
+}
+
+/**
+ * Stop the link a copy to a typed address carries: the statement only link,
+ * withdrawn through the portal's own revoke (`portal:revoke`), so it opens
+ * nothing from now on. The customer's own link and the other copies' links are
+ * untouched.
+ */
+export async function stopStatementLink(_previous: unknown, form: FormData): Promise<FormState> {
+  const user = await requireSetupUser();
+  const id = String(form.get("id") ?? "");
+  const linkId = String(form.get("linkId") ?? "");
+  const state = await attempt(form, async () => {
+    await portal.revokeGrant({ actor: user.actor, db: getDb() }, { id: linkId });
+    return { message: "Stopped. That link opens nothing now." };
+  });
+  if (!state?.error) revalidatePath(`/customers/${id}/statement`);
+  return state;
 }

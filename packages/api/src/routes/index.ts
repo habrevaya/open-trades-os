@@ -733,6 +733,7 @@ export const handlers = {
   emailCustomerStatement: statementDelivery.handlers.emailCustomerStatement,
   textCustomerStatement: statementDelivery.handlers.textCustomerStatement,
   listStatementDeliveries: statementDelivery.handlers.listStatementDeliveries,
+  viewStatementLink: statementDelivery.handlers.viewStatementLink,
   getStatementCopy: statementDelivery.handlers.getStatementCopy,
   setStatementCopy: statementDelivery.handlers.setStatementCopy,
   sendReportScheduleNow: deliverySchedules.handlers.sendReportScheduleNow,

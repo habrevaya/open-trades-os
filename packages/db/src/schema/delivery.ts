@@ -253,6 +253,15 @@ export const statementDeliveryCopy = pgTable("statement_delivery_copy", {
   messageId: uuid("message_id").references(() => message.id, { onDelete: "set null" }),
   /** Why it did not go. Null when it was queued. */
   error: text("error"),
+  /**
+   * THE LINK THAT OPENS ONLY THIS STATEMENT, for a copy to an address the
+   * office typed: a `statement` scope portal grant whose subject is the
+   * statement delivery. Nobody the customer record names is handed the link
+   * to the customer's whole account. Null on a copy to one of the customer's
+   * own people, which carries the statement's own link, and on a copy that
+   * did not go.
+   */
+  portalGrantId: uuid("portal_grant_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   deliveryIdx: index("statement_delivery_copy_delivery_idx").on(t.statementDeliveryId),

@@ -57,6 +57,14 @@ export const portalGrantScope = pgEnum("portal_grant_scope", [
    * them and nothing else.
    */
   "payer",
+  /**
+   * One statement and nothing else: the period one statement was sent for,
+   * read from the books when it is opened, with its PDF. The subject is the
+   * statement delivery. It goes in a copy of a statement to an address the
+   * office typed, so somebody the customer record does not name never holds
+   * a key to the customer's whole account.
+   */
+  "statement",
 ]);
 
 /**

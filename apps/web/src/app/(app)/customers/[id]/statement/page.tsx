@@ -6,7 +6,7 @@ import { can } from "@opentradesos/core";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { formatIn } from "@/lib/dates";
 import { enumText } from "@/lib/labels";
-import { emailStatement, setMonthlyCopy, textStatement } from "./actions";
+import { emailStatement, setMonthlyCopy, stopStatementLink, textStatement } from "./actions";
 import { Crumb } from "@/components/Detail";
 import { PrintButton } from "@/components/PrintButton";
 import { StatementView } from "@/components/Statement";
@@ -51,8 +51,10 @@ export default async function StatementPage({ params, searchParams }: {
   const onFile = record?.email ?? null;
   const sent = await statementDelivery.deliveries(ctx, { customerId: id, limit: 5 });
   const sends = can(user.actor, "invoice:send");
-  /** A typed address is handed the link to the customer's account, which is the portal's own permission. */
+  /** A typed address is handed a link to the statement, which is the portal's own permission. */
   const mayTypeCopy = can(user.actor, "portal:grant");
+  /** Stopping a typed copy's link is the portal's own permission too. */
+  const mayStopLink = can(user.actor, "portal:revoke");
   /** The customer's own people a copy can go to, and who every monthly statement is copied to now. */
   const copies = await statementDelivery.statementCopies(ctx, { id });
   const copyChoices = [
@@ -100,9 +102,9 @@ export default async function StatementPage({ params, searchParams }: {
       ) : null}
       <p className="mt-1 text-xs text-ink-500">
         Up to five copies. Each goes as a message of its own and only once the statement itself has gone.
-        Every copy carries the same link to this customer&apos;s account page.
+        A copy to one of this customer&apos;s people carries the link to their account page.
         {mayTypeCopy
-          ? " An address you type reaches somebody who is not on this customer's record, so it is kept in the history with who sent it."
+          ? " An address you type gets a link that opens this statement and nothing else, and it reaches somebody who is not on this customer's record, so it is kept in the history with who sent it."
           : " Copying an address that is not one of this customer's people needs the right to give customers links."}
       </p>
     </fieldset>
@@ -200,6 +202,18 @@ export default async function StatementPage({ params, searchParams }: {
                         ? `No ${c.channel === "sms" ? "text " : ""}copy to ${c.contactName ?? c.destination ?? "that address"}: ${c.error}`
                         : `${c.channel === "sms" ? "Text copy" : "Copy"} to ${c.contactName ? `${c.contactName} at ` : ""}${c.destination}: ${enumText(c.messageStatus ?? "queued")}.`}
                       {c.typed ? " (typed by the office)" : ""}
+                      {c.link ? (
+                        <>
+                          {" "}{c.link.state === "open"
+                            ? `Its link opens this statement only, until ${formatIn(c.link.expiresAt, user.organizationTimezone, { month: "short", day: "numeric", year: "numeric" })}.`
+                            : c.link.state === "stopped" ? "Its link was stopped." : "Its link has run out."}
+                          {c.link.state === "open" && mayStopLink ? (
+                            <ActionForm action={stopStatementLink} submit="Stop this link" tone="quiet"
+                                        className="ml-2 inline-flex items-center gap-2"
+                                        hidden={{ id, linkId: c.link.id }} />
+                          ) : null}
+                        </>
+                      ) : null}
                     </span>
                   )) : row.copyError ? (
                     <span className="text-ink-500"> No copy: {row.copyError}</span>

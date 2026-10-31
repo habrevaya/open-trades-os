@@ -13913,7 +13913,7 @@ export interface IssuePortalGrantInput {
 export interface IssuePortalGrantOutput {
   grant: {
     id: string;
-    scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer";
+    scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer" | "statement";
     subjectId: string | null;
     expiresAt: string;
     maxUses: number | null;
@@ -18522,6 +18522,11 @@ export interface ListStatementDeliveriesOutput {
       typed: boolean;
       messageStatus: string | null;
       error: string | null;
+      link?: {
+        id: string;
+        state: "open" | "expired" | "stopped";
+        expiresAt: string;
+      } | null;
     }>;
     createdAt: string;
   }>;
@@ -20043,7 +20048,7 @@ export interface OpenPortalLinkOutput {
   organizationName: string;
   organizationLogoUrl: string | null;
   customerName: string;
-  scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer";
+  scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer" | "statement";
   expiresAt: string;
 }
 
@@ -31238,6 +31243,56 @@ export interface ViewPortalReferralOutput {
   }>;
 }
 
+export interface ViewStatementLinkOutput {
+  customerId: string;
+  customerName: string;
+  organizationName: string;
+  organizationContact: {
+    /** E.164. */
+    phone: string | null;
+    email: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+  };
+  from: string;
+  to: string;
+  openingBalance: string;
+  closingBalance: string;
+  owedOnInvoices: string;
+  heldOnAccount: string;
+  lines: Array<{
+    date: string;
+    kind: "invoice" | "payment" | "refund" | "void" | "write_off" | "credit_note" | "credit_note_void" | "deposit" | "deposit_refund" | "deposit_kept" | "agreement" | "credit_payout";
+    description: string;
+    invoiceId: string | null;
+    amount: string;
+    charge: string | null;
+    credit: string | null;
+    balance: string;
+  }>;
+  aging: {
+    current: string;
+    days1To30: string;
+    days31To60: string;
+    days61To90: string;
+    over90: string;
+  };
+  openInvoices: Array<{
+    id: string;
+    number: number;
+    numberPrefix: string | null;
+    issuedOn: string | null;
+    dueOn: string | null;
+    total: string;
+    balance: string;
+    daysOverdue: number;
+  }>;
+  linkExpiresAt: string;
+}
+
 export interface VisitFinancingLinkInput {
   text?: boolean;
 }
@@ -35645,6 +35700,10 @@ export interface ViewPortalReferralInput {
   token: string;
 }
 
+export interface ViewStatementLinkInput {
+  token: string;
+}
+
 export interface VisitFinancingLinkParams {
   id: string;
 }
@@ -36946,6 +37005,7 @@ export interface OperationTypes {
   viewPortalInvoice: { input: ViewPortalInvoiceInput; output: ViewPortalInvoiceOutput };
   viewPortalJob: { input: ViewPortalJobInput; output: ViewPortalJobOutput };
   viewPortalReferral: { input: ViewPortalReferralInput; output: ViewPortalReferralOutput };
+  viewStatementLink: { input: ViewStatementLinkInput; output: ViewStatementLinkOutput };
   visitFinancingLink: { input: VisitFinancingLinkParams & VisitFinancingLinkInput; output: VisitFinancingLinkOutput };
   visitPaymentLink: { input: VisitPaymentLinkParams & VisitPaymentLinkInput; output: VisitPaymentLinkOutput };
   voidCreditNote: { input: VoidCreditNoteParams & VoidCreditNoteInput; output: VoidCreditNoteOutput };
@@ -38205,6 +38265,7 @@ export const OPERATIONS = {
   viewPortalInvoice: { method: "GET", path: "/v1/portal/invoice", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   viewPortalJob: { method: "GET", path: "/v1/portal/job", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   viewPortalReferral: { method: "GET", path: "/v1/portal/referral", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  viewStatementLink: { method: "GET", path: "/v1/portal/statement", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   visitFinancingLink: { method: "POST", path: "/v1/visits/{id}/financing-link", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   visitPaymentLink: { method: "POST", path: "/v1/visits/{id}/payment-link", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   voidCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/void", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:credit"] },
@@ -49383,6 +49444,15 @@ export abstract class GeneratedOperations {
    */
   viewPortalReferral(input: ViewPortalReferralInput, options?: CallOptions): Promise<ViewPortalReferralOutput> {
     return this.call("viewPortalReferral", input, options);
+  }
+
+  /**
+   * One statement, for the holder of a link to it.
+   *
+   * GET /v1/portal/statement.
+   */
+  viewStatementLink(input: ViewStatementLinkInput, options?: CallOptions): Promise<ViewStatementLinkOutput> {
+    return this.call("viewStatementLink", input, options);
   }
 
   /**

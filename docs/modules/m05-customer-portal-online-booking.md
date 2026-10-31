@@ -38,8 +38,11 @@ costs a reschedule call and the trust that came with it.
 **A grant is a capability, not a session.** A single purpose, scoped, expiring
 token that says what its bearer may do and to which record. It cannot be
 widened, it cannot be enumerated, and it does not survive the thing it was
-issued for. Six scopes and no seventh: one estimate, one job, one invoice, one
-deposit, one booking request, or the whole customer view.
+issued for. One estimate, one job, one invoice, one deposit, one booking
+request, one change order, one payer's invoices (M31), one statement (M13: the
+link a copy to an address the office typed carries, at `/s/{token}`), or the
+whole customer view. Every reader of a link checks for its own scope and refuses
+every other, so a narrower link never opens a wider page.
 
 **Only the hash is stored.** The plaintext exists exactly once, in the link
 that was sent, so a grant leaked from a database backup is useless. The same
