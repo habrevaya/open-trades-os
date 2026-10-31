@@ -213,6 +213,15 @@ const HISTORY: Ref[] = [
     why: "Its card stayed with the duplicate.",
   },
   { table: "delivery", column: "customer_id", label: "deliveries" },
+  /** The client a work order from another system is for (M31). */
+  { table: "external_work_order", column: "customer_id", label: "work orders from other systems" },
+  /** A client's own work order codes and what each means here (M31). */
+  {
+    table: "client_work_code", column: "customer_id", label: "work order codes",
+    unless: (keepId) => sql`exists (select 1 from public.client_work_code x
+      where x.organization_id = t.organization_id and x.customer_id = ${keepId} and lower(x.code) = lower(t.code))`,
+    why: "The record kept already maps the same code, and which of the two meanings is right is the office's to say.",
+  },
   { table: "deficiency", column: "customer_id", label: "deficiencies" },
   { table: "inspection", column: "customer_id", label: "inspections" },
   { table: "service_report", column: "customer_id", label: "service reports" },

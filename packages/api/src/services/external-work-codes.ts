@@ -157,7 +157,11 @@ export function setCodes(ctx: ServiceContext, input: { customerId: string; codes
       await tx.insert(schema.clientWorkCode).values(rows.map((row) => ({
         organizationId: ctx.actor.organizationId,
         customerId: client.id,
-        ...row,
+        code: row.code,
+        description: row.description,
+        jobTypeId: row.jobTypeId,
+        priceBookItemId: row.priceBookItemId,
+        quantity: row.quantity,
       })));
     }
     const after = await rowsOf(tx, ctx, client.id);

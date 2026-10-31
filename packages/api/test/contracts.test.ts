@@ -108,6 +108,13 @@ describe("permissions", () => {
       "GET /v1/portal/referral",
       "GET /v1/portal/session",
       /**
+       * One statement, through a link of the `statement` scope that a copy to
+       * an address the office typed carries. The period and the customer come
+       * from the grant and the statement it names; nothing in the request
+       * chooses them, and no other kind of link opens it.
+       */
+      "GET /v1/portal/statement",
+      /**
        * A customer asking to move or cancel a visit from the link they were
        * sent. The grant decides which visits it reaches; a visit id in the
        * request only narrows inside that. Asking writes a request and a task
@@ -160,6 +167,12 @@ describe("permissions", () => {
       "POST /v1/portal/cards/{cardId}/agreement/withdraw",
       "POST /v1/portal/cards/{cardId}/autopay",
       "POST /v1/portal/cards/{cardId}/autopay-backup",
+      /**
+       * The backups put in a new order, from a sign in only. Every card id is
+       * checked against the backups of the customer the sign in names, and a
+       * list that is not exactly those is refused; no words are agreed here.
+       */
+      "PUT /v1/portal/cards/autopay-backups/order",
       /**
        * A signed in customer sending a photo or a PDF about one of their own
        * jobs or visits, the list of what they sent, and taking one back. Sign
