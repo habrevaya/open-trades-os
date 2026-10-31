@@ -733,7 +733,8 @@ export const getDispatchBoard = defineRoute({
       })),
     })),
     /**
-     * Crews with work on the day, each a lane of its own. Crew work used to
+     * Every active crew the reader's board shows, work or not, each a lane of
+     * its own, and any other crew on a visit they can see. Crew work used to
      * land in the unassigned pile, because nobody is in its assignment list.
      */
     crews: z.array(z.object({
@@ -742,7 +743,18 @@ export const getDispatchBoard = defineRoute({
       color: z.string().nullable(),
       leadName: z.string().nullable(),
       memberNames: z.array(z.string()),
+      /** One of the reader's own active crews, so work can be sent to it. False for another branch's crew drawn for a visit they see. */
+      inScope: z.boolean(),
+      /**
+       * The hours the crew works that day, "HH:MM": its own for the weekday
+       * (`weekday`), its one set of hours (`own`), or the company's day.
+       */
+      hours: z.object({ startsAt: z.string(), endsAt: z.string(), from: z.enum(["weekday", "own", "company"]) }),
+      /** The day in words when the crew's branch (or the company) is shut that day, else null. */
+      branchClosed: z.string().nullable(),
       visits: z.array(z.object({
+        /** The window starts before the crew's hours that day or ends after them. */
+        outsideHours: z.boolean(),
         id: Uuid,
         jobNumber: z.number().int(),
         summary: z.string(),

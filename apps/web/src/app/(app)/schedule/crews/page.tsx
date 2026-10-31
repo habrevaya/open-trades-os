@@ -12,6 +12,7 @@ import { ActionForm } from "./ActionForm";
 export const dynamic = "force-dynamic";
 
 const input = "h-8 rounded border border-steel-300 px-2 text-sm";
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /**
  * How far ahead the rota is shown. The service's own default, named here so the
@@ -133,6 +134,30 @@ export default async function CrewsPage() {
               <input type="time" name="endsAt" className={input} aria-label={`${row.name} finishes at`}
                      defaultValue={row.workday?.endsAt ?? ""} />
             </ActionForm>
+            {/*
+              Hours of its own for some days of the week, read on that day in
+              place of the hours above. A day left empty keeps them.
+            */}
+            <details className="w-full">
+              <summary className="cursor-pointer text-sm font-medium text-ink-700">Hours by day for {row.name}</summary>
+              <ActionForm op="weekdayHours" label="Save hours by day" quiet hidden={{ id: row.id }}>
+                <div className="space-y-1">
+                  {DAYS.map((day, index) => {
+                    const own = row.weekdayHours?.find((h) => h.dayOfWeek === index);
+                    return (
+                      <div key={day} className="flex flex-wrap items-center gap-2">
+                        <span className="w-24 text-sm text-ink-700">{day}</span>
+                        <input type="time" name={`startsAt-${index}`} className={input} aria-label={`${row.name} starts on ${day}`}
+                               defaultValue={own?.startsAt ?? ""} />
+                        <input type="time" name={`endsAt-${index}`} className={input} aria-label={`${row.name} finishes on ${day}`}
+                               defaultValue={own?.endsAt ?? ""} />
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-ink-500">Leave a day empty and the crew works its usual hours that day.</p>
+              </ActionForm>
+            </details>
             {row.active
               ? <ActionForm op="retire" label="Retire" quiet hidden={{ id: row.id }} />
               : <ActionForm op="restore" label="Bring back" quiet hidden={{ id: row.id }} />}

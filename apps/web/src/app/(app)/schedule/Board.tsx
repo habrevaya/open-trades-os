@@ -47,6 +47,12 @@ const readLive = async () => {
   return result.ok ? result.live : null;
 };
 
+/** "06:00" as the board writes a time: "6:00 AM". */
+const clock = (hhmm: string) => {
+  const h = Number(hhmm.slice(0, 2));
+  return `${h % 12 === 0 ? 12 : h % 12}:${hhmm.slice(3, 5)} ${h < 12 ? "AM" : "PM"}`;
+};
+
 const shiftDate = (date: string, days: number) =>
   new Date(new Date(`${date}T12:00:00Z`).getTime() + days * 864e5).toISOString().slice(0, 10);
 
@@ -489,7 +495,7 @@ export function Board({
             />
           ))}
           {board.crews.map((c) => (
-            <CrewColumn key={c.id} crew={c} time={time} draggable={canDispatch} dragging={dragging !== null}
+            <CrewColumn key={c.id} crew={c} time={time} draggable={canDispatch && c.inScope !== false} dragging={dragging !== null}
                         onDragStart={(id) => setDragging({ id, from: `crew:${c.id}` })}
                         onDrop={() => dropOnCrew(c.id)} />
           ))}
@@ -686,12 +692,21 @@ function DayStrip({ board, time, timezone }: { board: BoardData; time: TimeForma
  * unassigned pile, dropped here goes to the crew through the same check the
  * crews screen makes (its kit, its people, their leave at the visit's
  * hours), and a crew that cannot take it is refused in words.
+ *
+ * EVERY ACTIVE CREW HAS A LANE, work or not, so its first visit of a day is
+ * dropped here rather than sent from the crews screen. The lane says the
+ * hours the crew works that day (its own for the weekday, its one set of
+ * hours, or the company's day), marks a card whose window runs outside them,
+ * and says when the crew's branch is shut that day. The board's axis is
+ * order, not the clock, so the hours are said rather than drawn as a scale.
  */
 function CrewColumn({ crew, time, draggable, dragging, onDragStart, onDrop }: {
   crew: CrewLane; time: TimeFormatter; draggable: boolean; dragging: boolean;
   onDragStart: (visitId: string) => void; onDrop: () => void;
 }) {
   const [over, setOver] = useState(false);
+  /** Absent from a board drawn before lanes carried their hours. */
+  const hours = crew.hours as CrewLane["hours"] | undefined;
   return (
     <section
       aria-label={`Crew ${crew.name}`}
@@ -710,14 +725,34 @@ function CrewColumn({ crew, time, draggable, dragging, onDragStart, onDrop }: {
           {crew.leadName ? `Led by ${crew.leadName}` : "No lead named"}
           {crew.memberNames.length > 0 ? `, ${crew.memberNames.length} ${crew.memberNames.length === 1 ? "person" : "people"}` : ""}
         </p>
+        {hours ? (
+          <p className="mt-0.5 text-xs text-ink-700" aria-label={`${crew.name} works`}>
+            Works {clock(hours.startsAt)} to {clock(hours.endsAt)}
+            {hours.from === "weekday" ? " today" : hours.from === "company" ? ", the company's day" : ""}
+          </p>
+        ) : null}
       </header>
-      <ol className="flex-1 space-y-2 overflow-y-auto p-2">
-        {crew.visits.map((v) => (
-          <li key={v.id}>
-            <VisitCard visit={v} draggable={draggable} time={time} onDragStart={() => onDragStart(v.id)} canLock={false} />
-          </li>
-        ))}
-      </ol>
+      {crew.branchClosed ? (
+        <p className={`px-3 py-2 text-sm ${crew.visits.length > 0 ? "bg-red-tint text-red-600" : "text-ink-500"}`}>
+          {crew.branchClosed}
+        </p>
+      ) : null}
+      {crew.visits.length === 0 ? (
+        <p className="flex-1 p-4 text-sm text-ink-500">
+          {draggable ? "Nothing yet. Drop a visit here to send it to the crew." : "Nothing scheduled."}
+        </p>
+      ) : (
+        <ol className="flex-1 space-y-2 overflow-y-auto p-2">
+          {crew.visits.map((v) => (
+            <li key={v.id}>
+              {v.outsideHours ? (
+                <p className="mb-1 text-xs font-medium text-amber-700">Outside the crew&apos;s hours</p>
+              ) : null}
+              <VisitCard visit={v} draggable={draggable} time={time} onDragStart={() => onDragStart(v.id)} canLock={false} />
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }

@@ -3418,6 +3418,11 @@ export interface CreateCrewInput {
     startsAt: string;
     endsAt: string;
   } | null;
+  weekdayHours?: Array<{
+    startsAt: string;
+    endsAt: string;
+    dayOfWeek: number;
+  }>;
 }
 
 export interface CreateCrewOutput {
@@ -8561,7 +8566,15 @@ export interface GetDispatchBoardOutput {
     color: string | null;
     leadName: string | null;
     memberNames: string[];
+    inScope: boolean;
+    hours: {
+      startsAt: string;
+      endsAt: string;
+      from: "weekday" | "own" | "company";
+    };
+    branchClosed: string | null;
     visits: Array<{
+      outsideHours: boolean;
       id: string;
       jobNumber: number;
       summary: string;
@@ -15289,6 +15302,11 @@ export interface ListCrewsOutput {
       startsAt: string;
       endsAt: string;
     } | null;
+    weekdayHours: Array<{
+      startsAt: string;
+      endsAt: string;
+      dayOfWeek: number;
+    }>;
     active: boolean;
     members: Array<{
       technicianId: string;
@@ -28973,6 +28991,11 @@ export interface UpdateCrewInput {
     startsAt: string;
     endsAt: string;
   } | null;
+  weekdayHours?: Array<{
+    startsAt: string;
+    endsAt: string;
+    dayOfWeek: number;
+  }>;
   active?: boolean;
 }
 

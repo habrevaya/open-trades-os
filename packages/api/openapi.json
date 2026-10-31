@@ -39089,7 +39089,7 @@
       "patch": {
         "operationId": "updateCrew",
         "summary": "Change a crew's rate, kit, skills or hours",
-        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
+        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. `weekdayHours` is the whole list of hours it keeps on particular weekdays, read on that weekday in place of `workday` (a day given twice, or one ending before it starts, is refused in words); empty clears them. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -171758,6 +171758,33 @@
               "startsAt",
               "endsAt"
             ]
+          },
+          "weekdayHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "endsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                }
+              },
+              "required": [
+                "startsAt",
+                "endsAt",
+                "dayOfWeek"
+              ]
+            },
+            "maxItems": 7
           }
         },
         "required": [
@@ -198357,11 +198384,47 @@
                     "type": "string"
                   }
                 },
+                "inScope": {
+                  "type": "boolean"
+                },
+                "hours": {
+                  "type": "object",
+                  "properties": {
+                    "startsAt": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "weekday",
+                        "own",
+                        "company"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "startsAt",
+                    "endsAt",
+                    "from"
+                  ]
+                },
+                "branchClosed": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "visits": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "properties": {
+                      "outsideHours": {
+                        "type": "boolean"
+                      },
                       "id": {
                         "type": "string",
                         "format": "uuid"
@@ -198459,6 +198522,7 @@
                       }
                     },
                     "required": [
+                      "outsideHours",
                       "id",
                       "jobNumber",
                       "summary",
@@ -198482,6 +198546,9 @@
                 "color",
                 "leadName",
                 "memberNames",
+                "inScope",
+                "hours",
+                "branchClosed",
                 "visits"
               ]
             }
@@ -233931,6 +233998,32 @@
                     "endsAt"
                   ]
                 },
+                "weekdayHours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "startsAt": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "endsAt": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "dayOfWeek": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      }
+                    },
+                    "required": [
+                      "startsAt",
+                      "endsAt",
+                      "dayOfWeek"
+                    ]
+                  }
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -233973,6 +234066,7 @@
                 "skills",
                 "color",
                 "workday",
+                "weekdayHours",
                 "active",
                 "members"
               ]
@@ -302801,6 +302895,33 @@
               "startsAt",
               "endsAt"
             ]
+          },
+          "weekdayHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "endsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                }
+              },
+              "required": [
+                "startsAt",
+                "endsAt",
+                "dayOfWeek"
+              ]
+            },
+            "maxItems": 7
           },
           "active": {
             "type": "boolean"

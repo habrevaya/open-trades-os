@@ -12,9 +12,13 @@ export interface CrewRow {
   color: string | null;
   /** The crew's own working day, or null for the company's. */
   workday?: { startsAt: string; endsAt: string } | null | undefined;
+  /** Its own hours on particular weekdays, read before `workday` on that day. */
+  weekdayHours?: { dayOfWeek: number; startsAt: string; endsAt: string }[] | undefined;
   active: boolean;
   members: { technicianId: string; displayName: string; isLead: boolean; active: boolean }[];
 }
+
+const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export interface ShiftRow {
   id: string;
@@ -103,6 +107,8 @@ export function Crews({
               : <span className="text-ink-500">Not declared</span>}
             <span className="block text-xs text-ink-500">
               {crew.workday ? `Works ${crew.workday.startsAt} to ${crew.workday.endsAt}` : "Works the company's day"}
+              {(crew.weekdayHours ?? []).length > 0 ? ", except " : ""}
+              {(crew.weekdayHours ?? []).map((h) => `${SHORT_DAYS[h.dayOfWeek]} ${h.startsAt} to ${h.endsAt}`).join(", ")}
             </span>
           </Td>
           {controls ? <Td>{controls(crew)}</Td> : null}

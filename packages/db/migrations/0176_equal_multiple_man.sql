@@ -1,0 +1,1 @@
+ALTER TABLE "crew" ADD COLUMN "weekday_hours" jsonb DEFAULT '[]'::jsonb NOT NULL;

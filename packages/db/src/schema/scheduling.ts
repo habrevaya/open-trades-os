@@ -230,6 +230,13 @@ export const crew = pgTable("crew", {
    * for a person (`technician.workday`).
    */
   workday: jsonb("workday").$type<{ startsAt: string; endsAt: string } | null>(),
+  /**
+   * Hours of its own for some days of the week (Saturday seven to noon),
+   * each read on its weekday in place of `workday`; a weekday not listed
+   * keeps `workday`, and with neither the company's day. Core's
+   * `routing.crewHoursOn` is the rule. 0 is Sunday.
+   */
+  weekdayHours: jsonb("weekday_hours").$type<{ dayOfWeek: number; startsAt: string; endsAt: string }[]>().notNull().default([]),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({ orgIdx: index("crew_org_idx").on(t.organizationId) }));
