@@ -39,20 +39,20 @@ test("a recurring task and a task typed in by hand can be for whoever is on the 
   await owner.getByLabel("What needs doing").fill(recurring);
   await owner.getByLabel("How often").selectOption("weekly");
   await owner.getByLabel(/^Day of the week/).selectOption("1");
-  await owner.getByLabel("For", { exact: true }).selectOption("on_call");
+  await owner.getByRole("combobox", { name: "For", exact: true }).selectOption("on_call");
   await ready(owner);
   await owner.getByRole("button", { name: "Add recurring task" }).click();
   const row = owner.getByRole("row", { name: new RegExp(recurring) });
   await expect(row).toContainText("Whoever is on the office rota today");
 
   await row.getByRole("link", { name: `Change ${recurring}` }).click();
-  await expect(owner.getByLabel("For", { exact: true })).toHaveValue("on_call");
+  await expect(owner.getByRole("combobox", { name: "For", exact: true })).toHaveValue("on_call");
 
   const once = `Ring the roofer ${run}`;
   await owner.goto("/tasks");
   await owner.getByText("Add a task").click();
   await owner.getByLabel("What needs doing").fill(once);
-  await owner.getByLabel("For", { exact: true }).selectOption("on_call");
+  await owner.getByRole("combobox", { name: "For", exact: true }).selectOption("on_call");
   await ready(owner);
   await owner.getByRole("button", { name: "Add task" }).click();
   await owner.getByRole("link", { name: once }).first().click();

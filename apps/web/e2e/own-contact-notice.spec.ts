@@ -61,7 +61,7 @@ test("a technician keeps a second email for their own licence emails, and the of
   try {
     await tech.goto("/me");
     const second = tech.getByRole("region", { name: "A second email for your licence emails" });
-    await second.getByLabel("Second email address").fill("not an address");
+    await second.getByLabel("Second email address").fill("ray@home");
     await ready(tech);
     await second.getByRole("button", { name: "Save" }).click();
     await expect(tech.getByRole("alert").filter({ hasText: "is not an email address" })).toBeVisible();
