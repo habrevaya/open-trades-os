@@ -19,7 +19,7 @@ import { TaskPriority } from "./tasks";
 const IsoDate = z.string().date();
 const Frequency = z.enum([
   "daily", "weekdays", "weekly", "every_other_week", "monthly", "last_weekday_of_month",
-  "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays",
+  "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays", "yearly",
 ]);
 
 const Template = z.object({
@@ -33,8 +33,10 @@ const Template = z.object({
   frequency: Frequency,
   /** For the frequencies that come round on a named day of the week: 0 is Sunday. */
   weekday: z.number().int().nullable(),
-  /** For monthly: 1 to 31, held to the month's length. */
+  /** For monthly: 1 to 31, held to the month's length. For `yearly`: the day of its month. */
   monthDay: z.number().int().nullable(),
+  /** For `yearly`: the month, 1 for January to 12 for December. */
+  yearMonth: z.number().int().nullable(),
   /** For `nth_weekday_of_month`: 1 is the first, 4 the fourth, 5 the fifth (a month without one is skipped). */
   monthWeek: z.number().int().nullable(),
   /** For `every_n_weeks`: the gap in weeks, 2 to 260. */
@@ -64,6 +66,7 @@ const TemplateFields = {
   frequency: Frequency,
   weekday: z.number().int().min(0).max(6).nullable().optional(),
   monthDay: z.number().int().min(1).max(31).nullable().optional(),
+  yearMonth: z.number().int().min(1).max(12).nullable().optional(),
   monthWeek: z.number().int().min(1).max(5).nullable().optional(),
   intervalWeeks: z.number().int().min(2).max(260).nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
@@ -91,7 +94,7 @@ export const createTaskTemplate = defineRoute({
   path: "/v1/task-templates",
   summary: "Make a task come round on a schedule",
   description:
-    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 5: the first Monday, say; a fifth one is raised only in the months that have one, and a month without is skipped, not moved), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 260, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
+    "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 5: the first Monday, say; a fifth one is raised only in the months that have one, and a month without is skipped, not moved), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 260, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`), `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday) or `yearly` (needs `yearMonth`, 1 to 12, and `monthDay`: renew the licence every March 1 is `yearMonth: 3, monthDay: 1`; a day the month never has, April 31, is refused; February 29 is raised on February 28 in a year without a 29th). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.",
   module: "M34",
   permissions: ["task:write"],
   idempotent: true,

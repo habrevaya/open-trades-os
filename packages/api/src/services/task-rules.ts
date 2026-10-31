@@ -229,6 +229,8 @@ export interface TemplateInput {
   frequency: taskRules.TaskFrequency;
   weekday?: number | null | undefined;
   monthDay?: number | null | undefined;
+  /** For yearly: the month, 1 to 12. The day is `monthDay`. */
+  yearMonth?: number | null | undefined;
   /** For the given weekday of the month: 1 is the first, 4 the fourth. */
   monthWeek?: number | null | undefined;
   /** For every so many weeks: 2 to 52. */
@@ -254,6 +256,7 @@ export interface TemplateView {
   frequency: taskRules.TaskFrequency;
   weekday: number | null;
   monthDay: number | null;
+  yearMonth: number | null;
   monthWeek: number | null;
   intervalWeeks: number | null;
   daysOfWeek: number[] | null;
@@ -286,6 +289,7 @@ function viewOf(
     frequency: row.frequency,
     weekday: row.weekday,
     monthDay: row.monthDay,
+    yearMonth: row.yearMonth,
     monthWeek: row.monthWeek,
     intervalWeeks: row.intervalWeeks,
     daysOfWeek: row.daysOfWeek,
@@ -304,8 +308,8 @@ function viewOf(
 
 /** A stored template as the schedule core counts. */
 const scheduleOf = (row: Pick<typeof schema.taskTemplate.$inferSelect,
-  "frequency" | "weekday" | "monthDay" | "monthWeek" | "intervalWeeks" | "daysOfWeek" | "startsOn">): taskRules.TaskSchedule => ({
-  frequency: row.frequency, weekday: row.weekday, monthDay: row.monthDay, monthWeek: row.monthWeek,
+  "frequency" | "weekday" | "monthDay" | "yearMonth" | "monthWeek" | "intervalWeeks" | "daysOfWeek" | "startsOn">): taskRules.TaskSchedule => ({
+  frequency: row.frequency, weekday: row.weekday, monthDay: row.monthDay, yearMonth: row.yearMonth, monthWeek: row.monthWeek,
   intervalWeeks: row.intervalWeeks, daysOfWeek: row.daysOfWeek, startsOn: row.startsOn,
 });
 
@@ -317,7 +321,8 @@ const scheduleOf = (row: Pick<typeof schema.taskTemplate.$inferSelect,
 const scheduleColumns = (input: TemplateInput) => ({
   frequency: input.frequency,
   ...weekColumns(input),
-  monthDay: input.frequency === "monthly" ? input.monthDay ?? null : null,
+  monthDay: input.frequency === "monthly" || input.frequency === "yearly" ? input.monthDay ?? null : null,
+  yearMonth: input.frequency === "yearly" ? input.yearMonth ?? null : null,
   monthWeek: input.frequency === "nth_weekday_of_month" ? input.monthWeek ?? null : null,
   intervalWeeks: input.frequency === "every_n_weeks" ? input.intervalWeeks ?? null : null,
 });
@@ -343,7 +348,7 @@ function checkTemplate(input: TemplateInput & { startsOn: string }): void {
   if (input.title.trim() === "") throw new ConflictError("A recurring task needs a title.");
   const verdict = taskRules.checkSchedule({
     frequency: input.frequency, weekday: input.weekday ?? null, monthDay: input.monthDay ?? null,
-    monthWeek: input.monthWeek ?? null, intervalWeeks: input.intervalWeeks ?? null, daysOfWeek: input.daysOfWeek ?? null,
+    yearMonth: input.yearMonth ?? null, monthWeek: input.monthWeek ?? null, intervalWeeks: input.intervalWeeks ?? null, daysOfWeek: input.daysOfWeek ?? null,
     startsOn: input.startsOn,
   });
   if (!verdict.ok) throw new ConflictError(verdict.message);
@@ -429,6 +434,7 @@ export async function updateTemplate(
         : input.daysOfWeek !== undefined && taskRules.cleanDays(input.daysOfWeek).length > 0
           && taskRules.EVERY_SO_MANY_WEEKS.includes(input.frequency ?? before.frequency) ? null : before.weekday,
       monthDay: input.monthDay !== undefined ? input.monthDay : before.monthDay,
+      yearMonth: input.yearMonth !== undefined ? input.yearMonth : before.yearMonth,
       monthWeek: input.monthWeek !== undefined ? input.monthWeek : before.monthWeek,
       intervalWeeks: input.intervalWeeks !== undefined ? input.intervalWeeks : before.intervalWeeks,
       daysOfWeek: input.daysOfWeek !== undefined ? input.daysOfWeek
@@ -442,6 +448,22 @@ export async function updateTemplate(
     const people = await directory(tx, ctx.actor.organizationId);
     if (input.assigneeUserId !== undefined) mustBeActive(people, input.assigneeUserId, "The person it goes to");
 
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const today = time.dateIn(new Date(), zone);
+    /**
+     * Moving a yearly task's date to one that has already gone by this year
+     * does not raise it now. The worker raises the latest occurrence on or
+     * before today, which for a date once a year could be months back, and a
+     * licence task for last March appearing today because somebody fixed the
+     * month is a backfill. The day before today is written down as dealt with,
+     * so the next occurrence is the one raised, and a date that is today still is.
+     */
+    const yearlyMoved = merged.frequency === "yearly" && (
+      before.frequency !== "yearly" || before.yearMonth !== merged.yearMonth || before.monthDay !== merged.monthDay);
+    const yesterday = time.addDays(today, -1);
+    const keepRaisedOn = yearlyMoved && (before.lastRaisedOn === null || before.lastRaisedOn < yesterday)
+      ? { lastRaisedOn: yesterday } : {};
+
     const [after] = await tx.update(schema.taskTemplate).set({
       title: merged.title.trim(),
       ...(input.body !== undefined ? { body: input.body.trim() || null } : {}),
@@ -454,14 +476,14 @@ export async function updateTemplate(
       startsOn: merged.startsOn,
       ...(input.skipHolidays !== undefined ? { skipHolidays: input.skipHolidays } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
+      ...keepRaisedOn,
       updatedAt: new Date(),
     }).where(eq(schema.taskTemplate.id, input.id)).returning();
 
     await audit(tx, ctx, input.active === false ? "task_template.paused"
       : input.active === true ? "task_template.resumed" : "task_template.updated",
     "task_template", input.id, before, after);
-    const zone = await timezoneOf(tx, ctx.actor.organizationId);
-    return viewOf(after!, people, time.dateIn(new Date(), zone));
+    return viewOf(after!, people, today);
   });
 }
 

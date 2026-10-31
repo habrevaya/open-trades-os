@@ -497,6 +497,8 @@ export const taskFrequency = pgEnum("task_frequency", [
   // And later still: the first to fourth given weekday of the month, every
   // so many weeks, and whichever days of the week a company chooses.
   "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays",
+  // And one date a year: a month and a day of it, with the day in `month_day`.
+  "yearly",
 ]);
 
 /**
@@ -523,6 +525,8 @@ export const taskTemplate = pgTable("task_template", {
   weekday: integer("weekday"),
   /** For monthly: the day of the month, held to the month's length. */
   monthDay: integer("month_day"),
+  /** For yearly: the month, 1 for January to 12 for December. The day is `month_day`. */
+  yearMonth: integer("year_month"),
   /** For the given weekday of the month: 1 is the first, 4 the fourth. */
   monthWeek: integer("month_week"),
   /** For every so many weeks: the gap, 2 to 52, counted from the first such weekday on or after `starts_on`. */

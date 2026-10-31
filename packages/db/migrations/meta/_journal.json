@@ -1226,6 +1226,13 @@
       "when": 1793398411540,
       "tag": "0174_brown_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1793452123829,
+      "tag": "0175_same_gambit",
+      "breakpoints": true
     }
   ]
 }

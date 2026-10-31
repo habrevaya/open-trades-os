@@ -139701,7 +139701,7 @@
       "post": {
         "operationId": "createTaskTemplate",
         "summary": "Make a task come round on a schedule",
-        "description": "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 5: the first Monday, say; a fifth one is raised only in the months that have one, and a month without is skipped, not moved), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 260, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`) or `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
+        "description": "`frequency` is `daily`, `weekdays` (Monday to Friday), `weekly` (needs `weekday`), `every_other_week` (needs `weekday`, or `daysOfWeek` for several days; counted from the first such day on or after `startsOn`, the weeks running Monday to Sunday), `monthly` (needs `monthDay`), `last_weekday_of_month` (needs `weekday`: the last Friday, say), `nth_weekday_of_month` (needs `weekday` and `monthWeek`, 1 to 5: the first Monday, say; a fifth one is raised only in the months that have one, and a month without is skipped, not moved), `every_n_weeks` (needs `weekday` or `daysOfWeek`, and `intervalWeeks`, 2 to 260, counted like every other week: every third Monday and Thursday is `daysOfWeek: [1, 4]`), `chosen_weekdays` (needs `daysOfWeek`, any of 0 for Sunday to 6 for Saturday) or `yearly` (needs `yearMonth`, 1 to 12, and `monthDay`: renew the licence every March 1 is `yearMonth: 3, monthDay: 1`; a day the month never has, April 31, is refused; February 29 is raised on February 28 in a year without a 29th). Raised by the worker on the day, in the company's own timezone, due at `dueMinutes` past its midnight. One task per day per template whatever the worker does: the task carries the template and the day under a unique index. A worker that was down raises the latest occurrence, not every one it missed.\n\nRequires a session holding: task:write.",
         "tags": [
           "M34"
         ],
@@ -180103,7 +180103,8 @@
               "last_weekday_of_month",
               "nth_weekday_of_month",
               "every_n_weeks",
-              "chosen_weekdays"
+              "chosen_weekdays",
+              "yearly"
             ]
           },
           "weekday": {
@@ -180121,6 +180122,14 @@
             ],
             "minimum": 1,
             "maximum": 31
+          },
+          "yearMonth": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 12
           },
           "monthWeek": {
             "type": [
@@ -180232,7 +180241,8 @@
               "last_weekday_of_month",
               "nth_weekday_of_month",
               "every_n_weeks",
-              "chosen_weekdays"
+              "chosen_weekdays",
+              "yearly"
             ]
           },
           "weekday": {
@@ -180242,6 +180252,12 @@
             ]
           },
           "monthDay": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "yearMonth": {
             "type": [
               "integer",
               "null"
@@ -180316,6 +180332,7 @@
           "frequency",
           "weekday",
           "monthDay",
+          "yearMonth",
           "monthWeek",
           "intervalWeeks",
           "daysOfWeek",
@@ -250691,7 +250708,8 @@
                     "last_weekday_of_month",
                     "nth_weekday_of_month",
                     "every_n_weeks",
-                    "chosen_weekdays"
+                    "chosen_weekdays",
+                    "yearly"
                   ]
                 },
                 "weekday": {
@@ -250701,6 +250719,12 @@
                   ]
                 },
                 "monthDay": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "yearMonth": {
                   "type": [
                     "integer",
                     "null"
@@ -250775,6 +250799,7 @@
                 "frequency",
                 "weekday",
                 "monthDay",
+                "yearMonth",
                 "monthWeek",
                 "intervalWeeks",
                 "daysOfWeek",
@@ -309239,7 +309264,8 @@
               "last_weekday_of_month",
               "nth_weekday_of_month",
               "every_n_weeks",
-              "chosen_weekdays"
+              "chosen_weekdays",
+              "yearly"
             ]
           },
           "weekday": {
@@ -309257,6 +309283,14 @@
             ],
             "minimum": 1,
             "maximum": 31
+          },
+          "yearMonth": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 12
           },
           "monthWeek": {
             "type": [
@@ -309367,7 +309401,8 @@
               "last_weekday_of_month",
               "nth_weekday_of_month",
               "every_n_weeks",
-              "chosen_weekdays"
+              "chosen_weekdays",
+              "yearly"
             ]
           },
           "weekday": {
@@ -309377,6 +309412,12 @@
             ]
           },
           "monthDay": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "yearMonth": {
             "type": [
               "integer",
               "null"
@@ -309451,6 +309492,7 @@
           "frequency",
           "weekday",
           "monthDay",
+          "yearMonth",
           "monthWeek",
           "intervalWeeks",
           "daysOfWeek",

@@ -174,9 +174,10 @@ Wednesday and Saturday for a crew that works those), every week on a weekday,
 every other week or every so many weeks on a weekday, every month on a date
 (the 31st is held to the last day of a shorter month), on the first, second,
 third, fourth or fifth given weekday of the month (the first Monday; the fifth
-Monday only in the months that have five, the others skipped), or on the last
+Monday only in the months that have five, the others skipped), on the last
 given weekday of every month (the last Friday, whether it is the fourth or the
-fifth), with who it goes to, when on the day it is due, its priority and a
+fifth), or once a year on a month and a day (renew the contractor licence every
+March 1), with who it goes to, when on the day it is due, its priority and a
 checklist. The rules for which day each one is for are in core's `tasks`
 module with unit tests, so the worker, the API and the screen cannot count
 differently.
@@ -188,7 +189,7 @@ moves the on week. Every so many weeks (two to two hundred and sixty, which is f
 the same way with its own gap, so every third Wednesday starting on a Monday is that
 Wednesday and every twenty first day after it, and every 104 weeks is every 728th day
 from the first one (so it slips a day against the calendar across a leap year, and the
-screen says so: for the same date every year, use a monthly task). The fifth given
+screen says so: for the same date every year, choose every year). The fifth given
 weekday of a month is raised only in the months that have one: 2026's fifth Mondays are
 March 30, June 29, August 31 and November 30, and every other month is skipped, not moved
 to the fourth or the last (the last one is its own choice). The list says so in words, "On
@@ -201,7 +202,9 @@ nothing more. In the API the frequencies are `daily`, `weekdays`,
 `chosen_weekdays` (with `daysOfWeek`, any of 0 for Sunday to 6 for Saturday,
 stored once each and in order), `weekly`, `every_other_week`, `every_n_weeks`
 (with `intervalWeeks`), `monthly`, `nth_weekday_of_month` (with `monthWeek`, 1
-to 5) and `last_weekday_of_month`, and the ones that come round on a named day
+to 5) and (with `monthWeek`, 1
+to 5), `last_weekday_of_month` and `yearly` (with `yearMonth`, 1 to 12, and `monthDay`),
+and the ones that come round on a named day
 take `weekday`. A template keeps only the settings its schedule reads, so one
 changed from ticked days to monthly forgets the days. The worker raises each one
 on the day in the COMPANY'S timezone, so Monday's task is not raised on Sunday
@@ -221,6 +224,22 @@ as it always was. The service stores one day as `weekday` and several as `daysOf
 and never both, changes between the two forms without keeping the other, and refuses a
 day that is not a day of the week, no day at all, and two different ways of naming one
 day, in plain words. It reads back as "Every 3 weeks on Monday and Thursday".
+
+A yearly task is a month and a day: "Every year on March 1". On the form it is "Every
+year, on a month and a day", with the Month box and the Date of the month box. It is raised
+on that day in the company's calendar, once, and the list's "next" is the next one, this
+year's if it has not come yet and next year's if it has. A day the month never has (April
+31, February 30) is refused in words; February 29 is allowed and is raised on February 28
+in a year that has no February 29, the earlier of the two, so a renewal that falls on a leap
+day is never raised late, and the list says so: "Every year on February 29, or on February
+28 in a year without a February 29". The no backfill rule is the one every template has,
+with one addition for a date that comes round once a year: a worker that was down raises the
+latest occurrence only, and a yearly task whose month or day is changed to a date that has
+already gone by this year raises nothing for it (the changed task is treated as dealt with up
+to yesterday), because a licence task for last March appearing today since somebody corrected
+the month is a backfill. A date changed to today is raised today. Skipping a closed holiday
+works as for any template: the day is skipped, not moved, and written down. A yearly task
+has no end date: pause it when the licence is no longer needed.
 
 A template can be told to skip holidays ("Not on a holiday" on the form,
 `skipHolidays` in the API): an occurrence on a date the company's holiday list
@@ -745,8 +764,8 @@ after the notice was removed can be raised again for the new date, which is the
 right notice to get.
 
 A gap of more than a year is counted in weeks and days, never in calendar years, and
-none is longer than 260 weeks: a task on a date once a year, or in a given month, is a monthly
-task or a deadline, not this. A fifth weekday that most months do not have is skipped in
+none is longer than 260 weeks: a task on a date once a year is a yearly task, and a gap
+of years that is not a date is these weeks. A fifth weekday that most months do not have is skipped in
 the months without it and nothing says so on the day: the list names the rule and its next day.
 Several weekdays are for the tasks counted in weeks and for "the days I tick";
 the first to fifth or last given weekday of a month is still one

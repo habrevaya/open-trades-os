@@ -36,15 +36,17 @@ import { workingMinutesBetween, type WorkingCalendar } from "../holidays/index.j
  * months and the fifth in others, and `nth_weekday_of_month` is the first,
  * second, third or fourth, which every month has, or the fifth, which only
  * some months have: a month without one is skipped, and is not moved to the
- * last one (that is `last_weekday_of_month`).
+ * last one (that is `last_weekday_of_month`). `yearly` is one date a year, a
+ * month and a day of it (renew the licence every March 1): the 29th of February
+ * is raised on the 28th in a year that has no 29th.
  */
 export type TaskFrequency =
   | "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month"
-  | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
+  | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
 
 export const TASK_FREQUENCIES: readonly TaskFrequency[] = [
   "daily", "weekdays", "weekly", "every_other_week", "monthly", "last_weekday_of_month",
-  "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays",
+  "nth_weekday_of_month", "every_n_weeks", "chosen_weekdays", "yearly",
 ];
 
 /** The two that count weeks, and so may name several days of the week they come round on. */
@@ -68,8 +70,10 @@ export interface TaskSchedule {
   frequency: TaskFrequency;
   /** For the frequencies in `NEEDS_WEEKDAY`: 0 is Sunday, 6 is Saturday. */
   weekday?: number | null | undefined;
-  /** For monthly: 1 to 31, held to the month's length. */
+  /** For monthly: 1 to 31, held to the month's length. For yearly: the day of its month. */
   monthDay?: number | null | undefined;
+  /** For yearly: the month, 1 for January to 12 for December. */
+  yearMonth?: number | null | undefined;
   /**
    * For the given weekday of the month: 1 is the first, 4 the fourth, 5 the fifth
    * (which only some months have, and a month without one is skipped). The last
@@ -110,6 +114,14 @@ export const cleanDays = (days: readonly number[] | null | undefined): number[] 
 export const WEEKDAYS = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 ] as const;
+
+export const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+/** The most days each month ever has, February counted at 29 because some years have that many. */
+const LONGEST_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
 
 export type ScheduleVerdict = { ok: true } | { ok: false; message: string };
 
@@ -182,6 +194,19 @@ export function checkSchedule(schedule: TaskSchedule): ScheduleVerdict {
       return { ok: false, message: "A monthly task needs a day of the month, 1 to 31." };
     }
   }
+  if (schedule.frequency === "yearly") {
+    const month = schedule.yearMonth;
+    if (month === null || month === undefined || !Number.isInteger(month) || month < 1 || month > 12) {
+      return { ok: false, message: "A yearly task needs the month it comes round in." };
+    }
+    const day = schedule.monthDay;
+    if (day === null || day === undefined || !Number.isInteger(day) || day < 1) {
+      return { ok: false, message: "A yearly task needs the day of the month it comes round on." };
+    }
+    if (day > LONGEST_MONTH[month - 1]!) {
+      return { ok: false, message: `${MONTH_NAMES[month - 1]} has no day ${day}. Choose a day that is in the month.` };
+    }
+  }
   return { ok: true };
 }
 
@@ -202,6 +227,16 @@ function monthlyIn(date: string, monthDay: number): string {
   const d = parseDate(date);
   const day = Math.min(monthDay, daysInMonth(d.getUTCFullYear(), d.getUTCMonth()));
   return `${date.slice(0, 8)}${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * The yearly occurrence in a year: the month and day asked for. The 29th of
+ * February in a year with no 29th is the 28th, the earlier of the two, so a
+ * renewal that falls on a leap day is never raised later than it is owed.
+ */
+function yearlyIn(year: number, month: number, day: number): string {
+  const capped = Math.min(day, daysInMonth(year, month - 1));
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(capped).padStart(2, "0")}`;
 }
 
 /** Whole days from one calendar date to a later one. */
@@ -376,6 +411,14 @@ export function occurrenceOnOrBefore(schedule: TaskSchedule, day: string): strin
       found = earlier;
       break;
     }
+    case "yearly": {
+      const year = parseDate(day).getUTCFullYear();
+      const thisYear = yearlyIn(year, schedule.yearMonth ?? 1, schedule.monthDay ?? 1);
+      found = compareDates(thisYear, day) <= 0
+        ? thisYear
+        : yearlyIn(year - 1, schedule.yearMonth ?? 1, schedule.monthDay ?? 1);
+      break;
+    }
     case "monthly": {
       const thisMonth = monthlyIn(day, schedule.monthDay ?? 1);
       found = compareDates(thisMonth, day) <= 0
@@ -428,6 +471,13 @@ export function occurrenceAfter(schedule: TaskSchedule, day: string): string {
     }
     case "nth_weekday_of_month": {
       return nthAfter(from, schedule.weekday ?? 0, schedule.monthWeek ?? 1);
+    }
+    case "yearly": {
+      const year = parseDate(from).getUTCFullYear();
+      const thisYear = yearlyIn(year, schedule.yearMonth ?? 1, schedule.monthDay ?? 1);
+      return compareDates(thisYear, from) > 0
+        ? thisYear
+        : yearlyIn(year + 1, schedule.yearMonth ?? 1, schedule.monthDay ?? 1);
     }
     case "monthly": {
       const thisMonth = monthlyIn(from, schedule.monthDay ?? 1);
@@ -500,6 +550,13 @@ export function describeSchedule(schedule: TaskSchedule): string {
       return `Every ${schedule.intervalWeeks ?? 2} weeks on ${listDays(everySoManyWeeksDays(schedule))}`;
     case "chosen_weekdays":
       return `Every ${listDays(cleanDays(schedule.daysOfWeek))}`;
+    case "yearly": {
+      const month = MONTH_NAMES[(schedule.yearMonth ?? 1) - 1] ?? "January";
+      const day = schedule.monthDay ?? 1;
+      return schedule.yearMonth === 2 && day === 29
+        ? "Every year on February 29, or on February 28 in a year without a February 29"
+        : `Every year on ${month} ${day}`;
+    }
     case "monthly":
       return (schedule.monthDay ?? 1) >= 29
         ? `On the ${ordinal(schedule.monthDay ?? 1)} of every month, or the last day when a month is shorter`

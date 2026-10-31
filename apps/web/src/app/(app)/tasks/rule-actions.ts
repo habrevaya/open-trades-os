@@ -127,6 +127,7 @@ function templateFields(form: FormData) {
   const frequency = field(form, "frequency");
   const weekday = field(form, "weekday");
   const monthDay = field(form, "monthDay");
+  const yearMonth = field(form, "yearMonth");
   const monthWeek = field(form, "monthWeek");
   const intervalWeeks = field(form, "intervalWeeks");
   const days = form.getAll("daysOfWeek").map((d) => Number(d));
@@ -142,7 +143,8 @@ function templateFields(form: FormData) {
      */
     ...(frequency && WEEKDAY_FREQUENCIES.includes(frequency) && weekday !== undefined
       && !(COUNTED_IN_WEEKS.includes(frequency) && days.length > 0) ? { weekday: Number(weekday) } : {}),
-    ...(frequency === "monthly" && monthDay !== undefined ? { monthDay: Number(monthDay) } : {}),
+    ...((frequency === "monthly" || frequency === "yearly") && monthDay !== undefined ? { monthDay: Number(monthDay) } : {}),
+    ...(frequency === "yearly" && yearMonth !== undefined ? { yearMonth: Number(yearMonth) } : {}),
     ...(frequency === "nth_weekday_of_month" && monthWeek !== undefined ? { monthWeek: Number(monthWeek) } : {}),
     ...(frequency === "every_n_weeks" && intervalWeeks !== undefined ? { intervalWeeks: Number(intervalWeeks) } : {}),
     ...(frequency === "chosen_weekdays" || (frequency && COUNTED_IN_WEEKS.includes(frequency) && days.length > 0)
