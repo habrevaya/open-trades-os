@@ -57,6 +57,21 @@ export async function saveOwnContact(_previous: FormState, form: FormData): Prom
   return state;
 }
 
+/** The second mailbox for their own licence and skill expiry emails. An empty box takes it off. */
+export async function saveSecondEmail(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const before = (await me.record(await ctx())).secondEmail;
+    const after = await me.setOwnSecondEmail(await ctx(), { email: field(form, "secondEmail") ?? null });
+    return {
+      message: after.secondEmail === before ? "Nothing was different, so nothing changed."
+        : after.secondEmail === null ? "Saved. Your licence emails go to the address you sign in with only."
+          : `Saved. Your own licence and skill emails also go to ${after.secondEmail}.`,
+    };
+  });
+  if (state?.done) refresh();
+  return state;
+}
+
 export async function removeContact(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => me.removeContact(await ctx(), { id: String(form.get("id") ?? "") }));
   if (state?.done) refresh();

@@ -410,7 +410,8 @@ What raises one, each in the same transaction as the thing it is about:
   the holder's own page at `/people/{membershipId}`) when that manager may read
   the holder's record, and to each of the people the company names as keeping
   the renewals list, which is nobody until it names somebody (M24). A renewal
-  recorded since stops it. It is the one kind that also comes by email.
+  recorded since stops it. It is the one kind that also comes by email, and the holder's own
+  also to a second address they keep on `/me` (M24).
 - **A deadline about to be missed**, when a clock reaches its warning time and its
   task lands in the office queue (a contract's clock on a job, a warranty to
   register, a filing falling due). It goes to everybody who may deal with it
@@ -443,6 +444,11 @@ What raises one, each in the same transaction as the thing it is about:
   (M05). Once a day for each job, however many files. It opens their day on
   `/my-day` (the visit, on the phone), or the visit's page for somebody who
   reads visits but is not on it.
+- **A colleague changing their own phone or address**, when a person saves a different phone
+  number or home address on `/me` or the phone app (M24). It goes to everybody who may read people
+  (`user:read`) and whose scope of people reaches that person, except the person, and opens their
+  page at `/people/{membershipId}`. It says what they did ("changed their phone number") and never
+  the new number or address. A save that changed nothing tells nobody.
 
 NEVER ABOUT A RECORD THEY CANNOT OPEN. Before anything is written, the person
 is resolved the way their own session would be, and the record is opened with
@@ -754,7 +760,7 @@ again on the tasks it already acted on. The people a rule tells get a task, an
 email, and a notice on the bell, the phone app or a text as each of them chose;
 somebody who cannot open tasks gets the task and the email and no notice.
 
-Notices are raised by the eleven things listed under "Notices to the company's
+Notices are raised by the twelve things listed under "Notices to the company's
 own people" and nothing else: the rest of what the queue holds reaches people as
 tasks, as before, and so does a customer taking or turning down a time the office
 offered for their visit, and a failed bank payment. A deadline's notice is raised

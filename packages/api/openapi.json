@@ -84589,6 +84589,135 @@
         ]
       }
     },
+    "/v1/me/second-email": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "setMySecondEmail",
+        "summary": "Keep a second email address for your licence and skill expiry emails",
+        "description": "Your own licence and skill expiry emails (M34) go to the address you sign in with, and also to this one when it is set. Only your own: the copies sent to your manager or to whoever keeps the renewals list about someone else's licence never go to it. The same on/off switch on `/me` covers both. An empty `email` takes it off; the address you sign in with is refused, since it already gets them. The address is not checked by a message sent to it, so check it is typed right. The office reads it on your page (`GET /v1/people/{membershipId}`, `user:read`) and never writes it. Always your own: there is no person to name. Audited as `person.second_email_changed`.\n\nRequires a session holding: profile:own.",
+        "tags": [
+          "M24"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMySecondEmailInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Keep a second email address for your licence and skill expiry emails",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMySecondEmailOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "profile:own"
+        ]
+      }
+    },
     "/v1/memberships/{membershipId}/active": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -209981,7 +210110,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "label": {
@@ -210555,6 +210685,12 @@
               "changes"
             ]
           },
+          "secondEmail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "onboarding": {
             "type": "object",
             "properties": {
@@ -211106,6 +211242,7 @@
           "employment",
           "emergencyContacts",
           "ownContact",
+          "secondEmail",
           "onboarding",
           "documents",
           "certifications",
@@ -211421,7 +211558,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "label": {
@@ -213150,6 +213288,12 @@
               "changes"
             ]
           },
+          "secondEmail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "documents": {
             "type": "array",
             "items": {
@@ -213214,6 +213358,7 @@
           "skills",
           "reportsTo",
           "ownContact",
+          "secondEmail",
           "documents"
         ]
       },
@@ -287747,7 +287892,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "label": {
@@ -287927,7 +288073,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "email": {
@@ -287942,7 +288089,7 @@
               ]
             },
             "minItems": 1,
-            "maxItems": 11
+            "maxItems": 12
           }
         },
         "required": [
@@ -287979,7 +288126,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "label": {
@@ -288180,7 +288328,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "label": {
@@ -288461,6 +288610,32 @@
           "progress"
         ]
       },
+      "SetMySecondEmailInput": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 254
+          }
+        }
+      },
+      "SetMySecondEmailOutput": {
+        "type": "object",
+        "properties": {
+          "secondEmail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "secondEmail"
+        ]
+      },
       "SetNoticeDefaultsInput": {
         "type": "object",
         "properties": {
@@ -288482,7 +288657,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "inApp": {
@@ -288502,7 +288678,7 @@
               ]
             },
             "minItems": 1,
-            "maxItems": 11
+            "maxItems": 12
           }
         },
         "required": [
@@ -288530,7 +288706,8 @@
                     "task_deadline",
                     "visit_change_requested",
                     "autopay_failed",
-                    "customer_file"
+                    "customer_file",
+                    "contact_changed"
                   ]
                 },
                 "label": {

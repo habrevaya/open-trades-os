@@ -43,6 +43,7 @@ export const NOTICE_KINDS = [
   "visit_change_requested",
   "autopay_failed",
   "customer_file",
+  "contact_changed",
 ] as const;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 
@@ -94,6 +95,10 @@ export const NOTICE_KIND_WORDS: Record<NoticeKind, { label: string; description:
   customer_file: {
     label: "A photo or file from a customer",
     description: "A customer sent photos or a PDF to a job you are on. Once a day for each job.",
+  },
+  contact_changed: {
+    label: "A colleague changed their phone or address",
+    description: "A person changed the phone number or home address they keep on their own record. It says that they did, not what the new number or address is.",
   },
 };
 

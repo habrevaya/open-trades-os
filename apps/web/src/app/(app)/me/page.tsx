@@ -8,7 +8,7 @@ import { Fact, Facts } from "@/components/Detail";
 import { Empty, Table, Td, Th } from "@/components/Table";
 import { formatDay, formatIn } from "@/lib/dates";
 import {
-  addContact, saveOwnContact, logCeHours, removeContact, saveNoticeSwitches, setNoticeDigest, setNoticeDigestHour, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
+  addContact, saveOwnContact, saveSecondEmail, logCeHours, removeContact, saveNoticeSwitches, setNoticeDigest, setNoticeDigestHour, setLine, turnOffTexts, turnOnTexts, withdrawCeHours,
 } from "./actions";
 import { SignDocument } from "./SignDocument";
 import { OwnContactChanges } from "@/components/OwnContactChanges";
@@ -149,6 +149,20 @@ export default async function MyRecordPage() {
           <TextField label="ZIP code" name="postalCode" maxLength={10} inputMode="numeric" defaultValue={record.ownContact.contact?.postalCode ?? ""} />
         </ActionForm>
         <OwnContactChanges record={record.ownContact} timezone={zone} />
+      </section>
+
+      <section className="mt-8" aria-labelledby="second-email">
+        <h2 id="second-email" className="text-base font-semibold">A second email for your licence emails</h2>
+        <p className="mt-1 text-sm text-ink-700">
+          When one of your licences or skills is about to run out, the email goes to {record.email}. Add one more
+          address here if you want it there too, a personal one say. Only emails about your own licences and skills
+          go to it. We do not send it a test message, so check it is typed right. The office can see it and cannot
+          change it. Leave the box empty to take it off.
+        </p>
+        <ActionForm action={saveSecondEmail} submit="Save" className="mt-3 flex flex-wrap items-end gap-3">
+          <TextField label="Second email address" name="secondEmail" type="email" maxLength={254}
+                     defaultValue={record.secondEmail ?? ""} placeholder="you@example.com" className="block w-80" />
+        </ActionForm>
       </section>
 
       <section className="mt-8" aria-labelledby="contacts">

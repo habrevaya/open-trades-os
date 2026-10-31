@@ -10826,7 +10826,7 @@ export interface GetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -10938,6 +10938,7 @@ export interface GetMyRecordOutput {
       }>;
     }>;
   };
+  secondEmail: string | null;
   onboarding: {
     lines: Array<{
       id: string;
@@ -11095,7 +11096,7 @@ export interface GetNetworkRollupOutput {
 
 export interface GetNoticeDefaultsOutput {
   kinds: Array<{
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     inApp: boolean;
@@ -11417,6 +11418,7 @@ export interface GetPersonRecordOutput {
       }>;
     }>;
   };
+  secondEmail: string | null;
   documents: Array<{
     requestId: string;
     documentId: string;
@@ -26043,7 +26045,7 @@ export interface SetMyNoticeDigestOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -26079,7 +26081,7 @@ export interface SetMyNoticeSettingsInput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     email?: boolean;
   }>;
 }
@@ -26089,7 +26091,7 @@ export interface SetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -26131,7 +26133,7 @@ export interface SetMyNoticeTextsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -26190,9 +26192,17 @@ export interface SetMyOnboardingLineOutput {
   };
 }
 
+export interface SetMySecondEmailInput {
+  email?: string | null;
+}
+
+export interface SetMySecondEmailOutput {
+  secondEmail: string | null;
+}
+
 export interface SetNoticeDefaultsInput {
   kinds: Array<{
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     inApp: boolean;
     push: boolean;
     email?: boolean;
@@ -26201,7 +26211,7 @@ export interface SetNoticeDefaultsInput {
 
 export interface SetNoticeDefaultsOutput {
   kinds: Array<{
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     inApp: boolean;
@@ -36535,6 +36545,7 @@ export interface OperationTypes {
   setMyNoticeSettings: { input: SetMyNoticeSettingsInput; output: SetMyNoticeSettingsOutput };
   setMyNoticeTexts: { input: SetMyNoticeTextsInput; output: SetMyNoticeTextsOutput };
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
+  setMySecondEmail: { input: SetMySecondEmailInput; output: SetMySecondEmailOutput };
   setNoticeDefaults: { input: SetNoticeDefaultsInput; output: SetNoticeDefaultsOutput };
   setNumberHours: { input: SetNumberHoursParams & SetNumberHoursInput; output: SetNumberHoursOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
@@ -37789,6 +37800,7 @@ export const OPERATIONS = {
   setMyNoticeSettings: { method: "POST", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeTexts: { method: "POST", path: "/v1/me/notice-texts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  setMySecondEmail: { method: "POST", path: "/v1/me/second-email", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNoticeDefaults: { method: "PATCH", path: "/v1/notice-defaults", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberHours: { method: "PUT", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -47514,6 +47526,15 @@ export abstract class GeneratedOperations {
    */
   setMyOnboardingLine(input: SetMyOnboardingLineParams & SetMyOnboardingLineInput, options?: CallOptions): Promise<SetMyOnboardingLineOutput> {
     return this.call("setMyOnboardingLine", input, options);
+  }
+
+  /**
+   * Keep a second email address for your licence and skill expiry emails.
+   *
+   * POST /v1/me/second-email. Needs profile:own.
+   */
+  setMySecondEmail(input: SetMySecondEmailInput = {} as SetMySecondEmailInput, options?: CallOptions): Promise<SetMySecondEmailOutput> {
+    return this.call("setMySecondEmail", input, options);
   }
 
   /**
