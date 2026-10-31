@@ -18,6 +18,7 @@ export function holdAssignOptions(people: HoldNudgePerson[]): { value: string; l
     { value: "nobody", label: "Nobody in particular (the office queue)" },
     { value: "placed_by", label: "Whoever put the job on hold" },
     { value: "branch_manager", label: "The manager of the job's branch" },
+    { value: "on_call", label: "Whoever is on the office rota today" },
     ...work.HOLD_NUDGE_ROLES.map((role) => ({ value: `role:${role}`, label: `Everybody who is ${roleName(role)}` })),
     ...people.map((p) => ({ value: `person:${p.userId}`, label: p.name })),
   ];

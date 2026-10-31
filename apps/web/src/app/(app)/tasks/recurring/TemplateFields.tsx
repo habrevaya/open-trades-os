@@ -98,9 +98,10 @@ export function TemplateFields({
         <input type="checkbox" name="skipHolidays" value="yes" defaultChecked={template?.skipHolidays ?? false} />
         Not on a holiday: skip a day your holiday list says you are closed
       </label>
-      <Select label="For" name="assigneeUserId" defaultValue={template?.assigneeUserId ?? ""}
+      <Select label="For" name="assigneeUserId" defaultValue={template?.assigneeOnCall ? "on_call" : template?.assigneeUserId ?? ""}
               options={[
                 { value: "", label: "Nobody yet (the queue)" },
+                { value: "on_call", label: "Whoever is on the office rota today" },
                 ...people.map((p) => ({ value: p.userId, label: p.name })),
                 // Kept in the list so saving does not quietly hand the work to nobody: the service says why not.
                 ...(template?.assigneeUserId && !people.some((p) => p.userId === template.assigneeUserId)

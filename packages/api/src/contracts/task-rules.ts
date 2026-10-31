@@ -29,6 +29,8 @@ const Template = z.object({
   priority: TaskPriority,
   assigneeUserId: Uuid.nullable(),
   assigneeName: z.string().nullable(),
+  /** True when each task goes to whoever is on the office rota the day it is raised (`/v1/office-on-call`); then `assigneeUserId` is null. */
+  assigneeOnCall: z.boolean(),
   queue: z.string().nullable(),
   frequency: Frequency,
   /** For the frequencies that come round on a named day of the week: 0 is Sunday. */
@@ -62,6 +64,13 @@ const TemplateFields = {
   body: z.string().max(5000).optional(),
   priority: TaskPriority.optional(),
   assigneeUserId: Uuid.nullable().optional(),
+  /**
+   * Give each task to whoever is on the office rota the day it is raised, in place of a named person. Sent with
+   * `assigneeUserId` it is refused; true clears a named person, and naming a person (or null) clears it. One person
+   * on the rota is given the task, two or more are each told of the one task in the office queue, and nobody on
+   * it leaves the task in the office queue with a line saying so.
+   */
+  assigneeOnCall: z.boolean().optional(),
   queue: z.string().max(60).optional(),
   frequency: Frequency,
   weekday: z.number().int().min(0).max(6).nullable().optional(),

@@ -108,6 +108,13 @@ export const createTask = defineRoute({
     entityType: z.string().max(60).optional(),
     entityId: Uuid.optional(),
     assigneeUserId: Uuid.optional(),
+    /**
+     * Give it to whoever is on the office rota today (`/v1/office-on-call`), read now, in place of a named person;
+     * sent with `assigneeUserId` it is refused. One person on the rota is given the task, two or more are each
+     * told of the one task in the office queue, and nobody on it leaves the task in the office queue with a line
+     * saying so at the top of its detail.
+     */
+    assigneeOnCall: z.boolean().optional(),
     queue: z.string().max(60).optional(),
     dueAt: z.string().datetime().optional(),
     /** Things to tick off inside it, in order. Fifty at most. */

@@ -53,7 +53,7 @@ export async function addTask(_previous: FormState, form: FormData): Promise<For
       title: field(form, "title"),
       body: field(form, "body"),
       ...(due ? { dueAt: due } : {}),
-      ...(assignee ? { assigneeUserId: assignee } : {}),
+      ...(assignee === ON_CALL ? { assigneeOnCall: true } : assignee ? { assigneeUserId: assignee } : {}),
       ...(checklist.length > 0 ? { checklist } : {}),
     });
     await tasks.handlers.createTask(ctx, input);
@@ -112,6 +112,9 @@ export async function finishTask(_previous: FormState, form: FormData): Promise<
   return state;
 }
 
+/** What the "For" box posts for "whoever is on the office rota today", in place of a person's id. */
+const ON_CALL = "on_call";
+
 /** The two that count weeks, which may name several days. */
 const COUNTED_IN_WEEKS = ["every_other_week", "every_n_weeks"];
 
@@ -164,7 +167,7 @@ export async function addTemplate(_previous: FormState, form: FormData): Promise
     const input = parsed(createTaskTemplate.input, {
       ...templateFields(form),
       ...(body !== undefined ? { body } : {}),
-      ...(assignee ? { assigneeUserId: assignee } : {}),
+      ...(assignee === ON_CALL ? { assigneeOnCall: true } : assignee ? { assigneeUserId: assignee } : {}),
       ...(checklist.length > 0 ? { checklist } : {}),
     });
     await taskRules.handlers.createTaskTemplate(ctx, input);
@@ -188,7 +191,9 @@ export async function changeTemplate(_previous: FormState, form: FormData): Prom
       id,
       ...templateFields(form),
       body: field(form, "body") ?? "",
-      assigneeUserId: field(form, "assigneeUserId") ?? null,
+      ...(field(form, "assigneeUserId") === ON_CALL
+        ? { assigneeOnCall: true, assigneeUserId: null }
+        : { assigneeOnCall: false, assigneeUserId: field(form, "assigneeUserId") ?? null }),
       checklist: lines(field(form, "checklist")),
     });
     await taskRules.handlers.updateTaskTemplate(ctx, input);

@@ -1,0 +1,1 @@
+ALTER TABLE "task_template" ADD COLUMN "assignee_on_call" boolean DEFAULT false NOT NULL;

@@ -3909,7 +3909,7 @@ export interface CreateJobHoldNudgeRuleInput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
 }
@@ -3923,7 +3923,7 @@ export interface CreateJobHoldNudgeRuleOutput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
   assigneeName: string | null;
@@ -5033,6 +5033,7 @@ export interface CreateTaskInput {
   entityType?: string;
   entityId?: string;
   assigneeUserId?: string;
+  assigneeOnCall?: boolean;
   queue?: string;
   dueAt?: string;
   checklist?: string[];
@@ -5047,6 +5048,7 @@ export interface CreateTaskTemplateInput {
   body?: string;
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
+  assigneeOnCall?: boolean;
   queue?: string;
   frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday?: number | null;
@@ -5068,6 +5070,7 @@ export interface CreateTaskTemplateOutput {
   priority: "low" | "normal" | "high" | "urgent";
   assigneeUserId: string | null;
   assigneeName: string | null;
+  assigneeOnCall: boolean;
   queue: string | null;
   frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday: number | null;
@@ -9915,7 +9918,7 @@ export interface GetJobHoldNudgeOutput {
   days: number | null;
   dueDays: number | null;
   repeatDays: number | null;
-  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId: string | null;
   assigneeName: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant";
@@ -16293,7 +16296,7 @@ export interface ListJobHoldNudgeRulesOutput {
     days?: number | null;
     dueDays?: number | null;
     repeatDays?: number | null;
-    assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+    assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
     assigneeUserId?: string | null;
     assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
     assigneeName: string | null;
@@ -18497,6 +18500,7 @@ export interface ListTaskTemplatesOutput {
     priority: "low" | "normal" | "high" | "urgent";
     assigneeUserId: string | null;
     assigneeName: string | null;
+    assigneeOnCall: boolean;
     queue: string | null;
     frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
     weekday: number | null;
@@ -25818,7 +25822,7 @@ export interface SetJobHoldNudgeInput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
 }
@@ -25827,7 +25831,7 @@ export interface SetJobHoldNudgeOutput {
   days: number | null;
   dueDays: number | null;
   repeatDays: number | null;
-  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId: string | null;
   assigneeName: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant";
@@ -29285,7 +29289,7 @@ export interface UpdateJobHoldNudgeRuleInput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
   clear?: Array<"days" | "dueDays" | "repeatDays" | "assign">;
@@ -29300,7 +29304,7 @@ export interface UpdateJobHoldNudgeRuleOutput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
   assigneeName: string | null;
@@ -30224,6 +30228,7 @@ export interface UpdateTaskTemplateInput {
   body?: string;
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
+  assigneeOnCall?: boolean;
   queue?: string;
   frequency?: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday?: number | null;
@@ -30246,6 +30251,7 @@ export interface UpdateTaskTemplateOutput {
   priority: "low" | "normal" | "high" | "urgent";
   assigneeUserId: string | null;
   assigneeName: string | null;
+  assigneeOnCall: boolean;
   queue: string | null;
   frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday: number | null;

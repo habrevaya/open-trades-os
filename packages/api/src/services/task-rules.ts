@@ -1,11 +1,12 @@
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, taskRules, holidays as holidayRules, time, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, taskRules, holidays as holidayRules, notices, time, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
 import { tellAssignee, writeChecklist } from "./tasks";
+import { deliveryToday as onCallDelivery, type OnCallDelivery } from "./office-on-call";
 import { raiseWithin } from "./staff-notices";
 import * as email from "./email";
 import { publicBaseUrl } from "./setup-tokens";
@@ -225,6 +226,8 @@ export interface TemplateInput {
   body?: string | undefined;
   priority?: taskRules.TaskPriority | undefined;
   assigneeUserId?: string | null | undefined;
+  /** Give each task to whoever is on the office rota the day it is raised, in place of a named person. */
+  assigneeOnCall?: boolean | undefined;
   queue?: string | undefined;
   frequency: taskRules.TaskFrequency;
   weekday?: number | null | undefined;
@@ -252,6 +255,8 @@ export interface TemplateView {
   priority: taskRules.TaskPriority;
   assigneeUserId: string | null;
   assigneeName: string | null;
+  /** True when each task goes to whoever is on the office rota the day it is raised; then there is no named person. */
+  assigneeOnCall: boolean;
   queue: string | null;
   frequency: taskRules.TaskFrequency;
   weekday: number | null;
@@ -285,6 +290,7 @@ function viewOf(
     priority: row.priority,
     assigneeUserId: row.assigneeUserId,
     assigneeName: nameOf(people, row.assigneeUserId),
+    assigneeOnCall: row.assigneeOnCall,
     queue: row.queue,
     frequency: row.frequency,
     weekday: row.weekday,
@@ -381,6 +387,9 @@ export async function createTemplate(ctx: ServiceContext, input: TemplateInput):
     const today = time.dateIn(new Date(), zone);
     const startsOn = input.startsOn ?? today;
     checkTemplate({ ...input, startsOn });
+    if (input.assigneeOnCall && input.assigneeUserId) {
+      throw new ConflictError("Choose one: a person, or whoever is on the office rota today. Not both.");
+    }
     const people = await directory(tx, ctx.actor.organizationId);
     mustBeActive(people, input.assigneeUserId, "The person it goes to");
 
@@ -390,6 +399,7 @@ export async function createTemplate(ctx: ServiceContext, input: TemplateInput):
       body: input.body?.trim() || null,
       priority: input.priority ?? "normal",
       assigneeUserId: input.assigneeUserId ?? null,
+      assigneeOnCall: input.assigneeOnCall ?? false,
       queue: input.queue?.trim() || null,
       ...scheduleColumns(input),
       dueMinutes: input.dueMinutes ?? 17 * 60,
@@ -447,6 +457,14 @@ export async function updateTemplate(
     checkTemplate(merged);
     const people = await directory(tx, ctx.actor.organizationId);
     if (input.assigneeUserId !== undefined) mustBeActive(people, input.assigneeUserId, "The person it goes to");
+    if (input.assigneeOnCall && input.assigneeUserId) {
+      throw new ConflictError("Choose one: a person, or whoever is on the office rota today. Not both.");
+    }
+    /** A person named takes the task off the rota, and the rota takes the person off. */
+    const assignment = input.assigneeOnCall === true ? { assigneeOnCall: true, assigneeUserId: null }
+      : input.assigneeOnCall === false ? { assigneeOnCall: false, ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}) }
+        : input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId, assigneeOnCall: false }
+          : {};
 
     const zone = await timezoneOf(tx, ctx.actor.organizationId);
     const today = time.dateIn(new Date(), zone);
@@ -468,7 +486,7 @@ export async function updateTemplate(
       title: merged.title.trim(),
       ...(input.body !== undefined ? { body: input.body.trim() || null } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
-      ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}),
+      ...assignment,
       ...(input.queue !== undefined ? { queue: input.queue.trim() || null } : {}),
       ...scheduleColumns(merged),
       dueMinutes: merged.dueMinutes ?? before.dueMinutes,
@@ -724,6 +742,7 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
       .where(eq(schema.taskTemplate.active, true));
     const raised: string[] = [];
     const holidayList = templates.some((t) => t.skipHolidays) ? await loadHolidays(tx, organizationId) : [];
+    let onCall: OnCallDelivery | null = null;
 
     for (const template of templates) {
       const day = taskRules.occurrenceToRaise(
@@ -749,12 +768,20 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
         continue;
       }
 
+      /**
+       * Given to whoever is on the office rota today: the rota is read once a
+       * pass, the first time a template asks for it. One person gets the task;
+       * two or more are each told of the one task, which stays unassigned;
+       * nobody leaves it unassigned, with a line saying so at the top.
+       */
+      if (template.assigneeOnCall && onCall === null) onCall = await onCallDelivery(tx, organizationId, now);
+      const delivery = template.assigneeOnCall ? onCall : null;
       const [made] = await tx.insert(schema.task).values({
         organizationId,
         title: template.title,
-        body: template.body,
+        body: delivery?.sentTo ? [delivery.sentTo, template.body].filter(Boolean).join("\n\n") : template.body,
         priority: template.priority,
-        assigneeUserId: template.assigneeUserId,
+        assigneeUserId: delivery ? delivery.assigneeUserId : template.assigneeUserId,
         queue: template.queue,
         dueAt: time.instantOfLocal(day, template.dueMinutes, zone),
         templateId: template.id,
@@ -764,8 +791,16 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
       if (made) {
         await writeChecklist(tx, organizationId, made.id, template.checklist);
         await tellAssignee(tx, made, `task_assigned:${made.id}:${made.assigneeUserId ?? ""}`);
+        for (const userId of delivery?.told ?? []) {
+          await raiseWithin(tx, {
+            organizationId, userId, kind: "task_assigned", key: `task_assigned:${made.id}:${userId}`,
+            title: `A task for your team: ${made.title}`,
+            body: made.dueAt ? `Due ${notices.localWhen(made.dueAt, zone)}.` : null,
+            about: { type: "task", id: made.id },
+          });
+        }
         await audit(tx, ctx, "task.raised_recurring", "task", made.id, null,
-          { templateId: template.id, occurrenceOn: day });
+          { templateId: template.id, occurrenceOn: day, ...(delivery ? { onCall: true, toldUserIds: delivery.told } : {}) });
         raised.push(made.id);
       }
       await tx.update(schema.taskTemplate)

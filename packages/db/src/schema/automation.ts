@@ -519,6 +519,11 @@ export const taskTemplate = pgTable("task_template", {
   body: text("body"),
   priority: taskPriority("priority").notNull().default("normal"),
   assigneeUserId: uuid("assignee_user_id").references(() => user.id, { onDelete: "set null" }),
+  /**
+   * Give each task to whoever is on the office rota the day it is raised, in
+   * place of a named person. Never set together with `assignee_user_id`.
+   */
+  assigneeOnCall: boolean("assignee_on_call").notNull().default(false),
   queue: text("queue"),
   frequency: taskFrequency("frequency").notNull(),
   /** For the frequencies that come round on a named day of the week: 0 is Sunday, 6 is Saturday. */

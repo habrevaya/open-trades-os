@@ -66166,7 +66166,7 @@
       "patch": {
         "operationId": "setJobHoldNudge",
         "summary": "Set how a job left on hold is nudged",
-        "description": "`days`: whole days from 1 to 90, counted in the company's own calendar, or null to turn nudging off (it is off until a company turns it on). When a hold has lasted that long the worker raises one task in the office queue about the job, naming the job, the reason it is held and how long; ending the hold closes it. `dueDays`: the task is due that many company days after it is raised (0 to 30), so the queue's late rules act on it; null leaves it without a due date. `repeatDays`: while the job is still on hold, raise the task again that many days after the last one (1 to 90), but only once the last one has been closed; null never raises it again. `assignTo` is `nobody` (the office queue), `placed_by` (whoever put the job on hold; a job has no owner of its own), `person` (with `assigneeUserId`, somebody who works here now), `role` (with `assigneeRole`: everybody who holds that role is told, and the one task stays in the office queue for whoever acts on it) or `branch_manager` (the same, for the managers of the job's own branch); a person who has left, a role nobody holds, a job in no branch or a branch with no manager is skipped and the task stays in the office queue, and says so. A field left out keeps what the company had. Without repeats, a task somebody closed by hand is not raised again for the same hold. Holds already past a new `days` are nudged on the next pass, and tasks already raised stay where they are.\n\nRequires a session holding: settings:write.",
+        "description": "`days`: whole days from 1 to 90, counted in the company's own calendar, or null to turn nudging off (it is off until a company turns it on). When a hold has lasted that long the worker raises one task in the office queue about the job, naming the job, the reason it is held and how long; ending the hold closes it. `dueDays`: the task is due that many company days after it is raised (0 to 30), so the queue's late rules act on it; null leaves it without a due date. `repeatDays`: while the job is still on hold, raise the task again that many days after the last one (1 to 90), but only once the last one has been closed; null never raises it again. `assignTo` is `nobody` (the office queue), `placed_by` (whoever put the job on hold; a job has no owner of its own), `person` (with `assigneeUserId`, somebody who works here now), `role` (with `assigneeRole`: everybody who holds that role is told, and the one task stays in the office queue for whoever acts on it), `branch_manager` (the same, for the managers of the job's own branch) or `on_call` (whoever is on the office rota, `/v1/office-on-call`, on the day the task is raised: one person on it is given the task, two or more are each told of the one task in the office queue, and nobody on it leaves the task in the office queue and says so; only people who can open tasks count); a person who has left, a role nobody holds, a job in no branch or a branch with no manager is skipped and the task stays in the office queue, and says so. A field left out keeps what the company had. Without repeats, a task somebody closed by hand is not raised again for the same hold. Holds already past a new `days` are nudged on the next pass, and tasks already raised stay where they are.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M10"
         ],
@@ -174684,7 +174684,8 @@
               "placed_by",
               "person",
               "role",
-              "branch_manager"
+              "branch_manager",
+              "on_call"
             ]
           },
           "assigneeUserId": {
@@ -174781,7 +174782,8 @@
               "placed_by",
               "person",
               "role",
-              "branch_manager"
+              "branch_manager",
+              "on_call"
             ]
           },
           "assigneeUserId": {
@@ -179856,6 +179858,9 @@
             "type": "string",
             "format": "uuid"
           },
+          "assigneeOnCall": {
+            "type": "boolean"
+          },
           "queue": {
             "type": "string",
             "maxLength": 60
@@ -180088,6 +180093,9 @@
             ],
             "format": "uuid"
           },
+          "assigneeOnCall": {
+            "type": "boolean"
+          },
           "queue": {
             "type": "string",
             "maxLength": 60
@@ -180224,6 +180232,9 @@
               "null"
             ]
           },
+          "assigneeOnCall": {
+            "type": "boolean"
+          },
           "queue": {
             "type": [
               "string",
@@ -180328,6 +180339,7 @@
           "priority",
           "assigneeUserId",
           "assigneeName",
+          "assigneeOnCall",
           "queue",
           "frequency",
           "weekday",
@@ -205662,7 +205674,8 @@
               "placed_by",
               "person",
               "role",
-              "branch_manager"
+              "branch_manager",
+              "on_call"
             ]
           },
           "assigneeUserId": {
@@ -239060,7 +239073,8 @@
                     "placed_by",
                     "person",
                     "role",
-                    "branch_manager"
+                    "branch_manager",
+                    "on_call"
                   ]
                 },
                 "assigneeUserId": {
@@ -250691,6 +250705,9 @@
                     "null"
                   ]
                 },
+                "assigneeOnCall": {
+                  "type": "boolean"
+                },
                 "queue": {
                   "type": [
                     "string",
@@ -250795,6 +250812,7 @@
                 "priority",
                 "assigneeUserId",
                 "assigneeName",
+                "assigneeOnCall",
                 "queue",
                 "frequency",
                 "weekday",
@@ -286645,7 +286663,8 @@
               "placed_by",
               "person",
               "role",
-              "branch_manager"
+              "branch_manager",
+              "on_call"
             ]
           },
           "assigneeUserId": {
@@ -286706,7 +286725,8 @@
               "placed_by",
               "person",
               "role",
-              "branch_manager"
+              "branch_manager",
+              "on_call"
             ]
           },
           "assigneeUserId": {
@@ -304714,7 +304734,8 @@
               "placed_by",
               "person",
               "role",
-              "branch_manager"
+              "branch_manager",
+              "on_call"
             ]
           },
           "assigneeUserId": {
@@ -304824,7 +304845,8 @@
               "placed_by",
               "person",
               "role",
-              "branch_manager"
+              "branch_manager",
+              "on_call"
             ]
           },
           "assigneeUserId": {
@@ -309249,6 +309271,9 @@
             ],
             "format": "uuid"
           },
+          "assigneeOnCall": {
+            "type": "boolean"
+          },
           "queue": {
             "type": "string",
             "maxLength": 60
@@ -309384,6 +309409,9 @@
               "null"
             ]
           },
+          "assigneeOnCall": {
+            "type": "boolean"
+          },
           "queue": {
             "type": [
               "string",
@@ -309488,6 +309516,7 @@
           "priority",
           "assigneeUserId",
           "assigneeName",
+          "assigneeOnCall",
           "queue",
           "frequency",
           "weekday",

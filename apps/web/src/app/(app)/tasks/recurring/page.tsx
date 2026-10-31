@@ -50,7 +50,7 @@ export default async function RecurringTasksPage() {
                 {t.checklist.length > 0 ? <p className="text-xs text-ink-500">{t.checklist.length} checklist items</p> : null}
               </Td>
               <Td className="text-ink-700">{t.schedule}, due {minutes(t.dueMinutes)}</Td>
-              <Td className="text-ink-700">{t.assigneeName ?? t.queue ?? "The queue"}</Td>
+              <Td className="text-ink-700">{t.assigneeOnCall ? "Whoever is on the office rota today" : t.assigneeName ?? t.queue ?? "The queue"}</Td>
               <Td className="text-ink-700">{t.nextOn ? formatDay(t.nextOn, tz) : <Chip tone="neutral">Paused</Chip>}</Td>
               <Td>
                 {writes ? (

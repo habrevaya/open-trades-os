@@ -277,7 +277,8 @@ killed mid pass, restarted, or running twice raises the day's task once. A
 worker that was down raises the LATEST occurrence, not every day it missed,
 because a queue full of last week's van checks is one people stop reading.
 `GET /v1/task-templates`, `POST /v1/task-templates` and
-`PATCH /v1/task-templates/{id}`.
+`PATCH /v1/task-templates/{id}`. A template's "For" can be a named person, nobody (the
+queue) or whoever is on the office rota that day (`assigneeOnCall`), and the list says which.
 
 ### Escalation
 
@@ -522,6 +523,33 @@ have no technician record. `GET /v1/office-on-call` with `settings:read`;
 manager does not hold by default, deliberately: who hears about a failed payment is a
 company setting like what new people are told, and the owner gives it to an office
 manager by name where they want them to keep it.
+
+A TASK FOR WHOEVER IS ON THE OFFICE ROTA TODAY. The same rota can be the answer to "who is this
+task for". The "For" box on `/tasks` ("Add a task") and on a recurring task's form
+(`/tasks/recurring`, adding and changing) offers "Whoever is on the office rota today" beside the
+names of people, and so do the hold nudge's "Who gets the task" boxes on Settings (the company's
+and each rule's, M10). In the API it is `assigneeOnCall: true` on `POST /v1/tasks`,
+`POST /v1/task-templates` and `PATCH /v1/task-templates/{id}`, and `assignTo: "on_call"` on
+`PATCH /v1/job-hold-nudge` and the hold nudge rules; sent beside a named person it is refused
+in words ("Choose one: a person, or whoever is on the office rota today. Not both."), and
+naming a person on a template, or none, takes the rota choice off. It is read on the day the
+task is raised, in the company's calendar, from the turns above, whether or not a kind of
+notice is sent to the rota: choosing the rota for a task is the choice. Only a person who works
+here now and holds `task:read` counts, because a task they could not open would be no use to them
+(a dispatcher on the rota is not counted, as the dispatcher preset does not open tasks). One
+person: the task is assigned to them and they are told as for any task given to them. Two or more:
+one task, assigned to nobody and kept in the office queue, and each of them is told, as for a task
+given to a role. Nobody, or nobody who can open tasks: the task is raised in the office queue as if
+for nobody, which is where every unassigned task goes, and the first lines of its detail say that it
+was to go to whoever is on the rota and why it did not. That is the same fall back the rota's
+notices make (everybody who handles it is told instead): a task nobody is assigned is already seen
+by everybody who opens the queue. A recurring task reads the rota each time the worker raises one,
+so Monday's goes to Monday's person; a worker that was down and raises the latest occurrence late
+reads the rota for the day it raises it, not the day the task was due. The day's rota is read once
+a pass. A task already raised is never moved when the rota changes later, and there is no
+"reassign to whoever is on the rota" on an existing task: reassign it by name. A change is audited
+as any other task or template change, and the audit row for a recurring task or a task typed in
+says it went by the rota and whom it told.
 
 BY EMAIL, only for a licence or skill running out, to the person's address on
 the company's own email, through the company's email outbox, as one more delivery
