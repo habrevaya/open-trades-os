@@ -198,6 +198,66 @@ network that was down has to be told when it comes back, and an error that
 quietly removed it would turn a retryable outage into a status the client never
 hears.
 
+### A client's own codes become the job
+
+A facilities client writes its own codes on every order ("PLB-07 Leaking tap").
+Two clients' "PLB-07" are two different things, so the list of what each code
+means here belongs to the client, a customer record.
+
+**Who the order is for.** An order carries its client (`customerId` on
+`POST /v1/external-work-orders`) and the client's codes as they sent them
+(`codes`: each a code, how many when they say, and their words). A resend
+replaces the codes, like the payload, and never maps them. When the sync does
+not say who the client is, the office does, on the order's page or with
+`PUT /v1/external-work-orders/{id}/client` (`contract:write`). Once a job is on
+the order its client stays: the job was made for that customer.
+
+**The client's list.** `Contracts > Work from other systems > Clients' codes`
+opens one client's list (`/contracts/external/codes/{customerId}`;
+`GET` and `PUT /v1/customers/{customerId}/work-codes`, `contract:read` and
+`contract:write`). Each row is their code, what it means to them, and a kind of
+work (a job type), a price book item and how many, or both. The whole list is
+saved as one form, every row plus three empty ones, and a row whose code is
+cleared comes off. A code twice (matched without capitals or spaces at the
+ends), a row mapped to nothing, a quantity that is not a number above nothing,
+and a job type or item that is not the company's or not in use are refused in
+words. Saving is audited with the list before and after. A row whose item stops
+being sold, or whose job type is switched off, stays on the list marked, and
+adds nothing until it is changed.
+
+**The proposal.** The order's page (`/contracts/external/{id}`, the order's
+number on the list opens it; `GET /v1/external-work-orders/{id}/proposal`,
+`contract:read`) reads the order's codes against the client's list and says, for
+every code, what it becomes. The kind of work is proposed only when every code
+that names one names the same one; when they disagree the page says which code
+said what and leaves the choice to the office. Each mapped item is a line, its
+quantity times the order's, shown with our price and the price it is charged
+at: the client's card when it prices it (matched on our item first, then on
+their code), else our price book, marked "Not on their card" when the client has
+a card that does not price it. A code nobody mapped is named in a sentence ("HVAC-3
+(No heat) is not on Harbor Retail's list of codes. Nothing is added for it")
+rather than dropped.
+
+**Confirmed, never silently.** Nothing is made until somebody presses **Accept
+and make the job** (`POST /v1/external-work-orders/{id}/accept-as-proposed`,
+`contract:write` and `job:write`), choosing one of the client's addresses (its
+own and its contracts' sites) and the kind of work (the proposal's, another or
+none). It sends the proposal's key, and a list or codes changed since the page
+was drawn is refused with a request to look again. In one transaction it makes
+the job for the client, a line per mapped item at our price carrying the
+client's code, the client's codes and every unmapped one written in the job's
+notes, and accepts the order with the job on it, owing the client a push. The
+job line records our price, as every line does; when the job is billed the
+client's card prices it again, by our item or by the client's code, which is
+what the code on the line is for. A second press, or an order that already has
+a job or cannot be accepted from where it stands, is refused with nothing
+written; the same idempotency key answers with the first job. Accepting by hand,
+with or without a job id, is unchanged.
+
+The order's work order number goes in the job's summary and notes, not its
+purchase order number: whether a client's order number is also their PO is the
+client's to say, and the office sets it on the job when it is.
+
 ### What is not built
 
 **No adapter for any of these networks.** Not Corrigo, not ServiceChannel, not
@@ -207,15 +267,16 @@ finished and has never run. Everything above is reachable through the API, so
 an integration or a middleware can drive it today, and the day a sandbox exists
 the adapter has somewhere to write to.
 
-**No automatic job creation on accept.** Accepting takes a job id if the caller
-has one. Deciding what job an order becomes needs the client's trade, site and
-scope mapped to ours, and guessing it would put the wrong job type on the
-board.
-
-**No automatic pricing from the order.** A work order that arrives here
-carries the client's own codes in its payload; mapping them to lines on the
-job is not done, so the job's work is recorded the ordinary way and priced by
-the client's card when it is billed (see Rate cards below).
+**No job is made without somebody confirming it.** The client's codes propose
+the job's type and lines, and the office presses the button; an order is never
+turned into a job on arrival. The address is chosen by the office from the
+client's own addresses and contract sites: nothing reads a site from the order,
+because a network's site ids are its own and nothing here maps them. Codes are
+read only from `codes` on the order, never from inside the payload, whose shape
+is each network's own. The list holds two hundred codes a client, the page's
+item picker offers the newest two hundred items in the price book (plus every
+item already on the list), and a code maps to one item: a code that is two
+items is two codes, or a line added by hand.
 
 ## Rate cards: whose price governs
 

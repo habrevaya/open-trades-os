@@ -97,7 +97,7 @@ const ORDER = [
   /** The do not mail list points at a customer and at the people who put names on it and took them off. */
   "do_not_mail",
   "delivery",
-  "obligation", "authorization", "external_work_order",
+  "obligation", "authorization", "external_work_order", "client_work_code",
   /**
    * A customer's request to move or cancel a visit points at the visit, the
    * job, the customer and the online booking rules it was checked against,

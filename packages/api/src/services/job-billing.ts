@@ -328,6 +328,8 @@ export async function planIn(
       kind: facts.kind,
       name: row.name,
       priceBookItemId: facts.itemId,
+      /** The client's own code, when the line came from their work order: their card may list it rather than our item. */
+      externalCode: row.clientCode,
       quantity: row.quantity,
       ourPrice: usd(row.unitPrice),
       ourPriceIsBook: row.priceBookItemVersionId !== null,

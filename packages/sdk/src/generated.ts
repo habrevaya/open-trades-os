@@ -29,6 +29,42 @@ export interface AcceptEstimateDraftOutput {
   createdAt: string;
 }
 
+export interface AcceptExternalWorkOrderAsProposedInput {
+  key: string;
+  propertyId: string;
+  jobTypeId: string | null;
+  summary?: string;
+}
+
+export interface AcceptExternalWorkOrderAsProposedOutput {
+  order: {
+    id: string;
+    sourceSystem: string;
+    sourceLabel: string;
+    externalId: string;
+    externalNumber: string | null;
+    state: "offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed";
+    externalStatus: string | null;
+    externalIsSystemOfRecord: boolean;
+    acceptanceIsIrreversible: boolean;
+    acceptsViaInvoiceOnly: boolean;
+    jobId: string | null;
+    customerId: string | null;
+    clientName: string | null;
+    clientCodes: Array<{
+      code: string;
+      quantity: string | null;
+      description: string | null;
+    }>;
+    payload: Record<string, unknown>;
+    lastSyncedAt: string | null;
+    pendingPush: boolean;
+    lastPushError: string | null;
+    weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
+  };
+  jobId: string;
+}
+
 export interface AcceptExternalWorkOrderViaInvoiceInput {
   invoiceId: string;
 }
@@ -45,6 +81,13 @@ export interface AcceptExternalWorkOrderViaInvoiceOutput {
   acceptanceIsIrreversible: boolean;
   acceptsViaInvoiceOnly: boolean;
   jobId: string | null;
+  customerId: string | null;
+  clientName: string | null;
+  clientCodes: Array<{
+    code: string;
+    quantity: string | null;
+    description: string | null;
+  }>;
   payload: Record<string, unknown>;
   lastSyncedAt: string | null;
   pendingPush: boolean;
@@ -1044,6 +1087,13 @@ export interface ApplyExternalWorkOrderRemoteOutput {
     acceptanceIsIrreversible: boolean;
     acceptsViaInvoiceOnly: boolean;
     jobId: string | null;
+    customerId: string | null;
+    clientName: string | null;
+    clientCodes: Array<{
+      code: string;
+      quantity: string | null;
+      description: string | null;
+    }>;
     payload: Record<string, unknown>;
     lastSyncedAt: string | null;
     pendingPush: boolean;
@@ -9051,11 +9101,56 @@ export interface GetExternalWorkOrderOutput {
   acceptanceIsIrreversible: boolean;
   acceptsViaInvoiceOnly: boolean;
   jobId: string | null;
+  customerId: string | null;
+  clientName: string | null;
+  clientCodes: Array<{
+    code: string;
+    quantity: string | null;
+    description: string | null;
+  }>;
   payload: Record<string, unknown>;
   lastSyncedAt: string | null;
   pendingPush: boolean;
   lastPushError: string | null;
   weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
+}
+
+export interface GetExternalWorkOrderProposalOutput {
+  orderId: string;
+  customerId: string | null;
+  clientName: string | null;
+  refusal: string | null;
+  jobTypeId: string | null;
+  jobTypeName: string | null;
+  jobTypeNote: string | null;
+  codes: Array<{
+    code: string;
+    description: string | null;
+    quantity: string | null;
+    mappingId: string | null;
+    jobTypeName: string | null;
+    itemName: string | null;
+    words: string;
+    unmapped: boolean;
+  }>;
+  lines: Array<{
+    code: string;
+    priceBookItemId: string;
+    name: string;
+    quantity: string;
+    ourPrice: string;
+    unitPrice: string;
+    pricedBy: string;
+    note: string | null;
+    outOfScope: boolean;
+  }>;
+  unmapped: string[];
+  places: Array<{
+    propertyId: string;
+    label: string;
+    siteNumber: string | null;
+  }>;
+  key: string;
 }
 
 export interface GetFieldSnapshotOutput {
@@ -14739,6 +14834,25 @@ export interface ListClaimsOutput {
   }>;
 }
 
+export interface ListClientWorkCodesOutput {
+  customerId: string;
+  clientName: string;
+  data: Array<{
+    id: string;
+    code: string;
+    description: string | null;
+    jobTypeId: string | null;
+    jobTypeName: string | null;
+    jobTypeActive: boolean;
+    priceBookItemId: string | null;
+    itemCode: string | null;
+    itemName: string | null;
+    itemSold: boolean;
+    quantity: string;
+    updatedAt: string;
+  }>;
+}
+
 export interface ListCollectionRemindersOutput {
   drafts: Array<{
     id: string;
@@ -15912,6 +16026,13 @@ export interface ListExternalWorkOrdersOutput {
     acceptanceIsIrreversible: boolean;
     acceptsViaInvoiceOnly: boolean;
     jobId: string | null;
+    customerId: string | null;
+    clientName: string | null;
+    clientCodes: Array<{
+      code: string;
+      quantity: string | null;
+      description: string | null;
+    }>;
     payload: Record<string, unknown>;
     lastSyncedAt: string | null;
     pendingPush: boolean;
@@ -17056,6 +17177,13 @@ export interface ListPendingExternalPushesOutput {
     acceptanceIsIrreversible: boolean;
     acceptsViaInvoiceOnly: boolean;
     jobId: string | null;
+    customerId: string | null;
+    clientName: string | null;
+    clientCodes: Array<{
+      code: string;
+      quantity: string | null;
+      description: string | null;
+    }>;
     payload: Record<string, unknown>;
     lastSyncedAt: string | null;
     pendingPush: boolean;
@@ -19595,6 +19723,13 @@ export interface MarkExternalWorkOrderPushFailedOutput {
   acceptanceIsIrreversible: boolean;
   acceptsViaInvoiceOnly: boolean;
   jobId: string | null;
+  customerId: string | null;
+  clientName: string | null;
+  clientCodes: Array<{
+    code: string;
+    quantity: string | null;
+    description: string | null;
+  }>;
   payload: Record<string, unknown>;
   lastSyncedAt: string | null;
   pendingPush: boolean;
@@ -19616,6 +19751,13 @@ export interface MarkExternalWorkOrderPushedOutput {
   acceptanceIsIrreversible: boolean;
   acceptsViaInvoiceOnly: boolean;
   jobId: string | null;
+  customerId: string | null;
+  clientName: string | null;
+  clientCodes: Array<{
+    code: string;
+    quantity: string | null;
+    description: string | null;
+  }>;
   payload: Record<string, unknown>;
   lastSyncedAt: string | null;
   pendingPush: boolean;
@@ -19830,6 +19972,13 @@ export interface MoveExternalWorkOrderOutput {
   acceptanceIsIrreversible: boolean;
   acceptsViaInvoiceOnly: boolean;
   jobId: string | null;
+  customerId: string | null;
+  clientName: string | null;
+  clientCodes: Array<{
+    code: string;
+    quantity: string | null;
+    description: string | null;
+  }>;
   payload: Record<string, unknown>;
   lastSyncedAt: string | null;
   pendingPush: boolean;
@@ -21242,6 +21391,12 @@ export interface ReceiveExternalWorkOrderInput {
   payload?: Record<string, unknown>;
   acceptanceIsIrreversible?: boolean;
   acceptsViaInvoiceOnly?: boolean;
+  customerId?: string | null;
+  codes?: Array<{
+    code: string;
+    quantity?: string | null;
+    description?: string | null;
+  }>;
 }
 
 export interface ReceiveExternalWorkOrderOutput {
@@ -21256,6 +21411,13 @@ export interface ReceiveExternalWorkOrderOutput {
   acceptanceIsIrreversible: boolean;
   acceptsViaInvoiceOnly: boolean;
   jobId: string | null;
+  customerId: string | null;
+  clientName: string | null;
+  clientCodes: Array<{
+    code: string;
+    quantity: string | null;
+    description: string | null;
+  }>;
   payload: Record<string, unknown>;
   lastSyncedAt: string | null;
   pendingPush: boolean;
@@ -25357,6 +25519,35 @@ export interface SetCertificationStatusOutput {
   statusReason: string | null;
 }
 
+export interface SetClientWorkCodesInput {
+  codes: Array<{
+    code: string;
+    description?: string | null;
+    jobTypeId?: string | null;
+    priceBookItemId?: string | null;
+    quantity?: string;
+  }>;
+}
+
+export interface SetClientWorkCodesOutput {
+  customerId: string;
+  clientName: string;
+  data: Array<{
+    id: string;
+    code: string;
+    description: string | null;
+    jobTypeId: string | null;
+    jobTypeName: string | null;
+    jobTypeActive: boolean;
+    priceBookItemId: string | null;
+    itemCode: string | null;
+    itemName: string | null;
+    itemSold: boolean;
+    quantity: string;
+    updatedAt: string;
+  }>;
+}
+
 export interface SetCommissionItemRuleInput {
   rule: "plan_only" | "item_wins" | "higher" | "item_adds";
 }
@@ -25681,6 +25872,36 @@ export interface SetEstimateCustomFieldsInput {
 export interface SetEstimateCustomFieldsOutput {
   id: string;
   customFields: Record<string, unknown>;
+}
+
+export interface SetExternalWorkOrderClientInput {
+  customerId: string;
+}
+
+export interface SetExternalWorkOrderClientOutput {
+  id: string;
+  sourceSystem: string;
+  sourceLabel: string;
+  externalId: string;
+  externalNumber: string | null;
+  state: "offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed";
+  externalStatus: string | null;
+  externalIsSystemOfRecord: boolean;
+  acceptanceIsIrreversible: boolean;
+  acceptsViaInvoiceOnly: boolean;
+  jobId: string | null;
+  customerId: string | null;
+  clientName: string | null;
+  clientCodes: Array<{
+    code: string;
+    quantity: string | null;
+    description: string | null;
+  }>;
+  payload: Record<string, unknown>;
+  lastSyncedAt: string | null;
+  pendingPush: boolean;
+  lastPushError: string | null;
+  weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
 }
 
 export interface SetInviteLifetimeInput {
@@ -31561,6 +31782,10 @@ export interface AcceptEstimateDraftParams {
   id: string;
 }
 
+export interface AcceptExternalWorkOrderAsProposedParams {
+  id: string;
+}
+
 export interface AcceptExternalWorkOrderViaInvoiceParams {
   id: string;
 }
@@ -32411,6 +32636,10 @@ export interface GetExternalWorkOrderInput {
   id: string;
 }
 
+export interface GetExternalWorkOrderProposalInput {
+  id: string;
+}
+
 export interface GetFieldSnapshotInput {
   deviceId: string;
   from: string;
@@ -33106,6 +33335,10 @@ export interface ListChannelsInput {
 export interface ListClaimsInput {
   status?: Array<"submitted" | "approved" | "paid" | "short_paid" | "denied">;
   jobId?: string;
+}
+
+export interface ListClientWorkCodesInput {
+  customerId: string;
 }
 
 export interface ListCollectionRemindersInput {
@@ -34815,6 +35048,10 @@ export interface SetCertificationStatusParams {
   id: string;
 }
 
+export interface SetClientWorkCodesParams {
+  customerId: string;
+}
+
 export interface SetContactPortalAccessParams {
   id: string;
 }
@@ -34860,6 +35097,10 @@ export interface SetEquipmentCustomFieldsParams {
 }
 
 export interface SetEstimateCustomFieldsParams {
+  id: string;
+}
+
+export interface SetExternalWorkOrderClientParams {
   id: string;
 }
 
@@ -35469,6 +35710,7 @@ export interface WriteOffInvoiceParams {
 
 export interface OperationTypes {
   acceptEstimateDraft: { input: AcceptEstimateDraftParams & AcceptEstimateDraftInput; output: AcceptEstimateDraftOutput };
+  acceptExternalWorkOrderAsProposed: { input: AcceptExternalWorkOrderAsProposedParams & AcceptExternalWorkOrderAsProposedInput; output: AcceptExternalWorkOrderAsProposedOutput };
   acceptExternalWorkOrderViaInvoice: { input: AcceptExternalWorkOrderViaInvoiceParams & AcceptExternalWorkOrderViaInvoiceInput; output: AcceptExternalWorkOrderViaInvoiceOutput };
   acceptLeadOffer: { input: AcceptLeadOfferParams & AcceptLeadOfferInput; output: AcceptLeadOfferOutput };
   addChangeOrderLine: { input: AddChangeOrderLineParams & AddChangeOrderLineInput; output: AddChangeOrderLineOutput };
@@ -35797,6 +36039,7 @@ export interface OperationTypes {
   getExportManifest: { input: GetExportManifestInput; output: GetExportManifestOutput };
   getExportPage: { input: GetExportPageInput; output: GetExportPageOutput };
   getExternalWorkOrder: { input: GetExternalWorkOrderInput; output: GetExternalWorkOrderOutput };
+  getExternalWorkOrderProposal: { input: GetExternalWorkOrderProposalInput; output: GetExternalWorkOrderProposalOutput };
   getFieldSnapshot: { input: GetFieldSnapshotInput; output: GetFieldSnapshotOutput };
   getFinancingReport: { input: GetFinancingReportInput; output: GetFinancingReportOutput };
   getFleetReport: { input: GetFleetReportInput; output: GetFleetReportOutput };
@@ -35987,6 +36230,7 @@ export interface OperationTypes {
   listChannelOptions: { input: ListChannelOptionsInput; output: ListChannelOptionsOutput };
   listChannels: { input: ListChannelsInput; output: ListChannelsOutput };
   listClaims: { input: ListClaimsInput; output: ListClaimsOutput };
+  listClientWorkCodes: { input: ListClientWorkCodesInput; output: ListClientWorkCodesOutput };
   listCollectionReminders: { input: ListCollectionRemindersInput; output: ListCollectionRemindersOutput };
   listCommissionBases: { input: ListCommissionBasesInput; output: ListCommissionBasesOutput };
   listCommissionEarnings: { input: ListCommissionEarningsInput; output: ListCommissionEarningsOutput };
@@ -36483,6 +36727,7 @@ export interface OperationTypes {
   setCertificationRenewalDays: { input: SetCertificationRenewalDaysParams & SetCertificationRenewalDaysInput; output: SetCertificationRenewalDaysOutput };
   setCertificationRenewalDaysMany: { input: SetCertificationRenewalDaysManyInput; output: SetCertificationRenewalDaysManyOutput };
   setCertificationStatus: { input: SetCertificationStatusParams & SetCertificationStatusInput; output: SetCertificationStatusOutput };
+  setClientWorkCodes: { input: SetClientWorkCodesParams & SetClientWorkCodesInput; output: SetClientWorkCodesOutput };
   setCommissionItemRule: { input: SetCommissionItemRuleInput; output: SetCommissionItemRuleOutput };
   setCommissionOnPayment: { input: SetCommissionOnPaymentInput; output: SetCommissionOnPaymentOutput };
   setCommissionStandingShare: { input: SetCommissionStandingShareInput; output: SetCommissionStandingShareOutput };
@@ -36501,6 +36746,7 @@ export interface OperationTypes {
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
+  setExternalWorkOrderClient: { input: SetExternalWorkOrderClientParams & SetExternalWorkOrderClientInput; output: SetExternalWorkOrderClientOutput };
   setInviteLifetime: { input: SetInviteLifetimeInput; output: SetInviteLifetimeOutput };
   setInvoiceBillTo: { input: SetInvoiceBillToParams & SetInvoiceBillToInput; output: SetInvoiceBillToOutput };
   setInvoiceCustomFields: { input: SetInvoiceCustomFieldsParams & SetInvoiceCustomFieldsInput; output: SetInvoiceCustomFieldsOutput };
@@ -36723,6 +36969,7 @@ export type OperationId = keyof OperationTypes;
 /** How each operation is reached. Read by the client, never by a caller. */
 export const OPERATIONS = {
   acceptEstimateDraft: { method: "POST", path: "/v1/ai/estimate-drafts/{id}/accept", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
+  acceptExternalWorkOrderAsProposed: { method: "POST", path: "/v1/external-work-orders/{id}/accept-as-proposed", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write","job:write"] },
   acceptExternalWorkOrderViaInvoice: { method: "POST", path: "/v1/external-work-orders/{id}/accept-via-invoice", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   acceptLeadOffer: { method: "POST", path: "/v1/lead-offers/{id}/accept", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write","customer:write"] },
   addChangeOrderLine: { method: "POST", path: "/v1/project-change-orders/{changeOrderId}/lines", pathParams: ["changeOrderId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
@@ -37051,6 +37298,7 @@ export const OPERATIONS = {
   getExportManifest: { method: "GET", path: "/v1/export", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getExportPage: { method: "GET", path: "/v1/export/{table}", pathParams: ["table"], queryParams: ["after","limit"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
   getExternalWorkOrder: { method: "GET", path: "/v1/external-work-orders/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
+  getExternalWorkOrderProposal: { method: "GET", path: "/v1/external-work-orders/{id}/proposal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   getFieldSnapshot: { method: "GET", path: "/v1/field/snapshot", pathParams: [], queryParams: ["deviceId","from","days","sinceRevision"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["field:sync"] },
   getFinancingReport: { method: "GET", path: "/v1/financing/report", pathParams: [], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
   getFleetReport: { method: "GET", path: "/v1/fleet-report", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
@@ -37241,6 +37489,7 @@ export const OPERATIONS = {
   listChannelOptions: { method: "GET", path: "/v1/marketing/channel-options", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listChannels: { method: "GET", path: "/v1/marketing/channels", pathParams: [], queryParams: ["include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listClaims: { method: "GET", path: "/v1/claims", pathParams: [], queryParams: ["status","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  listClientWorkCodes: { method: "GET", path: "/v1/customers/{customerId}/work-codes", pathParams: ["customerId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:read"] },
   listCollectionReminders: { method: "GET", path: "/v1/ai/collections/reminders", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listCommissionBases: { method: "GET", path: "/v1/commissions/bases", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
   listCommissionEarnings: { method: "GET", path: "/v1/commissions", pathParams: [], queryParams: ["technicianId","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:read"] },
@@ -37737,6 +37986,7 @@ export const OPERATIONS = {
   setCertificationRenewalDays: { method: "POST", path: "/v1/certifications/{id}/renewal-days", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCertificationRenewalDaysMany: { method: "POST", path: "/v1/certification-renewals/days", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setCertificationStatus: { method: "POST", path: "/v1/certifications/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  setClientWorkCodes: { method: "PUT", path: "/v1/customers/{customerId}/work-codes", pathParams: ["customerId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   setCommissionItemRule: { method: "POST", path: "/v1/commissions/item-rule", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setCommissionOnPayment: { method: "POST", path: "/v1/commissions/settle-on-payment", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   setCommissionStandingShare: { method: "POST", path: "/v1/commissions/standing-shares", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
@@ -37755,6 +38005,7 @@ export const OPERATIONS = {
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
+  setExternalWorkOrderClient: { method: "PUT", path: "/v1/external-work-orders/{id}/client", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   setInviteLifetime: { method: "PATCH", path: "/v1/invite-lifetime", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setInvoiceBillTo: { method: "PUT", path: "/v1/invoices/{id}/bill-to", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   setInvoiceCustomFields: { method: "PUT", path: "/v1/invoices/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read","invoice:write"] },
@@ -38008,6 +38259,15 @@ export abstract class GeneratedOperations {
    */
   acceptEstimateDraft(input: AcceptEstimateDraftParams & AcceptEstimateDraftInput, options?: CallOptions): Promise<AcceptEstimateDraftOutput> {
     return this.call("acceptEstimateDraft", input, options);
+  }
+
+  /**
+   * Accept an order and make its job from the proposal.
+   *
+   * POST /v1/external-work-orders/{id}/accept-as-proposed. Needs contract:write, job:write.
+   */
+  acceptExternalWorkOrderAsProposed(input: AcceptExternalWorkOrderAsProposedParams & AcceptExternalWorkOrderAsProposedInput, options?: CallOptions): Promise<AcceptExternalWorkOrderAsProposedOutput> {
+    return this.call("acceptExternalWorkOrderAsProposed", input, options);
   }
 
   /**
@@ -40963,6 +41223,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The job an order's codes propose, for the office to confirm.
+   *
+   * GET /v1/external-work-orders/{id}/proposal. Needs contract:read.
+   */
+  getExternalWorkOrderProposal(input: GetExternalWorkOrderProposalInput, options?: CallOptions): Promise<GetExternalWorkOrderProposalOutput> {
+    return this.call("getExternalWorkOrderProposal", input, options);
+  }
+
+  /**
    * The day, for offline use.
    *
    * GET /v1/field/snapshot. Needs field:sync.
@@ -42670,6 +42939,15 @@ export abstract class GeneratedOperations {
    */
   listClaims(input: ListClaimsInput = {} as ListClaimsInput, options?: CallOptions): Promise<ListClaimsOutput> {
     return this.call("listClaims", input, options);
+  }
+
+  /**
+   * A client's own work order codes, and what each means here.
+   *
+   * GET /v1/customers/{customerId}/work-codes. Needs contract:read.
+   */
+  listClientWorkCodes(input: ListClientWorkCodesInput, options?: CallOptions): Promise<ListClientWorkCodesOutput> {
+    return this.call("listClientWorkCodes", input, options);
   }
 
   /**
@@ -47137,6 +47415,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Replace a client's list of codes.
+   *
+   * PUT /v1/customers/{customerId}/work-codes. Needs contract:write.
+   */
+  setClientWorkCodes(input: SetClientWorkCodesParams & SetClientWorkCodesInput, options?: CallOptions): Promise<SetClientWorkCodesOutput> {
+    return this.call("setClientWorkCodes", input, options);
+  }
+
+  /**
    * Choose how an item's own commission rate and the plan combine.
    *
    * POST /v1/commissions/item-rule. Needs commission:configure.
@@ -47296,6 +47583,15 @@ export abstract class GeneratedOperations {
    */
   setEstimateCustomFields(input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput, options?: CallOptions): Promise<SetEstimateCustomFieldsOutput> {
     return this.call("setEstimateCustomFields", input, options);
+  }
+
+  /**
+   * Say which client an order is for.
+   *
+   * PUT /v1/external-work-orders/{id}/client. Needs contract:write.
+   */
+  setExternalWorkOrderClient(input: SetExternalWorkOrderClientParams & SetExternalWorkOrderClientInput, options?: CallOptions): Promise<SetExternalWorkOrderClientOutput> {
+    return this.call("setExternalWorkOrderClient", input, options);
   }
 
   /**

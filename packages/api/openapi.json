@@ -43122,6 +43122,257 @@
         ]
       }
     },
+    "/v1/customers/{customerId}/work-codes": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "listClientWorkCodes",
+        "summary": "A client's own work order codes, and what each means here",
+        "description": "One list per client, because two clients' PLB-07 are two different things. Each code maps to a kind of work (a job type), a price book item and how many, or both. A code whose item is no longer sold or whose job type is switched off is still listed, marked, and adds nothing to a proposal.\n\nRequires a session holding: contract:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A client's own work order codes, and what each means here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListClientWorkCodesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read"
+        ]
+      },
+      "put": {
+        "operationId": "setClientWorkCodes",
+        "summary": "Replace a client's list of codes",
+        "description": "The whole list in one call: a row left out is taken off. Codes are matched without capitals or spaces at the ends. A code twice, a row mapped to nothing, a quantity that is not a number more than nothing, and a job type or item that is not this company's or not in use are each refused in words before anything is written. Audited with the list before and after.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetClientWorkCodesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Replace a client's list of codes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetClientWorkCodesOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
     "/v1/customers/{id}": {
       "description": "Served at this path: GET, PATCH. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -56393,6 +56644,145 @@
         ]
       }
     },
+    "/v1/external-work-orders/{id}/accept-as-proposed": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "acceptExternalWorkOrderAsProposed",
+        "summary": "Accept an order and make its job from the proposal",
+        "description": "Never silently: it carries the proposal's `key`, and a list or codes changed since the proposal was shown is refused, asking for another look. In one transaction it makes the job for the client at one of their addresses with the kind of work the office confirmed (the proposal's, another, or none), a line per mapped item at our price with the client's code on it so their card prices it by that code when it is billed, the codes nothing came of in the job's notes, and accepts the order with the job on it, owing the client a push. Refused, with nothing written, on an order that already has a job or that accepting is not allowed from. Accepting by hand (`/move`) is unchanged. A retry with the same idempotency key answers with the first job.\n\nRequires a session holding: contract:write, job:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptExternalWorkOrderAsProposedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Accept an order and make its job from the proposal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptExternalWorkOrderAsProposedOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write",
+          "job:write"
+        ]
+      }
+    },
     "/v1/external-work-orders/{id}/accept-via-invoice": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -56442,6 +56832,144 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AcceptExternalWorkOrderViaInvoiceOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}/client": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setExternalWorkOrderClient",
+        "summary": "Say which client an order is for",
+        "description": "The codes on an order mean nothing until somebody knows whose they are. Refused once a job is on the order, because the job was made for that customer.\n\nRequires a session holding: contract:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetExternalWorkOrderClientInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Say which client an order is for",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetExternalWorkOrderClientOutput"
                 }
               }
             }
@@ -56666,6 +57194,124 @@
         "x-authorization": "session",
         "x-permissions": [
           "contract:write"
+        ]
+      }
+    },
+    "/v1/external-work-orders/{id}/proposal": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getExternalWorkOrderProposal",
+        "summary": "The job an order's codes propose, for the office to confirm",
+        "description": "A read. The client's codes on the order against the client's list: the kind of work when every code that names one names the same one (otherwise none, with a sentence saying which codes said what), a line per mapped item with its quantity times the order's, each priced by the client's card when it has one (matched on our item, then on their code) or by our price book, and every code nothing came of named in words. `refusal` says why the order cannot be taken this way (no client yet, a job already on it, or accepting not allowed from where it stands). `key` is sent back with the confirmation.\n\nRequires a session holding: contract:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job an order's codes propose, for the office to confirm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetExternalWorkOrderProposalOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "contract:read"
         ]
       }
     },
@@ -154238,6 +154884,207 @@
           "createdAt"
         ]
       },
+      "AcceptExternalWorkOrderAsProposedInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "propertyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jobTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "key",
+          "propertyId",
+          "jobTypeId"
+        ]
+      },
+      "AcceptExternalWorkOrderAsProposedOutput": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "sourceSystem": {
+                "type": "string"
+              },
+              "sourceLabel": {
+                "type": "string"
+              },
+              "externalId": {
+                "type": "string"
+              },
+              "externalNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "offered",
+                  "accepted",
+                  "rejected",
+                  "in_progress",
+                  "completed",
+                  "cancelled_by_client",
+                  "reopened",
+                  "invoiced",
+                  "closed"
+                ]
+              },
+              "externalStatus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "externalIsSystemOfRecord": {
+                "type": "boolean"
+              },
+              "acceptanceIsIrreversible": {
+                "type": "boolean"
+              },
+              "acceptsViaInvoiceOnly": {
+                "type": "boolean"
+              },
+              "jobId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "customerId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "clientName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "clientCodes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "quantity",
+                    "description"
+                  ]
+                }
+              },
+              "payload": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "lastSyncedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pendingPush": {
+                "type": "boolean"
+              },
+              "lastPushError": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "weMayMoveTo": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "offered",
+                    "accepted",
+                    "rejected",
+                    "in_progress",
+                    "completed",
+                    "cancelled_by_client",
+                    "reopened",
+                    "invoiced",
+                    "closed"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "sourceSystem",
+              "sourceLabel",
+              "externalId",
+              "externalNumber",
+              "state",
+              "externalStatus",
+              "externalIsSystemOfRecord",
+              "acceptanceIsIrreversible",
+              "acceptsViaInvoiceOnly",
+              "jobId",
+              "customerId",
+              "clientName",
+              "clientCodes",
+              "payload",
+              "lastSyncedAt",
+              "pendingPush",
+              "lastPushError",
+              "weMayMoveTo"
+            ]
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "order",
+          "jobId"
+        ]
+      },
       "AcceptExternalWorkOrderViaInvoiceInput": {
         "type": "object",
         "properties": {
@@ -154308,6 +155155,47 @@
             ],
             "format": "uuid"
           },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientCodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "quantity",
+                "description"
+              ]
+            }
+          },
           "payload": {
             "type": "object",
             "additionalProperties": {}
@@ -154357,6 +155245,9 @@
           "acceptanceIsIrreversible",
           "acceptsViaInvoiceOnly",
           "jobId",
+          "customerId",
+          "clientName",
+          "clientCodes",
           "payload",
           "lastSyncedAt",
           "pendingPush",
@@ -159375,6 +160266,47 @@
                 ],
                 "format": "uuid"
               },
+              "customerId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "clientName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "clientCodes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "quantity",
+                    "description"
+                  ]
+                }
+              },
               "payload": {
                 "type": "object",
                 "additionalProperties": {}
@@ -159424,6 +160356,9 @@
               "acceptanceIsIrreversible",
               "acceptsViaInvoiceOnly",
               "jobId",
+              "customerId",
+              "clientName",
+              "clientCodes",
               "payload",
               "lastSyncedAt",
               "pendingPush",
@@ -200569,6 +201504,47 @@
             ],
             "format": "uuid"
           },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientCodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "quantity",
+                "description"
+              ]
+            }
+          },
           "payload": {
             "type": "object",
             "additionalProperties": {}
@@ -200618,11 +201594,217 @@
           "acceptanceIsIrreversible",
           "acceptsViaInvoiceOnly",
           "jobId",
+          "customerId",
+          "clientName",
+          "clientCodes",
           "payload",
           "lastSyncedAt",
           "pendingPush",
           "lastPushError",
           "weMayMoveTo"
+        ]
+      },
+      "GetExternalWorkOrderProposalOutput": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refusal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jobTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobTypeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jobTypeNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mappingId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobTypeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "words": {
+                  "type": "string"
+                },
+                "unmapped": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "description",
+                "quantity",
+                "mappingId",
+                "jobTypeName",
+                "itemName",
+                "words",
+                "unmapped"
+              ]
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "priceBookItemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string"
+                },
+                "ourPrice": {
+                  "type": "string"
+                },
+                "unitPrice": {
+                  "type": "string"
+                },
+                "pricedBy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outOfScope": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "priceBookItemId",
+                "name",
+                "quantity",
+                "ourPrice",
+                "unitPrice",
+                "pricedBy",
+                "note",
+                "outOfScope"
+              ]
+            }
+          },
+          "unmapped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "places": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "propertyId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "siteNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "propertyId",
+                "label",
+                "siteNumber"
+              ]
+            }
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "orderId",
+          "customerId",
+          "clientName",
+          "refusal",
+          "jobTypeId",
+          "jobTypeName",
+          "jobTypeNote",
+          "codes",
+          "lines",
+          "unmapped",
+          "places",
+          "key"
         ]
       },
       "GetFieldSnapshotOutput": {
@@ -230693,6 +231875,102 @@
           "claims"
         ]
       },
+      "ListClientWorkCodesOutput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobTypeId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobTypeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobTypeActive": {
+                  "type": "boolean"
+                },
+                "priceBookItemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "itemCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemSold": {
+                  "type": "boolean"
+                },
+                "quantity": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "description",
+                "jobTypeId",
+                "jobTypeName",
+                "jobTypeActive",
+                "priceBookItemId",
+                "itemCode",
+                "itemName",
+                "itemSold",
+                "quantity",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "customerId",
+          "clientName",
+          "data"
+        ]
+      },
       "ListCollectionRemindersOutput": {
         "type": "object",
         "properties": {
@@ -236974,6 +238252,47 @@
                   ],
                   "format": "uuid"
                 },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "clientName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "clientCodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "description": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "quantity",
+                      "description"
+                    ]
+                  }
+                },
                 "payload": {
                   "type": "object",
                   "additionalProperties": {}
@@ -237023,6 +238342,9 @@
                 "acceptanceIsIrreversible",
                 "acceptsViaInvoiceOnly",
                 "jobId",
+                "customerId",
+                "clientName",
+                "clientCodes",
                 "payload",
                 "lastSyncedAt",
                 "pendingPush",
@@ -243109,6 +244431,47 @@
                   ],
                   "format": "uuid"
                 },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "clientName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "clientCodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "description": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "quantity",
+                      "description"
+                    ]
+                  }
+                },
                 "payload": {
                   "type": "object",
                   "additionalProperties": {}
@@ -243158,6 +244521,9 @@
                 "acceptanceIsIrreversible",
                 "acceptsViaInvoiceOnly",
                 "jobId",
+                "customerId",
+                "clientName",
+                "clientCodes",
                 "payload",
                 "lastSyncedAt",
                 "pendingPush",
@@ -256353,6 +257719,47 @@
             ],
             "format": "uuid"
           },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientCodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "quantity",
+                "description"
+              ]
+            }
+          },
           "payload": {
             "type": "object",
             "additionalProperties": {}
@@ -256402,6 +257809,9 @@
           "acceptanceIsIrreversible",
           "acceptsViaInvoiceOnly",
           "jobId",
+          "customerId",
+          "clientName",
+          "clientCodes",
           "payload",
           "lastSyncedAt",
           "pendingPush",
@@ -256471,6 +257881,47 @@
             ],
             "format": "uuid"
           },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientCodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "quantity",
+                "description"
+              ]
+            }
+          },
           "payload": {
             "type": "object",
             "additionalProperties": {}
@@ -256520,6 +257971,9 @@
           "acceptanceIsIrreversible",
           "acceptsViaInvoiceOnly",
           "jobId",
+          "customerId",
+          "clientName",
+          "clientCodes",
           "payload",
           "lastSyncedAt",
           "pendingPush",
@@ -257379,6 +258833,47 @@
             ],
             "format": "uuid"
           },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientCodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "quantity",
+                "description"
+              ]
+            }
+          },
           "payload": {
             "type": "object",
             "additionalProperties": {}
@@ -257428,6 +258923,9 @@
           "acceptanceIsIrreversible",
           "acceptsViaInvoiceOnly",
           "jobId",
+          "customerId",
+          "clientName",
+          "clientCodes",
           "payload",
           "lastSyncedAt",
           "pendingPush",
@@ -264557,6 +266055,44 @@
           },
           "acceptsViaInvoiceOnly": {
             "type": "boolean"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 20
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 500
+                }
+              },
+              "required": [
+                "code"
+              ]
+            },
+            "maxItems": 50
           }
         },
         "required": [
@@ -264622,6 +266158,47 @@
             ],
             "format": "uuid"
           },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientCodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "quantity",
+                "description"
+              ]
+            }
+          },
           "payload": {
             "type": "object",
             "additionalProperties": {}
@@ -264671,6 +266248,9 @@
           "acceptanceIsIrreversible",
           "acceptsViaInvoiceOnly",
           "jobId",
+          "customerId",
+          "clientName",
+          "clientCodes",
           "payload",
           "lastSyncedAt",
           "pendingPush",
@@ -284391,6 +285971,152 @@
           "statusReason"
         ]
       },
+      "SetClientWorkCodesInput": {
+        "type": "object",
+        "properties": {
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 500
+                },
+                "jobTypeId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "priceBookItemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "string",
+                  "maxLength": 20
+                }
+              },
+              "required": [
+                "code"
+              ]
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "codes"
+        ]
+      },
+      "SetClientWorkCodesOutput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobTypeId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobTypeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobTypeActive": {
+                  "type": "boolean"
+                },
+                "priceBookItemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "itemCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemSold": {
+                  "type": "boolean"
+                },
+                "quantity": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "code",
+                "description",
+                "jobTypeId",
+                "jobTypeName",
+                "jobTypeActive",
+                "priceBookItemId",
+                "itemCode",
+                "itemName",
+                "itemSold",
+                "quantity",
+                "updatedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "customerId",
+          "clientName",
+          "data"
+        ]
+      },
       "SetCommissionItemRuleInput": {
         "type": "object",
         "properties": {
@@ -285931,6 +287657,176 @@
         "required": [
           "id",
           "customFields"
+        ]
+      },
+      "SetExternalWorkOrderClientInput": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "customerId"
+        ]
+      },
+      "SetExternalWorkOrderClientOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceSystem": {
+            "type": "string"
+          },
+          "sourceLabel": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          },
+          "externalNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "offered",
+              "accepted",
+              "rejected",
+              "in_progress",
+              "completed",
+              "cancelled_by_client",
+              "reopened",
+              "invoiced",
+              "closed"
+            ]
+          },
+          "externalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalIsSystemOfRecord": {
+            "type": "boolean"
+          },
+          "acceptanceIsIrreversible": {
+            "type": "boolean"
+          },
+          "acceptsViaInvoiceOnly": {
+            "type": "boolean"
+          },
+          "jobId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "clientName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientCodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "quantity",
+                "description"
+              ]
+            }
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pendingPush": {
+            "type": "boolean"
+          },
+          "lastPushError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weMayMoveTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "offered",
+                "accepted",
+                "rejected",
+                "in_progress",
+                "completed",
+                "cancelled_by_client",
+                "reopened",
+                "invoiced",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sourceSystem",
+          "sourceLabel",
+          "externalId",
+          "externalNumber",
+          "state",
+          "externalStatus",
+          "externalIsSystemOfRecord",
+          "acceptanceIsIrreversible",
+          "acceptsViaInvoiceOnly",
+          "jobId",
+          "customerId",
+          "clientName",
+          "clientCodes",
+          "payload",
+          "lastSyncedAt",
+          "pendingPush",
+          "lastPushError",
+          "weMayMoveTo"
         ]
       },
       "SetInviteLifetimeInput": {

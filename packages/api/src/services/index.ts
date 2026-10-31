@@ -169,6 +169,7 @@ export * as restore from "./restore";
 export * as spreadsheetImports from "./imports";
 export * as fileStorage from "./file-storage";
 export * as externalWork from "./external-work";
+export * as externalWorkCodes from "./external-work-codes";
 export * as kpis from "./kpis";
 export * as secrets from "../secrets/index";
 export * as dispatchMap from "./dispatch-map";

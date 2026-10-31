@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { externalWork } from "@opentradesos/api/services";
+import { customers, externalWork } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Empty, PageHeader } from "@/components/Table";
 import { Orders, Queue, Sources } from "./ExternalWorkView";
@@ -69,6 +69,11 @@ export default async function ExternalWorkPage(
   ]);
 
   const writes = can(user.actor, "contract:write");
+  const clients = can(user.actor, "customer:read")
+    ? (await customers.list(ctx, { limit: 200, includeInactive: false })).data
+      .map((c) => ({ value: c.id as string, label: c.name as string }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+    : [];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-6">
@@ -139,6 +144,25 @@ export default async function ExternalWorkPage(
           </div>
         ) : undefined}
       />
+
+      <h2 className="mt-10 text-base font-semibold">Clients&apos; codes</h2>
+      <p className="mt-1 max-w-2xl text-sm text-ink-500">
+        What each client&apos;s own codes mean here: a kind of work, an item and how many. An order&apos;s page
+        uses them to offer the job, for you to check before it is made.
+      </p>
+      {clients.length > 0 ? (
+        <form method="get" action="/contracts/external/codes" className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="text-sm font-medium text-ink-700">Client</span>
+            <select name="customer" className={`${input} block w-64`}>
+              {clients.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </label>
+          <button type="submit" className="inline-flex h-8 items-center rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
+            Open their codes
+          </button>
+        </form>
+      ) : null}
 
       <h2 className="mt-10 text-base font-semibold">The networks, and what to know first</h2>
       <p className="mt-1 max-w-2xl text-sm text-ink-500">
