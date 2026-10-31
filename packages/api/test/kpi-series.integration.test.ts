@@ -29,10 +29,11 @@ const WINDOW = { from: "2026-05-01", to: "2026-08-15" };
 
 let raw: postgres.Sql;
 const db = () => testDb(url!);
-const as = (role: string, grants: string[] = []): ServiceContext => ({
-  actor: { userId: USER, organizationId: ORG, roles: [role] as Actor["roles"], ...(grants.length > 0 ? { grants: grants as Actor["grants"] } : {}) },
-  db: db(),
-});
+const as = (role: string, grants: string[] = []): ServiceContext => {
+  const actor: Actor = { userId: USER, organizationId: ORG, roles: [role] as Actor["roles"] };
+  if (grants.length > 0) actor.grants = grants as NonNullable<Actor["grants"]>;
+  return { actor, db: db() };
+};
 const owner = () => as("owner");
 
 let customerId = "";
