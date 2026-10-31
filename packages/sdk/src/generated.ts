@@ -5848,6 +5848,91 @@ export interface DefineCustomObjectOutput {
   customerVisible: boolean;
 }
 
+export interface DefineInspectionProgramInput {
+  name: string;
+  standard?: string | null;
+  reportAudience?: "customer" | "authority" | "both";
+  authorityName?: string | null;
+  frequencyMonths?: number | null;
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+  }>;
+  note?: string | null;
+  copiedFrom?: {
+    kind: "trade_pack";
+    packId: string;
+    code: string;
+  } | {
+    kind: "program";
+    programId: string;
+  };
+  replaces?: string;
+}
+
+export interface DefineInspectionProgramOutput {
+  id: string;
+  name: string;
+  standard: string | null;
+  reportAudience: string;
+  authorityName: string | null;
+  frequencyMonths: number | null;
+  version: number;
+  checkpointCount: number;
+  active: boolean;
+  tradePackId: string | null;
+  copiedFrom: {
+    kind: "trade_pack";
+    packId: string;
+    packVersion: number;
+    code: string;
+    name: string;
+  } | {
+    kind: "program";
+    programId: string;
+    version: number;
+    name: string;
+  } | null;
+  ready: boolean;
+  problems: string[];
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+  }>;
+}
+
 export interface DefineMessageTemplateInput {
   code: string;
   name: string;
@@ -9625,6 +9710,97 @@ export interface GetIncidentOutput {
     contentType: string | null;
     createdAt: string;
   }>;
+}
+
+export interface GetInspectionProgramOutput {
+  program: {
+    id: string;
+    name: string;
+    standard: string | null;
+    reportAudience: string;
+    authorityName: string | null;
+    frequencyMonths: number | null;
+    version: number;
+    checkpointCount: number;
+    active: boolean;
+    tradePackId: string | null;
+    copiedFrom: {
+      kind: "trade_pack";
+      packId: string;
+      packVersion: number;
+      code: string;
+      name: string;
+    } | {
+      kind: "program";
+      programId: string;
+      version: number;
+      name: string;
+    } | null;
+    ready: boolean;
+    problems: string[];
+    checkpoints: Array<{
+      key: string;
+      label: string;
+      assetCategory?: string;
+      requiresReading?: boolean;
+      unit?: string;
+      range?: {
+        min: number | null;
+        max: number | null;
+        borderlineWithin?: number;
+      };
+      remedies?: Array<{
+        priceBookItemKey: string;
+        label: string;
+        quantity: number;
+        rationale: string;
+      }>;
+      failIsDeficiency?: boolean;
+      severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    }>;
+  };
+  versions: Array<{
+    version: number;
+    name: string;
+    changed: string[];
+    note: string | null;
+    tradePackId: string | null;
+    publishedAt: string;
+    publishedBy: string | null;
+  }>;
+  inspections: number;
+}
+
+export interface GetInspectionProgramVersionOutput {
+  id: string;
+  version: number;
+  current: boolean;
+  name: string;
+  standard: string | null;
+  reportAudience: string;
+  authorityName: string | null;
+  frequencyMonths: number | null;
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+  }>;
+  problems: string[];
 }
 
 export interface GetInspectionReportOutput {
@@ -16101,6 +16277,22 @@ export interface ListInspectionProgramsOutput {
     frequencyMonths: number | null;
     version: number;
     checkpointCount: number;
+    active: boolean;
+    tradePackId: string | null;
+    copiedFrom: {
+      kind: "trade_pack";
+      packId: string;
+      packVersion: number;
+      code: string;
+      name: string;
+    } | {
+      kind: "program";
+      programId: string;
+      version: number;
+      name: string;
+    } | null;
+    ready: boolean;
+    problems: string[];
   }>;
 }
 
@@ -18790,6 +18982,45 @@ export interface ListTrackingNumbersOutput {
     campaignId: string | null;
     channelId: string | null;
     calls: number;
+  }>;
+}
+
+export interface ListTradePackInspectionProgramsOutput {
+  programs: Array<{
+    packId: string;
+    packName: string;
+    packVersion: number;
+    yourTrade: boolean;
+    code: string;
+    name: string;
+    standard: string | null;
+    reportAudience: string;
+    frequencyMonths: number | null;
+    checkpoints: Array<{
+      key: string;
+      label: string;
+      assetCategory?: string;
+      requiresReading?: boolean;
+      unit?: string;
+      range?: {
+        min: number | null;
+        max: number | null;
+        borderlineWithin?: number;
+      };
+      remedies?: Array<{
+        priceBookItemKey: string;
+        label: string;
+        quantity: number;
+        rationale: string;
+      }>;
+      failIsDeficiency?: boolean;
+      severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    }>;
+    problems: string[];
+    inCompany: {
+      id: string;
+      offered: boolean;
+    } | null;
   }>;
 }
 
@@ -21615,6 +21846,7 @@ export interface RecordExpenseOutput {
 
 export interface RecordInspectionInput {
   programId: string;
+  programVersion?: number;
   propertyId: string;
   customerId: string;
   answers: Array<{
@@ -24180,6 +24412,83 @@ export interface ReviewAppRequestOutput {
   returnTo: string | null;
 }
 
+export interface ReviseInspectionProgramInput {
+  baseVersion: number;
+  name: string;
+  standard?: string | null;
+  reportAudience?: "customer" | "authority" | "both";
+  authorityName?: string | null;
+  frequencyMonths?: number | null;
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+  }>;
+  note?: string | null;
+}
+
+export interface ReviseInspectionProgramOutput {
+  id: string;
+  name: string;
+  standard: string | null;
+  reportAudience: string;
+  authorityName: string | null;
+  frequencyMonths: number | null;
+  version: number;
+  checkpointCount: number;
+  active: boolean;
+  tradePackId: string | null;
+  copiedFrom: {
+    kind: "trade_pack";
+    packId: string;
+    packVersion: number;
+    code: string;
+    name: string;
+  } | {
+    kind: "program";
+    programId: string;
+    version: number;
+    name: string;
+  } | null;
+  ready: boolean;
+  problems: string[];
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+  }>;
+}
+
 export interface RevisePriceBookItemInput {
   name?: string;
   description?: string;
@@ -25681,6 +25990,16 @@ export interface SetEstimateCustomFieldsInput {
 export interface SetEstimateCustomFieldsOutput {
   id: string;
   customFields: Record<string, unknown>;
+}
+
+export interface SetInspectionProgramOfferedInput {
+  offered: boolean;
+}
+
+export interface SetInspectionProgramOfferedOutput {
+  id: string;
+  offered: boolean;
+  version: number;
 }
 
 export interface SetInviteLifetimeInput {
@@ -32454,6 +32773,15 @@ export interface GetIncidentInput {
   id: string;
 }
 
+export interface GetInspectionProgramInput {
+  id: string;
+}
+
+export interface GetInspectionProgramVersionInput {
+  id: string;
+  version: number;
+}
+
 export interface GetInspectionReportInput {
   id: string;
 }
@@ -33403,7 +33731,9 @@ export interface ListIncidentsInput {
   limit?: number;
 }
 
-export type ListInspectionProgramsInput = Record<string, never>;
+export interface ListInspectionProgramsInput {
+  includeRetired?: boolean;
+}
 
 export interface ListInspectionsInput {
   propertyId?: string;
@@ -33919,6 +34249,8 @@ export interface ListTrackingCampaignsInput {
 }
 
 export type ListTrackingNumbersInput = Record<string, never>;
+
+export type ListTradePackInspectionProgramsInput = Record<string, never>;
 
 export type ListTradePacksInput = Record<string, never>;
 
@@ -34679,6 +35011,10 @@ export interface ReviewAppRequestInput {
   id: string;
 }
 
+export interface ReviseInspectionProgramParams {
+  id: string;
+}
+
 export interface RevisePriceBookItemParams {
   id: string;
 }
@@ -34860,6 +35196,10 @@ export interface SetEquipmentCustomFieldsParams {
 }
 
 export interface SetEstimateCustomFieldsParams {
+  id: string;
+}
+
+export interface SetInspectionProgramOfferedParams {
   id: string;
 }
 
@@ -35666,6 +36006,7 @@ export interface OperationTypes {
   defineCertificationType: { input: DefineCertificationTypeInput; output: DefineCertificationTypeOutput };
   defineCustomField: { input: DefineCustomFieldInput; output: DefineCustomFieldOutput };
   defineCustomObject: { input: DefineCustomObjectInput; output: DefineCustomObjectOutput };
+  defineInspectionProgram: { input: DefineInspectionProgramInput; output: DefineInspectionProgramOutput };
   defineMessageTemplate: { input: DefineMessageTemplateInput; output: DefineMessageTemplateOutput };
   defineServiceReportTemplate: { input: DefineServiceReportTemplateInput; output: DefineServiceReportTemplateOutput };
   deleteBackupDestination: { input: DeleteBackupDestinationInput; output: DeleteBackupDestinationOutput };
@@ -35807,6 +36148,8 @@ export interface OperationTypes {
   getImport: { input: GetImportInput; output: GetImportOutput };
   getImportRefusals: { input: GetImportRefusalsInput; output: GetImportRefusalsOutput };
   getIncident: { input: GetIncidentInput; output: GetIncidentOutput };
+  getInspectionProgram: { input: GetInspectionProgramInput; output: GetInspectionProgramOutput };
+  getInspectionProgramVersion: { input: GetInspectionProgramVersionInput; output: GetInspectionProgramVersionOutput };
   getInspectionReport: { input: GetInspectionReportInput; output: GetInspectionReportOutput };
   getInviteLifetime: { input: GetInviteLifetimeInput; output: GetInviteLifetimeOutput };
   getInvoice: { input: GetInvoiceInput; output: GetInvoiceOutput };
@@ -36176,6 +36519,7 @@ export interface OperationTypes {
   listTrackedItems: { input: ListTrackedItemsInput; output: ListTrackedItemsOutput };
   listTrackingCampaigns: { input: ListTrackingCampaignsInput; output: ListTrackingCampaignsOutput };
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
+  listTradePackInspectionPrograms: { input: ListTradePackInspectionProgramsInput; output: ListTradePackInspectionProgramsOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
   listTransferTargets: { input: ListTransferTargetsInput; output: ListTransferTargetsOutput };
   listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
@@ -36427,6 +36771,7 @@ export interface OperationTypes {
   reverseJournalEntry: { input: ReverseJournalEntryParams & ReverseJournalEntryInput; output: ReverseJournalEntryOutput };
   reversePriceChange: { input: ReversePriceChangeParams & ReversePriceChangeInput; output: ReversePriceChangeOutput };
   reviewAppRequest: { input: ReviewAppRequestInput; output: ReviewAppRequestOutput };
+  reviseInspectionProgram: { input: ReviseInspectionProgramParams & ReviseInspectionProgramInput; output: ReviseInspectionProgramOutput };
   revisePriceBookItem: { input: RevisePriceBookItemParams & RevisePriceBookItemInput; output: RevisePriceBookItemOutput };
   reviseWageScale: { input: ReviseWageScaleParams & ReviseWageScaleInput; output: ReviseWageScaleOutput };
   revokeApp: { input: RevokeAppParams & RevokeAppInput; output: RevokeAppOutput };
@@ -36501,6 +36846,7 @@ export interface OperationTypes {
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
+  setInspectionProgramOffered: { input: SetInspectionProgramOfferedParams & SetInspectionProgramOfferedInput; output: SetInspectionProgramOfferedOutput };
   setInviteLifetime: { input: SetInviteLifetimeInput; output: SetInviteLifetimeOutput };
   setInvoiceBillTo: { input: SetInvoiceBillToParams & SetInvoiceBillToInput; output: SetInvoiceBillToOutput };
   setInvoiceCustomFields: { input: SetInvoiceCustomFieldsParams & SetInvoiceCustomFieldsInput; output: SetInvoiceCustomFieldsOutput };
@@ -36920,6 +37266,7 @@ export const OPERATIONS = {
   defineCertificationType: { method: "POST", path: "/v1/certification-types", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   defineCustomField: { method: "POST", path: "/v1/custom-fields", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   defineCustomObject: { method: "POST", path: "/v1/custom-objects", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
+  defineInspectionProgram: { method: "POST", path: "/v1/inspection-programs", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   defineMessageTemplate: { method: "POST", path: "/v1/message-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   defineServiceReportTemplate: { method: "POST", path: "/v1/service-report-templates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:write"] },
   deleteBackupDestination: { method: "DELETE", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
@@ -37061,6 +37408,8 @@ export const OPERATIONS = {
   getImport: { method: "GET", path: "/v1/imports/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   getImportRefusals: { method: "GET", path: "/v1/imports/{id}/refused", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   getIncident: { method: "GET", path: "/v1/safety/incidents/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
+  getInspectionProgram: { method: "GET", path: "/v1/inspection-programs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  getInspectionProgramVersion: { method: "GET", path: "/v1/inspection-programs/{id}/versions/{version}", pathParams: ["id","version"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getInspectionReport: { method: "GET", path: "/v1/inspections/{id}/report", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   getInviteLifetime: { method: "GET", path: "/v1/invite-lifetime", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:invite"] },
   getInvoice: { method: "GET", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -37301,7 +37650,7 @@ export const OPERATIONS = {
   listImportSheets: { method: "POST", path: "/v1/import-sheets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listImports: { method: "GET", path: "/v1/imports", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listIncidents: { method: "GET", path: "/v1/safety/incidents", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
-  listInspectionPrograms: { method: "GET", path: "/v1/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  listInspectionPrograms: { method: "GET", path: "/v1/inspection-programs", pathParams: [], queryParams: ["includeRetired"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listInspections: { method: "GET", path: "/v1/inspections", pathParams: [], queryParams: ["propertyId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listIntakeDrafts: { method: "GET", path: "/v1/ai/intake/drafts", pathParams: [], queryParams: ["status","limit","sourceKind","sourceId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
   listInvoiceCardsOnFile: { method: "GET", path: "/v1/invoices/{id}/cards-on-file", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
@@ -37430,6 +37779,7 @@ export const OPERATIONS = {
   listTrackedItems: { method: "GET", path: "/v1/stock-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  listTradePackInspectionPrograms: { method: "GET", path: "/v1/inspection-programs/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTransferTargets: { method: "GET", path: "/v1/softphone/transfer-targets", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
@@ -37681,6 +38031,7 @@ export const OPERATIONS = {
   reverseJournalEntry: { method: "POST", path: "/v1/ledger/journal-entries/{id}/reverse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:post"] },
   reversePriceChange: { method: "POST", path: "/v1/pricebook/price-changes/{id}/reverse", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   reviewAppRequest: { method: "GET", path: "/v1/apps/{id}/request", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  reviseInspectionProgram: { method: "POST", path: "/v1/inspection-programs/{id}/versions", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   revisePriceBookItem: { method: "POST", path: "/v1/pricebook/items/{id}/revise", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   reviseWageScale: { method: "POST", path: "/v1/payroll/wage-scales/{id}/revisions", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   revokeApp: { method: "POST", path: "/v1/apps/{id}/revoke", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -37755,6 +38106,7 @@ export const OPERATIONS = {
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
+  setInspectionProgramOffered: { method: "PUT", path: "/v1/inspection-programs/{id}/offered", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setInviteLifetime: { method: "PATCH", path: "/v1/invite-lifetime", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setInvoiceBillTo: { method: "PUT", path: "/v1/invoices/{id}/bill-to", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   setInvoiceCustomFields: { method: "PUT", path: "/v1/invoices/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read","invoice:write"] },
@@ -39784,6 +40136,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Write a programme of your own.
+   *
+   * POST /v1/inspection-programs. Needs compliance:write.
+   */
+  defineInspectionProgram(input: DefineInspectionProgramInput, options?: CallOptions): Promise<DefineInspectionProgramOutput> {
+    return this.call("defineInspectionProgram", input, options);
+  }
+
+  /**
    * Write the wording a customer will read.
    *
    * POST /v1/message-templates. Needs settings:write.
@@ -41050,6 +41411,24 @@ export abstract class GeneratedOperations {
    */
   getIncident(input: GetIncidentInput, options?: CallOptions): Promise<GetIncidentOutput> {
     return this.call("getIncident", input, options);
+  }
+
+  /**
+   * One programme, its checkpoints and every version it has had.
+   *
+   * GET /v1/inspection-programs/{id}. Needs compliance:read.
+   */
+  getInspectionProgram(input: GetInspectionProgramInput, options?: CallOptions): Promise<GetInspectionProgramOutput> {
+    return this.call("getInspectionProgram", input, options);
+  }
+
+  /**
+   * One version of a programme, as it was published.
+   *
+   * GET /v1/inspection-programs/{id}/versions/{version}. Needs compliance:read.
+   */
+  getInspectionProgramVersion(input: GetInspectionProgramVersionInput, options?: CallOptions): Promise<GetInspectionProgramVersionOutput> {
+    return this.call("getInspectionProgramVersion", input, options);
   }
 
   /**
@@ -44374,6 +44753,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The programmes trade packs declare, to start your own from.
+   *
+   * GET /v1/inspection-programs/trade-packs. Needs compliance:read.
+   */
+  listTradePackInspectionPrograms(input: ListTradePackInspectionProgramsInput = {} as ListTradePackInspectionProgramsInput, options?: CallOptions): Promise<ListTradePackInspectionProgramsOutput> {
+    return this.call("listTradePackInspectionPrograms", input, options);
+  }
+
+  /**
    * The trade packs this product ships, and the version the company is on.
    *
    * GET /v1/trade-packs. Needs settings:read.
@@ -46633,6 +47021,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Publish a new version of a programme.
+   *
+   * POST /v1/inspection-programs/{id}/versions. Needs compliance:write.
+   */
+  reviseInspectionProgram(input: ReviseInspectionProgramParams & ReviseInspectionProgramInput, options?: CallOptions): Promise<ReviseInspectionProgramOutput> {
+    return this.call("reviseInspectionProgram", input, options);
+  }
+
+  /**
    * Revise a price book item.
    *
    * POST /v1/pricebook/items/{id}/revise. Needs pricebook:write.
@@ -47296,6 +47693,15 @@ export abstract class GeneratedOperations {
    */
   setEstimateCustomFields(input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput, options?: CallOptions): Promise<SetEstimateCustomFieldsOutput> {
     return this.call("setEstimateCustomFields", input, options);
+  }
+
+  /**
+   * Offer a programme to technicians, or stop.
+   *
+   * PUT /v1/inspection-programs/{id}/offered. Needs compliance:write.
+   */
+  setInspectionProgramOffered(input: SetInspectionProgramOfferedParams & SetInspectionProgramOfferedInput, options?: CallOptions): Promise<SetInspectionProgramOfferedOutput> {
+    return this.call("setInspectionProgramOffered", input, options);
   }
 
   /**

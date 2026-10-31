@@ -64,7 +64,7 @@ describe("building the answers", () => {
       visitId: "v1", program, built, signedByName: " Ray Nunez ", signatureUploadId: "u1",
     });
     expect(payload).toEqual({
-      visitId: "v1", programId: "p1", programName: "Annual backflow test",
+      visitId: "v1", programId: "p1", programVersion: 2, programName: "Annual backflow test",
       answers: built.answers, signedByName: "Ray Nunez", signatureUploadId: "u1",
     });
     expect(Object.keys(payload)).not.toContain("result");

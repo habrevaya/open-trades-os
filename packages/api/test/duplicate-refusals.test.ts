@@ -225,6 +225,7 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
     "The event log's own per-organization sequence, allocated inside the append.",
   field_operation_device_seq_idx: "The device's own counter, which the sync protocol orders by.",
   workflow_version_idx: "The next version number, assigned on publish.",
+  inspection_program_version_idx: "The next version number, assigned on publish under the programme's row lock. Nobody types one.",
   app_plugin_key_idx: "An application's key for its own plugin. Registering a key reads it first and writes the next version onto the same row, so nothing inserts a second; two registrations racing is the only way to meet this, and that is a bug to see.",
   app_plugin_version_idx: "The next version number, assigned on registration.",
   workflow_step_run_idx: "One row per step of a run, keyed by the run and the step.",

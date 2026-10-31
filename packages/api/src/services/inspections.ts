@@ -1,10 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, inspection as insp, time } from "@opentradesos/core";
+import { assertCan, can, inspection as insp, isSystem, setup as setupRules, time } from "@opentradesos/core";
+import { packById, packs } from "@opentradesos/trade-packs";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext,
 } from "./context";
 import * as estimates from "./estimates";
+import { replayed, remember } from "./once";
 
 /**
  * INSPECTIONS AND THE DEFICIENCY BACKLOG
@@ -113,6 +115,8 @@ export function templateFor(program: {
 
 /* ------------------------------------------------------------- programmes */
 
+type Checkpoint = schema.InspectionCheckpoint;
+
 export interface ProgramInput {
   name: string;
   standard?: string | null | undefined;
@@ -129,23 +133,88 @@ export interface ProgramInput {
   }[];
 }
 
-export async function defineProgram(ctx: ServiceContext, input: ProgramInput) {
-  return guardedWrite(ctx, "compliance:write", async (tx) => {
-    assertValid(input);
+/** Where a company's own programme starts from: a trade pack's programme, or another of its own. */
+export type CopySource =
+  | { kind: "trade_pack"; packId: string; code: string }
+  | { kind: "program"; programId: string };
 
-    const [row] = await tx.insert(schema.inspectionProgram).values({
-      organizationId: ctx.actor.organizationId,
-      name: input.name.trim(),
-      standard: input.standard?.trim() || null,
-      reportAudience: input.reportAudience ?? "customer",
-      authorityName: input.authorityName?.trim() || null,
-      frequencyMonths: input.frequencyMonths ?? null,
-      checkpoints: input.checkpoints,
-    }).returning();
+/**
+ * What one version of a programme says, in the shape compared from one
+ * version to the next. The same parts a trade pack upgrade compares, plus the
+ * authority, which a pack never sets and a company does.
+ */
+interface ProgramContent {
+  name: string;
+  standard: string | null;
+  reportAudience: string;
+  authorityName: string | null;
+  frequencyMonths: number | null;
+  checkpoints: Checkpoint[];
+}
 
-    await audit(tx, ctx, "inspection_program.defined", "inspection_program", row!.id, null, row!);
-    return row!;
-  });
+const contentOf = (row: ProgramContent): ProgramContent => ({
+  name: row.name,
+  standard: row.standard,
+  reportAudience: row.reportAudience,
+  authorityName: row.authorityName,
+  frequencyMonths: row.frequencyMonths,
+  checkpoints: row.checkpoints,
+});
+
+/** The content a person sent, trimmed the way it is stored. */
+function cleaned(input: ProgramInput): ProgramContent {
+  return {
+    name: input.name.trim(),
+    standard: input.standard?.trim() || null,
+    reportAudience: input.reportAudience ?? "customer",
+    authorityName: input.authorityName?.trim() || null,
+    frequencyMonths: input.frequencyMonths ?? null,
+    checkpoints: input.checkpoints.map((checkpoint) => {
+      const assetCategory = checkpoint.assetCategory?.trim();
+      const unit = checkpoint.unit?.trim();
+      return {
+        ...checkpoint,
+        key: checkpoint.key.trim(),
+        label: checkpoint.label.trim(),
+        ...(assetCategory ? { assetCategory } : { assetCategory: undefined }),
+        ...(unit ? { unit } : { unit: undefined }),
+      };
+    }).map((checkpoint) => Object.fromEntries(
+      Object.entries(checkpoint).filter(([, value]) => value !== undefined),
+    ) as Checkpoint),
+  };
+}
+
+/**
+ * Everything that stops a programme being filed, in words, or nothing.
+ *
+ * Core's template problems (an item that cannot be answered, a reading with
+ * no range or no unit, a range that excludes its own limits), and one this
+ * module adds for a programme a company writes: a checkpoint whose fail is a
+ * finding has to SAY how serious that finding is. Core refuses to default it
+ * ("defaulting is the trap"), and the pack loader defaults it to minor, which
+ * is why the rule is here and not in the shape: a person filling in a form
+ * who skipped the box has not decided that a fail is wear.
+ */
+export function problemsOf(input: ProgramInput): string[] {
+  const problems: string[] = [];
+  if (input.name.trim() === "") problems.push("A programme needs a name.");
+  if (input.checkpoints.length === 0) {
+    problems.push("A programme with no checkpoints inspects nothing and would report every visit as a pass.");
+    return problems;
+  }
+  for (const checkpoint of input.checkpoints) {
+    if (checkpoint.failIsDeficiency !== false && checkpoint.severityOnFail === undefined) {
+      problems.push(`"${checkpoint.label || checkpoint.key}" does not say how serious a fail is.`);
+    }
+  }
+  const verdict = insp.validateTemplate(templateFor({
+    name: input.name.trim(),
+    standard: input.standard?.trim() ?? null,
+    checkpoints: input.checkpoints,
+  }));
+  if (!verdict.ok) problems.push(...verdict.problems.map((p) => p.message));
+  return problems;
 }
 
 /**
@@ -164,6 +233,13 @@ function assertValid(input: ProgramInput) {
       "A programme with no checkpoints inspects nothing and would report every visit as a pass.",
     );
   }
+  const unstated = input.checkpoints.filter((c) => c.failIsDeficiency !== false && c.severityOnFail === undefined);
+  if (unstated.length > 0) {
+    throw new ConflictError(
+      `${unstated.map((c) => `"${c.label || c.key}"`).join(", ")} ${unstated.length === 1 ? "does" : "do"} not say how `
+      + "serious a fail is. Pick one, or say a fail there is not a finding.",
+    );
+  }
   const verdict = insp.validateTemplate(templateFor({
     name: input.name.trim(),
     standard: input.standard?.trim() ?? null,
@@ -173,18 +249,159 @@ function assertValid(input: ProgramInput) {
 }
 
 /**
+ * ONE NAME PER PROGRAMME OFFERED.
+ *
+ * A technician picks a programme by its name on a phone, and a trade pack
+ * knows its programmes by name from one version to the next. Two offered under
+ * one name is a coin toss in a plant room. Compared without case or spaces at
+ * the ends, under a lock per company so two people saving at once cannot both
+ * pass the check. A programme nobody is offered keeps its name; it is the
+ * record the old inspections point at.
+ */
+async function assertNameFree(tx: Database, organizationId: string, name: string, except: string[]) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`inspection-program-name:${organizationId}`}))`);
+  const [clash] = await tx.select({ id: schema.inspectionProgram.id, name: schema.inspectionProgram.name })
+    .from(schema.inspectionProgram)
+    .where(and(
+      eq(schema.inspectionProgram.organizationId, organizationId),
+      eq(schema.inspectionProgram.active, true),
+      sql`lower(btrim(${schema.inspectionProgram.name})) = lower(btrim(${name}))`,
+      ...(except.length > 0 ? [sql`${schema.inspectionProgram.id} not in (${sql.join(except.map((id) => sql`${id}::uuid`), sql`, `)})`] : []),
+    ))
+    .limit(1);
+  if (clash) {
+    throw new ConflictError(
+      `Technicians are already offered a programme called "${clash.name}". Give this one another name, `
+      + "or stop offering that one first.",
+    );
+  }
+}
+
+/**
+ * KEEP A VERSION, WHOLE, AS IT WAS PUBLISHED.
+ *
+ * Called with the programme row as it now stands, after every write that
+ * gives it a version: defining one, revising one, a trade pack setting one up
+ * or upgrading it. Also called with the row BEFORE a revision, so a programme
+ * published before versions were kept gets its old version kept on the way
+ * past rather than lost. A version already kept is left exactly as it is.
+ */
+export async function keepVersion(
+  tx: Database,
+  row: typeof schema.inspectionProgram.$inferSelect,
+  by: { userId?: string | null; note?: string | null; changed?: string[]; tradePackId?: string | null; at?: Date },
+) {
+  await tx.insert(schema.inspectionProgramVersion).values({
+    organizationId: row.organizationId,
+    programId: row.id,
+    version: row.version,
+    ...contentOf(row),
+    changed: by.changed ?? [],
+    note: by.note?.trim() || null,
+    tradePackId: by.tradePackId ?? null,
+    publishedByUserId: by.userId ?? null,
+    publishedAt: by.at ?? row.updatedAt,
+  }).onConflictDoNothing({ target: [schema.inspectionProgramVersion.programId, schema.inspectionProgramVersion.version] });
+}
+
+const personOf = (ctx: ServiceContext) => (isSystem(ctx.actor) ? null : ctx.actor.userId);
+
+/**
+ * WRITE A PROGRAMME OF THE COMPANY'S OWN.
+ *
+ * From nothing, or from a copy of a trade pack's programme or of one the
+ * company already has. The copy is made on the screen and saved here, so what
+ * is stored is always something a technician can file: every pack programme
+ * shipped today asks for a reading with no range somewhere, which core
+ * refuses to judge, and a copy that kept that would be a programme nobody can
+ * finish. Where it came from is kept with it.
+ *
+ * `replaces` stops offering another programme in the same step, so "use my
+ * version of the pack's backflow test instead of the pack's" never leaves a
+ * moment with both on the phone, or neither.
+ */
+export async function defineProgram(
+  ctx: ServiceContext,
+  input: ProgramInput & { copiedFrom?: CopySource | undefined; replaces?: string | undefined; note?: string | null | undefined },
+) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    /** A retry under the same idempotency key gets the programme the first one wrote, not a second. */
+    const again = await replayed<{ id: string }>(tx, ctx, "inspection_program");
+    if (again) return loadProgram(tx, ctx.actor.organizationId, again.id);
+    assertValid(input);
+    const content = cleaned(input);
+
+    const replaced = input.replaces ? await loadProgram(tx, ctx.actor.organizationId, input.replaces, { lock: true }) : null;
+    await assertNameFree(tx, ctx.actor.organizationId, content.name, replaced ? [replaced.id] : []);
+    const copiedFrom = input.copiedFrom ? await sourceOf(tx, ctx.actor.organizationId, input.copiedFrom) : null;
+
+    const [row] = await tx.insert(schema.inspectionProgram).values({
+      organizationId: ctx.actor.organizationId,
+      ...content,
+      copiedFrom,
+    }).returning();
+    await keepVersion(tx, row!, { userId: personOf(ctx), note: input.note ?? null, at: row!.createdAt });
+
+    if (replaced && replaced.active) {
+      await tx.update(schema.inspectionProgram).set({ active: false, updatedAt: new Date() })
+        .where(eq(schema.inspectionProgram.id, replaced.id));
+      await audit(tx, ctx, "inspection_program.withdrawn", "inspection_program", replaced.id,
+        { active: true }, { active: false, replacedBy: row!.id });
+    }
+    await audit(tx, ctx, "inspection_program.defined", "inspection_program", row!.id, null, row!);
+    await remember(tx, ctx, "inspection_program", row!.id, { id: row!.id });
+    return row!;
+  });
+}
+
+/** The source of a copy, checked and named, as it is kept on the copy. */
+async function sourceOf(tx: Database, organizationId: string, source: CopySource): Promise<schema.InspectionProgramCopiedFrom> {
+  if (source.kind === "trade_pack") {
+    const pack = packById(source.packId);
+    const program = pack?.inspectionPrograms.find((p) => p.code === source.code);
+    if (!pack || !program) throw new NotFoundError("Trade pack programme");
+    return { kind: "trade_pack", packId: pack.id, packVersion: pack.version, code: program.code, name: program.name };
+  }
+  const program = await loadProgram(tx, organizationId, source.programId);
+  return { kind: "program", programId: program.id, version: program.version, name: program.name };
+}
+
+/**
  * Change a programme by publishing a new VERSION.
  *
  * An inspection records the version it was performed under, because a report
  * in a compliance file has to keep meaning what it meant. Editing the
  * checkpoints in place rewrites what every past inspection claims to have
- * checked, which is the one thing a compliance record must never do.
+ * checked, which is the one thing a compliance record must never do. So the
+ * version being replaced is kept whole first, and the new one is kept beside
+ * it the moment it is published.
+ *
+ * `baseVersion` is the version the person was looking at. Two people editing
+ * one programme would otherwise each publish over the other without either
+ * seeing the other's change, so a version that has moved on is refused.
+ *
+ * A programme a trade pack set up keeps its name: the pack knows it by that
+ * name from one version to the next, and so does any retention rule for it.
+ * To call it something else, copy it.
+ *
+ * Nothing changed publishes nothing: a version that says what the last one
+ * said would be a version number that means nothing.
  */
 export async function reviseProgram(
-  ctx: ServiceContext, input: Partial<ProgramInput> & { id: string },
+  ctx: ServiceContext,
+  input: Partial<ProgramInput> & { id: string; baseVersion?: number | undefined; note?: string | null | undefined },
 ) {
   return guardedWrite(ctx, "compliance:write", async (tx) => {
-    const before = await loadProgram(tx, ctx.actor.organizationId, input.id);
+    /** A retry of a publish that landed publishes nothing more: the base version it names has moved on. */
+    const again = await replayed<{ id: string }>(tx, ctx, "inspection_program_version");
+    if (again) return loadProgram(tx, ctx.actor.organizationId, again.id);
+    const before = await loadProgram(tx, ctx.actor.organizationId, input.id, { lock: true });
+    if (input.baseVersion !== undefined && input.baseVersion !== before.version) {
+      throw new ConflictError(
+        `Somebody published version ${before.version} of ${before.name} while this was open at version `
+        + `${input.baseVersion}. Open it again to see what they changed, then make yours.`,
+      );
+    }
     const merged: ProgramInput = {
       name: input.name ?? before.name,
       standard: input.standard !== undefined ? input.standard : before.standard,
@@ -196,42 +413,275 @@ export async function reviseProgram(
       checkpoints: input.checkpoints ?? before.checkpoints,
     };
     assertValid(merged);
+    const content = cleaned(merged);
 
+    if (before.tradePackId && content.name !== before.name) {
+      throw new ConflictError(
+        `${before.name} came with a trade pack, which knows it by that name. Keep the name, `
+        + "or make a copy and give the copy the new one.",
+      );
+    }
+    const changed = setupRules.changedParts(
+      contentOf(before) as unknown as Record<string, unknown>,
+      content as unknown as Record<string, unknown>,
+    );
+    if (changed.length === 0) return before;
+    if (before.active && content.name.toLowerCase() !== before.name.trim().toLowerCase()) {
+      await assertNameFree(tx, ctx.actor.organizationId, content.name, [before.id]);
+    }
+
+    await keepVersion(tx, before, {});
+    const now = new Date();
     const [after] = await tx.update(schema.inspectionProgram).set({
-      name: merged.name.trim(),
-      standard: merged.standard?.trim() || null,
-      reportAudience: merged.reportAudience ?? "customer",
-      authorityName: merged.authorityName?.trim() || null,
-      frequencyMonths: merged.frequencyMonths ?? null,
-      checkpoints: merged.checkpoints,
+      ...content,
       version: before.version + 1,
-      updatedAt: new Date(),
+      updatedAt: now,
     }).where(eq(schema.inspectionProgram.id, input.id)).returning();
+    await keepVersion(tx, after!, { userId: personOf(ctx), note: input.note ?? null, changed, at: now });
 
     await audit(tx, ctx, "inspection_program.revised", "inspection_program", input.id, before, after!);
+    await remember(tx, ctx, "inspection_program_version", input.id, { id: input.id, version: after!.version });
     return after!;
   });
 }
 
-export async function programs(ctx: ServiceContext) {
+/**
+ * OFFER A PROGRAMME TO TECHNICIANS, OR STOP.
+ *
+ * Stopping keeps the programme and every version of it, because the
+ * inspections done under it point at them. Offering it again checks it can be
+ * filed and that no other programme technicians are offered has its name,
+ * because a programme that cannot be filed is twenty minutes of a
+ * technician's work that goes nowhere.
+ */
+export async function setOffered(ctx: ServiceContext, input: { id: string; offered: boolean }) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const before = await loadProgram(tx, ctx.actor.organizationId, input.id, { lock: true });
+    if (before.active === input.offered) return before;
+    if (input.offered) {
+      const problems = problemsOf(before as ProgramInput);
+      if (problems.length > 0) {
+        throw new ConflictError(`${before.name} cannot be filed as it stands. ${problems.join(" ")} Publish a version that fixes it first.`);
+      }
+      await assertNameFree(tx, ctx.actor.organizationId, before.name, [before.id]);
+    }
+    const [after] = await tx.update(schema.inspectionProgram).set({ active: input.offered, updatedAt: new Date() })
+      .where(eq(schema.inspectionProgram.id, before.id)).returning();
+    await audit(tx, ctx, input.offered ? "inspection_program.offered" : "inspection_program.withdrawn",
+      "inspection_program", before.id, { active: before.active }, { active: after!.active });
+    return after!;
+  });
+}
+
+/** A programme as the list and the API show it. */
+function summaryOfProgram(row: typeof schema.inspectionProgram.$inferSelect) {
+  const problems = problemsOf(row as ProgramInput);
+  return {
+    id: row.id,
+    name: row.name,
+    standard: row.standard,
+    reportAudience: row.reportAudience,
+    authorityName: row.authorityName,
+    frequencyMonths: row.frequencyMonths,
+    version: row.version,
+    checkpointCount: row.checkpoints.length,
+    active: row.active,
+    tradePackId: row.tradePackId,
+    copiedFrom: row.copiedFrom ?? null,
+    /** Whether an inspection can be filed against it, and what stops one when it cannot. */
+    ready: problems.length === 0,
+    problems,
+  };
+}
+
+export async function programs(ctx: ServiceContext, input: { includeRetired?: boolean | undefined } = {}) {
   return guardedRead(ctx, "compliance:read", async (tx) => {
     const rows = await tx.select().from(schema.inspectionProgram)
       .where(and(
         eq(schema.inspectionProgram.organizationId, ctx.actor.organizationId),
-        eq(schema.inspectionProgram.active, true),
+        ...(input.includeRetired ? [] : [eq(schema.inspectionProgram.active, true)]),
       ))
-      .orderBy(asc(schema.inspectionProgram.name));
+      .orderBy(desc(schema.inspectionProgram.active), asc(schema.inspectionProgram.name));
+    return rows.map(summaryOfProgram);
+  });
+}
 
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      standard: row.standard,
-      reportAudience: row.reportAudience,
-      authorityName: row.authorityName,
-      frequencyMonths: row.frequencyMonths,
-      version: row.version,
-      checkpointCount: row.checkpoints.length,
+/**
+ * One programme as it stands, with every version it has had, newest first.
+ * A programme published before versions were kept lists the version it is on
+ * from its own row, and nothing older, because nothing older was kept.
+ */
+export async function program(ctx: ServiceContext, input: { id: string }) {
+  return guardedRead(ctx, "compliance:read", async (tx) => {
+    const row = await loadProgram(tx, ctx.actor.organizationId, input.id);
+    const kept = await tx.select({
+      version: schema.inspectionProgramVersion.version,
+      name: schema.inspectionProgramVersion.name,
+      changed: schema.inspectionProgramVersion.changed,
+      note: schema.inspectionProgramVersion.note,
+      tradePackId: schema.inspectionProgramVersion.tradePackId,
+      publishedAt: schema.inspectionProgramVersion.publishedAt,
+      publishedBy: schema.user.name,
+      publishedByEmail: schema.user.email,
+    }).from(schema.inspectionProgramVersion)
+      .leftJoin(schema.user, eq(schema.user.id, schema.inspectionProgramVersion.publishedByUserId))
+      .where(eq(schema.inspectionProgramVersion.programId, row.id))
+      .orderBy(desc(schema.inspectionProgramVersion.version));
+    const versions = kept.map((v) => ({
+      version: v.version, name: v.name, changed: v.changed, note: v.note, tradePackId: v.tradePackId,
+      publishedAt: v.publishedAt, publishedBy: v.publishedBy ?? v.publishedByEmail ?? null,
     }));
+    if (!versions.some((v) => v.version === row.version)) {
+      versions.unshift({
+        version: row.version, name: row.name, changed: [], note: null, tradePackId: row.tradePackId,
+        publishedAt: row.updatedAt, publishedBy: null,
+      });
+    }
+    const [{ count } = { count: 0 }] = await tx.select({ count: sql<number>`count(*)::int` })
+      .from(schema.inspection).where(eq(schema.inspection.programId, row.id));
+    return {
+      program: { ...summaryOfProgram(row), checkpoints: row.checkpoints },
+      versions,
+      inspections: count,
+    };
+  });
+}
+
+/** One version of a programme, whole, as it was published. */
+export async function programVersion(ctx: ServiceContext, input: { id: string; version: number }) {
+  return guardedRead(ctx, "compliance:read", async (tx) => {
+    const row = await loadProgram(tx, ctx.actor.organizationId, input.id);
+    const content = await contentAt(tx, row, input.version);
+    if (!content) throw new NotFoundError(`Version ${input.version} of ${row.name}`);
+    return {
+      id: row.id, version: input.version, current: input.version === row.version, ...content,
+      problems: problemsOf(content as ProgramInput),
+    };
+  });
+}
+
+/**
+ * What a programme said at one version: the kept copy, or the programme row
+ * itself when that is the version it is on and nothing was kept for it yet.
+ * Null for a version that was never kept.
+ */
+async function contentAt(
+  tx: Database, row: typeof schema.inspectionProgram.$inferSelect, version: number,
+): Promise<(ProgramContent & { version: number }) | null> {
+  const [kept] = await tx.select().from(schema.inspectionProgramVersion)
+    .where(and(
+      eq(schema.inspectionProgramVersion.programId, row.id),
+      eq(schema.inspectionProgramVersion.version, version),
+    )).limit(1);
+  if (kept) return { ...contentOf(kept), version };
+  if (version === row.version) return { ...contentOf(row), version };
+  return null;
+}
+
+/**
+ * THE PROGRAMMES THE TRADE PACKS DECLARE, TO START ONE OF YOUR OWN FROM.
+ *
+ * Every pack's, the company's own trades first. Each says what has to be
+ * fixed before it could be filed, because today every one of them asks for a
+ * reading with no range somewhere and core will not judge a number against
+ * nothing. Where the company already has the pack's programme, it is named, so
+ * the screen can offer to use the copy instead of it.
+ */
+export async function packPrograms(ctx: ServiceContext) {
+  return guardedRead(ctx, "compliance:read", async (tx) => {
+    const [org] = await tx.select({ primaryTrade: schema.organization.primaryTrade }).from(schema.organization)
+      .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
+    const applied = await tx.selectDistinct({ packId: schema.tradePackApplication.packId })
+      .from(schema.tradePackApplication)
+      .where(eq(schema.tradePackApplication.organizationId, ctx.actor.organizationId));
+    const ours = new Set([...(org?.primaryTrade ? [org.primaryTrade] : []), ...applied.map((a) => a.packId)]);
+    const rows = await tx.select({
+      id: schema.inspectionProgram.id, name: schema.inspectionProgram.name,
+      active: schema.inspectionProgram.active, tradePackId: schema.inspectionProgram.tradePackId,
+    }).from(schema.inspectionProgram)
+      .where(and(
+        eq(schema.inspectionProgram.organizationId, ctx.actor.organizationId),
+        sql`${schema.inspectionProgram.tradePackId} is not null`,
+      ));
+
+    const ordered = [...packs].sort((a, b) => Number(ours.has(b.id)) - Number(ours.has(a.id)) || a.name.localeCompare(b.name));
+    return ordered.flatMap((pack) => pack.inspectionPrograms.map((p) => {
+      const mine = rows.find((r) => r.name === p.name && r.tradePackId?.split("@")[0] === pack.id);
+      const content: ProgramInput = {
+        name: p.name, standard: p.standard ?? null, reportAudience: p.reportAudience,
+        frequencyMonths: p.frequencyMonths ?? null, checkpoints: p.checkpoints,
+      };
+      return {
+        packId: pack.id,
+        packName: pack.name,
+        packVersion: pack.version,
+        yourTrade: ours.has(pack.id),
+        code: p.code,
+        name: p.name,
+        standard: p.standard ?? null,
+        reportAudience: p.reportAudience,
+        frequencyMonths: p.frequencyMonths ?? null,
+        checkpoints: p.checkpoints as Checkpoint[],
+        problems: problemsOf(content),
+        /** The company's own row of this programme, set up by the pack, when it has one. */
+        inCompany: mine ? { id: mine.id, offered: mine.active } : null,
+      };
+    }));
+  });
+}
+
+/**
+ * What a checkpoint can say it is about: the kinds of equipment the
+ * company's trades declare, the ones its programmes already name, and, for
+ * somebody who may see equipment, the kinds on its register. A suggestion
+ * list, not a rule: a checkpoint about "the whole property" names nothing.
+ */
+export async function appliesToChoices(ctx: ServiceContext): Promise<string[]> {
+  return guardedRead(ctx, "compliance:read", async (tx) => {
+    const [org] = await tx.select({ primaryTrade: schema.organization.primaryTrade }).from(schema.organization)
+      .where(eq(schema.organization.id, ctx.actor.organizationId)).limit(1);
+    const applied = await tx.selectDistinct({ packId: schema.tradePackApplication.packId })
+      .from(schema.tradePackApplication)
+      .where(eq(schema.tradePackApplication.organizationId, ctx.actor.organizationId));
+    const ids = new Set([...(org?.primaryTrade ? [org.primaryTrade] : []), ...applied.map((a) => a.packId)]);
+    const found = new Set<string>();
+    for (const id of ids) {
+      const pack = packById(id);
+      for (const category of pack?.equipmentCategories ?? []) found.add(category.code);
+      for (const program of pack?.inspectionPrograms ?? []) {
+        for (const checkpoint of program.checkpoints) if (checkpoint.assetCategory) found.add(checkpoint.assetCategory);
+      }
+    }
+    const programmes = await tx.select({ checkpoints: schema.inspectionProgram.checkpoints })
+      .from(schema.inspectionProgram)
+      .where(eq(schema.inspectionProgram.organizationId, ctx.actor.organizationId));
+    for (const row of programmes) for (const c of row.checkpoints) if (c.assetCategory) found.add(c.assetCategory);
+    if (can(ctx.actor, "equipment:read")) {
+      const kinds = await tx.selectDistinct({ category: schema.equipment.category }).from(schema.equipment)
+        .where(and(eq(schema.equipment.organizationId, ctx.actor.organizationId), isNull(schema.equipment.deletedAt)))
+        .limit(200);
+      for (const k of kinds) if (k.category.trim() !== "") found.add(k.category.trim());
+    }
+    return [...found].sort((a, b) => a.localeCompare(b));
+  });
+}
+
+/**
+ * The repair codes a programme names that the company's price book does not
+ * have. Not a refusal at the save: a copy of a pack's programme names the
+ * pack's codes, and the person writing it may be adding the items next. The
+ * quote refuses a missing code in words when somebody tries it; this says so
+ * earlier, on the programme's own page.
+ */
+export async function missingRepairCodes(ctx: ServiceContext, input: { id: string }): Promise<string[]> {
+  return guardedRead(ctx, "compliance:read", async (tx) => {
+    const row = await loadProgram(tx, ctx.actor.organizationId, input.id);
+    const codes = [...new Set(row.checkpoints.flatMap((c) => (c.remedies ?? []).map((r) => r.priceBookItemKey)))];
+    if (codes.length === 0) return [];
+    const have = await tx.select({ code: schema.priceBookItem.code }).from(schema.priceBookItem)
+      .where(and(eq(schema.priceBookItem.organizationId, ctx.actor.organizationId), inArray(schema.priceBookItem.code, codes)));
+    const held = new Set(have.map((h) => h.code));
+    return codes.filter((code) => !held.has(code));
   });
 }
 
@@ -257,6 +707,14 @@ export interface RecordInput {
    */
   id?: string | undefined;
   programId: string;
+  /**
+   * The version of the programme the technician was shown, when the caller
+   * knows it. The phone does: an inspection run offline against version 3 and
+   * sent after version 4 was published is judged against version 3, the
+   * checkpoints it actually answered, and keeps version 3. Without it the
+   * version in force is used, which is what a filing from the office means.
+   */
+  programVersion?: number | undefined;
   propertyId: string;
   customerId: string;
   answers: insp.RecordedAnswer[];
@@ -288,7 +746,19 @@ export async function recordIn(tx: Database, ctx: ServiceContext, input: RecordI
         .limit(1);
       if (existing) return summaryOf(tx, existing);
     }
-    const program = await loadProgram(tx, ctx.actor.organizationId, input.programId);
+    const current = await loadProgram(tx, ctx.actor.organizationId, input.programId);
+    /**
+     * The version the answers were given against. One that was never kept
+     * (asked for by a phone that held a programme from before versions were
+     * kept) falls back to the version in force, which is what filing did
+     * before versions were kept at all.
+     */
+    const program = {
+      id: current.id,
+      ...((input.programVersion !== undefined && input.programVersion !== current.version
+        ? await contentAt(tx, current, input.programVersion)
+        : null) ?? { ...contentOf(current), version: current.version }),
+    };
 
     const assessment = insp.assessInspection(templateFor(program), input.answers);
     if (!assessment.ok) throw new ConflictError(explainAssessment(assessment));
@@ -820,9 +1290,19 @@ export async function report(ctx: ServiceContext, input: { id: string }): Promis
       .limit(1);
     if (!row) throw new NotFoundError("Inspection");
 
-    const [program] = row.programId
+    const [current] = row.programId
       ? await tx.select().from(schema.inspectionProgram).where(eq(schema.inspectionProgram.id, row.programId)).limit(1)
       : [];
+    /**
+     * The programme as it read at the version the inspection was done under:
+     * its name, standard and authority at the top of the report, not
+     * whatever somebody has since revised them to. The programme as it is now
+     * only when that version was never kept.
+     */
+    const asDone = current && row.programVersion !== null
+      ? await contentAt(tx, current, row.programVersion)
+      : null;
+    const program = current ? { id: current.id, ...(asDone ?? contentOf(current)) } : undefined;
     const checkpoints = row.checkpoints ?? program?.checkpoints ?? [];
     const template = templateFor({ name: program?.name ?? "", standard: program?.standard ?? null, checkpoints });
     const answers = row.answers ?? [];
@@ -1116,12 +1596,13 @@ export async function quoteDeficiency(
 
 /* ---------------------------------------------------------------- helpers */
 
-async function loadProgram(tx: Database, organizationId: string, id: string) {
-  const [row] = await tx.select().from(schema.inspectionProgram)
+async function loadProgram(tx: Database, organizationId: string, id: string, options: { lock?: boolean } = {}) {
+  const query = tx.select().from(schema.inspectionProgram)
     .where(and(
       eq(schema.inspectionProgram.id, id),
       eq(schema.inspectionProgram.organizationId, organizationId),
     )).limit(1);
+  const [row] = options.lock ? await query.for("update") : await query;
   if (!row) throw new NotFoundError("Inspection programme");
   return row;
 }
@@ -1140,12 +1621,41 @@ function addMonths(date: string, months: number): string {
 }
 
 export const handlers = {
-  listInspectionPrograms: async (ctx: ServiceContext) => ({ programs: await programs(ctx) }),
+  listInspectionPrograms: async (ctx: ServiceContext, input: { includeRetired?: boolean | undefined } = {}) =>
+    ({ programs: await programs(ctx, input) }),
+  getInspectionProgram: (ctx: ServiceContext, input: { id: string }) => program(ctx, input),
+  getInspectionProgramVersion: (ctx: ServiceContext, input: { id: string; version: number }) => programVersion(ctx, input),
+  listTradePackInspectionPrograms: async (ctx: ServiceContext) => ({ programs: await packPrograms(ctx) }),
+  defineInspectionProgram: async (ctx: ServiceContext, input: ProgramInput & {
+    copiedFrom?: CopySource | undefined; replaces?: string | undefined; note?: string | null | undefined;
+  }) => {
+    const row = await defineProgram(ctx, input);
+    return (await program(ctx, { id: row.id })).program;
+  },
+  reviseInspectionProgram: async (ctx: ServiceContext, input: ProgramInput & {
+    id: string; baseVersion: number; note?: string | null | undefined;
+  }) => {
+    /**
+     * The whole programme as it should now read. Whatever is left out is
+     * left out of the new version, so the version is exactly what was sent.
+     */
+    const row = await reviseProgram(ctx, {
+      id: input.id, baseVersion: input.baseVersion, note: input.note ?? null,
+      name: input.name, standard: input.standard ?? null, reportAudience: input.reportAudience ?? "customer",
+      authorityName: input.authorityName ?? null, frequencyMonths: input.frequencyMonths ?? null,
+      checkpoints: input.checkpoints,
+    });
+    return (await program(ctx, { id: row.id })).program;
+  },
+  setInspectionProgramOffered: async (ctx: ServiceContext, input: { id: string; offered: boolean }) => {
+    const row = await setOffered(ctx, input);
+    return { id: row.id, offered: row.active, version: row.version };
+  },
 
   recordInspection: (
     ctx: ServiceContext,
     input: {
-      programId: string; propertyId: string; customerId: string;
+      programId: string; programVersion?: number | undefined; propertyId: string; customerId: string;
       answers: {
         itemKey: string;
         /**
@@ -1176,6 +1686,7 @@ export const handlers = {
     },
   ) => record(ctx, {
     programId: input.programId,
+    ...(input.programVersion !== undefined ? { programVersion: input.programVersion } : {}),
     propertyId: input.propertyId,
     customerId: input.customerId,
     /**

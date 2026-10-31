@@ -721,6 +721,9 @@ async function fileInspection(tx: Database, ctx: ServiceContext, op: field.Field
   const visitId = typeof op.payload["visitId"] === "string" ? op.payload["visitId"] : null;
   const programId = typeof op.payload["programId"] === "string" ? op.payload["programId"] : null;
   if (!visitId || !programId) return "That inspection names no visit or no programme.";
+  /** The version the phone ran, so an inspection done offline is judged against what the technician was shown. */
+  const programVersion = typeof op.payload["programVersion"] === "number" && Number.isInteger(op.payload["programVersion"])
+    && op.payload["programVersion"] > 0 ? op.payload["programVersion"] : undefined;
 
   const [visit] = await tx.select({
     jobId: schema.visit.jobId, customerId: schema.job.customerId, propertyId: schema.job.propertyId,
@@ -740,6 +743,7 @@ async function fileInspection(tx: Database, ctx: ServiceContext, op: field.Field
       await inspections.recordIn(savepoint as unknown as Database, ctx, {
         id: op.subjectId,
         programId,
+        ...(programVersion !== undefined ? { programVersion } : {}),
         propertyId: visit.propertyId,
         customerId: visit.customerId,
         jobId: visit.jobId,

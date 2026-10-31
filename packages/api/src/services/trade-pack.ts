@@ -7,6 +7,7 @@ import {
 } from "./context";
 import { inForceAt, reviseWithin } from "./pricebook";
 import { replayed, remember } from "./once";
+import { keepVersion } from "./inspections";
 
 /**
  * APPLYING A TRADE PACK
@@ -337,10 +338,12 @@ async function insertPiece(tx: Database, org: string, pack: TradePack, piece: ru
     }
     case "inspection_program": {
       const content = piece.content as ProgramContent;
-      await tx.insert(schema.inspectionProgram).values({
+      const [row] = await tx.insert(schema.inspectionProgram).values({
         organizationId: org, name: content.name, standard: content.standard, tradePackId: tag,
         reportAudience: content.reportAudience, frequencyMonths: content.frequencyMonths, checkpoints: content.checkpoints,
-      });
+      }).returning();
+      /** Kept as version 1, so an inspection done under it keeps what it said after the pack or a person changes it. */
+      await keepVersion(tx, row!, { tradePackId: tag, at: row!.createdAt });
       return;
     }
     case "retention_rule": {
@@ -480,13 +483,20 @@ async function updatePiece(
     }
     case "inspection_program": {
       const content = piece.content as ProgramContent;
-      const [row] = await tx.select({ version: schema.inspectionProgram.version }).from(schema.inspectionProgram)
-        .where(eq(schema.inspectionProgram.id, id)).limit(1);
-      await tx.update(schema.inspectionProgram).set({
+      const [row] = await tx.select().from(schema.inspectionProgram)
+        .where(eq(schema.inspectionProgram.id, id)).limit(1).for("update");
+      /**
+       * The version being replaced is kept whole first (one set up before
+       * versions were kept has no copy yet), and the pack's new one beside it,
+       * exactly as a revision by hand does.
+       */
+      if (row) await keepVersion(tx, row, { tradePackId: row.tradePackId });
+      const [after] = await tx.update(schema.inspectionProgram).set({
         name: content.name, standard: content.standard, reportAudience: content.reportAudience,
         frequencyMonths: content.frequencyMonths, checkpoints: content.checkpoints, tradePackId: tag,
         version: (row?.version ?? 1) + 1, updatedAt: now,
-      }).where(and(eq(schema.inspectionProgram.organizationId, org), eq(schema.inspectionProgram.id, id)));
+      }).where(and(eq(schema.inspectionProgram.organizationId, org), eq(schema.inspectionProgram.id, id))).returning();
+      if (after) await keepVersion(tx, after, { tradePackId: tag, changed: [...changed], at: now });
       return;
     }
     case "retention_rule": {

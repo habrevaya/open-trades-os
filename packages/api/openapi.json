@@ -62275,16 +62275,150 @@
       }
     },
     "/v1/inspection-programs": {
-      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
+      "post": {
+        "operationId": "defineInspectionProgram",
+        "summary": "Write a programme of your own",
+        "description": "From nothing, or from a copy of a trade pack's programme or one of your own, named in `copiedFrom` and kept with it. Refused, in words, when an inspection could not be filed against it: no checkpoints, a reading with no unit or no range, a checkpoint whose fail is a finding that does not say how serious it is. Refused when technicians are already offered a programme of the same name, unless `replaces` names that one, which then stops being offered in the same step. Version 1, offered to technicians at once.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineInspectionProgramInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Write a programme of your own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefineInspectionProgramOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      },
       "get": {
         "operationId": "listInspectionPrograms",
         "summary": "The inspection programmes this company runs",
-        "description": "Each with the standard it is performed under as text that is never interpreted as a rule, who receives the report, how often, and its version. An inspection records the version it was performed under, because a report in a compliance file has to keep meaning what it meant.\n\nRequires a session holding: compliance:read.",
+        "description": "Each with the standard it is performed under as text that is never interpreted as a rule, who receives the report, how often, and its version. An inspection records the version it was performed under, because a report in a compliance file has to keep meaning what it meant. Only those offered to technicians unless `includeRetired` is set. `ready` is false for one an inspection cannot be filed against as it stands, with `problems` saying why.\n\nRequires a session holding: compliance:read.",
         "tags": [
           "M33"
+        ],
+        "parameters": [
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -62293,6 +62427,607 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListInspectionProgramsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      }
+    },
+    "/v1/inspection-programs/trade-packs": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTradePackInspectionPrograms",
+        "summary": "The programmes trade packs declare, to start your own from",
+        "description": "Every trade pack's programmes, the company's own trades first, each whole with its checkpoints and what has to be fixed before an inspection could be filed against it. Copy one by sending it, changed as you need, to `POST /v1/inspection-programs` with `copiedFrom`. `inCompany` names the company's own row of it, set up by the pack, which `replaces` can stop offering in the same step.\n\nRequires a session holding: compliance:read.",
+        "tags": [
+          "M33"
+        ],
+        "responses": {
+          "200": {
+            "description": "The programmes trade packs declare, to start your own from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTradePackInspectionProgramsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      }
+    },
+    "/v1/inspection-programs/{id}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getInspectionProgram",
+        "summary": "One programme, its checkpoints and every version it has had",
+        "description": "The version in force with its checkpoints, and the versions before it, newest first, each with what changed and who published it. A programme published before versions were kept lists only the version it is on.\n\nRequires a session holding: compliance:read.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One programme, its checkpoints and every version it has had",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetInspectionProgramOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
+        ]
+      }
+    },
+    "/v1/inspection-programs/{id}/offered": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setInspectionProgramOffered",
+        "summary": "Offer a programme to technicians, or stop",
+        "description": "Stopping keeps the programme and every version, because the inspections done under it point at them. Offering it again is refused when an inspection could not be filed against it as it stands, or when another programme technicians are offered has its name.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetInspectionProgramOfferedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offer a programme to technicians, or stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetInspectionProgramOfferedOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/inspection-programs/{id}/versions": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "reviseInspectionProgram",
+        "summary": "Publish a new version of a programme",
+        "description": "The whole programme as it should now read; what is left out is left out of the new version. Inspections already filed keep the version they were done under, with its checkpoints, and a phone that ran the old version offline files against it. `baseVersion` is the version you changed: if somebody published another since, it is refused rather than written over theirs. A programme a trade pack set up keeps its name. Sending what the version in force already says publishes nothing.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviseInspectionProgramInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Publish a new version of a programme",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviseInspectionProgramOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/inspection-programs/{id}/versions/{version}": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getInspectionProgramVersion",
+        "summary": "One version of a programme, as it was published",
+        "description": "Requires a session holding: compliance:read.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One version of a programme, as it was published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetInspectionProgramVersionOutput"
                 }
               }
             }
@@ -184298,6 +185033,459 @@
           "customerVisible"
         ]
       },
+      "DefineInspectionProgramInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "reportAudience": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "authority",
+              "both"
+            ]
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 160
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 120
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "copiedFrom": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "trade_pack"
+                    ]
+                  },
+                  "packId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  }
+                },
+                "required": [
+                  "kind",
+                  "packId",
+                  "code"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "program"
+                    ]
+                  },
+                  "programId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "programId"
+                ]
+              }
+            ]
+          },
+          "replaces": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "name",
+          "checkpoints"
+        ]
+      },
+      "DefineInspectionProgramOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportAudience": {
+            "type": "string"
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          },
+          "checkpointCount": {
+            "type": "integer"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "tradePackId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "copiedFrom": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "trade_pack"
+                    ]
+                  },
+                  "packId": {
+                    "type": "string"
+                  },
+                  "packVersion": {
+                    "type": "integer"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "packId",
+                  "packVersion",
+                  "code",
+                  "name"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "program"
+                    ]
+                  },
+                  "programId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "version": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "programId",
+                  "version",
+                  "name"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "standard",
+          "reportAudience",
+          "authorityName",
+          "frequencyMonths",
+          "version",
+          "checkpointCount",
+          "active",
+          "tradePackId",
+          "copiedFrom",
+          "ready",
+          "problems",
+          "checkpoints"
+        ]
+      },
       "DefineMessageTemplateInput": {
         "type": "object",
         "properties": {
@@ -203594,6 +204782,474 @@
           "people",
           "followUps",
           "photos"
+        ]
+      },
+      "GetInspectionProgramOutput": {
+        "type": "object",
+        "properties": {
+          "program": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string"
+              },
+              "standard": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reportAudience": {
+                "type": "string"
+              },
+              "authorityName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "frequencyMonths": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "version": {
+                "type": "integer"
+              },
+              "checkpointCount": {
+                "type": "integer"
+              },
+              "active": {
+                "type": "boolean"
+              },
+              "tradePackId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "copiedFrom": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "trade_pack"
+                        ]
+                      },
+                      "packId": {
+                        "type": "string"
+                      },
+                      "packVersion": {
+                        "type": "integer"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "packId",
+                      "packVersion",
+                      "code",
+                      "name"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "program"
+                        ]
+                      },
+                      "programId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "programId",
+                      "version",
+                      "name"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ready": {
+                "type": "boolean"
+              },
+              "problems": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "checkpoints": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "assetCategory": {
+                      "type": "string",
+                      "maxLength": 60
+                    },
+                    "requiresReading": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "maxLength": 20
+                    },
+                    "range": {
+                      "type": "object",
+                      "properties": {
+                        "min": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "max": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "borderlineWithin": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        }
+                      },
+                      "required": [
+                        "min",
+                        "max"
+                      ]
+                    },
+                    "remedies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "priceBookItemKey": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "quantity": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "rationale": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "required": [
+                          "priceBookItemKey",
+                          "label",
+                          "quantity",
+                          "rationale"
+                        ]
+                      },
+                      "maxItems": 10
+                    },
+                    "failIsDeficiency": {
+                      "type": "boolean"
+                    },
+                    "severityOnFail": {
+                      "type": "string",
+                      "enum": [
+                        "critical",
+                        "major",
+                        "minor",
+                        "advisory"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "standard",
+              "reportAudience",
+              "authorityName",
+              "frequencyMonths",
+              "version",
+              "checkpointCount",
+              "active",
+              "tradePackId",
+              "copiedFrom",
+              "ready",
+              "problems",
+              "checkpoints"
+            ]
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "changed": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tradePackId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "publishedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "publishedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "version",
+                "name",
+                "changed",
+                "note",
+                "tradePackId",
+                "publishedAt",
+                "publishedBy"
+              ]
+            }
+          },
+          "inspections": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "program",
+          "versions",
+          "inspections"
+        ]
+      },
+      "GetInspectionProgramVersionOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportAudience": {
+            "type": "string"
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            }
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "current",
+          "name",
+          "standard",
+          "reportAudience",
+          "authorityName",
+          "frequencyMonths",
+          "checkpoints",
+          "problems"
         ]
       },
       "GetInspectionReportOutput": {
@@ -237985,6 +239641,88 @@
                 },
                 "checkpointCount": {
                   "type": "integer"
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "tradePackId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "copiedFrom": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "trade_pack"
+                          ]
+                        },
+                        "packId": {
+                          "type": "string"
+                        },
+                        "packVersion": {
+                          "type": "integer"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "packId",
+                        "packVersion",
+                        "code",
+                        "name"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "program"
+                          ]
+                        },
+                        "programId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "version": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "programId",
+                        "version",
+                        "name"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ready": {
+                  "type": "boolean"
+                },
+                "problems": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [
@@ -237995,7 +239733,12 @@
                 "authorityName",
                 "frequencyMonths",
                 "version",
-                "checkpointCount"
+                "checkpointCount",
+                "active",
+                "tradePackId",
+                "copiedFrom",
+                "ready",
+                "problems"
               ]
             }
           }
@@ -252305,6 +254048,199 @@
           "numbers"
         ]
       },
+      "ListTradePackInspectionProgramsOutput": {
+        "type": "object",
+        "properties": {
+          "programs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "packId": {
+                  "type": "string"
+                },
+                "packName": {
+                  "type": "string"
+                },
+                "packVersion": {
+                  "type": "integer"
+                },
+                "yourTrade": {
+                  "type": "boolean"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "standard": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reportAudience": {
+                  "type": "string"
+                },
+                "frequencyMonths": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "checkpoints": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "assetCategory": {
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      "requiresReading": {
+                        "type": "boolean"
+                      },
+                      "unit": {
+                        "type": "string",
+                        "maxLength": 20
+                      },
+                      "range": {
+                        "type": "object",
+                        "properties": {
+                          "min": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "max": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "borderlineWithin": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          }
+                        },
+                        "required": [
+                          "min",
+                          "max"
+                        ]
+                      },
+                      "remedies": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "priceBookItemKey": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 60
+                            },
+                            "label": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "quantity": {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            "rationale": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 500
+                            }
+                          },
+                          "required": [
+                            "priceBookItemKey",
+                            "label",
+                            "quantity",
+                            "rationale"
+                          ]
+                        },
+                        "maxItems": 10
+                      },
+                      "failIsDeficiency": {
+                        "type": "boolean"
+                      },
+                      "severityOnFail": {
+                        "type": "string",
+                        "enum": [
+                          "critical",
+                          "major",
+                          "minor",
+                          "advisory"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label"
+                    ]
+                  }
+                },
+                "problems": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "inCompany": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "offered": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "offered"
+                  ]
+                }
+              },
+              "required": [
+                "packId",
+                "packName",
+                "packVersion",
+                "yourTrade",
+                "code",
+                "name",
+                "standard",
+                "reportAudience",
+                "frequencyMonths",
+                "checkpoints",
+                "problems",
+                "inCompany"
+              ]
+            }
+          }
+        },
+        "required": [
+          "programs"
+        ]
+      },
       "ListTradePacksOutput": {
         "type": "object",
         "properties": {
@@ -266458,6 +268394,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "programVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
           "propertyId": {
             "type": "string",
             "format": "uuid"
@@ -278743,6 +280683,411 @@
           "returnTo"
         ]
       },
+      "ReviseInspectionProgramInput": {
+        "type": "object",
+        "properties": {
+          "baseVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "reportAudience": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "authority",
+              "both"
+            ]
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 160
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 120
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "baseVersion",
+          "name",
+          "checkpoints"
+        ]
+      },
+      "ReviseInspectionProgramOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportAudience": {
+            "type": "string"
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          },
+          "checkpointCount": {
+            "type": "integer"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "tradePackId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "copiedFrom": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "trade_pack"
+                    ]
+                  },
+                  "packId": {
+                    "type": "string"
+                  },
+                  "packVersion": {
+                    "type": "integer"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "packId",
+                  "packVersion",
+                  "code",
+                  "name"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "program"
+                    ]
+                  },
+                  "programId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "version": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "programId",
+                  "version",
+                  "name"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "standard",
+          "reportAudience",
+          "authorityName",
+          "frequencyMonths",
+          "version",
+          "checkpointCount",
+          "active",
+          "tradePackId",
+          "copiedFrom",
+          "ready",
+          "problems",
+          "checkpoints"
+        ]
+      },
       "RevisePriceBookItemInput": {
         "type": "object",
         "properties": {
@@ -285931,6 +288276,37 @@
         "required": [
           "id",
           "customFields"
+        ]
+      },
+      "SetInspectionProgramOfferedInput": {
+        "type": "object",
+        "properties": {
+          "offered": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "offered"
+        ]
+      },
+      "SetInspectionProgramOfferedOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "offered": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "offered",
+          "version"
         ]
       },
       "SetInviteLifetimeInput": {
