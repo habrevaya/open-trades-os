@@ -443,8 +443,11 @@ async function refuseOverlap(
   }
 }
 
-const seasonDays = (organizationId: string, branchId: string | null, seasonId: string, days: WeekInput["days"]) =>
-  days.map((day) => ({
+/** A season's seven days, with its branch (or none, for the company's) beside its id. */
+async function writeSeasonDays(
+  tx: Database, organizationId: string, branchId: string | null, seasonId: string, days: WeekInput["days"],
+): Promise<void> {
+  await tx.insert(schema.businessHours).values(days.map((day) => ({
     organizationId,
     businessUnitId: branchId,
     seasonId,
@@ -452,7 +455,8 @@ const seasonDays = (organizationId: string, branchId: string | null, seasonId: s
     opensAt: day.closed ? null : day.opensAt,
     closesAt: day.closed ? null : day.closesAt,
     closed: day.closed,
-  }));
+  })));
+}
 
 /** A season the person may see, or not found: another branch's reads as not there. */
 async function seasonWithin(tx: Database, ctx: ServiceContext, id: string): Promise<SeasonRow> {
@@ -479,7 +483,7 @@ export async function addSeason(ctx: ServiceContext, input: SeasonInput): Promis
     await refuseOverlap(tx, ctx.actor.organizationId, branchId, season, null);
     const [row] = await tx.insert(schema.businessHoursSeason)
       .values({ organizationId: ctx.actor.organizationId, businessUnitId: branchId, ...season }).returning();
-    await tx.insert(schema.businessHours).values(seasonDays(ctx.actor.organizationId, branchId, row!.id, input.days));
+    await writeSeasonDays(tx, ctx.actor.organizationId, branchId, row!.id, input.days);
     const [answer] = await seasonViews(tx, ctx, [row!]);
     await audit(tx, ctx, "booking.season.added", "business_hours_season", row!.id, null, answer);
     await remember(tx, ctx, "business_hours_season", row!.id, answer!);
@@ -503,7 +507,7 @@ export async function changeSeason(ctx: ServiceContext, input: Omit<SeasonInput,
       .set({ ...season, updatedAt: new Date() })
       .where(eq(schema.businessHoursSeason.id, before.id)).returning();
     await tx.delete(schema.businessHours).where(eq(schema.businessHours.seasonId, before.id));
-    await tx.insert(schema.businessHours).values(seasonDays(ctx.actor.organizationId, before.businessUnitId, before.id, input.days));
+    await writeSeasonDays(tx, ctx.actor.organizationId, before.businessUnitId, before.id, input.days);
     const [answer] = await seasonViews(tx, ctx, [row!]);
     await audit(tx, ctx, "booking.season.changed", "business_hours_season", before.id, beforeView, answer);
     return answer!;
