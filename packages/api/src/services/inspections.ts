@@ -245,7 +245,11 @@ function assertValid(input: ProgramInput) {
     standard: input.standard?.trim() ?? null,
     checkpoints: input.checkpoints,
   }));
-  if (!verdict.ok) throw new ConflictError(insp.explainTemplateProblems(verdict.problems));
+  /**
+   * Core's sentences without its `checkpoints.key:` prefix: each one already
+   * names the checkpoint by its question, which is what the person reads.
+   */
+  if (!verdict.ok) throw new ConflictError(verdict.problems.map((p) => p.message).join(" "));
 }
 
 /**

@@ -36,7 +36,7 @@ test("an owner copies a pack's programme, fixes it, saves it, and publishes a se
 
   // Saved as it is, it is refused in words.
   await owner.getByRole("button", { name: "Save the programme" }).click();
-  await expect(owner.getByRole("alert")).toContainText("no acceptable range");
+  await expect(owner.getByRole("alert").filter({ hasText: "no acceptable range" })).toBeVisible();
 
   const checkpoint = (n: number) => owner.getByRole("group", { name: `Checkpoint ${n}`, exact: true });
   await expect(checkpoint(2).getByLabel("Question")).toHaveValue("First check valve holds");
@@ -62,7 +62,7 @@ test("an owner copies a pack's programme, fixes it, saves it, and publishes a se
   await expect(owner.getByRole("status")).toContainText("Version 2 published.");
   const versions = owner.getByRole("region", { name: "Versions" });
   await expect(versions.getByRole("listitem").filter({ hasText: "Version 2" }))
-    .toContainText("Changed how often, the checkpoints.");
+    .toContainText("Changed the checkpoints, how often.");
   await expect(versions.getByRole("listitem").filter({ hasText: "Version 2" }))
     .toContainText("The water company asks for test cock 4 now");
 

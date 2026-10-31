@@ -103,7 +103,12 @@ function serialise(rows: Row[]): Checkpoint[] {
       checkpoint.requiresReading = true;
       if (row.unit.trim() !== "") checkpoint.unit = row.unit.trim();
       const close = number(row.close);
-      checkpoint.range = { min: number(row.min), max: number(row.max), ...(close !== null && close > 0 ? { borderlineWithin: close } : {}) };
+      const min = number(row.min);
+      const max = number(row.max);
+      /** No range at all rather than one open at both ends, so the refusal says the range is missing. */
+      if (min !== null || max !== null) {
+        checkpoint.range = { min, max, ...(close !== null && close > 0 ? { borderlineWithin: close } : {}) };
+      }
     }
     if (row.severity !== "") checkpoint.severityOnFail = row.severity as Checkpoint["severityOnFail"];
     const remedies = row.remedies
