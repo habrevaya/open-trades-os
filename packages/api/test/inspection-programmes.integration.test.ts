@@ -215,7 +215,7 @@ run("revising it", () => {
     const row = await inspections.defineProgram(owner(), OURS);
     const same = await inspections.reviseProgram(owner(), { id: row.id, baseVersion: 1, ...OURS });
     expect(same.version).toBe(1);
-    const [{ count }] = await raw<{ count: number }[]>`
+    const [{ count } = { count: 0 }] = await raw<{ count: number }[]>`
       select count(*)::int as count from public.inspection_program_version where program_id = ${row.id}`;
     expect(count).toBe(1);
   });
