@@ -169,6 +169,22 @@ starts a charge on its own. Card numbers never reach this product: a backup is
 the processor's reference to a card saved through its own window, as every
 saved card is.
 
+**Putting the backups in a new order.** With two backups, the account page
+lists them under **If (the card) does not go through, we try these in this
+order**, and one press of **Try (a card) before (another)** puts that card
+first (`PUT /v1/portal/cards/autopay-backups/order`, the whole order at once,
+their own sign in only). Nothing is stopped and no words are asked again: a
+backup's words promise "once, the same day, when the card I pay automatically
+with, or a backup before this one" does not go through, which names no place,
+so each backup keeps its agreement, its words and when it was given, and only
+where it stands changes. The order sent must name exactly the backups there
+are, once each; a backup chosen or stopped in another window since the page was
+drawn is refused, asking for a refresh. The order before and after is audited
+(`portal.card.autopay_backups_ordered`), the office's list of cards on file
+shows the new order, and the next automatic run tries them in it. A run already
+going never tries one card twice on one bill: a backup already tried on that
+bill that day is passed over, whatever its new place.
+
 **A bank payment on its way is not money to chase.** While an ACH payment is
 processing, the invoice shows "Payment on its way" on the office's page and
 the customer's, the collections agent (M27) neither drafts nor sends a
@@ -686,6 +702,7 @@ different people doing those. The office manager and finance roles hold
 | `POST /v1/portal/cards/{cardId}/agreement` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/autopay` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/autopay-backup` | nothing: a sign in only |
+| `PUT /v1/portal/cards/autopay-backups/order` | nothing: a sign in only |
 | `POST /v1/portal/cards/{cardId}/agreement/withdraw` | nothing: a sign in only |
 | `GET /v1/invoices/{id}/tips` | `invoice:read` |
 | `GET /v1/invoices/{id}/tip-offer` | `payment:collect` |
@@ -781,9 +798,11 @@ automatic payment takes the whole balance of each bill; only the office
 charges part of one. A backup is tried only in the run that charged the first
 card, never on the next day's try, and a backup is only ever the customer's
 choice: the office cannot set one, because the customer agrees to it in their
-own sign in, as they do to paying automatically. Backups are tried in the
-order chosen; changing the order is stopping one and choosing it again, which
-puts it last. A bank payment chosen as a backup is tried like a card and is on
+own sign in, as they do to paying automatically, and only the customer puts them
+in a new order; the office cannot. A new order made while a run is part way
+through a bill can mean a backup moved ahead of the one that just failed is not
+tried on that bill (one already tried is never tried again), and the customer is
+sent the link as when every card fails. A bank payment chosen as a backup is tried like a card and is on
 its way for days, so the customer is told it paid only when it has. No charge on file carries
 a tip. The customer is told of a
 failure by email to the address on their record, or by text when the email

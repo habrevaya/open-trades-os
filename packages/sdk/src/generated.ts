@@ -20093,6 +20093,31 @@ export interface OpenRegulatorySubmissionOutput {
   statement: string;
 }
 
+export interface OrderPortalCardAutopayBackupsInput {
+  token: string;
+  cardIds: string[];
+}
+
+export interface OrderPortalCardAutopayBackupsOutput {
+  backups: Array<{
+    id: string;
+    cardId: string;
+    wording: string;
+    agreedAt: string;
+    agreedByContact: string | null;
+    autopay: boolean;
+    autopayAt: string | null;
+    autopayWording: string | null;
+    autopayRank: number | null;
+    givenBy: "customer" | "office";
+    way: "portal_sign_in" | "office_phone" | "office_form";
+    wayLabel: string;
+    agreedOn: string | null;
+    takenBy: string | null;
+    hasForm: boolean;
+  }>;
+}
+
 export type PauseContractBillingInput = Record<string, unknown>;
 
 export interface PauseContractBillingOutput {
@@ -36540,6 +36565,7 @@ export interface OperationTypes {
   openPortalLink: { input: OpenPortalLinkInput; output: OpenPortalLinkOutput };
   openPortalRecord: { input: OpenPortalRecordInput; output: OpenPortalRecordOutput };
   openRegulatorySubmission: { input: OpenRegulatorySubmissionInput; output: OpenRegulatorySubmissionOutput };
+  orderPortalCardAutopayBackups: { input: OrderPortalCardAutopayBackupsInput; output: OrderPortalCardAutopayBackupsOutput };
   pauseContractBilling: { input: PauseContractBillingParams & PauseContractBillingInput; output: PauseContractBillingOutput };
   payCommissions: { input: PayCommissionsInput; output: PayCommissionsOutput };
   payOutCreditNote: { input: PayOutCreditNoteParams & PayOutCreditNoteInput; output: PayOutCreditNoteOutput };
@@ -37800,6 +37826,7 @@ export const OPERATIONS = {
   openPortalLink: { method: "GET", path: "/v1/portal/session", pathParams: [], queryParams: ["token"], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openPortalRecord: { method: "POST", path: "/v1/portal/account/open", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   openRegulatorySubmission: { method: "POST", path: "/v1/compliance/submissions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  orderPortalCardAutopayBackups: { method: "PUT", path: "/v1/portal/cards/autopay-backups/order", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   pauseContractBilling: { method: "POST", path: "/v1/contracts/{contractId}/billing/pause", pathParams: ["contractId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
   payCommissions: { method: "POST", path: "/v1/payroll/commission-payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   payOutCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/payouts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
@@ -45259,6 +45286,15 @@ export abstract class GeneratedOperations {
    */
   openRegulatorySubmission(input: OpenRegulatorySubmissionInput, options?: CallOptions): Promise<OpenRegulatorySubmissionOutput> {
     return this.call("openRegulatorySubmission", input, options);
+  }
+
+  /**
+   * Put the backup cards for paying automatically in a new order.
+   *
+   * PUT /v1/portal/cards/autopay-backups/order.
+   */
+  orderPortalCardAutopayBackups(input: OrderPortalCardAutopayBackupsInput, options?: CallOptions): Promise<OrderPortalCardAutopayBackupsOutput> {
+    return this.call("orderPortalCardAutopayBackups", input, options);
   }
 
   /**

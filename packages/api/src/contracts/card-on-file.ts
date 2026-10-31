@@ -62,6 +62,20 @@ export const setPortalCardAutopayBackup = defineRoute({
   output: PortalCardAgreement,
 });
 
+export const orderPortalCardAutopayBackups = defineRoute({
+  method: "put",
+  path: "/v1/portal/cards/autopay-backups/order",
+  summary: "Put the backup cards for paying automatically in a new order",
+  description:
+    "From a sign in only. `cardIds` is every backup card there is, once each, in the order they should be tried when the card paying automatically does not go through. Nothing is stopped and no words are asked again: each backup was agreed as a backup in words that name no place, and keeps its agreement; only where it stands changes. A list that does not name exactly the backups there are (one chosen or stopped in another window since) is refused, asking for a refresh. The card paying automatically is not in it. The order before and after is audited.",
+  module: "M13",
+  permissions: [],
+  authorization: "grant",
+  idempotent: true,
+  input: z.object({ token: Token, cardIds: z.array(Uuid).max(10) }),
+  output: z.object({ backups: z.array(PortalCardAgreement) }),
+});
+
 export const withdrawPortalCardAgreement = defineRoute({
   method: "post",
   path: "/v1/portal/cards/{cardId}/agreement/withdraw",
@@ -203,7 +217,7 @@ export const withdrawCustomerCardAgreement = defineRoute({
 });
 
 export const cardOnFileRoutes = {
-  agreeToPortalCardCharges, setPortalCardAutopay, setPortalCardAutopayBackup, withdrawPortalCardAgreement,
+  agreeToPortalCardCharges, setPortalCardAutopay, setPortalCardAutopayBackup, orderPortalCardAutopayBackups, withdrawPortalCardAgreement,
   listInvoiceCardsOnFile, chargeInvoiceCardOnFile,
   listCustomerCardAgreements, recordCustomerCardAgreement, withdrawCustomerCardAgreement,
 } as const;
