@@ -64,6 +64,36 @@ export const territory = pgTable("territory", {
 }, (t) => ({ orgIdx: index("territory_org_idx").on(t.organizationId) }));
 
 /**
+ * A SEASON: DATED HOURS OVER THE NORMAL WEEK
+ *
+ * Summer hours from June 1 to August 31: a week of seven days that replaces
+ * the owner's normal week on every date between the two, kept in
+ * `business_hours` as seven rows carrying this row's id. The company's
+ * (no branch) or a branch's own. `repeats_yearly` reads only the month and
+ * day of the two dates, so the season comes back every year and may run
+ * across the new year. An owner's seasons never overlap: the service
+ * refuses one that would, under a lock on the owner, so a date is in at most
+ * one of them. Core's `holidays.weekFor` and `weekOn` say which week a
+ * reader reads on a date.
+ */
+export const businessHoursSeason = pgTable("business_hours_season", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** The branch whose season it is. Null is the company's. Goes with the branch. */
+  businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  startsOn: date("starts_on").notNull(),
+  endsOn: date("ends_on").notNull(),
+  repeatsYearly: boolean("repeats_yearly").notNull().default(false),
+  /** Removed outright when the company takes one off; the audit log keeps what it said. */
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx: index("business_hours_season_org_idx").on(t.organizationId, t.businessUnitId),
+  inOrder: check("business_hours_season_in_order", sql`${t.endsOn} >= ${t.startsOn}`),
+}));
+
+/**
  * A WEEK OF OPENING HOURS: seven rows for the company (no branch, no number),
  * seven for a branch that keeps its own, and seven for a phone number set to
  * keep its own. Core's `holidays.weekFor` and `weekForNumber` choose which a
@@ -81,6 +111,12 @@ export const businessHours = pgTable("business_hours", {
    * breaks the schema's loading.
    */
   phoneNumberId: uuid("phone_number_id"),
+  /**
+   * The season these seven rows are the week of, with the season's branch
+   * (or none, for the company's) in `business_unit_id` beside it. Null for a
+   * normal week. A season's rows are never read as the normal week.
+   */
+  seasonId: uuid("season_id").references(() => businessHoursSeason.id, { onDelete: "cascade" }),
   /** 0 = Sunday, matching JS getDay(). */
   dayOfWeek: integer("day_of_week").notNull(),
   opensAt: time("opens_at"),
@@ -90,6 +126,9 @@ export const businessHours = pgTable("business_hours", {
 }, (t) => ({
   orgIdx: index("business_hours_org_idx").on(t.organizationId, t.dayOfWeek),
   oneOwner: check("business_hours_one_owner", sql`${t.businessUnitId} is null or ${t.phoneNumberId} is null`),
+  /** A season is a branch's or the company's, never a phone number's. */
+  seasonNotNumber: check("business_hours_season_not_number", sql`${t.seasonId} is null or ${t.phoneNumberId} is null`),
+  seasonIdx: index("business_hours_season_idx").on(t.seasonId),
 }));
 
 /**

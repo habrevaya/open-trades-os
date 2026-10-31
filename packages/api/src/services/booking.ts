@@ -203,10 +203,12 @@ export async function openSlots(db: Database, input: {
    * The week of the branch the booking's job will be in, or the company's
    * when that branch keeps none: a branch that opens on Saturdays offers
    * Saturday, and one closed on Mondays offers no Monday, whatever the
-   * company keeps. No week at all offers no day, as it always has.
+   * company keeps. No week at all offers no day, as it always has. On a
+   * date a season covers (summer hours), the season's week is read instead.
    */
   const branchId = await bookingBranch(db, service);
-  const openDays = holidayRules.openWeekdays((await businessHours.loadWeek(db, org.id, branchId)).week) ?? new Set<number>();
+  const chosenWeek = await businessHours.loadWeek(db, org.id, branchId);
+  const openOn = (date: string) => holidayRules.openWeekdays(holidayRules.weekOn(chosenWeek, date).week) ?? new Set<number>();
   /**
    * The company's holiday list. On a date in it, its hours replace the
    * week's: a closed date offers nothing, and a short day offers only the
@@ -252,7 +254,7 @@ export async function openSlots(db: Database, input: {
     const dow = day.getUTCDay();
 
     const holiday = holidayRules.holidayOn(holidayList, date);
-    if (holiday ? holiday.closed : !openDays.has(dow)) continue;
+    if (holiday ? holiday.closed : !openOn(date).has(dow)) continue;
 
     for (const w of windows) {
       if (!w.daysOfWeek.includes(dow)) continue;
@@ -1344,8 +1346,9 @@ export async function createRequest(
      * And a weekday the branch's week (or the company's) keeps closed, for
      * the same reason: the week changed after the page was drawn. Only when a
      * week is declared at all; with none the page offers nothing to ask for.
+     * The week in force on the date: a season's, where one covers it.
      */
-    const open = holidayRules.openWeekdays((await businessHours.loadWeek(tx, org.id, branchId)).week);
+    const open = holidayRules.openWeekdays(holidayRules.weekOn(await businessHours.loadWeek(tx, org.id, branchId), input.requestedDate).week);
     if (!holiday && open && !open.has(new Date(`${input.requestedDate}T00:00:00Z`).getUTCDay())) {
       throw new ConflictError(`We are closed on ${input.requestedDate}. Please choose another time.`);
     }

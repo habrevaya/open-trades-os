@@ -457,7 +457,9 @@ const DEFAULT_WEEK: holidayRules.WeekHours = Array.from({ length: 7 }, () => ({ 
 async function calendarOf(
   tx: Database, organizationId: string, zone: string, branchId: string | null,
 ): Promise<holidayRules.WorkingCalendar> {
-  return { week: (await loadWeek(tx, organizationId, branchId)).week ?? DEFAULT_WEEK, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone };
+  const { week, seasons } = await loadWeek(tx, organizationId, branchId);
+  /** A season (summer hours) over the week on its dates; the company's default day only where nobody declared a week. */
+  return { week: week ?? DEFAULT_WEEK, seasons, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone };
 }
 
 /**

@@ -884,6 +884,10 @@ export const handlers = {
   // The week's hours, the company's and each branch's own (M02)
   listBusinessHours: businessHours.handlers.listBusinessHours,
   clearBranchHours: businessHours.handlers.clearBranchHours,
+  listHoursSeasons: businessHours.handlers.listHoursSeasons,
+  addHoursSeason: businessHours.handlers.addHoursSeason,
+  changeHoursSeason: businessHours.handlers.changeHoursSeason,
+  removeHoursSeason: businessHours.handlers.removeHoursSeason,
   // A phone number's own hours and days off (M18)
   ...numberHours.handlers,
   // Which item is charged after hours and on a holiday, offered on the invoice (M02, M13)

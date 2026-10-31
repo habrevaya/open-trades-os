@@ -121,15 +121,27 @@ async function loadRange(tx: Database, ctx: ServiceContext, dates: string[]) {
       : await closedDates(tx, ctx.actor.organizationId, dates[0]!, dates[dates.length - 1]!, branchId));
   }
   /**
-   * And the weekdays each branch opens: its own week, or the company's where
-   * it keeps none, so a Houston visit may go to Houston's Saturday and an
-   * Austin one, whose branch is shut on Saturdays, may not. Null where no
-   * week is declared at all, which closes no weekday.
+   * And the days each branch opens: its own week, or the company's where it
+   * keeps none, so a Houston visit may go to Houston's Saturday and an
+   * Austin one, whose branch is shut on Saturdays, may not. Read date by
+   * date, because a season (summer hours) can open or close a weekday for
+   * part of the year. A date whose week in force keeps its weekday closed is
+   * a closed date, beside the holidays; no week declared at all closes no
+   * weekday.
    */
   const weekOf = await weeksByBranch(tx, ctx.actor.organizationId);
+  for (const branchId of branches) {
+    const chosen = weekOf(branchId);
+    const closed = closedBy.get(branchId)!;
+    for (const date of dates) {
+      const open = holidayRules.openWeekdays(holidayRules.weekOn(chosen, date).week);
+      if (open !== null && !open.has(weekday(date))) closed.add(date);
+    }
+  }
   return {
     zone, days, today: time.dateIn(new Date(), zone),
-    openOf: (v: dm.DayVisit): ReadonlySet<number> | null => holidayRules.openWeekdays(weekOf(v.branchId).week),
+    /** Every weekday, because the week in force is read date by date in `closedOf`. */
+    openOf: (_v: dm.DayVisit): ReadonlySet<number> | null => null,
     closedOf: (v: dm.DayVisit): ReadonlySet<string> => closedBy.get(v.branchId) ?? closedBy.get(null)!,
   };
 }

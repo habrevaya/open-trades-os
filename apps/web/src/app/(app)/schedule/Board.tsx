@@ -632,7 +632,12 @@ function TechnicianColumn({
 }
 
 /**
- * WHAT ELSE IS ON THE DAY: who has the phone tonight, and the routes running.
+ * WHAT ELSE IS ON THE DAY: the hours the shop keeps, who has the phone
+ * tonight, and the routes running.
+ *
+ * The hours are the week in force on the date (summer hours, where a season
+ * covers it) with the holiday list over it, so a dispatcher filling a summer
+ * Saturday sees that it is open, and one filling a closed day is told.
  *
  * The rota said in words, including when nobody is on, because a blank where
  * a name should be reads as fine. The routes so a route business watching
@@ -643,6 +648,12 @@ function DayStrip({ board, time, timezone }: { board: BoardData; time: TimeForma
   const day = (iso: string) => new Date(iso).toLocaleDateString("en-US", { weekday: "short", timeZone: timezone });
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-steel-200 px-4 py-2 text-sm lg:px-6">
+      {/* Absent from a board drawn before the hours were on it. */}
+      {board.hours ? (
+        <span aria-label="Hours this day" className={board.hours.closed ? "font-medium text-amber-700" : "text-ink-700"}>
+          {board.hours.words}
+        </span>
+      ) : null}
       <span aria-label="On call">
         {board.onCall.length === 0
           ? <span className="text-amber-700">Nobody is on call today.</span>

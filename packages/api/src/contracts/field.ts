@@ -646,6 +646,21 @@ const BoardHold = z.object({
   words: z.string(),
 }).nullable().optional();
 
+/** What a branch, or the company, keeps on one date. */
+const DayHours = z.object({
+  branchId: Uuid.nullable(),
+  /** "HH:MM" in the company's zone. Null on a closed day or when nobody has said. */
+  opensAt: z.string().nullable(),
+  closesAt: z.string().nullable(),
+  closed: z.boolean(),
+  /** False when no week is declared and no holiday says anything. */
+  known: z.boolean(),
+  /** The season in force (summer hours), or null for the normal week. */
+  season: z.string().nullable(),
+  holiday: z.string().nullable(),
+  words: z.string(),
+});
+
 /**
  * The dispatch board.
  *
@@ -666,6 +681,12 @@ export const getDispatchBoard = defineRoute({
   }),
   output: z.object({
     date: z.string().date(),
+    /**
+     * What the shop keeps on the date: the week in force (a season's, where
+     * one covers the date) with the holiday list over it, for the branch the
+     * board shows, or the company's. `words` is the day in a sentence.
+     */
+    hours: DayHours,
     technicians: z.array(z.object({
       id: Uuid,
       displayName: z.string(),

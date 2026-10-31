@@ -346,6 +346,65 @@ and sets only their own branch's: the company's week opens and closes every
 branch that keeps none, so it is set by somebody who sees the whole company,
 on `PUT /v1/booking/hours` and on `/booking` alike.
 
+### Seasons: dated hours over the week
+
+The company or a branch can keep a season: a week of seven days that replaces
+its normal week on every date from a first day to a last, both kept. Summer
+hours from June 1 to August 31, open at six to beat the heat and on Saturday
+mornings too, is the case it is for. A season runs once between two dates, or
+comes back every year on the same month and day ("June 1 to August 31, every
+year"), and a yearly one may run across the new year. A holiday on a date in a
+season still wins, because it is the more particular thing somebody said.
+
+Whose season a reader reads, on a date: the branch's own season where one
+covers the date; otherwise the branch's own normal week where it keeps one;
+otherwise the company's season where one covers the date; otherwise the
+company's week. A branch with a week of its own has said what its week is, so
+the company's seasons are not read for it; a branch on the company's week
+keeps the company's seasons too. Core holds the rule (`holidays.weekFor` with
+seasons, `weekOn` for one date, and `hoursOnDate`, `bookedAt` and the working
+calendar, which take the seasons beside the week), with unit tests, so every
+reader asks the same question the same way.
+
+Two seasons of one owner may not share a day. A second one that would (two
+dated ones whose dates meet, or a yearly one whose months and days meet
+another's, including a dated one next August against summer hours kept every
+year) is refused in words naming the other: "This season runs August 15, 2031
+to September 15, 2031, which overlaps "Summer hours" (June 1, 2031 to August
+31, 2031). A day can keep only one season's hours." The check runs under a
+lock on the owner, so two people saving at once cannot both get in. A season
+ending before it starts, a yearly one starting or ending on February 29, and a
+yearly one a year or longer are refused too.
+
+Every reader that asks about a date reads the week in force on it:
+
+| Reader | What a season changes |
+|---|---|
+| Online booking, and a request's date checked again | A weekday the season opens is offered on its dates; one it shuts is not, and a request for it is refused in words |
+| The board (M09) | The strip under the date says what the shop keeps that day: "Open 7:00 AM to 3:00 PM, Summer hours.", "Closed on Saturdays in Houston summer." or "Closed for Thanksgiving." For the branch the board is filtered to, the reader's own for somebody who sees one branch, or the company's |
+| A route's fit for a date (M09) | Measured against the season's hours that day; on a weekday the season shuts, "In Summer hours you are closed on Saturdays". A template with no date reads the normal week |
+| The several day rebalance (M09) | Moves a visit onto a day the season opens and never onto one it shuts |
+| The phones (M18) | A number following its branch or the company is routed by the week in force today; its hours page names the season ("Houston's Summer hours, June 1 to August 31, every year"). A number keeping its own week has no seasons |
+| The after hours rate, a pricing rule on work outside the hours, the crew check, task escalation counting working hours, a phase's open days (M12) | The season's hours on its dates |
+| The phone and chat assistants | Quote the company's week in force today, naming the season |
+
+`/booking/branches` (Online booking, Branch hours) lists the company's seasons
+under its hours and each branch's under that branch, each with when it runs,
+its week and "In force today" when it is. Somebody with `booking:configure`
+adds one ("Add a season for Houston": its name, first and last day, "Every
+year", and the seven days, starting from the week it sits over), changes one,
+or takes one off. `GET /v1/booking/seasons` (`settings:read`) reads them;
+`POST /v1/booking/seasons` (idempotent: a retry with the same key answers with
+the first season), `PUT /v1/booking/seasons/{id}` and `DELETE
+/v1/booking/seasons/{id}` change them with `booking:configure`, each writing an
+audit line. A season stays with its owner: a company's season is not moved to
+a branch, which is a new season. Somebody who sees only their own branch's
+work sees the company's seasons and their own branch's, and keeps only their
+own branch's, as with the week. A season is kept in `business_hours_season`
+with its seven days in `business_hours` carrying its id; a season's rows are
+never read as anybody's normal week. Taking one off removes it outright; the
+audit log keeps what it said.
+
 ### After hours and holiday rates
 
 The same page, and the `/setup/rates` step, choose which price book item is
@@ -492,9 +551,13 @@ not submit one to a carrier. Company licences are compliance documents rather
 than a setup step.
 
 A moving holiday is a day of the week in a month; a holiday fixed to another
-calendar (Easter, a lunar new year) is entered for each year. A branch's own
-week is the same hours every week of the year: a branch open longer in summer
-changes its week when summer comes. The assistants, the reviews clock and
+calendar (Easter, a lunar new year) is entered for each year. A season is a
+whole week over the normal one between two dates; there is no season that
+changes one weekday and leaves the rest to the normal week, and none for a
+phone number keeping its own week. A season repeating every year is fixed to
+dates, not to a day of the week in a month (the first Monday of June). The
+assistants quote the company's week in force today and do not say when a
+season starts or ends. The assistants, the reviews clock and
 recurring tasks know no branch, so they read the company's week and list alone;
 the phones know a number's branch only when somebody has set it on the number.
 A route's density (M09) reads the holiday list only when it is asked for a

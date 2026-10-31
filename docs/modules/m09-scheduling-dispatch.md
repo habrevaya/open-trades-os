@@ -188,7 +188,8 @@ the customer as the days that suit them (and inside both when there are
 both). Never onto today or off it, because a customer expecting somebody
 this afternoon has not agreed to Thursday, and never onto a day the visit's
 branch is closed: a weekday its own week keeps closed (the company's week,
-for a branch that keeps none, M02) or a date on its holiday list, so a Houston
+for a branch that keeps none, M02), read date by date so a season over the
+week (summer hours) opens or shuts its weekdays on its own dates, or a date on its holiday list, so a Houston
 visit may go to Houston's Saturday while an Austin one may not. The same constraints hold on the new day (skills and time off at the
 hours the visit would have on that day, so a person with the afternoon off still
 takes a morning visit, the window at the same wall clock times, the overtime limit and
@@ -399,7 +400,8 @@ about one day rather than the weekday's template. It counts only the stops
 whose own cadence falls on that date, the rule making a day uses, and says
 how many it left out; and it reads the hours kept that date by the branch of
 whoever runs the route (the crew's, or the technician's), the company's week
-where that branch keeps none, with its holiday list over it (M02). A date
+where that branch keeps none, the season in force that date over the week
+where one covers it, and its holiday list over all of them (M02). A date
 that branch is shut, a holiday or a weekday its week keeps closed, has no
 working day to fit into: the answer says why (`dayBasis: closed`,
 `closedOn`) and gives no overtime verdict. A short day with no overtime

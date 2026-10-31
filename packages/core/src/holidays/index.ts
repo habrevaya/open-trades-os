@@ -5,8 +5,11 @@ import {
   type Observed, type WeekdayRule,
 } from "./moving.js";
 
+import { weekdayHoursOn, type SeasonWeek } from "./seasons.js";
+
 export * from "./moving.js";
 export * from "./week.js";
+export * from "./seasons.js";
 
 /**
  * THE COMPANY'S OWN DAYS OFF, AND ITS SHORT DAYS
@@ -269,14 +272,14 @@ export interface BookedTime {
 export function bookedAt(input: {
   week: WeekHours | null;
   holidays: readonly CompanyHoliday[];
+  /** Seasons whose week replaces `week` on the dates they cover (`seasons.ts`). */
+  seasons?: readonly SeasonWeek[] | null | undefined;
   date: string;
   minute: number;
 }): BookedTime {
   const holiday = holidayOn(input.holidays, input.date);
   const at = `${input.date} at ${clock(input.minute)}`;
-  const hours = holiday
-    ? holiday.hours
-    : input.week === null ? undefined : input.week[new Date(`${input.date}T00:00:00Z`).getUTCDay()] ?? null;
+  const hours = holiday ? holiday.hours : weekdayHoursOn(input.date, input.week, input.seasons);
   if (hours === undefined) {
     return { holiday, outsideHours: false, why: holiday ? `${at}, on ${holiday.name}` : at };
   }
@@ -299,6 +302,8 @@ export interface WorkingCalendar {
   week: WeekHours | null;
   holidays: readonly CompanyHoliday[];
   timeZone: string;
+  /** Seasons whose week replaces `week` on the dates they cover (`seasons.ts`). */
+  seasons?: readonly SeasonWeek[] | null | undefined;
 }
 
 /**
@@ -314,12 +319,12 @@ export interface WorkingCalendar {
  * errs towards telling them.
  */
 export function workingHoursOn(
-  date: string, calendar: Pick<WorkingCalendar, "week" | "holidays">,
+  date: string, calendar: Pick<WorkingCalendar, "week" | "holidays" | "seasons">,
 ): { openMinute: number; closeMinute: number } | null {
   const holiday = holidayOn(calendar.holidays, date);
   if (holiday) return holiday.hours;
-  if (calendar.week === null) return { openMinute: 0, closeMinute: 24 * 60 };
-  return calendar.week[new Date(`${date}T00:00:00Z`).getUTCDay()] ?? null;
+  const hours = weekdayHoursOn(date, calendar.week, calendar.seasons);
+  return hours === undefined ? { openMinute: 0, closeMinute: 24 * 60 } : hours;
 }
 
 /** The most days the working time walk will cross before it gives up: a little over eleven years. */

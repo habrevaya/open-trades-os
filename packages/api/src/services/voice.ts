@@ -522,10 +522,11 @@ async function routeOf(tx: Database, organizationId: string, number: NumberRow, 
    * branch it answers for (the company's week where the branch keeps none),
    * or the company's (`number-hours.ts`).
    */
-  const own = await hoursOfNumber(tx, organizationId, number);
-  const rows = own.rows;
   const zone = await timezoneOf(tx, organizationId);
   const today = time.dateIn(now, zone);
+  /** The week in force today: a season's (summer hours) where one covers it. */
+  const own = await hoursOfNumber(tx, organizationId, number, today);
+  const rows = own.rows;
   const holidays = holidayRules.forPhones(own.holidays, time.addDays(today, -1), time.addDays(today, 1));
   const hours = voice.businessHoursFrom(rows, zone, holidays);
   if (number.menuId) {

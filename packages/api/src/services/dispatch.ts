@@ -31,6 +31,7 @@ import * as files from "./files";
 import * as partRequests from "./part-requests";
 import * as customerNotes from "./customer-notes";
 import * as plugins from "./plugins";
+import { hoursOnDay } from "./business-hours";
 
 
 /**
@@ -302,8 +303,20 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       ))
       .orderBy(asc(schema.onCallRotation.startsAt));
 
+    /**
+     * WHAT THE SHOP KEEPS THAT DAY: the week in force on the date (a
+     * season's, where summer hours cover it) with the holiday list over it,
+     * for the branch the board shows (the one filtered to, or the reader's
+     * own when they see one branch), or the company's. Said on the board so
+     * a dispatcher filling a Saturday in summer sees that it is open.
+     */
+    const dayOf = await hoursOnDay(tx, ctx.actor.organizationId, input.date);
+    const boardBranch = input.businessUnitId ?? (scope === "all" ? null : ctx.actor.businessUnitId ?? null);
+    const hours = await dayOf(boardBranch);
+
     return {
       date: input.date,
+      hours,
       crews: crewRows.map((c) => {
         const people = crewPeople.filter((p) => p.crewId === c.id);
         return {

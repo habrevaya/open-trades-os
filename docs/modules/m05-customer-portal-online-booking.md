@@ -139,8 +139,9 @@ in.
 is the shape of what it is willing to sell: which job types are bookable, in
 which territories, how far ahead, how much notice, how many per window. The
 engine intersects that with business hours (the week of the branch the
-booked job lands in, or the company's for a branch that keeps none, M02; a
-booking request for a weekday that week keeps closed is refused in words),
+booked job lands in, or the company's for a branch that keeps none, M02,
+and on a date a season covers the season's week in its place; a booking
+request for a weekday the week in force keeps closed is refused in words),
 the company's holiday list
 (no window on a date it is closed, and on a short day only the windows that
 start and end inside that day's hours), and with the technicians' own

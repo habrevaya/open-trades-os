@@ -1,8 +1,8 @@
 "use client";
 
 import { useKeptAction } from "@/lib/use-kept-action";
-import { useState } from "react";
-import { offerService, saveWindows, saveHours, saveMemberHold } from "./actions";
+import { useState, type ReactNode } from "react";
+import { offerService, saveWindows, saveHours, saveMemberHold, addSeason, changeSeason } from "./actions";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -161,7 +161,7 @@ export function Windows({ current }: {
  * the branch's name so a screen with several is read by a screen reader
  * without guessing which Monday is whose.
  */
-export function Hours({ current, businessUnitId, name, submit = "Save hours", action = saveHours, hidden = {} }: {
+export function Hours({ current, businessUnitId, name, submit = "Save hours", action = saveHours, hidden = {}, children }: {
   current: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
   businessUnitId?: string;
   name?: string;
@@ -169,6 +169,8 @@ export function Hours({ current, businessUnitId, name, submit = "Save hours", ac
   /** Where the week goes: the company's or a branch's by default, a phone number's own from its page. */
   action?: typeof saveHours;
   hidden?: Record<string, string>;
+  /** Fields above the seven days: a season's name and dates. */
+  children?: ReactNode;
 }) {
   const [state, actionForm, pending] = useKeptAction(action, {});
   const byDay = new Map(current.map((d) => [d.dayOfWeek, d]));
@@ -178,6 +180,7 @@ export function Hours({ current, businessUnitId, name, submit = "Save hours", ac
     <form {...actionForm} className="mt-3">
       {businessUnitId ? <input type="hidden" name="businessUnitId" value={businessUnitId} /> : null}
       {Object.entries(hidden).map(([key, value]) => <input key={key} type="hidden" name={key} value={value} />)}
+      {children}
       <div className="space-y-1">
         {DAYS.map((label, day) => {
           const row = byDay.get(day);
@@ -206,6 +209,63 @@ export function Hours({ current, businessUnitId, name, submit = "Save hours", ac
       </button>
       <Note state={state} />
     </form>
+  );
+}
+
+/**
+ * A SEASON: HOURS KEPT BETWEEN TWO DATES
+ *
+ * Its name, its first and last day, whether it comes back every year, and
+ * its seven days, which replace the normal week on every date between. A new
+ * one starts from the week it sits over, so only the days that differ need
+ * changing.
+ */
+export function Season({ season, businessUnitId, owner, start }: {
+  /** The season being changed, or absent for a new one. */
+  season?: {
+    id: string; name: string; startsOn: string; endsOn: string; repeatsYearly: boolean;
+    days: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
+  };
+  /** The branch a new season is for. Absent is the company's. */
+  businessUnitId?: string;
+  /** Whose season, for the labels: "the company" or the branch's name. */
+  owner: string;
+  /** The week a new season starts from. */
+  start: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
+}) {
+  const label = season ? season.name : `a new season for ${owner}`;
+  return (
+    <Hours
+      current={season?.days ?? start}
+      name={label}
+      action={season ? changeSeason : addSeason}
+      submit={season ? `Save ${season.name}` : `Add the season for ${owner}`}
+      {...(businessUnitId && !season ? { businessUnitId } : {})}
+      hidden={season ? { seasonId: season.id } : {}}
+    >
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-ink-500">Name</span>
+          <input name="seasonName" required maxLength={80} defaultValue={season?.name ?? ""} placeholder="Summer hours"
+                 aria-label={`Name of ${label}`} className="h-9 w-48 rounded border border-steel-300 px-2 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-ink-500">First day</span>
+          <input name="startsOn" type="date" required defaultValue={season?.startsOn ?? ""}
+                 aria-label={`First day of ${label}`} className="h-9 rounded border border-steel-300 px-2 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-ink-500">Last day</span>
+          <input name="endsOn" type="date" required defaultValue={season?.endsOn ?? ""}
+                 aria-label={`Last day of ${label}`} className="h-9 rounded border border-steel-300 px-2 text-sm" />
+        </label>
+        <label className="flex h-9 items-center gap-1 text-sm text-ink-700">
+          <input name="repeatsYearly" type="checkbox" defaultChecked={season?.repeatsYearly ?? true}
+                 aria-label={`${label} comes back every year`} />
+          Every year
+        </label>
+      </div>
+    </Hours>
   );
 }
 

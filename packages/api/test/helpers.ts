@@ -281,7 +281,7 @@ const ORDER = [
   "rental",
   /** A haul points at the facility it went to, so the facility goes after the hauls. */
   "disposal_facility",
-  "rentable_asset", "territory", "business_hours", "company_holiday",
+  "rentable_asset", "territory", "business_hours", "business_hours_season", "company_holiday",
   /**
    * The company's own tools, children first. Every one of these cascades
    * from `company_asset`, which cascades from the organization, but a scoped

@@ -1198,12 +1198,15 @@ async function workingDay(
 }> {
   /**
    * The hours the route's branch keeps on the date, or on the weekday: its
-   * own week where it keeps one, the company's otherwise, and on a date its
-   * holiday list over both (M02).
+   * own week where it keeps one, the company's otherwise, on a date the
+   * season in force over that (summer hours), and its holiday list over all
+   * of them (M02). A template with no date reads the normal week.
    */
-  const { week } = await loadWeek(tx, organizationId, branchId);
+  const chosen = await loadWeek(tx, organizationId, branchId);
+  const { week, seasons } = chosen;
+  const season = on !== null ? holidayRules.weekOn(chosen, on).season : null;
   const kept = on !== null
-    ? holidayRules.hoursOnDate(on, week, await loadHolidays(tx, organizationId, branchId))
+    ? holidayRules.hoursOnDate(on, week, await loadHolidays(tx, organizationId, branchId), seasons)
     : dayOfWeek === null || week === null
       ? { holiday: null, hours: null, known: false }
       : { holiday: null, hours: week[dayOfWeek] ?? null, known: true };
@@ -1215,7 +1218,7 @@ async function workingDay(
       minutes: null, basis: "closed", holiday, openMinutes: null, hours: null,
       closedOn: kept.holiday
         ? `You are closed on ${on} for ${kept.holiday.name}.`
-        : `You are closed on ${DAY_NAMES[weekdayOf(on)]}s, so ${on} is not a working day.`,
+        : `${season ? `In ${season.name} you` : "You"} are closed on ${DAY_NAMES[weekdayOf(on)]}s, so ${on} is not a working day.`,
     };
   }
 

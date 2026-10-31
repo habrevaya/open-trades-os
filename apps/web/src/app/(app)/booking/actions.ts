@@ -87,18 +87,21 @@ export async function saveWindows(_previous: unknown, form: FormData): Promise<R
   return caught(form, (context) => booking.setWindows(context, { windows }));
 }
 
+/** The seven days of a week form, as the services take them. */
+const daysOf = (form: FormData) => [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => {
+  const closed = form.get(`closed-${dayOfWeek}`) === "on";
+  const opensAt = String(form.get(`opens-${dayOfWeek}`) ?? "");
+  const closesAt = String(form.get(`closes-${dayOfWeek}`) ?? "");
+  return {
+    dayOfWeek,
+    opensAt: closed || !opensAt ? null : opensAt,
+    closesAt: closed || !closesAt ? null : closesAt,
+    closed,
+  };
+});
+
 export async function saveHours(_previous: unknown, form: FormData): Promise<Result> {
-  const days = [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => {
-    const closed = form.get(`closed-${dayOfWeek}`) === "on";
-    const opensAt = String(form.get(`opens-${dayOfWeek}`) ?? "");
-    const closesAt = String(form.get(`closes-${dayOfWeek}`) ?? "");
-    return {
-      dayOfWeek,
-      opensAt: closed || !opensAt ? null : opensAt,
-      closesAt: closed || !closesAt ? null : closesAt,
-      closed,
-    };
-  });
+  const days = daysOf(form);
 
   /** A branch's own week when the form names one, the company's otherwise. */
   const businessUnitId = String(form.get("businessUnitId") ?? "") || null;
@@ -110,6 +113,31 @@ export async function followCompanyHours(_previous: unknown, form: FormData): Pr
   return caught(form, (context) => businessHours.followCompany(context, {
     businessUnitId: String(form.get("businessUnitId") ?? ""),
   }));
+}
+
+/** A season's name, dates and week, from the season form. */
+const seasonOf = (form: FormData) => ({
+  name: String(form.get("seasonName") ?? "").trim(),
+  startsOn: String(form.get("startsOn") ?? ""),
+  endsOn: String(form.get("endsOn") ?? ""),
+  repeatsYearly: form.get("repeatsYearly") === "on",
+  days: daysOf(form),
+});
+
+/** A season for the company, or for the branch the form names: summer hours from June 1 to August 31. */
+export async function addSeason(_previous: unknown, form: FormData): Promise<Result> {
+  const businessUnitId = String(form.get("businessUnitId") ?? "") || null;
+  return caught(form, (context) => businessHours.addSeason(context, { ...seasonOf(form), businessUnitId }));
+}
+
+/** A season's name, dates or days changed. */
+export async function changeSeason(_previous: unknown, form: FormData): Promise<Result> {
+  return caught(form, (context) => businessHours.changeSeason(context, { id: String(form.get("seasonId") ?? ""), ...seasonOf(form) }));
+}
+
+/** A season taken off: its dates keep the normal week again. */
+export async function removeSeason(_previous: unknown, form: FormData): Promise<Result> {
+  return caught(form, (context) => businessHours.removeSeason(context, { id: String(form.get("seasonId") ?? "") }));
 }
 
 /** The share of each window held for members whose plan promises priority, and when it is let go. */
