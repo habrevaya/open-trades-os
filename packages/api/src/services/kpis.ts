@@ -1,6 +1,6 @@
 import { eq, sql, type SQL } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { can, effectiveScope, reporting, PERMISSIONS, type Permission } from "@opentradesos/core";
+import { can, effectiveScope, recurrence, reporting, PERMISSIONS, type Permission } from "@opentradesos/core";
 import { packs, packById, type TradePack } from "@opentradesos/trade-packs";
 import { audit, guardedRead, timezoneOf, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import { CATALOGUE, KEYS, total, type BesideKey, type Entry, type Format, type Grouping, type Half } from "./kpi-catalogue";
@@ -67,6 +67,8 @@ export interface KpiResult {
    * no grouping; optional for the same reason as `besides`.
    */
   groupings?: Array<{ key: string; label: string }>;
+  /** True when `GET /v1/kpi-series` can show the figure month by month. */
+  monthly?: boolean;
 }
 
 export interface Scorecard {
@@ -238,6 +240,7 @@ export function scorecard(ctx: ServiceContext, input: { from: string; to: string
         endpoint: null,
         besides,
         groupings: (entry.measure.groupings ?? []).map((g) => ({ key: g.key, label: g.label })),
+        ...(entry.measure.monthly ? { monthly: true } : {}),
       });
     }
 
@@ -724,6 +727,203 @@ export function breakdown(
   });
 }
 
+/* ------------------------------------------------------ month by month */
+
+/** The most months one series covers: five years. Longer is a different report. */
+export const MOST_SERIES_MONTHS = 60;
+
+/** One group's two halves in one month, as the breakdown gives a group's. */
+export interface KpiSeriesGroup {
+  /** The group's `value`, as the breakdown names it. */
+  value: string;
+  figure: string | null;
+  numerator: string;
+  denominator: string;
+  besides: Array<{ key: BesideKey; count: string }>;
+}
+
+export interface KpiSeriesMonth {
+  /** `2026-06`. */
+  month: string;
+  /** The month's own days within the window: the first and last month may be part of one. */
+  from: string;
+  to: string;
+  /** True when the window cuts the month short, so its figure is for fewer days than the others. */
+  partial: boolean;
+  /** Only the groups that have a record this month, in the order of `groups` on the series. */
+  groups: KpiSeriesGroup[];
+  /** Every group added up: the month's figure. */
+  total: KpiSeriesGroup;
+}
+
+export interface KpiSeries {
+  key: string;
+  label: string;
+  format: Format;
+  by: { key: string; label: string };
+  from: string;
+  to: string;
+  numeratorLabel: string;
+  denominatorLabel: string;
+  numeratorMoney: boolean;
+  denominatorMoney: boolean;
+  besides: Array<{ key: BesideKey; label: string }>;
+  /** Every group that has a record in any month, in the order the breakdown lists them. */
+  groups: Array<{ value: string; label: string }>;
+  /** Every month from the window's first to its last, oldest first, a month with no records included. */
+  months: KpiSeriesMonth[];
+  /** The whole window, month on month added up: the same halves the breakdown gives. */
+  all: KpiSeriesGroup[];
+}
+
+/** The months a window touches, oldest first, each with the days of it inside the window. */
+export function monthsOf(from: string, to: string): Array<{ month: string; from: string; to: string; partial: boolean }> {
+  const out: Array<{ month: string; from: string; to: string; partial: boolean }> = [];
+  let first = `${from.slice(0, 7)}-01`;
+  while (first.slice(0, 7) <= to.slice(0, 7)) {
+    const next = recurrence.addMonths(first, 1);
+    const last = recurrence.addDays(next, -1);
+    const start = from > first ? from : first;
+    const end = to < last ? to : last;
+    out.push({ month: first.slice(0, 7), from: start, to: end, partial: start !== first || end !== last });
+    first = next;
+  }
+  return out;
+}
+
+/**
+ * ONE FIGURE, MONTH BY MONTH, BROKEN DOWN BY A GROUPING ITS RECORDS CARRY.
+ *
+ * The same records the scorecard sums and the breakdown adds up by group, added
+ * up again by the month each record's day falls in, in the company's calendar.
+ * So each month's group is a window of the records the figure already counts
+ * and opens onto them with that month's first and last day, the months add up
+ * to the breakdown over the whole window, and a month the window cuts short is
+ * said to be part of a month. Only for a figure whose records all say which day
+ * they belong to (`monthly` in the catalogue); anything else is refused naming
+ * the ones that can.
+ *
+ * Refused exactly where the breakdown is: a reader who sees only part of the
+ * company, a record kind the reader may not read, a money half without the
+ * financial reports permission. At most five years at a time.
+ */
+export function series(
+  ctx: ServiceContext, input: { key: string; by: string; from: string; to: string },
+) {
+  return guardedRead(ctx, "report:read", async (tx): Promise<KpiSeries> => {
+    if (input.to < input.from) {
+      throw new ConflictError("The end of the window is before its start.");
+    }
+    const { entry, declared, trade } = await openFigure(tx, ctx, input.key);
+    if (!entry.measure.monthly) {
+      const offered = Object.entries(CATALOGUE)
+        .filter(([, e]) => e.state === "computed" && e.measure.monthly).map(([key]) => key);
+      throw new ConflictError(
+        `This figure is not shown month by month. ${offered.length > 0 ? `The ones that are: ${offered.join(", ")}.` : "None is."}`,
+      );
+    }
+    const grouping = groupingOf(entry, input.by);
+    const months = monthsOf(input.from, input.to);
+    if (months.length > MOST_SERIES_MONTHS) {
+      throw new ConflictError(`A series shows up to ${MOST_SERIES_MONTHS} months at a time (five years). Choose a shorter window.`);
+    }
+    const numeratorMoney = halfIsMoney(entry, "numerator");
+    const denominatorMoney = halfIsMoney(entry, "denominator");
+    if ((numeratorMoney || denominatorMoney) && !can(ctx.actor, "report.financial:read")) {
+      throw new ConflictError(MONEY_REFUSAL);
+    }
+
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const halves: Array<[KpiHalf, Half]> = [
+      ["numerator", entry.measure.numerator],
+      ["denominator", entry.measure.denominator],
+      ...(Object.entries(entry.measure.besides ?? {}) as Array<[BesideKey, Half]>),
+    ];
+
+    /** month, then group value: each half's sum. */
+    const cells = new Map<string, Map<string, Map<KpiHalf, number>>>();
+    const names = new Map<string, string>();
+    for (const [name, half] of halves) {
+      const rows = await tx.execute<{ month: string; value: string; label: string | null; total: string; kinds: string[] | null }>(sql`
+        select left(r.on_day::text, 7) as month,
+               ${sql.raw(`r."g_${grouping.key}"`)}::text as value,
+               max(${sql.raw(`r."g_${grouping.key}_label"`)})::text as label,
+               coalesce(sum(r.value), 0)::text as total,
+               array_remove(array_agg(distinct r.kind), null) as kinds
+        from (${half.records(input.from, input.to, zone, trade)}) as r
+        group by 1, 2
+      `);
+      for (const row of rows) {
+        assertKindsReadable(ctx, row.kinds ?? []);
+        const month = cells.get(row.month) ?? new Map();
+        const group = month.get(row.value) ?? new Map();
+        group.set(name, Number(row.total));
+        month.set(row.value, group);
+        cells.set(row.month, month);
+        if (!names.has(row.value)) names.set(row.value, row.label ?? "Not set");
+      }
+    }
+
+    const ordered = [...names.entries()].sort(([a, x], [b, y]) => grouping.order === "key"
+      ? Number(a) - Number(b) || a.localeCompare(b)
+      : x.localeCompare(y) || a.localeCompare(b));
+    const besideKeys = halves.slice(2).map(([key]) => key as BesideKey);
+    const asHalf = (money: boolean, value: number) => (money ? value.toFixed(4) : String(value));
+    const made = (value: string, sums: Map<KpiHalf, number>): KpiSeriesGroup => {
+      const top = sums.get("numerator") ?? 0;
+      const bottom = sums.get("denominator") ?? 0;
+      return {
+        value,
+        figure: TOTALS.includes(input.key) ? top.toFixed(4) : combine(entry.format, top, bottom),
+        numerator: asHalf(numeratorMoney, top),
+        denominator: asHalf(denominatorMoney, bottom),
+        besides: besideKeys.map((key) => ({ key, count: String(sums.get(key) ?? 0) })),
+      };
+    };
+    const addUp = (into: Map<KpiHalf, number>, from: Map<KpiHalf, number>) => {
+      for (const [key, value] of from) into.set(key, (into.get(key) ?? 0) + value);
+    };
+
+    const overall = new Map<string, Map<KpiHalf, number>>();
+    const out: KpiSeriesMonth[] = months.map((m) => {
+      const inMonth = cells.get(m.month) ?? new Map<string, Map<KpiHalf, number>>();
+      const sum = new Map<KpiHalf, number>();
+      const groups: KpiSeriesGroup[] = [];
+      for (const [value] of ordered) {
+        const sums = inMonth.get(value);
+        if (!sums) continue;
+        groups.push(made(value, sums));
+        addUp(sum, sums);
+        const all = overall.get(value) ?? new Map<KpiHalf, number>();
+        addUp(all, sums);
+        overall.set(value, all);
+      }
+      return { ...m, groups, total: made("", sum) };
+    });
+
+    await audit(tx, ctx, "kpi.series", "organization", ctx.actor.organizationId, null, {
+      key: input.key, by: grouping.key, from: input.from, to: input.to, months: out.length, groups: ordered.length,
+    });
+
+    return {
+      key: input.key,
+      label: declared.label,
+      format: entry.format,
+      by: { key: grouping.key, label: grouping.label },
+      from: input.from,
+      to: input.to,
+      numeratorLabel: entry.measure.numerator.label,
+      denominatorLabel: entry.measure.denominator.label,
+      numeratorMoney,
+      denominatorMoney,
+      besides: besideKeys.map((key) => ({ key, label: entry.measure.besides![key]!.label })),
+      groups: ordered.map(([value, label]) => ({ value, label })),
+      months: out,
+      all: ordered.filter(([value]) => overall.has(value)).map(([value]) => made(value, overall.get(value)!)),
+    };
+  });
+}
+
 export const handlers = {
   getKpiScorecard: (ctx: ServiceContext, input: { from: string; to: string }) =>
     scorecard(ctx, input),
@@ -734,4 +934,6 @@ export const handlers = {
   }) => drill(ctx, input),
   getKpiBreakdown: (ctx: ServiceContext, input: { key: string; by: string; from: string; to: string }) =>
     breakdown(ctx, input),
+  getKpiSeries: (ctx: ServiceContext, input: { key: string; by: string; from: string; to: string }) =>
+    series(ctx, input),
 } as const;

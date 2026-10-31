@@ -76,8 +76,10 @@ export function Figure({ kpi, records }: {
  * the address: `kpi` names the figure and `by` the grouping. Only one figure
  * is broken down at a time, because a scorecard of eight tables is a report.
  */
-export function BreakdownPicker({ kpi, from, to, chosen }: {
+export function BreakdownPicker({ kpi, from, to, chosen, months }: {
   kpi: Kpi; from: string; to: string; chosen: string | null;
+  /** How many months the table shows when it is month by month, or null for the window as one. */
+  months?: number | null | undefined;
 }) {
   const groupings = kpi.groupings ?? [];
   if (groupings.length === 0) return null;
@@ -93,10 +95,103 @@ export function BreakdownPicker({ kpi, from, to, chosen }: {
           {groupings.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
         </select>
       </label>
+      {kpi.monthly ? (
+        <label className="flex flex-col gap-1">
+          <span className="text-ink-700">Over time</span>
+          <select name="months" defaultValue={months ? String(months) : ""} className="h-8 rounded border border-steel-300 bg-canvas px-2 text-sm">
+            <option value="">The whole window as one</option>
+            {SERIES_MONTHS.map((n) => <option key={n} value={n}>{`Month by month, the last ${n}`}</option>)}
+          </select>
+        </label>
+      ) : null}
       <button type="submit" className="h-8 rounded border border-steel-300 px-3 text-sm font-medium hover:bg-steel-100">
         Show
       </button>
     </form>
+  );
+}
+
+/** The lengths the month by month view offers: half a year, a year, two years. */
+export const SERIES_MONTHS = [6, 12, 24] as const;
+
+/** `2026-06` as "Jun 2026". */
+const monthName = (month: string): string =>
+  new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+
+/**
+ * ONE FIGURE MONTH BY MONTH, BY A GROUPING: a row for each group and a column for each month, the month's
+ * figure with its two halves under it, each half a link to that group's records in that month. The last
+ * row adds every group up, and the last column adds every month up. A month the window cuts short is
+ * marked, because its figure is for fewer days than the rest.
+ */
+export function SeriesTable({ result, records }: {
+  result: kpis.KpiSeries;
+  /** Where one half of one group opens, for a month (its first and last day), or for every month when `month` is null. */
+  records: (half: kpis.KpiHalf, group: string | null, month: kpis.KpiSeriesMonth | null) => string;
+}) {
+  const halfOf = (money: boolean, value: string) => (money ? <Money value={value} /> : value);
+  const link = (href: string, children: React.ReactNode) =>
+    <a href={href} className="underline underline-offset-2 hover:text-ink-900">{children}</a>;
+  const cell = (g: kpis.KpiSeriesGroup | undefined, group: string | null, month: kpis.KpiSeriesMonth | null) => {
+    if (!g) return <span className="text-ink-500">None</span>;
+    return (
+      <>
+        <div>{g.figure === null ? <span className="text-ink-500">No figure</span> : show(result.format, g.figure)}</div>
+        <div className="text-xs text-ink-500">
+          {link(records("numerator", group, month), halfOf(result.numeratorMoney, g.numerator))}
+          {" of "}
+          {link(records("denominator", group, month), halfOf(result.denominatorMoney, g.denominator))}
+        </div>
+      </>
+    );
+  };
+  if (result.groups.length === 0) {
+    return <p className="mt-3 text-sm text-ink-500">Nothing in these months to show.</p>;
+  }
+  const label = `${result.label} by ${result.by.label.toLowerCase()}, month by month`;
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full text-sm" aria-label={label}>
+        <caption className="pb-1 text-left text-xs text-ink-500">
+          {label}. Each figure has its two halves under it: {result.numeratorLabel}, of {result.denominatorLabel}.
+        </caption>
+        <thead>
+          <tr className="border-b border-steel-200 text-left text-xs text-ink-500">
+            <th className="py-1 pr-3 font-medium">{result.by.label}</th>
+            {result.months.map((m) => (
+              <th key={m.month} className="py-1 pr-3 text-right font-medium">
+                {monthName(m.month)}{m.partial ? <span className="block font-normal">part of the month</span> : null}
+              </th>
+            ))}
+            <th className="py-1 pr-3 text-right font-medium">All months</th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.groups.map((group) => (
+            <tr key={group.value} className="border-b border-steel-200 align-top">
+              <td className="py-1 pr-3">{group.label}</td>
+              {result.months.map((m) => (
+                <td key={m.month} className="py-1 pr-3 text-right tabular-nums">
+                  {cell(m.groups.find((g) => g.value === group.value), group.value, m)}
+                </td>
+              ))}
+              <td className="py-1 pr-3 text-right tabular-nums">
+                {cell(result.all.find((g) => g.value === group.value), group.value, null)}
+              </td>
+            </tr>
+          ))}
+          <tr className="align-top">
+            <td className="py-1 pr-3 font-medium">All of them</td>
+            {result.months.map((m) => (
+              <td key={m.month} className="py-1 pr-3 text-right font-medium tabular-nums">
+                {cell(m.total, null, m)}
+              </td>
+            ))}
+            <td />
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 

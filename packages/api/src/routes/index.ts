@@ -972,6 +972,7 @@ export const handlers = {
   listKpiCatalogue: kpis.handlers.listKpiCatalogue,
   getKpiRecords: kpis.handlers.getKpiRecords,
   getKpiBreakdown: kpis.handlers.getKpiBreakdown,
+  getKpiSeries: kpis.handlers.getKpiSeries,
 
   // One visit on its own (M10), the read its screen makes
   getVisit: (ctx: ServiceContext, input: { id: string }) => visits.get(ctx, input),

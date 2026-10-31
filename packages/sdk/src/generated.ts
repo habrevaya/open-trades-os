@@ -10308,6 +10308,7 @@ export interface GetKpiScorecardOutput {
       key: string;
       label: string;
     }>;
+    monthly?: boolean;
   }>;
   unavailable: Array<{
     key: string;
@@ -10334,6 +10335,7 @@ export interface GetKpiScorecardOutput {
       key: string;
       label: string;
     }>;
+    monthly?: boolean;
   }>;
   elsewhere: Array<{
     key: string;
@@ -10359,6 +10361,67 @@ export interface GetKpiScorecardOutput {
     groupings: Array<{
       key: string;
       label: string;
+    }>;
+    monthly?: boolean;
+  }>;
+}
+
+export interface GetKpiSeriesOutput {
+  key: string;
+  label: string;
+  format: "percent" | "money" | "number" | "duration";
+  by: {
+    key: string;
+    label: string;
+  };
+  from: string;
+  to: string;
+  numeratorLabel: string;
+  denominatorLabel: string;
+  numeratorMoney: boolean;
+  denominatorMoney: boolean;
+  besides: Array<{
+    key: "excluded" | "unknown";
+    label: string;
+  }>;
+  groups: Array<{
+    value: string;
+    label: string;
+  }>;
+  months: Array<{
+    month: string;
+    from: string;
+    to: string;
+    partial: boolean;
+    groups: Array<{
+      value: string;
+      figure: string | null;
+      numerator: string;
+      denominator: string;
+      besides: Array<{
+        key: "excluded" | "unknown";
+        count: string;
+      }>;
+    }>;
+    total: {
+      value: string;
+      figure: string | null;
+      numerator: string;
+      denominator: string;
+      besides: Array<{
+        key: "excluded" | "unknown";
+        count: string;
+      }>;
+    };
+  }>;
+  all: Array<{
+    value: string;
+    figure: string | null;
+    numerator: string;
+    denominator: string;
+    besides: Array<{
+      key: "excluded" | "unknown";
+      count: string;
     }>;
   }>;
 }
@@ -32562,6 +32625,13 @@ export interface GetKpiScorecardInput {
   to: string;
 }
 
+export interface GetKpiSeriesInput {
+  key: string;
+  by: string;
+  from: string;
+  to: string;
+}
+
 export type GetLeadInboxInput = Record<string, never>;
 
 export interface GetLeadOfferInput {
@@ -35847,6 +35917,7 @@ export interface OperationTypes {
   getKpiBreakdown: { input: GetKpiBreakdownInput; output: GetKpiBreakdownOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
+  getKpiSeries: { input: GetKpiSeriesInput; output: GetKpiSeriesOutput };
   getLeadInbox: { input: GetLeadInboxInput; output: GetLeadInboxOutput };
   getLeadOffer: { input: GetLeadOfferInput; output: GetLeadOfferOutput };
   getLivePositions: { input: GetLivePositionsInput; output: GetLivePositionsOutput };
@@ -37102,6 +37173,7 @@ export const OPERATIONS = {
   getKpiBreakdown: { method: "GET", path: "/v1/kpi-breakdown", pathParams: [], queryParams: ["key","by","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to","page","perPage","by","group"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getKpiSeries: { method: "GET", path: "/v1/kpi-series", pathParams: [], queryParams: ["key","by","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getLeadInbox: { method: "GET", path: "/v1/lead-inbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getLeadOffer: { method: "GET", path: "/v1/lead-offers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getLivePositions: { method: "GET", path: "/v1/dispatch/positions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
@@ -41244,6 +41316,15 @@ export abstract class GeneratedOperations {
    */
   getKpiScorecard(input: GetKpiScorecardInput, options?: CallOptions): Promise<GetKpiScorecardOutput> {
     return this.call("getKpiScorecard", input, options);
+  }
+
+  /**
+   * One KPI month by month, broken down by a grouping its records carry.
+   *
+   * GET /v1/kpi-series. Needs report:read.
+   */
+  getKpiSeries(input: GetKpiSeriesInput, options?: CallOptions): Promise<GetKpiSeriesOutput> {
+    return this.call("getKpiSeries", input, options);
   }
 
   /**

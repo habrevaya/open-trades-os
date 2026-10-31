@@ -496,6 +496,7 @@ Everybody holds `profile:own`: their own record, and nobody else's.
 | `POST /v1/staff-documents/{id}/requests` | `user:write` |
 | `GET /v1/me` | `profile:own` |
 | `POST /v1/me/contact` | `profile:own` |
+| `POST /v1/me/second-email` | `profile:own` |
 | `POST /v1/me/emergency-contacts` | `profile:own` |
 | `POST /v1/me/emergency-contacts/{id}/remove` | `profile:own` |
 | `POST /v1/me/onboarding-lines/{id}` | `profile:own` |

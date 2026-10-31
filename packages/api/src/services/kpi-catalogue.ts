@@ -128,6 +128,14 @@ export interface Measure {
    * figure, added up by group, and the groups add up to the figure.
    */
   groupings?: Grouping[];
+  /**
+   * THE FIGURE CAN BE SHOWN MONTH BY MONTH (`GET /v1/kpi-series`). Declared only
+   * where every records query of every half (and every count beside) names the
+   * day each record belongs to, `on_day`, as `YYYY-MM-DD` in the company's
+   * calendar, and that day is the one the window is counted on, so a month is
+   * the records of its days added up and the months add up to the figure.
+   */
+  monthly?: boolean;
 }
 
 /** A grouping a measure's records carry. */
@@ -2463,6 +2471,11 @@ export const CATALOGUE: Record<string, Entry> = {
         { key: "route", label: "Route", order: "label" },
         { key: "weekday", label: "Weekday", order: "key" },
       ],
+      /**
+       * Month by month, by route: every stop's `on_day` is the day its window
+       * began in the company's calendar, which is the day the window counts it on.
+       */
+      monthly: true,
     },
   },
 

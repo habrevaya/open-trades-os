@@ -46,6 +46,8 @@ const KpiResult = z.object({
    * and weekday. Empty for a figure whose records carry none.
    */
   groupings: z.array(z.object({ key: z.string(), label: z.string() })),
+  /** True when the figure can be shown month by month (`GET /v1/kpi-series`). Left out when it cannot. */
+  monthly: z.boolean().optional(),
 });
 
 export const getKpiScorecard = defineRoute({
@@ -196,4 +198,53 @@ export const getKpiBreakdown = defineRoute({
   }),
 });
 
-export const kpiRoutes = { getKpiScorecard, listKpiCatalogue, getKpiRecords, getKpiBreakdown } as const;
+const SeriesGroup = z.object({
+  /** The group's `value`, as the breakdown names it. Empty on a month's `total`. */
+  value: z.string(),
+  figure: z.string().nullable(),
+  numerator: z.string(),
+  denominator: z.string(),
+  besides: z.array(z.object({ key: z.enum(["excluded", "unknown"]), count: z.string() })),
+});
+
+export const getKpiSeries = defineRoute({
+  method: "get",
+  path: "/v1/kpi-series",
+  summary: "One KPI month by month, broken down by a grouping its records carry",
+  description:
+    "The records behind a figure, added up by the month each record's day falls in, in the company's calendar, and by a grouping every record names: the cancellation rate by route, a month at a time, from the same stops the scorecard sums and `GET /v1/kpi-breakdown` adds up by route. Only for a figure the scorecard marks `monthly`; any other is refused naming the ones that are. `by` is one of the KPI's own `groupings`. `months` runs from the window's first month to its last, oldest first, a month with no records included (its `total` has a null figure), and each month has its `groups` (only those with a record that month, in the order of `groups`) and its `total`. The first and last month are `partial` when the window cuts them short, and their `from` and `to` are the days of the month inside the window: a group's records in a month open through `GET /v1/kpi-records` with that `from` and `to` and `by` and `group`. `all` adds every month up by group and is what `GET /v1/kpi-breakdown` gives for the whole window. A figure is combined the way the scorecard combines it (an empty denominator is null, never nought). Up to 60 months at a time. Refused, in words, exactly where the breakdown is: a reader whose scope is narrower than the whole company, a record kind the reader may not read, a money half without report.financial:read.",
+  module: "M21",
+  permissions: ["report:read"],
+  idempotent: true,
+  input: z.object({
+    key: z.string().min(1).max(80),
+    by: z.string().min(1).max(40),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  output: z.object({
+    key: z.string(),
+    label: z.string(),
+    format: z.enum(["percent", "money", "number", "duration"]),
+    by: z.object({ key: z.string(), label: z.string() }),
+    from: z.string(),
+    to: z.string(),
+    numeratorLabel: z.string(),
+    denominatorLabel: z.string(),
+    numeratorMoney: z.boolean(),
+    denominatorMoney: z.boolean(),
+    besides: z.array(z.object({ key: z.enum(["excluded", "unknown"]), label: z.string() })),
+    groups: z.array(z.object({ value: z.string(), label: z.string() })),
+    months: z.array(z.object({
+      month: z.string(),
+      from: z.string(),
+      to: z.string(),
+      partial: z.boolean(),
+      groups: z.array(SeriesGroup),
+      total: SeriesGroup,
+    })),
+    all: z.array(SeriesGroup),
+  }),
+});
+
+export const kpiRoutes = { getKpiScorecard, listKpiCatalogue, getKpiRecords, getKpiBreakdown, getKpiSeries } as const;

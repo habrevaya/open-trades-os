@@ -71598,6 +71598,153 @@
         ]
       }
     },
+    "/v1/kpi-series": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getKpiSeries",
+        "summary": "One KPI month by month, broken down by a grouping its records carry",
+        "description": "The records behind a figure, added up by the month each record's day falls in, in the company's calendar, and by a grouping every record names: the cancellation rate by route, a month at a time, from the same stops the scorecard sums and `GET /v1/kpi-breakdown` adds up by route. Only for a figure the scorecard marks `monthly`; any other is refused naming the ones that are. `by` is one of the KPI's own `groupings`. `months` runs from the window's first month to its last, oldest first, a month with no records included (its `total` has a null figure), and each month has its `groups` (only those with a record that month, in the order of `groups`) and its `total`. The first and last month are `partial` when the window cuts them short, and their `from` and `to` are the days of the month inside the window: a group's records in a month open through `GET /v1/kpi-records` with that `from` and `to` and `by` and `group`. `all` adds every month up by group and is what `GET /v1/kpi-breakdown` gives for the whole window. A figure is combined the way the scorecard combines it (an empty denominator is null, never nought). Up to 60 months at a time. Refused, in words, exactly where the breakdown is: a reader whose scope is narrower than the whole company, a record kind the reader may not read, a money half without report.financial:read.\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "by",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One KPI month by month, broken down by a grouping its records carry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetKpiSeriesOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
+        ]
+      }
+    },
     "/v1/kpis": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -207399,6 +207546,9 @@
                       "label"
                     ]
                   }
+                },
+                "monthly": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -207550,6 +207700,9 @@
                       "label"
                     ]
                   }
+                },
+                "monthly": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -207701,6 +207854,9 @@
                       "label"
                     ]
                   }
+                },
+                "monthly": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -207732,6 +207888,296 @@
           "computed",
           "unavailable",
           "elsewhere"
+        ]
+      },
+      "GetKpiSeriesOutput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "money",
+              "number",
+              "duration"
+            ]
+          },
+          "by": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "label"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "numeratorLabel": {
+            "type": "string"
+          },
+          "denominatorLabel": {
+            "type": "string"
+          },
+          "numeratorMoney": {
+            "type": "boolean"
+          },
+          "denominatorMoney": {
+            "type": "boolean"
+          },
+          "besides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "excluded",
+                    "unknown"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "label"
+              ]
+            }
+          },
+          "months": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "month": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "partial": {
+                  "type": "boolean"
+                },
+                "groups": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "figure": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "numerator": {
+                        "type": "string"
+                      },
+                      "denominator": {
+                        "type": "string"
+                      },
+                      "besides": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "enum": [
+                                "excluded",
+                                "unknown"
+                              ]
+                            },
+                            "count": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "count"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "figure",
+                      "numerator",
+                      "denominator",
+                      "besides"
+                    ]
+                  }
+                },
+                "total": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "figure": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "numerator": {
+                      "type": "string"
+                    },
+                    "denominator": {
+                      "type": "string"
+                    },
+                    "besides": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "enum": [
+                              "excluded",
+                              "unknown"
+                            ]
+                          },
+                          "count": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "count"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "figure",
+                    "numerator",
+                    "denominator",
+                    "besides"
+                  ]
+                }
+              },
+              "required": [
+                "month",
+                "from",
+                "to",
+                "partial",
+                "groups",
+                "total"
+              ]
+            }
+          },
+          "all": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "figure": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "numerator": {
+                  "type": "string"
+                },
+                "denominator": {
+                  "type": "string"
+                },
+                "besides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "enum": [
+                          "excluded",
+                          "unknown"
+                        ]
+                      },
+                      "count": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "count"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "value",
+                "figure",
+                "numerator",
+                "denominator",
+                "besides"
+              ]
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "format",
+          "by",
+          "from",
+          "to",
+          "numeratorLabel",
+          "denominatorLabel",
+          "numeratorMoney",
+          "denominatorMoney",
+          "besides",
+          "groups",
+          "months",
+          "all"
         ]
       },
       "GetLeadInboxOutput": {

@@ -138,8 +138,6 @@ export interface OnCallDelivery {
   sentTo: string | undefined;
 }
 
-export const ON_CALL_WORDS = "whoever is on the office rota today";
-
 export async function deliveryToday(tx: Database, organizationId: string, now: Date = new Date()): Promise<OnCallDelivery> {
   const today = await todayOf(tx, organizationId, now);
   const turns = await tx.select({
