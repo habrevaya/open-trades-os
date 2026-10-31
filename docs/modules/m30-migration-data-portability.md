@@ -310,19 +310,27 @@ stops between batches and pressing the button again carries on.
 | Equipment | `POST /v1/equipment`, at the customer's address the row names by street, or their main one |
 | Price book items | `POST /v1/pricebook/items` |
 | Past jobs | `POST /v1/jobs` with `completedAt` or `cancelledAt`, or as a lead when the row says open |
-| Past invoices | `POST /v1/invoices` with `issuedOn`, a line per row (its quantity at its price each, or one at its amount before tax) with the tax as charged on it and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
+| Past invoices | `POST /v1/invoices` with `issuedOn`, a line per row (its quantity at its price each less its discount, or one at its amount before tax) with the tax as charged on it, the price book item it names linked (`priceBookItemId` with `priceAsGiven`) and the total as `expectedTotals`, then `POST /v1/payments` dated the day it was paid and applied to that invoice |
 | Past payments | `POST /v1/payments` dated the day it was paid, with an allocation per row to the invoice that row names, and whatever a row names no invoice for held for the customer |
-| Past estimates | `POST /v1/estimates` with `issuedOn`, its options and the lines of each (one option of one line when the file has one row), taxed at the rate its tax was charged at or not at all, its `outcome` (approved on the option the file names, declined with the reason, expired) and `sentOn`; each option's total is checked against the file's to the cent afterwards |
-| Customer notes | `POST /v1/customers/{id}/notes` with `notedAt` at midday of the day in the file on the company's clock (now, for a note written today), `forField` when the file says the technician should see it, and `externalRef` |
-| Past visits | `POST /v1/jobs/{id}/visits` with the window at the day and times in the file on the company's clock, the one technician it names, `completedAt` at the time it finished and `technicianNotes`; an hour long when the file has no time it finished |
+| Past estimates | `POST /v1/estimates` with `issuedOn`, its options and the lines of each (one option of one line when the file has one row), taxed at the rate its tax was charged at or not at all, its `outcome` (approved on the option the file names, declined with the reason, expired, and for an approval the `convertedOn` day) and `sentOn`; each option's total is checked against the file's to the cent afterwards |
+| Customer notes | `POST /v1/customers/{id}/notes` with `notedAt` at the time in the file on the company's clock, or at midday of the day when the file gives no time (now, for a note written today), `forField` when the file says the technician should see it, and `externalRef` |
+| Past visits | `POST /v1/jobs/{id}/visits` with the window at the day and times in the file on the company's clock, every technician it names in `technicianIds`, `completedAt` at the time it finished and `technicianNotes`; an hour long when the file has no time it finished |
 
-**A note comes in on its day.** Whose it is the way a job finds its customer
+**A note comes in on its day, and at its time when the file has one.** Whose it is the way a job finds its customer
 (by the customer's id from a customers file under the same "came from" name,
 or an email exactly one customer has), the day it was written is needed (a
 note with no day would sit at the top of the customer's notes as if it were
 written today), and it lands among the customer's notes marked as brought in
 from that source, with nobody here as its writer and never changed afterwards.
-"For the technician" (yes or no) shows it on the customer's visits.
+"For the technician" (yes or no) shows it on the customer's visits. The time is
+a **Time written** column ("2:30 PM", "14:30"), or the time after the day in the
+same cell ("2021-03-04 14:30", which is how a workbook gives a date written at a
+time, or "3/4/2021 2:30 PM"); a time in both that disagree refuses the row,
+because the file does not say which is right. A note with only a day is dated
+midday of it, or now for today, as it was. A workbook gives a time of exactly
+midnight as a day with no time, so a note written at 00:00 is dated midday.
+A time later than now on today's date is refused by the create, which never
+dates a note ahead.
 
 **A past visit goes on a past job, done, by somebody on the board.** It finds
 its job by the job's id from a jobs file or the number it kept, and the job
@@ -330,7 +338,12 @@ has to be finished; one still open is refused, to bring in as finished or to
 book from the board. It names its technician by the email they sign in with,
 and only an active technician of the company matches: an email nobody on the
 board signs in with is refused, rather than putting the visit on nobody or on
-a guess, so add the person under Team first. The day and the time it started
+a guess, so add the person under Team first. A visit two or more people went on
+names all of them in the one cell, separated by a semicolon, a comma or a new
+line (`ray@x.com; sam@x.com`): each is found the same strict way, the same
+address twice counts once, at most ten can be named, and if any one of them
+cannot be found the whole visit is refused, because a visit put on only some of
+the crew would be paid and counted wrong. The day and the time it started
 are needed and the time it finished is not; times are read on the company's
 clock, "14:30" or "2:30 PM", a time with no AM or PM is a 24 hour clock, and a
 visit that ends before it starts, or runs past midnight, is refused. It is
@@ -381,7 +394,16 @@ several, only the ones the file marks are. A line with no option on a file whose
 other lines name theirs is refused rather than put in an option of its own.
 
 **An estimate comes in as it ended.** Approved, declined or expired, each with
-the day it was decided, or open. An open one comes in as a draft, to send from
+the day it was decided, or open. An approved one can also carry the day it was
+turned into a job in the other system (**Turned into a job on**): it is then
+recorded as converted on that day (`convertedAt`, the start of the day on the
+company's clock), tied to the job its **Job's id or number** column names, and
+no longer offered for conversion here, because converting it again would make a
+second job and a second invoice for work already done. Asking to convert it
+returns what is there. The day is refused on an estimate that was not approved,
+before it was approved or written, or in the future. A file that only says
+"converted" in its status is read as approved, as it was: this does not invent a
+day nobody gave, and the estimate can still be converted here. An open one comes in as a draft, to send from
 here, and one that says it was sent and is still open is refused with that
 reason: recorded as sent, it would be chased by a follow up about an answer
 the customer gave in the old system. Its tax is never the company's rate of
@@ -414,6 +436,23 @@ number it kept, and a payment names its customer or takes the invoices'. The
 same invoice twice in one payment is refused. Without an id column nothing is
 grouped, and two rows the same are the same row twice. The counts on the screen
 are rows, so a loaded invoice of three lines is three loaded.
+
+**An invoice's line can name its price book item and a discount.** Two optional
+columns, **Price book item's code or id** and **Discount on the line**, on the
+rows of a past invoices file. The item is found by the id a price book file gave
+it under the same "came from" name, else by its code (any case); a code that
+matches no item, or two, refuses the row rather than linking the wrong one, so
+bring the price book in first. The line is linked to the item (so "which invoices
+sold this" has an answer) and keeps what the file charged: the name, price and
+tax are the file's, and nothing is priced again from the item's version of today
+(`priceAsGiven`). A line the file does not word is called what the item is
+called. The discount is the amount taken off the line in all, not off each one,
+and **Before tax** is what was charged after it: Quantity at Price each, less
+the discount, to the cent, which has to agree with Before tax when the file
+gives one. A discount below zero, more than the line, or with no Price each is
+refused, and so is a mapping with a Discount column and no Price each. The
+discount posts as every discount does, to the discounts account with revenue at
+the full price. The line's tax is the file's, on the amount after the discount.
 
 **A second upload makes no copies.** Each record carries `externalRef`: the
 "came from" name and the row's id column, or failing that the code or number
@@ -762,18 +801,21 @@ comments and pictures are not looked at. A number with more than fifteen digits
 (an id typed as a number) loses its last digits in the spreadsheet itself, and a
 zip code typed as a number has lost its leading zero before this sees it; both
 need the column formatted as text in the spreadsheet. The header has to be the
-sheet's first row. An invoice's lines carry a quantity, a price each, a description
-and the tax charged on them, not a price book item, a discount or a cost; a
-refund or a credit does not come in through it. An estimate's lines carry a
+sheet's first row. An invoice's lines carry a quantity, a price each, a description,
+a price book item, a discount and the tax charged on them, not a cost; a
+refund or a credit does not come in through it. A line's item is found by its id
+or its code and never by its name, and a discount is one amount for the line,
+not a percentage or a list of them. An estimate's lines carry a
 name, a quantity, a price each and the tax charged, not a price book item, a
 discount, a cost, a description, an optional line the customer could add, or the
 member rate; an option carries its name and whether it is recommended or chosen,
 not a description; and a file with more than five options on an estimate is
 refused, because the create takes five. An approved estimate with several options
 needs the file to say which was chosen: nothing is chosen for the owner.
-A note comes in dated by its day, not its time, and a past visit carries one
-technician, not a crew: a visit two people went on is two files' worth of
-work, or the second is added from the visit afterwards. A past visit's parts,
+A note comes in dated by its time when the file has one, but a file with only a
+day dates it midday, and a time of exactly midnight in a workbook is read as no
+time. A past visit can name up to ten technicians, all of whom must be on the board
+or the visit is refused. A past visit's parts,
 photographs, signature and readings do not come in, only who went, when and
 what they wrote. A technician who has left is not on the board and cannot be
 matched, so their visits are refused until they are added back.
@@ -789,8 +831,10 @@ past due, M29) can still reach a record brought in, because it starts from the
 record rather than from the file's event. Through the API, a create has no
 switch: pause automations for the length of a migration.
 
-An estimate's history carries its outcome and the day it was sent, but not the
-day it was converted.
+An estimate's history carries its outcome, the day it was sent and, for an
+approved one, the day it was converted. An estimate converted before the day
+was kept (`convertedAt`) has none recorded, and one a file only calls
+"converted" is approved with no day.
 
 The zip of spreadsheets is a download from the screen and a scheduled copy; the
 API has no route that streams it, because the API answers in JSON, so a program

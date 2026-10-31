@@ -262,7 +262,13 @@ with the reason, or expired on a day. It needs `data:import`, the date is
 checked (not in the future, not before the estimate was written), and a win
 must name its option. Nothing is emitted and no signature is recorded,
 because loading history must not start automations or claim a signature
-nobody gave. An imported win converts like any other.
+nobody gave. An imported win that was never turned into a job in the other system
+converts like any other. One that was carries `outcome.convertedOn`, the day, and
+is recorded as converted on it (`convertedAt` on the estimate, tied to the `jobId`
+given): it is not offered for conversion again, so there is no second job or
+invoice, and it counts as sold. The day is for an approval only, not before it was
+approved, not in the future. A conversion done here stamps `convertedAt` with the
+moment it happened.
 
 ### Turn it into work
 

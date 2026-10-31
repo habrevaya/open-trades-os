@@ -78,6 +78,8 @@ export const Estimate = z.object({
   sentAt: z.string().datetime().nullable(),
   viewedAt: z.string().datetime().nullable(),
   decidedAt: z.string().datetime().nullable(),
+  /** When it was turned into a job and an invoice. Null until then. */
+  convertedAt: z.string().datetime().nullable(),
   declineReason: z.string().nullable(),
   selectedOptionId: Uuid.nullable(),
   signerName: z.string().nullable(),
@@ -175,6 +177,14 @@ export const createEstimate = defineRoute({
       chosenOption: z.number().int().min(0).max(4).optional(),
       signerName: z.string().max(200).optional(),
       reason: z.string().max(1000).optional(),
+      /**
+       * For an approval: the day it was turned into a job in the other system.
+       * The estimate is then recorded as converted on that day (`convertedAt`),
+       * so it is not offered for conversion again here, which would make a
+       * second job and a second invoice for work already done. Not before it
+       * was approved, not in the future.
+       */
+      convertedOn: z.string().date().optional(),
     }).optional(),
     /**
      * The day it was sent, for an estimate brought from another system that

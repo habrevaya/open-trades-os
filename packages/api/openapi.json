@@ -161108,6 +161108,13 @@
             ],
             "format": "date-time"
           },
+          "convertedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "declineReason": {
             "type": [
               "string",
@@ -161421,6 +161428,7 @@
           "sentAt",
           "viewedAt",
           "decidedAt",
+          "convertedAt",
           "declineReason",
           "selectedOptionId",
           "signerName",
@@ -161854,6 +161862,13 @@
                 ],
                 "format": "date-time"
               },
+              "convertedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "declineReason": {
                 "type": [
                   "string",
@@ -162045,6 +162060,7 @@
               "sentAt",
               "viewedAt",
               "decidedAt",
+              "convertedAt",
               "declineReason",
               "selectedOptionId",
               "signerName",
@@ -167931,6 +167947,13 @@
                 ],
                 "format": "date-time"
               },
+              "convertedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "declineReason": {
                 "type": [
                   "string",
@@ -168244,6 +168267,7 @@
               "sentAt",
               "viewedAt",
               "decidedAt",
+              "convertedAt",
               "declineReason",
               "selectedOptionId",
               "signerName",
@@ -172418,6 +172442,10 @@
               "reason": {
                 "type": "string",
                 "maxLength": 1000
+              },
+              "convertedOn": {
+                "type": "string",
+                "format": "date"
               }
             },
             "required": [
@@ -172613,6 +172641,13 @@
             "format": "date-time"
           },
           "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "convertedAt": {
             "type": [
               "string",
               "null"
@@ -172932,6 +172967,7 @@
           "sentAt",
           "viewedAt",
           "decidedAt",
+          "convertedAt",
           "declineReason",
           "selectedOptionId",
           "signerName",
@@ -183409,6 +183445,13 @@
             ],
             "format": "date-time"
           },
+          "convertedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "declineReason": {
             "type": [
               "string",
@@ -183722,6 +183765,7 @@
           "sentAt",
           "viewedAt",
           "decidedAt",
+          "convertedAt",
           "declineReason",
           "selectedOptionId",
           "signerName",
@@ -199297,6 +199341,13 @@
             ],
             "format": "date-time"
           },
+          "convertedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "declineReason": {
             "type": [
               "string",
@@ -199610,6 +199661,7 @@
           "sentAt",
           "viewedAt",
           "decidedAt",
+          "convertedAt",
           "declineReason",
           "selectedOptionId",
           "signerName",
@@ -236524,6 +236576,13 @@
                   ],
                   "format": "date-time"
                 },
+                "convertedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "declineReason": {
                   "type": [
                     "string",
@@ -236605,6 +236664,7 @@
                 "sentAt",
                 "viewedAt",
                 "decidedAt",
+                "convertedAt",
                 "declineReason",
                 "selectedOptionId",
                 "signerName",
@@ -282454,6 +282514,13 @@
                 ],
                 "format": "date-time"
               },
+              "convertedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "declineReason": {
                 "type": [
                   "string",
@@ -282767,6 +282834,7 @@
               "sentAt",
               "viewedAt",
               "decidedAt",
+              "convertedAt",
               "declineReason",
               "selectedOptionId",
               "signerName",
@@ -312865,6 +312933,13 @@
             ],
             "format": "date-time"
           },
+          "convertedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "declineReason": {
             "type": [
               "string",
@@ -313056,6 +313131,7 @@
           "sentAt",
           "viewedAt",
           "decidedAt",
+          "convertedAt",
           "declineReason",
           "selectedOptionId",
           "signerName",

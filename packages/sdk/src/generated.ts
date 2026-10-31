@@ -1380,6 +1380,7 @@ export interface ApproveEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -1520,6 +1521,7 @@ export interface ApprovePortalEstimateOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -2775,6 +2777,7 @@ export interface ConvertEstimateOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -3633,6 +3636,7 @@ export interface CreateEstimateInput {
     chosenOption?: number;
     signerName?: string;
     reason?: string;
+    convertedOn?: string;
   };
   sentOn?: string;
   taxRate?: string;
@@ -3672,6 +3676,7 @@ export interface CreateEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -5646,6 +5651,7 @@ export interface DeclineEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -8836,6 +8842,7 @@ export interface GetEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;
@@ -15806,6 +15813,7 @@ export interface ListEstimatesOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -24918,6 +24926,7 @@ export interface SendEstimateOutput {
     sentAt: string | null;
     viewedAt: string | null;
     decidedAt: string | null;
+    convertedAt: string | null;
     declineReason: string | null;
     selectedOptionId: string | null;
     signerName: string | null;
@@ -30909,6 +30918,7 @@ export interface ViewPortalEstimateOutput {
   sentAt: string | null;
   viewedAt: string | null;
   decidedAt: string | null;
+  convertedAt: string | null;
   declineReason: string | null;
   selectedOptionId: string | null;
   signerName: string | null;

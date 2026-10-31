@@ -136,6 +136,13 @@ export const estimate = pgTable("estimate", {
    */
   followUpFrom: timestamp("follow_up_from", { withTimezone: true }),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /**
+   * When it was turned into a job and an invoice: the moment the office pressed
+   * convert, or for an estimate brought from another system, the start of the day
+   * its file says it was converted there. Null for one never converted, and for
+   * one converted before this was kept.
+   */
+  convertedAt: timestamp("converted_at", { withTimezone: true }),
   declineReason: text("decline_reason"),
   /** Which option the customer actually chose. Drives close-rate and mix reporting. */
   selectedOptionId: uuid("selected_option_id"),
