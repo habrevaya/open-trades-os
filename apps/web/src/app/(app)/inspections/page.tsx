@@ -68,12 +68,13 @@ export default async function InspectionsPage({
         <Empty title="No inspection programme yet">
           A programme is the checklist an inspection is performed against: the
           checkpoints, what a failure of each one means, and how often it comes
-          round. Trade packs ship them, and a programme with no checkpoints is
-          refused rather than reporting every visit as a pass.
+          round. <Link href="/inspections/programmes" className="underline underline-offset-4">Write
+          one, or start from a trade pack&apos;s</Link>.
         </Empty>
       ) : (
         <p className="mt-1 text-sm text-ink-500">
           {programs.map((program) => `${program.name} (${program.checkpointCount} checks)`).join(" · ")}
+          {" "}<Link href="/inspections/programmes" className="underline underline-offset-4">Programmes</Link>
         </p>
       )}
 

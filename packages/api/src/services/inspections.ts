@@ -554,7 +554,7 @@ export async function programVersion(ctx: ServiceContext, input: { id: string; v
     const content = await contentAt(tx, row, input.version);
     if (!content) throw new NotFoundError(`Version ${input.version} of ${row.name}`);
     return {
-      id: row.id, version: input.version, current: input.version === row.version, ...content,
+      id: row.id, current: input.version === row.version, ...content,
       problems: problemsOf(content as ProgramInput),
     };
   });
