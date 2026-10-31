@@ -31,6 +31,27 @@ export function chatReplyMessage(input: { companyName: string; customerName: str
   };
 }
 
+/**
+ * The notice a customer gets when the company's quiet chat rule has closed their
+ * chat. Plain words: whose chat, why it closed, how long it had been quiet, that
+ * nothing is lost and that writing again opens a new one. It carries none of what
+ * was said, for the reason the reply notice does not. Sent once, for that close.
+ */
+export function chatClosedMessage(input: { companyName: string; customerName: string; url: string; quietDays: number }):
+  { subject: string; text: string; email: string } {
+  const company = input.companyName.trim() || "Your service company";
+  const first = input.customerName.trim().split(/\s+/)[0] ?? "";
+  const hello = first === "" ? "Hi," : `Hi ${first},`;
+  const quiet = input.quietDays === 1 ? "a day" : `${input.quietDays} days`;
+  return {
+    subject: `${company} closed your chat`,
+    text: `${hello} ${company} closed your chat because it had been quiet for ${quiet}. Write here any time to start a new one: ${input.url}`,
+    email: `${hello}\n\n${company} closed your chat because it had been quiet for ${quiet}. `
+      + `You can still read it, and writing to us starts a new one:\n\n${input.url}\n\n`
+      + "If you are not signed in, you will be asked for a sign in code first. We send this once, when the chat closes.",
+  };
+}
+
 /* ------------------------------------------------------ the pictures */
 
 /**

@@ -389,6 +389,14 @@ export const aiChatSession = pgTable("ai_chat_session", {
   customerNotice: text("customer_notice"),
   customerNoticeHeldAt: timestamp("customer_notice_held_at", { withTimezone: true }),
   /**
+   * What a held notice is about: `reply` (the office answered) or `idle_close`
+   * (the company's quiet chat rule closed the chat, so the customer is told it
+   * was closed). Set with `customer_notice_held_at` and read when the worker
+   * releases it, because the two are asked different questions then. Null when
+   * nothing waits.
+   */
+  customerNoticeKind: text("customer_notice_kind").$type<"reply" | "idle_close">(),
+  /**
    * When the customer closed this chat from their account (status `closed`
    * with this set). A chat the office or the assistant ended never sets it, so
    * the inbox can say who closed it. The next thing the customer writes opens a

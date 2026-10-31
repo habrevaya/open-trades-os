@@ -559,6 +559,22 @@ and position, never by the file's storage key, and only for a message in the
 customer's own conversation, so another customer's, a position with nothing kept
 and a made up id are the same not found.
 
+**Taking a picture back.** A picture the customer sent shows **Take it back** under it until
+somebody in the company has opened it (`takeBack` on the picture in `GET /v1/portal/chat`;
+`POST /v1/portal/chat/pictures/{messageId}/{index}/remove`, from a sign in only). "Opened" is the
+inbox fetching it: the inbox's own picture route records who and when (`attachment.seen_at`,
+`attachment.seen` on the audit log), and the thread's page draws every picture it holds, so reading
+the thread opens them all. After that it stays, and a take back is refused in words ("We have already
+opened that picture, so it stays in the chat."). Before that it is let go like any file the customer
+takes back: the stored file's references drop and its bytes are emptied when nothing points at them,
+the customer's page no longer shows it (a message that was only that picture goes from their page, as
+if never sent), the words of the message stay, and the office's thread says in its place "The customer
+took this picture back before anyone opened it." rather than leaving a gap. Another customer's picture,
+a picture the office sent, a position with nothing kept and a made up id are the same not found; taking
+back one already taken back changes nothing; `portal.chat_picture_removed` is on the audit log naming
+the sign in. Twelve a minute per customer. The task a picture-only message raised ("wrote from their
+account") is left open: someone still reads the conversation and sees what became of it.
+
 **Telling the customer the office answered.** When somebody in the office
 answers a chat from a customer's account, the customer is told by email or text
 (the way their main contact prefers, text first when that is "text", the other as
@@ -649,10 +665,28 @@ they are waiting for an answer, and telling them "we closed your chat" would tur
 into the customer's fault. It is closed exactly like the office's close, marked as closed for going
 quiet (`closedBy` is `idle`, no person), the customer's page says "{Company} closed this chat because
 it had been quiet for a while. You can still read it below.", the inbox says "This chat was closed
-on ... because it went quiet.", and `portal.chat_closed_idle` is on the audit log. Nobody is texted
-or emailed about it. The worker asks the database which companies have the setting on and a portal
+on ... because it went quiet.", and `portal.chat_closed_idle` is on the audit log. The worker asks the database which companies have the setting on and a portal
 chat still open (`app.portal_chat_idle_organizations`, which skips a suspended company), at most
 once a minute, and a company's failure stays with that company.
+
+**The customer is told their chat was closed.** In the same pass, the customer is told once, for that
+close, by the way they would rather hear from the company (their main contact's preference, the other as
+the fallback; a contact who signed in as themselves is told at their own number or address): "{Company}
+closed your chat because it had been quiet for 5 days. Write here any time to start a new one", with the
+link to `/portal/{slug}/account/chat` and none of what was said. It goes through the gates every notice
+goes through: a text through the consent decision and the STOP list and never inside the company's quiet
+hours, an email through the company's email connection, and it follows the **Chat answers** switch
+(`chatReplyNotice`), so a company that does not want its customers texted about their chat is not texted
+about this either. A text that only the quiet hours stopped is kept
+(`ai_chat_session.customer_notice_held_at`, with `customer_notice_kind` `idle_close`) and sent by the same
+worker pass that sends a held answer notice, once the hours end, asked again as it stands that morning:
+it is dropped when the customer opened the chat meanwhile (they have seen it is closed), when the company
+switched notices off, when a STOP or a missing number now stops it, or when it has waited more than two
+days. A customer who had the chat open at that moment is not told, and a chat the customer closed
+themselves, or that a person closed, is not told this way (the customer knows, or the answer notice's
+rules apply). What happened is written on the chat ("Told by text that the chat was closed.", or why
+nobody could be told) and shown above the thread in the inbox, and `portal.chat_idle_noticed` is on the
+audit log. It is never an error for the close: the chat is closed whatever happens to the notice.
 
 ### Readings in a narrow band
 
@@ -696,6 +730,23 @@ company's own, which a pack applied later does not push aside. A trade pack
 upgrade (M02) never writes over it: the layout no longer says what the pack
 set up, so the upgrade keeps it and lists it as the company's, and only a
 company that changed nothing takes the pack's new layout.
+
+**Going back to the pack's layout.** When the company's page is not as its primary
+trade pack sets it up (the office arranged it, or made a layout of its own that a pack
+applied later did not push aside), `/settings/portal/layout` shows "Go back to your
+trade pack's page" under the editor, and `GET /v1/portal-layout` says which page in
+`goBackTo` (null when there is none, or the page is already the pack's, and always null on a
+plan's page). The button replaces the arrangement with the pack's current layout (its
+blocks, order, what is shown and headings) and needs a tick first, because what was arranged
+is not kept anywhere the screen can bring it back from; the old arrangement is in the audit
+entry `portal.layout_reset_to_pack` (before and after, with the pack and its version).
+`POST /v1/portal-layout/reset` (`settings:write`) is the same. The company's own default
+layouts are removed so the pack's is read again, a pack layout that is gone is made again,
+and it is written marked unchanged, which is what a later pack upgrade reads: an upgrade
+then takes the pack's newer layout for a company that went back. A plan's own page is
+never touched (its "Use the company's page" button is the plan's way back). A company with
+no trade pack, or a pack with no page of its own, is refused in words: there is nothing to
+go back to. A page already as the pack set it up is returned as it is and nothing is written.
 
 ### A page of their own for the members of a plan
 
@@ -975,6 +1026,7 @@ in from, and which codes failed, are the office's business.
 | `POST /v1/customers/{id}/card-agreements/{agreementId}/withdraw` | `payment:charge_saved` |
 | `GET /v1/portal-layout` | `settings:read` |
 | `PUT /v1/portal-layout` | `settings:write` |
+| `POST /v1/portal-layout/reset` | `settings:write` |
 | `GET /v1/portal-layout/plans` | `settings:read` |
 | `GET /v1/agreement-plans/{id}/portal-layout` | `settings:read` |
 | `PUT /v1/agreement-plans/{id}/portal-layout` | `settings:write` |
@@ -986,6 +1038,7 @@ in from, and which codes failed, are the office's business.
 | `GET /v1/portal/chat` | nothing: a sign in only (asking marks the chat read) |
 | `POST /v1/portal/chat/messages` | nothing: a sign in only, counted per customer |
 | `POST /v1/portal/chat/close` | nothing: a sign in only, counted per customer |
+| `POST /v1/portal/chat/pictures/{messageId}/{index}/remove` | nothing: a sign in only, the customer's own picture, counted per customer |
 | `POST /v1/conversations/{id}/closed` | `message:send`, in the conversations that person may see |
 | `GET /v1/portal/chat/unread` | nothing: a sign in only |
 | `GET /v1/portal/chat/pictures/{messageId}/{index}` | nothing: a sign in only, a message in the customer's own chat |
@@ -1055,7 +1108,7 @@ for the phone script and for the form, are the product's and the company
 cannot edit them. A layout is the company's, or a plan's for its
 members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer's choice of plan page is not remembered and the company's own page is not one of the choices, a block's
 settings (which readings a trend shows) are not changed on the screen, and
-there is no button to go back to the pack's layout. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises one office task a day for the job and tells the job's technicians once a day; nobody in the office is told by name (the task is the queue's), the customer is not told when it was opened, and a technician who is on none of the job's visits still to come (only on one finished) is not told. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, on the web or on the phone (the phone reads a file with its own sign in, which is not opening it from the job's page, so it never marks it seen). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
+going back to the pack's layout replaces the company's arrangement for good (the audit entry keeps the old blocks, and nothing on a screen restores them) and goes to the pack's current version, so a company still on an older version gets that layout without the rest of the upgrade. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises one office task a day for the job and tells the job's technicians once a day; nobody in the office is told by name (the task is the queue's), the customer is not told when it was opened, and a technician who is on none of the job's visits still to come (only on one finished) is not told. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, on the web or on the phone (the phone reads a file with its own sign in, which is not opening it from the job's page, so it never marks it seen). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a
 customer does from a link moves a visit by itself. Windows are offered by the
@@ -1075,13 +1128,14 @@ crew's time is counted for every member whether or not they all go.
 Booking from the account asks for a technician; the office still books it,
 and nothing puts it on the board until somebody does. The chat from the account
 takes photos (not PDFs, which go through "Send us a photo or a PDF"), and the
-customer cannot clear a chat or take a picture back, and cannot read a chat they
+customer cannot clear a chat, and can take a picture back only until somebody in the company has opened it (the inbox fetching it, which the thread's page does for every picture it draws, so reading the thread opens them all; a program reading the thread through the API does not), and cannot read a chat they
 closed again (the office keeps it; their page starts empty). A chat the office or the quiet
 chat rule closed they can still read, but only the one chat they last had: older ones are not
 listed. The quiet chat rule is one number for the whole
-company, applies only to a chat the company wrote last in, and does not tell the customer by
-text or email, so a customer who is not looking at the page learns of it when they next open
-the chat. A chat the customer wrote last in and nobody answered stays open for good until a
+company and applies only to a chat the company wrote last in. It tells the customer by text or
+email that it closed their chat, under the "Chat answers" switch (there is no switch for this
+alone), and a customer with no way to be reached, or whose number replied STOP, learns of it
+when they next open the chat. A text that quiet hours stop is kept for two days at most. A chat the customer wrote last in and nobody answered stays open for good until a
 person closes it.
 The automated assistant, once a person has answered, does not take the conversation back, and
 never answers a message with a picture. The notice that the office answered is

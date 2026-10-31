@@ -122,7 +122,8 @@ export default async function PortalSettingsPage() {
           customer you answer is told by email or text, whichever they prefer, with a link to their chat. They are told
           once, and not again until they have read it. The message never says what you wrote. A text is not sent in your
           quiet hours, and never to a number that replied STOP; the email goes instead when there is one. Their account
-          page also shows when an answer is waiting. Turn this off if you would rather they came back on their own.
+          page also shows when an answer is waiting. The same switch covers the note a customer gets when a quiet chat is closed
+          for them (Quiet chats, above). Turn this off if you would rather they came back on their own.
         </p>
         {writes ? (
           <ActionForm action={saveChatReplyNotice} submit="Save chat answers" className="mt-3 space-y-3">
@@ -141,8 +142,9 @@ export default async function PortalSettingsPage() {
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
           A chat stays open until the customer or you close it. Say how many days of quiet should close it for you. Only a
           chat where you wrote last is closed, so a customer waiting on an answer is never closed on. The customer sees
-          that you closed it and can write again to start a new one. What they wrote stays in your inbox. Leave the box
-          empty to never close a chat for them.
+          that you closed it and can write again to start a new one. What they wrote stays in your inbox. The customer is also
+          told it was closed, once, by email or text, if Chat answers below is on: never in your quiet hours, and never to
+          a number that replied STOP. Leave the box empty to never close a chat for them.
         </p>
         {writes ? (
           <ActionForm action={saveChatIdleClose} submit="Save quiet chats" className="mt-3 flex flex-wrap items-end gap-3">

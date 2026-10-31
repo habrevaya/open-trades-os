@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { closeChat, readChat, sendChat, type ChatView } from "./actions";
+import { closeChat, readChat, sendChat, takeBackPicture, type ChatView } from "./actions";
 
 const WHO = { visitor: "You", assistant: "Automated assistant" } as const;
 
@@ -12,7 +12,9 @@ const WHO = { visitor: "You", assistant: "Automated assistant" } as const;
  * a reply written in the office's inbox appears here without a reload (and
  * counts as read: the office does not text or email about an answer the
  * customer is looking at). A send carries its own key, so a double tap on one
- * bar of signal is one message. Pictures go with the words, up to three.
+ * bar of signal is one message. Pictures go with the words, up to three. A picture the
+ * customer sent can be taken back until somebody in the company has opened it; the page
+ * learns that it has been opened on its next look, and the button goes.
  */
 export function PortalChat({ slug, company, initial }: { slug: string; company: string; initial: ChatView }) {
   const [chat, setChat] = useState(initial);
@@ -60,16 +62,29 @@ export function PortalChat({ slug, company, initial }: { slug: string; company: 
               </span>
             )}
             {message.pictures.map((picture) => (
-              <a key={picture.index} href={pictureHref(message.id, picture.index)} target="_blank" rel="noreferrer"
-                 className="mt-1 block text-sm">
-                {picture.shown ? (
-                  <img src={pictureHref(message.id, picture.index)}
-                       alt={message.from === "visitor" ? "Picture you sent" : `Picture from ${company}`}
-                       className={`inline-block max-h-48 rounded border border-steel-200 ${message.from === "visitor" ? "" : "bg-steel-100"}`} />
-                ) : (
-                  <span className="underline underline-offset-4">Open the photo{picture.name ? ` (${picture.name})` : ""}</span>
-                )}
-              </a>
+              <span key={picture.index} className="mt-1 block">
+                <a href={pictureHref(message.id, picture.index)} target="_blank" rel="noreferrer" className="block text-sm">
+                  {picture.shown ? (
+                    <img src={pictureHref(message.id, picture.index)}
+                         alt={message.from === "visitor" ? "Picture you sent" : `Picture from ${company}`}
+                         className={`inline-block max-h-48 rounded border border-steel-200 ${message.from === "visitor" ? "" : "bg-steel-100"}`} />
+                  ) : (
+                    <span className="underline underline-offset-4">Open the photo{picture.name ? ` (${picture.name})` : ""}</span>
+                  )}
+                </a>
+                {picture.takeBack ? (
+                  <button type="button" disabled={pending} aria-label={`Take back the picture you sent${picture.name ? `, ${picture.name}` : ""}`}
+                          onClick={() => start(async () => {
+                            const taken = await takeBackPicture(slug, message.id, picture.index);
+                            if (!taken.ok) { setError(taken.message); return; }
+                            setError(null);
+                            setChat(taken.chat);
+                          })}
+                          className="mt-1 text-xs text-ink-700 underline underline-offset-4 disabled:opacity-60">
+                    Take it back
+                  </button>
+                ) : null}
+              </span>
             ))}
           </li>
         ))}

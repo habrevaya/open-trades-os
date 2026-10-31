@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  CHAT_PICTURES, checkChatPicture, chatReplyMessage, readPortalSettings, chatIdleCloseProblem,
+  CHAT_PICTURES, checkChatPicture, chatReplyMessage, chatClosedMessage, readPortalSettings, chatIdleCloseProblem,
 } from "../src/customer-portal/index.js";
 
 /**
@@ -96,5 +96,24 @@ describe("closing a quiet chat", () => {
     for (const bad of [0, -3, 91, 1.5, "3", undefined, Number.NaN]) {
       expect(chatIdleCloseProblem(bad)).toMatch(/whole number from 1 to 90/);
     }
+  });
+});
+
+describe("the notice that a quiet chat was closed", () => {
+  const url = "https://x.test/portal/cedar/account/chat";
+
+  it("says whose chat, why, how long, and where to write again, and carries none of what was said", () => {
+    const words = chatClosedMessage({ companyName: "Cedar Heating", customerName: "Dana Cedar", url, quietDays: 5 });
+    expect(words.text).toBe(`Hi Dana, Cedar Heating closed your chat because it had been quiet for 5 days. Write here any time to start a new one: ${url}`);
+    expect(words.subject).toBe("Cedar Heating closed your chat");
+    expect(words.email).toContain(url);
+    expect(words.email).toContain("We send this once, when the chat closes.");
+    expect(words.text.length).toBeLessThan(200);
+  });
+
+  it("reads for one day, for no name and for no company, with no dashes", () => {
+    const one = chatClosedMessage({ companyName: "", customerName: " ", url, quietDays: 1 });
+    expect(one.text).toBe(`Hi, Your service company closed your chat because it had been quiet for a day. Write here any time to start a new one: ${url}`);
+    expect(`${one.subject}${one.text}${one.email}`).not.toMatch(new RegExp("[\\u2013\\u2014]"));
   });
 });

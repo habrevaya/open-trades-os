@@ -5,7 +5,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { portalLayout } from "@opentradesos/api/services";
 import { setPortalLayout, setPlanPortalLayout } from "@opentradesos/api/contracts";
-import { attempt, fields, parsed, type FormState } from "@/lib/actions";
+import { attempt, fields, parsed, refused, type FormState } from "@/lib/actions";
 
 /**
  * SAVING THE ACCOUNT PAGE'S LAYOUT
@@ -58,5 +58,21 @@ export async function saveLayout(_previous: FormState, form: FormData): Promise<
     await portalLayout.set({ actor: (await requireSetupUser()).actor, db: getDb() }, input);
     revalidatePath("/settings/portal/layout");
     return { message: "Saved. Customers see it this way from now on." };
+  });
+}
+
+/**
+ * `POST /v1/portal-layout/reset`: the company's account page back to the trade
+ * pack's. It replaces what was arranged and cannot be undone from the screen, so
+ * the box has to be ticked.
+ */
+export async function resetLayout(_previous: FormState, form: FormData): Promise<FormState> {
+  if (form.get("confirm") !== "on") {
+    return refused(form, "Tick the box to say you want your arrangement replaced. It cannot be brought back from here.");
+  }
+  return attempt(form, async () => {
+    await portalLayout.resetToPack({ actor: (await requireSetupUser()).actor, db: getDb() });
+    revalidatePath("/settings/portal/layout");
+    return { message: "Done. Customers see the page your trade pack sets up." };
   });
 }

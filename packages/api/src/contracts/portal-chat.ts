@@ -45,6 +45,8 @@ const PortalChatView = z.object({
       name: z.string().nullable(),
       /** A browser can draw it. A phone's HEIC is kept and has to be opened, not drawn. */
       shown: z.boolean(),
+      /** The customer sent it and nobody in the company has opened it yet, so they can still take it back. */
+      takeBack: z.boolean(),
     })),
   })),
 });
@@ -99,6 +101,20 @@ export const closePortalChat = defineRoute({
   output: PortalChatView,
 });
 
+export const removePortalChatPicture = defineRoute({
+  method: "post",
+  path: "/v1/portal/chat/pictures/{messageId}/{index}/remove",
+  summary: "Take back a picture the signed in customer sent in their chat",
+  description:
+    "From a sign in only. Lets go of the customer's own picture at that position on that message, until somebody in the company has opened it (the inbox fetching it records who and when); after that it is refused in words, because it is the company's record of what it was sent. The picture is gone for both sides: the customer's page no longer shows it (a message that was only that picture goes with it), and the thread tells the office \"The customer took this picture back before anyone opened it.\" in its place. The message's words stay. Another customer's picture, a picture the office sent, a position with nothing kept and a made up id are the same not found. Taking back one already taken back changes nothing. The answer is the chat as the customer now sees it.",
+  module: "M05",
+  permissions: [],
+  authorization: "grant",
+  idempotent: true,
+  input: z.object({ token: Token, messageId: Uuid, index: z.coerce.number().int().min(0).max(2) }),
+  output: PortalChatView,
+});
+
 export const getPortalChatUnread = defineRoute({
   method: "get",
   path: "/v1/portal/chat/unread",
@@ -125,4 +141,4 @@ export const getPortalChatPicture = defineRoute({
   output: z.object({ contentType: z.string(), fileName: z.string().nullable(), bytes: z.string() }),
 });
 
-export const portalChatRoutes = { getPortalChat, sayInPortalChat, closePortalChat, getPortalChatUnread, getPortalChatPicture } as const;
+export const portalChatRoutes = { getPortalChat, sayInPortalChat, closePortalChat, removePortalChatPicture, getPortalChatUnread, getPortalChatPicture } as const;

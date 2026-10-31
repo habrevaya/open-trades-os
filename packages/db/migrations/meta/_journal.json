@@ -1240,6 +1240,13 @@
       "when": 1793453896057,
       "tag": "0176_chilly_shen",
       "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "7",
+      "when": 1793454378575,
+      "tag": "0177_ancient_fallen_one",
+      "breakpoints": true
     }
   ]
 }

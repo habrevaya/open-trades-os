@@ -1159,6 +1159,7 @@ export const handlers = {
   getPortalChat: portalChat.handlers.getPortalChat,
   sayInPortalChat: portalChat.handlers.sayInPortalChat,
   closePortalChat: portalChat.handlers.closePortalChat,
+  removePortalChatPicture: portalChat.handlers.removePortalChatPicture,
   getPortalChatUnread: portalChat.handlers.getPortalChatUnread,
   getPortalChatPicture: portalChat.handlers.getPortalChatPicture,
   payTips: payroll.handlers.payTips,

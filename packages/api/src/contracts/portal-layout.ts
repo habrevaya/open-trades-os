@@ -37,6 +37,8 @@ const Layout = z.object({
   changed: z.boolean(),
   /** For a plan's page: which plan, and whether it has a layout of its own (false: its members see the company's). */
   plan: z.object({ id: Uuid, name: z.string(), ownLayout: z.boolean() }).nullable(),
+  /** The name of the trade pack's page the company's page can go back to, or null when there is none or the page is already the pack's. Always null on a plan's page. */
+  goBackTo: z.string().nullable(),
 });
 
 const BlocksInput = z.array(z.object({
@@ -72,6 +74,19 @@ export const setPortalLayout = defineRoute({
       visible: z.boolean(),
     })).min(1).max(30),
   }),
+  output: Layout,
+});
+
+export const resetPortalLayout = defineRoute({
+  method: "post",
+  path: "/v1/portal-layout/reset",
+  summary: "Put the company's account page back to the trade pack's",
+  description:
+    "Replaces the company's arrangement with the layout the primary trade pack sets up (its current version): the blocks, their order, which are shown and their headings. A company's own layout is removed so the pack's is read again, and one that is gone is made again. A plan's own page is not touched. Refused in words for a company with no trade pack, or a pack with no page of its own. A page already as the pack set it up is returned as it is. Replaced arrangements are kept in the audit log, not restorable from the screen.",
+  module: "M05",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({}),
   output: Layout,
 });
 
@@ -125,5 +140,5 @@ export const removePlanPortalLayout = defineRoute({
 });
 
 export const portalLayoutRoutes = {
-  getPortalLayout, setPortalLayout, listPlanPortalLayouts, getPlanPortalLayout, setPlanPortalLayout, removePlanPortalLayout,
+  getPortalLayout, setPortalLayout, resetPortalLayout, listPlanPortalLayouts, getPlanPortalLayout, setPlanPortalLayout, removePlanPortalLayout,
 } as const;

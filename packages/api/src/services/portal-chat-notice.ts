@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { SYSTEM_USER_ID, comms, customerPortal as cp, type Actor } from "@opentradesos/core";
 import { audit, inTenant, type ServiceContext } from "./context";
@@ -147,6 +147,7 @@ async function attempt(
       customerNotice: notice.slice(0, 500),
       ...(told ? { customerNotifiedAt: now } : {}),
       customerNoticeHeldAt: hold ? now : null,
+      customerNoticeKind: hold ? "reply" : null,
       updatedAt: now,
     }).where(eq(schema.aiChatSession.id, chat.id));
     await audit(tx, ctx, "portal.chat_reply_noticed", "conversation", conversation.id, null, {
@@ -157,6 +158,8 @@ async function attempt(
 
   if (mode === "release") {
     if (!chat.customerNoticeHeldAt) return "nothing";
+    /** A notice about the chat being closed for going quiet is asked different questions, below. */
+    if (chat.customerNoticeKind === "idle_close") return attemptIdle(tx, ctx, conversation, now, "release");
     if (now.getTime() - chat.customerNoticeHeldAt.getTime() > HELD_LONGEST_HOURS * 3_600_000) {
       return record("Not told: your quiet hours ended more than two days after the answer, which is too late for a notice to help.", false);
     }
@@ -198,7 +201,32 @@ async function attempt(
     url: `${portalBase()}/portal/${encodeURIComponent(org?.slug ?? "")}/account/chat`,
   });
 
-  /** Whether a text was stopped by quiet hours, which is the one reason a notice waits. */
+  const sent = await deliver(tx, ctx, conversation, who, words, now);
+  if (sent.by) return record(`Told by ${sent.by}${sent.missed.length > 0 ? ` (${sent.missed.join(" ")})` : ""}.`, true);
+  /**
+   * Nobody could be told, and a text was stopped only by the hours: wait for
+   * them to end. Anything else (no number, a STOP, no connection) will not be
+   * different later, so it is not kept.
+   */
+  if (sent.quietStopped && who.phone) {
+    return record(`Waiting for your quiet hours to end. ${sent.missed.join(" ")} The text goes then, unless they read the chat first.`, false, true);
+  }
+  return record(`Not told. ${sent.missed.join(" ")}`, false);
+}
+
+type Recipient = NonNullable<Awaited<ReturnType<typeof recipientOf>>>;
+
+/**
+ * The send itself, the same for every notice about the chat: the way the
+ * customer prefers first and the other as the fallback, a text through the
+ * consent decision and the STOP list and never inside the company's quiet
+ * hours, an email through the company's email connection. Says how it went and
+ * whether quiet hours were the only thing that stopped a text.
+ */
+async function deliver(
+  tx: Database, ctx: ServiceContext, conversation: Conversation, who: Recipient,
+  words: { subject: string; text: string; email: string }, now: Date,
+): Promise<{ by: "text" | "email" | null; missed: string[]; quietStopped: boolean }> {
   let quietStopped = false;
   const byText = async (): Promise<{ sent: boolean; why: string }> => {
     if (!who.phone) return { sent: false, why: "no mobile number to text." };
@@ -228,20 +256,118 @@ async function attempt(
   const missed: string[] = [];
   for (const [name, send] of order) {
     const outcome = await send();
-    if (outcome.sent) {
-      return record(`Told by ${name}${missed.length > 0 ? ` (${missed.join(" ")})` : ""}.`, true);
-    }
+    if (outcome.sent) return { by: name, missed, quietStopped };
     missed.push(`Not ${name === "text" ? "texted" : "emailed"}: ${outcome.why}`);
   }
-  /**
-   * Nobody could be told, and a text was stopped only by the hours: wait for
-   * them to end. Anything else (no number, a STOP, no connection) will not be
-   * different later, so it is not kept.
-   */
-  if (quietStopped && who.phone) {
-    return record(`Waiting for your quiet hours to end. ${missed.join(" ")} The text goes then, unless they read the chat first.`, false, true);
+  return { by: null, missed, quietStopped };
+}
+
+/* -------------------------------------- when the quiet chat rule closes it */
+
+/**
+ * TELLING THE CUSTOMER THEIR CHAT WAS CLOSED FOR GOING QUIET (M05)
+ *
+ * The company's quiet chat rule closes an account chat the company answered last
+ * and the customer has not written in for the days it chose. The customer is told,
+ * once, for that close, in plain words that carry nothing of what was said: the
+ * company's name, that it had been quiet, and the link to write again.
+ *
+ * THE SAME GATES AS THE REPLY NOTICE, and the same switch: it follows "Chat
+ * answers" on `/settings/portal` (`chatReplyNotice`), so a company that does not
+ * want the customer texted about their chat is not texted about this either.
+ * Whichever way the customer would rather hear from the company is tried first
+ * and the other is the fallback; a text goes through the consent decision and the
+ * STOP list and never inside the company's quiet hours; a contact who signed in
+ * as themselves is told at their own number or address.
+ *
+ * HELD BY QUIET HOURS, THE SAME WAY. A text stopped only by the hours is kept
+ * (`customer_notice_held_at`, kind `idle_close`) and the worker sends it when they
+ * end, unless the customer opened the chat meanwhile (they have seen it is
+ * closed), the company turned the notice off, a STOP or a missing number now
+ * stops it, or it has waited more than two days.
+ *
+ * NEVER AN ERROR FOR THE CLOSE. The chat is closed whatever happens to the
+ * notice; what happened is written on the chat in words.
+ */
+export async function tellOfIdleClose(tx: Database, ctx: ServiceContext, conversation: Conversation, now = new Date()): Promise<void> {
+  if (conversation.internalAddress !== "portal") return;
+  try {
+    await tx.transaction(async (savepoint) => {
+      await attemptIdle(savepoint as unknown as Database, noticeContext(ctx, conversation.organizationId), conversation, now, "close");
+    });
+  } catch (error) {
+    await tx.update(schema.aiChatSession).set({
+      customerNotice: `Not told that the chat was closed: ${error instanceof Error ? error.message : "something went wrong"}`.slice(0, 500),
+      customerNoticeHeldAt: null, customerNoticeKind: null, updatedAt: now,
+    }).where(eq(schema.aiChatSession.conversationId, conversation.id));
   }
-  return record(`Not told. ${missed.join(" ")}`, false);
+}
+
+/** The closing worker has no right to send; the notice runs as the notice's own worker does. */
+function noticeContext(ctx: ServiceContext, organizationId: string): ServiceContext {
+  return { ...ctx, actor: workerActor(organizationId) };
+}
+
+const DAY_MS = 86_400_000;
+
+async function attemptIdle(
+  tx: Database, ctx: ServiceContext, conversation: Conversation, now: Date, mode: "close" | "release",
+): Promise<Outcome> {
+  const [chat] = await tx.select().from(schema.aiChatSession)
+    .where(eq(schema.aiChatSession.conversationId, conversation.id)).limit(1).for("update");
+  if (!chat || chat.channel !== "portal" || chat.officeCloseKind !== "idle" || !chat.officeClosedAt) return "nothing";
+
+  const record = async (notice: string, told: boolean, hold = false): Promise<Outcome> => {
+    await tx.update(schema.aiChatSession).set({
+      customerNotice: notice.slice(0, 500),
+      customerNoticeHeldAt: hold ? now : null,
+      customerNoticeKind: hold ? "idle_close" : null,
+      updatedAt: now,
+    }).where(eq(schema.aiChatSession.id, chat.id));
+    await audit(tx, ctx, "portal.chat_idle_noticed", "conversation", conversation.id, null, {
+      told, held: hold, notice, ...(mode === "release" ? { released: true } : {}),
+    });
+    return told ? "told" : hold ? "held" : "not_told";
+  };
+
+  if (mode === "release") {
+    if (!chat.customerNoticeHeldAt || chat.customerNoticeKind !== "idle_close") return "nothing";
+    if (now.getTime() - chat.customerNoticeHeldAt.getTime() > HELD_LONGEST_HOURS * 3_600_000) {
+      return record("Not told that the chat was closed: your quiet hours ended more than two days after it closed, which is too late for a notice to help.", false);
+    }
+    const quiet = await quietHoursFor(tx, conversation.organizationId, now);
+    if (quiet.window && comms.inQuietHours(quiet.localHour, quiet.window)) return "waiting";
+  }
+  if (chat.customerReadAt && chat.customerReadAt >= chat.officeClosedAt) {
+    return record("Not told that the chat was closed: they opened the chat after it closed and have seen it.", false);
+  }
+  if (chat.customerReadAt && now.getTime() - chat.customerReadAt.getTime() < PRESENT_SECONDS * 1000) {
+    return record("Not told that the chat was closed: they had the chat open and see it there.", false);
+  }
+  const settings = await settingsWithin(tx, conversation.organizationId);
+  if (!settings.chatReplyNotice) {
+    return record("Not told that the chat was closed: chat notices are turned off in your customer portal settings.", false);
+  }
+  const who = await recipientOf(tx, conversation);
+  if (!who) return record("Not told that the chat was closed: the customer is no longer on file.", false);
+
+  const [last] = await tx.select({ at: schema.message.createdAt }).from(schema.message)
+    .where(eq(schema.message.conversationId, conversation.id)).orderBy(desc(schema.message.createdAt)).limit(1);
+  const quietDays = Math.max(1, Math.floor((chat.officeClosedAt.getTime() - (last?.at ?? chat.officeClosedAt).getTime()) / DAY_MS));
+  const [org] = await tx.select({ name: schema.organization.name, slug: schema.organization.slug })
+    .from(schema.organization).where(eq(schema.organization.id, conversation.organizationId)).limit(1);
+  const words = cp.chatClosedMessage({
+    companyName: org?.name ?? "", customerName: who.name, quietDays,
+    url: `${portalBase()}/portal/${encodeURIComponent(org?.slug ?? "")}/account/chat`,
+  });
+  const sent = await deliver(tx, ctx, conversation, who, words, now);
+  if (sent.by) {
+    return record(`Told by ${sent.by} that the chat was closed${sent.missed.length > 0 ? ` (${sent.missed.join(" ")})` : ""}.`, true);
+  }
+  if (sent.quietStopped && who.phone) {
+    return record(`Waiting for your quiet hours to end to tell them the chat was closed. ${sent.missed.join(" ")} The text goes then, unless they open the chat first.`, false, true);
+  }
+  return record(`Not told that the chat was closed. ${sent.missed.join(" ")}`, false);
 }
 
 /* ------------------------------------------------- when quiet hours end */

@@ -364,7 +364,7 @@ run("pictures from the customer", () => {
     }, { ip: ip() }, deps());
     const message = sent.messages.at(-1)!;
     expect(message).toMatchObject({ from: "visitor", text: "Here is the unit" });
-    expect(message.pictures).toEqual([{ index: 0, contentType: "image/jpeg", name: "unit.jpg", shown: true }]);
+    expect(message.pictures).toEqual([{ index: 0, contentType: "image/jpeg", name: "unit.jpg", shown: true, takeBack: true }]);
 
     const shown = await portalChat.picture(db(), { token: danaToken, messageId: message.id, index: 0 });
     expect(shown.contentType).toBe("image/jpeg");
@@ -464,7 +464,7 @@ run("pictures from the office", () => {
     const seen = await portalChat.read(db(), { token: danaToken });
     const reply = seen.messages.at(-1)!;
     expect(reply).toMatchObject({ from: "person", text: "This is the part we will bring." });
-    expect(reply.pictures).toEqual([{ index: 0, contentType: "image/jpeg", name: "part.jpg", shown: true }]);
+    expect(reply.pictures).toEqual([{ index: 0, contentType: "image/jpeg", name: "part.jpg", shown: true, takeBack: false }]);
     const fetched = await portalChat.picture(db(), { token: danaToken, messageId: reply.id, index: 0 });
     expect(Buffer.compare(fetched.bytes, bytes)).toBe(0);
     await expect(portalChat.picture(db(), { token: eveToken, messageId: reply.id, index: 0 })).rejects.toThrow(NotFoundError);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { comms } from "@opentradesos/api/services";
+import { comms, portalChat } from "@opentradesos/api/services";
 import { files as fileRules } from "@opentradesos/core";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,9 @@ export const dynamic = "force-dynamic";
  * bytes ARE, so nothing can be saved as a program whatever it was called.
  * A Word document, a spreadsheet, a text file or a zip is ALWAYS a download,
  * as `application/octet-stream`, whether or not the request said so.
+ *
+ * SERVING A PICTURE A CUSTOMER SENT IN THEIR ACCOUNT CHAT IS OPENING IT. It is
+ * recorded (who and when), and from then the customer cannot take it back.
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string; key: string[] }> }) {
   const user = await getCurrentUser();
@@ -28,7 +31,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     /** A storage key is a path (`org/ab/cd/hash.jpg`), so it arrives as segments. */
     const storageKey = key.map((part) => decodeURIComponent(part)).join("/");
-    const file = await comms.picture({ actor: user.actor, db: getDb() }, { conversationId: id, storageKey });
+    const ctx = { actor: user.actor, db: getDb() };
+    const file = await comms.picture(ctx, { conversationId: id, storageKey });
+    /**
+     * Somebody here has opened it: a picture the customer sent in their chat can no longer be
+     * taken back by them. Recording that never stops the picture being shown.
+     */
+    await portalChat.noteChatPictureOpened(ctx, { conversationId: id, storageKey }).catch(() => 0);
     /**
      * Only a picture or a PDF may be shown in a page. A Word document, a spreadsheet, a text file or a zip is
      * always sent as a download under a type that runs nothing, whatever the request asked for.
