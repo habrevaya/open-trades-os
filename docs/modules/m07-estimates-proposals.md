@@ -219,7 +219,9 @@ estimate written with `POST /v1/estimates` can carry its own terms or none.
 ### Let the customer decide
 
 They open `/e/{token}`, pick an option, tick or untick the optional lines, and
-approve or decline. `POST /v1/portal/estimate/approve` is the same action from
+approve or decline. Each line priced from a price book item with an uploaded picture shows
+it beside the line (`picture` on the line of `GET /v1/portal/estimate`, a photograph id the
+link's own `/e/{token}/proposal/photos/{id}` route serves). `POST /v1/portal/estimate/approve` is the same action from
 the customer's side and takes no permission: the token is the authority.
 
 ### On the technician's phone

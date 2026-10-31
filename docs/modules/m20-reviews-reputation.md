@@ -252,8 +252,26 @@ first was decided against or refused. It needs the first on (asked for without i
 refused in words), and turning the first off turns it off. It goes the way the company
 asks, in words we ship that say it is the last ("One last note"), and with it on the
 first reminder's shipped words drop "This is the only reminder we will send", which would
-be untrue; words a company wrote itself are left as they are. Its own words cannot be
-changed yet.
+be untrue; words a company wrote itself are left as they are.
+
+**The second reminder's words** are the company's to change, under The reminder on
+`/settings/reviews`: "Second reminder, text message", "email subject" and "email body",
+beside the first reminder's, saved with the same button (`secondWording` on
+`PUT /v1/reviews/reminders`, all three, or `null` to put back the words we ship; left out
+they stay; `secondWording` with its `custom` flag on `GET`). They are held to exactly
+the first reminder's rules by core's `checkReviewWording` (only `{{ customer.name }}`,
+`{{ organization.name }}` and `{{ review.url }}`, the link in the text and the email, nothing
+offered for a review, no stars asked for), and a refusal says it is the second reminder's
+words ("The second reminder: The text offers something for a review..."). They are kept in
+columns of their own on the policy (`second_reminder_sms`, `_email_subject`, `_email_body`),
+so changing the days, or the first reminder's words, never touches them. The shipped
+words saved back are recognised as ours (so later improvements to them still reach the
+company), line ends as a browser posts them included. "Put back the words we wrote for the
+second reminder" is the same as `secondWording: null`. The worker sends the second reminder
+in these words, filled the way every review message is; the audit row for a change carries
+them. **The company's own words are not made to say it is the last:** the check is
+on the rules above, not on a reading of what the message means, so a company that
+writes a second reminder without saying so is trusted to have meant it.
 
 **The follow up by email** is for a company that asks by text, then email (the review
 automation's way of asking). "Text, then email" sends the email when the text cannot go;
@@ -353,7 +371,7 @@ doing this grants it.
 | `GET /v1/reviews/policy` | `settings:read` |
 | `PUT /v1/reviews/policy` | `settings:write` |
 | `GET /v1/reviews/reminders` | `review:respond` |
-| `PUT /v1/reviews/reminders` | `settings:write` (the reminders, the second reminder and the follow up by email) |
+| `PUT /v1/reviews/reminders` | `settings:write` (the reminders, their words, the second reminder and the follow up by email) |
 | `GET /v1/reviews/platforms` | `settings:read` |
 | `POST /v1/reviews/sync` | `review:respond` |
 | `POST /v1/reviews/{id}/match` | `review:respond` |
@@ -417,11 +435,11 @@ matched to a customer only when somebody says so; they hold off for a suspected 
 do not for a review nobody has tied to anyone. "No reply" means no review that is or may
 be theirs: a text the customer sends back is not read as an answer. The follow up by email
 is only for a company asking by text, then email; one asking by text alone is not emailed,
-because email is not a way it said it asks. The second reminder goes in words we ship and
-cannot be changed on the screen; the first reminder uses the way the company asks, in its
-own words, which the company can change: the check on them is a match on plain words that
+because email is not a way it said it asks. Both reminders go the way the company asks, in
+their own words, which the company can change (the second in words of its own, kept apart
+from the first's): the check on them is a match on plain words that
 offer something or ask for stars, not a reading of what a message means, and the words
-need not say whether a second follows. The ask's own words, on the automation canvas, are
+need not say whether a second follows, or that it is the last. The ask's own words, on the automation canvas, are
 not held to that check. The policy's bands are whole star ratings, so a policy has at most
 five; the screen draws five rows, or every band of a policy stored with more. The
 email ask is tested against the fake email provider, not a live inbox, and the

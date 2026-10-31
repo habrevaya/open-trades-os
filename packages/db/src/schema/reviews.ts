@@ -168,6 +168,15 @@ export const reviewPolicy = pgTable("review_policy", {
    */
   secondReminderAfterDays: integer("second_reminder_after_days"),
   /**
+   * The second reminder's own words, when the company changed them, kept the way
+   * the first reminder's are: null is the words the product ships
+   * (`REVIEW_SECOND_REMINDER_WORDING`), and what is stored has passed core's
+   * `checkReviewWording`. Kept apart from the first's so each can say what it is.
+   */
+  secondReminderSms: text("second_reminder_sms"),
+  secondReminderEmailSubject: text("second_reminder_email_subject"),
+  secondReminderEmailBody: text("second_reminder_email_body"),
+  /**
    * THE FOLLOW UP BY EMAIL on an ask that went by text and got no answer, this
    * many days after it, for a company that asks by text first and then email.
    * "Text, then email" was a fallback for a text that could not go; this makes

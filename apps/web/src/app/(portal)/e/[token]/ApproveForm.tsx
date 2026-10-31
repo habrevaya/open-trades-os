@@ -20,9 +20,26 @@ type Estimate = {
       lineTotal: string;
       isOptional: boolean;
       isSelected: boolean;
+      /** The picture of the price book item the line was priced from, as a photograph id; null for none. */
+      picture: string | null;
     }>;
   }>;
 };
+
+/**
+ * THE PICTURE OF THE ITEM A LINE WAS PRICED FROM, beside the line. Read through
+ * this link's own photograph route, which serves a picture only when a line of
+ * this estimate was priced from it. Nothing is drawn for a line with none, and
+ * a picture that cannot load is dropped rather than shown as a broken box.
+ */
+function LinePicture({ token, line }: { token: string; line: { name: string; picture: string | null } }) {
+  const [broken, setBroken] = useState(false);
+  if (!line.picture || broken) return null;
+  return (
+    <img src={`/e/${encodeURIComponent(token)}/proposal/photos/${line.picture}`} alt={`Picture of ${line.name}`}
+         onError={() => setBroken(true)} className="h-10 w-14 shrink-0 rounded object-cover" />
+  );
+}
 
 const dollars = (v: string) =>
   Number(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -125,10 +142,13 @@ export function ApproveForm({ token, estimate }: { token: string; estimate: Esti
               <div className="border-t border-steel-200 px-5 py-4">
                 <ul className="space-y-2 text-sm">
                   {o.lines.filter((l) => !l.isOptional).map((l) => (
-                    <li key={l.id} className="flex justify-between gap-4">
-                      <span className="text-ink-700">
-                        {Number(l.quantity) !== 1 && `${Number(l.quantity)} × `}
-                        {l.name}
+                    <li key={l.id} className="flex items-center justify-between gap-4">
+                      <span className="flex items-center gap-3 text-ink-700">
+                        <LinePicture token={token} line={l} />
+                        <span>
+                          {Number(l.quantity) !== 1 && `${Number(l.quantity)} × `}
+                          {l.name}
+                        </span>
                       </span>
                       <span className="shrink-0 font-mono tabular-nums text-ink-500">
                         {dollars(l.lineTotal)}
@@ -152,6 +172,7 @@ export function ApproveForm({ token, estimate }: { token: string; estimate: Esti
                               onChange={() => toggleExtra(l.id)}
                               className="mt-1 h-4 w-4"
                             />
+                            <LinePicture token={token} line={l} />
                             <span className="flex-1">
                               <span className="font-medium">{l.name}</span>
                               {l.description && (

@@ -12,6 +12,7 @@ import {
 /** Re-exported so existing importers of this module keep working. */
 export { InvalidGrantError };
 import { decide, emitDeclined, loadEstimate } from "./estimates";
+import { linePicturesWithin } from "./proposal-templates";
 import type {
   openPortalLink, viewPortalEstimate, approvePortalEstimate,
   declinePortalEstimate, viewPortalJob, issuePortalGrant, revokePortalGrant,
@@ -782,6 +783,9 @@ async function shapeForCustomer(
     state: schema.property.state,
   }).from(schema.property).where(eq(schema.property.id, full.propertyId as string)).limit(1);
 
+  /** The picture of the price book item each line was priced from, as the photograph id the customer's own route serves. */
+  const pictures = await linePicturesWithin(tx, full.id as string);
+
   const options = (full.options as Array<Record<string, unknown>>).map((o) => ({
     id: o["id"] as string,
     name: o["name"] as string,
@@ -799,6 +803,7 @@ async function shapeForCustomer(
       lineTotal: l["lineTotal"] as string,
       isOptional: l["isOptional"] as boolean,
       isSelected: l["isSelected"] as boolean,
+      picture: pictures.get(l["id"] as string) ?? null,
     })),
   }));
 

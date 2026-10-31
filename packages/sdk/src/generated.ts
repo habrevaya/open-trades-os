@@ -1553,6 +1553,7 @@ export interface ApprovePortalEstimateOutput {
         lineTotal: string;
         isOptional: boolean;
         isSelected: boolean;
+        picture: string | null;
       }>;
     }>;
     depositRequired: string | null;
@@ -12599,6 +12600,12 @@ export interface GetReviewRemindersOutput {
     detail: string | null;
   }>;
   secondAfterDays: number | null;
+  secondWording: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+    custom: boolean;
+  };
   followUpAfterDays: number | null;
   followUpApplies: boolean;
   later: Array<{
@@ -26972,6 +26979,11 @@ export interface SetReviewRemindersInput {
     emailSubject: string;
     emailBody: string;
   } | null;
+  secondWording?: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+  } | null;
   secondAfterDays?: number | null;
   followUpAfterDays?: number | null;
 }
@@ -26994,6 +27006,12 @@ export interface SetReviewRemindersOutput {
     detail: string | null;
   }>;
   secondAfterDays: number | null;
+  secondWording: {
+    sms: string;
+    emailSubject: string;
+    emailBody: string;
+    custom: boolean;
+  };
   followUpAfterDays: number | null;
   followUpApplies: boolean;
   later: Array<{
@@ -30950,6 +30968,7 @@ export interface ViewPortalEstimateOutput {
       lineTotal: string;
       isOptional: boolean;
       isSelected: boolean;
+      picture: string | null;
     }>;
   }>;
   depositRequired: string | null;

@@ -125718,7 +125718,7 @@
       "put": {
         "operationId": "setReviewReminders",
         "summary": "Turn the reminders and the follow up by email on or off, and change the first reminder's words",
-        "description": "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy. `secondAfterDays` turns on a second reminder that many days after the first went, under the same rules, in words that say it is the last; it needs the first on, and turning the first off turns it off. `followUpAfterDays` sends the ask again by email that many days after it went by text, for a company that asks by text and then email, under the same rules. Both are off (`null`) unless the company says how many days, 3 to 60.\n\nRequires a session holding: settings:write.",
+        "description": "When an ask has gone `afterDays` days with no review tied, or suspected to be tied, to that customer since, the worker sends one reminder, by the way the company asks, through the same consent and suppression gate as the ask. One per job, ever. Skipped for a customer who opted out, with an open complaint or an unresolved callback on the job, and held to the sending hours. Off (`null`) unless the company says how many days, 3 to 60. Needs a review policy. `secondAfterDays` turns on a second reminder that many days after the first went, under the same rules, in words that say it is the last unless `secondWording` is the company's own; it needs the first on, and turning the first off turns it off. `followUpAfterDays` sends the ask again by email that many days after it went by text, for a company that asks by text and then email, under the same rules. Both are off (`null`) unless the company says how many days, 3 to 60.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M20"
         ],
@@ -162006,6 +162006,12 @@
                           },
                           "isSelected": {
                             "type": "boolean"
+                          },
+                          "picture": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           }
                         },
                         "required": [
@@ -162015,7 +162021,8 @@
                           "quantity",
                           "lineTotal",
                           "isOptional",
-                          "isSelected"
+                          "isSelected",
+                          "picture"
                         ]
                       }
                     }
@@ -219635,6 +219642,32 @@
               "null"
             ]
           },
+          "secondWording": {
+            "type": "object",
+            "properties": {
+              "sms": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "emailSubject": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "emailBody": {
+                "type": "string",
+                "maxLength": 10000
+              },
+              "custom": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "sms",
+              "emailSubject",
+              "emailBody",
+              "custom"
+            ]
+          },
           "followUpAfterDays": {
             "type": [
               "integer",
@@ -219697,6 +219730,7 @@
           "wording",
           "recent",
           "secondAfterDays",
+          "secondWording",
           "followUpAfterDays",
           "followUpApplies",
           "later"
@@ -292477,6 +292511,31 @@
               "emailBody"
             ]
           },
+          "secondWording": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "sms": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "emailSubject": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "emailBody": {
+                "type": "string",
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "sms",
+              "emailSubject",
+              "emailBody"
+            ]
+          },
           "secondAfterDays": {
             "type": [
               "integer",
@@ -292580,6 +292639,32 @@
               "null"
             ]
           },
+          "secondWording": {
+            "type": "object",
+            "properties": {
+              "sms": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "emailSubject": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "emailBody": {
+                "type": "string",
+                "maxLength": 10000
+              },
+              "custom": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "sms",
+              "emailSubject",
+              "emailBody",
+              "custom"
+            ]
+          },
           "followUpAfterDays": {
             "type": [
               "integer",
@@ -292642,6 +292727,7 @@
           "wording",
           "recent",
           "secondAfterDays",
+          "secondWording",
           "followUpAfterDays",
           "followUpApplies",
           "later"
@@ -313077,6 +313163,12 @@
                       },
                       "isSelected": {
                         "type": "boolean"
+                      },
+                      "picture": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "required": [
@@ -313086,7 +313178,8 @@
                       "quantity",
                       "lineTotal",
                       "isOptional",
-                      "isSelected"
+                      "isSelected",
+                      "picture"
                     ]
                   }
                 }
