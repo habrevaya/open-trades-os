@@ -118,7 +118,7 @@ run("the day an estimate was turned into a job", () => {
     ]);
 
     const [made] = await raw<{ id: string }[]>`select id from public.estimate where organization_id = ${ORG} and number = 6101`;
-    const again = await estimates.convert(owner(), { id: made!.id });
+    const again = await estimates.convert(owner(), { id: made!.id, createJob: true, createInvoice: false });
     expect(again.estimate.status).toBe("converted");
     expect(new Date(again.estimate.convertedAt!).toISOString().slice(0, 10)).toBe("2022-03-01");
     expect(again.jobId).toBe(again.estimate.jobId);
@@ -128,7 +128,7 @@ run("the day an estimate was turned into a job", () => {
 
   it("stamps the moment of a conversion done here", async () => {
     const [made] = await raw<{ id: string }[]>`select id from public.estimate where organization_id = ${ORG} and number = 6102`;
-    const converted = await estimates.convert(owner(), { id: made!.id });
+    const converted = await estimates.convert(owner(), { id: made!.id, createJob: true, createInvoice: false });
     expect(converted.estimate.status).toBe("converted");
     expect(converted.estimate.convertedAt).not.toBeNull();
   });

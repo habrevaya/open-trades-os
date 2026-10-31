@@ -1,18 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import postgres from "postgres";
-import { SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
+import { time, type Actor } from "@opentradesos/core";
 import * as ai from "../src/services/ai";
 import * as comms from "../src/services/comms";
 import * as contacts from "../src/services/contacts";
 import * as customers from "../src/services/customers";
 import * as portalChat from "../src/services/portal-chat";
-import * as portalNotice from "../src/services/portal-chat-notice";
-import * as portalSettings from "../src/services/portal-settings";
 import * as portalSignIn from "../src/services/portal-sign-in";
-import { runPass } from "../src/services/workflow-worker";
 import "../src/ai/index";
 import type { AiProvider, CompletionOutcome, ModelListOutcome, ModelRate } from "../src/ai/provider";
-import { inTenant, type ServiceContext } from "../src/services/context";
+import type { ServiceContext } from "../src/services/context";
 import { seedOrg, resetOrg, testDb, fixtureId } from "./helpers";
 
 /**
@@ -89,26 +86,6 @@ const conversationOf = async (customerId: string) =>
     select id from public.conversation where organization_id = ${ORG} and customer_id = ${customerId}
     and external_address like 'portal:%' order by created_at desc limit 1`)[0]!.id;
 
-/** What went to a number since the sign in code, newest first. */
-const texts = (phone: string) => raw<{ body: string }[]>`
-  select body from public.message
-  where organization_id = ${ORG} and direction = 'outbound' and to_address = ${phone} and channel = 'sms'
-  order by created_at desc`;
-
-const noticeOf = async (conversationId: string) => (await comms.thread(owner(), { id: conversationId })).customerNotice;
-
-const stateOf = async (conversationId: string) => (await raw<{
-  held: Date | null; notified: Date | null;
-}[]>`select customer_notice_held_at as held, customer_notified_at as notified
-     from public.ai_chat_session where conversation_id = ${conversationId}`)[0]!;
-
-/** As if the conversation so far was an hour old and the customer last looked five minutes ago, never told. */
-async function longAgo(conversationId: string) {
-  await raw`update public.message set created_at = created_at - interval '1 hour' where conversation_id = ${conversationId}`;
-  await raw`update public.ai_chat_session set customer_read_at = now() - interval '5 minutes', customer_notified_at = null
-    where conversation_id = ${conversationId}`;
-}
-
 /** Quiet hours around now, or twelve hours away: the clock cannot decide a test. */
 async function quietHours(now: boolean) {
   const hour = Math.floor(time.minutesInDay(new Date(), ZONE) / 60);
@@ -118,18 +95,6 @@ async function quietHours(now: boolean) {
 }
 
 const rateLimitsReset = () => raw`delete from public.public_rate_limit where key like ${'%' + ORG + '%'}`;
-const pass = () => portalNotice.releasePass(db(), { force: true });
-
-/** A customer with a chat the office is about to answer at night. */
-async function aChat(name: string, phone: string) {
-  const who = await aTextOnlyCustomer(name, phone);
-  await rateLimitsReset();
-  await portalChat.say(db(), { token: who.token, text: "Is anyone coming?" }, { ip: ip() }, deps());
-  const conversation = await conversationOf(who.id);
-  await longAgo(conversation);
-  return { ...who, conversation };
-}
-
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });

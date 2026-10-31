@@ -69,8 +69,10 @@ import type { AiDeps } from "./ai";
  * off until chosen): the worker then closes a chat the company wrote last in and
  * the customer has not written to for that long (`idleClosePass`). A chat the
  * customer wrote last in is never closed that way, because a customer waiting on
- * an answer is not an idle one. Neither tells the customer by text or email; they
- * see it the next time they open the chat. A chat has one closer.
+ * an answer is not an idle one. The quiet chat rule tells the customer once, by
+ * email or text, that it closed their chat (`tellOfIdleClose`, through the same
+ * gates the answer notice goes through); a person's close does not, because a
+ * person closing it has seen to it. A chat has one closer.
  *
  * WHAT THE CUSTOMER HAS SEEN. Opening the chat, or writing in it, marks it
  * read (`customer_read_at`). A reply from the office newer than that is an
@@ -105,6 +107,8 @@ export interface PortalChatPicture {
   name: string | null;
   /** A browser can draw it. A phone's HEIC is kept and offered to open instead. */
   shown: boolean;
+  /** The customer sent it and nobody in the company has opened it yet, so they can still take it back. */
+  takeBack: boolean;
 }
 
 /** What a customer's own pictures in the chat are filed as, to count what one has sent today. */

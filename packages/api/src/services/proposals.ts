@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { branding as brand, estimate as est, money as m } from "@opentradesos/core";
 import { contactOf, guardedRead, type ServiceContext } from "./context";

@@ -9,7 +9,6 @@ import * as portalChat from "../src/services/portal-chat";
 import * as portalNotice from "../src/services/portal-chat-notice";
 import * as portalSettings from "../src/services/portal-settings";
 import * as portalSignIn from "../src/services/portal-sign-in";
-import { runPass } from "../src/services/workflow-worker";
 import "../src/ai/index";
 import type { AiProvider, CompletionOutcome, ModelListOutcome, ModelRate } from "../src/ai/provider";
 import { inTenant, type ServiceContext } from "../src/services/context";
@@ -99,18 +98,6 @@ const texts = (phone: string) => raw<{ body: string }[]>`
 
 const noticeOf = async (conversationId: string) => (await comms.thread(owner(), { id: conversationId })).customerNotice;
 
-const stateOf = async (conversationId: string) => (await raw<{
-  held: Date | null; notified: Date | null;
-}[]>`select customer_notice_held_at as held, customer_notified_at as notified
-     from public.ai_chat_session where conversation_id = ${conversationId}`)[0]!;
-
-/** As if the conversation so far was an hour old and the customer last looked five minutes ago, never told. */
-async function longAgo(conversationId: string) {
-  await raw`update public.message set created_at = created_at - interval '1 hour' where conversation_id = ${conversationId}`;
-  await raw`update public.ai_chat_session set customer_read_at = now() - interval '5 minutes', customer_notified_at = null
-    where conversation_id = ${conversationId}`;
-}
-
 /** Quiet hours around now, or twelve hours away: the clock cannot decide a test. */
 async function quietHours(now: boolean) {
   const hour = Math.floor(time.minutesInDay(new Date(), ZONE) / 60);
@@ -121,16 +108,6 @@ async function quietHours(now: boolean) {
 
 const rateLimitsReset = () => raw`delete from public.public_rate_limit where key like ${'%' + ORG + '%'}`;
 const pass = () => portalNotice.releasePass(db(), { force: true });
-
-/** A customer with a chat the office is about to answer at night. */
-async function aChat(name: string, phone: string) {
-  const who = await aTextOnlyCustomer(name, phone);
-  await rateLimitsReset();
-  await portalChat.say(db(), { token: who.token, text: "Is anyone coming?" }, { ip: ip() }, deps());
-  const conversation = await conversationOf(who.id);
-  await longAgo(conversation);
-  return { ...who, conversation };
-}
 
 beforeAll(async () => {
   if (!url) return;
