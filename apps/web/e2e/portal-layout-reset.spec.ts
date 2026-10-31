@@ -36,7 +36,8 @@ test("an arranged account page goes back to the trade pack's", async ({ owner })
 
     await back.getByLabel("Yes, replace what I arranged").check();
     await back.getByRole("button", { name: "Go back to the pack's layout" }).click();
-    await expect(owner.getByRole("status").filter({ hasText: "Customers see the page your trade pack sets up" })).toBeVisible();
+    /** The way back goes with the arrangement it replaced, so the page itself says it is done. */
+    await expect(owner.getByRole("region", { name: "Go back to your trade pack's page" })).toHaveCount(0);
 
     await owner.reload();
     await expect(owner.getByLabel("Heading for Coming up")).not.toHaveValue(heading);

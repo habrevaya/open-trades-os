@@ -54,7 +54,7 @@ test("Bring in invoice lines with an item and a discount, a note with a time, an
     [invoice, customer, "2022-04-01", code, "Filters for the shop", "2", "50", "10", "90.00", "0", "90.00"],
     [badInvoice, customer, "2022-04-02", code, "Filters again", "2", "50", "10", "100.00", "0", "100.00"],
   ]);
-  await expect(owner.getByRole("combobox", { name: /^Price book item/ })).toHaveValue("itemRef");
+  await expect(owner.getByRole("combobox", { name: /^Item code/ })).toHaveValue("itemRef");
   await expect(owner.getByRole("combobox", { name: /^Discount/ })).toHaveValue("discount");
   const refused = owner.getByRole("table", { name: "Rows that will not go in" });
   await expect(refused).toContainText("2 at 50.00 less 10.00 is 90.00, not the 100.00 in Before tax");
@@ -66,7 +66,7 @@ test("Bring in invoice lines with an item and a discount, a note with a time, an
     ["Note ID", "Customer ID", "Date", "Time", "Note"],
     [`N-${run}`, customer, "2021-03-04", "2:30 PM", "Gate sticks."],
   ]);
-  await expect(owner.getByRole("combobox", { name: /^Time written/ })).toHaveValue("notedTime");
+  await expect(owner.getByRole("combobox", { name: /^Time/ })).toHaveValue("notedTime");
   await owner.getByRole("button", { name: "Check all 1 rows" }).click();
   await owner.getByRole("button", { name: "Load 1 note" }).click();
   await expect(owner.getByText("1 loaded.")).toBeVisible();
@@ -75,7 +75,7 @@ test("Bring in invoice lines with an item and a discount, a note with a time, an
     ["Estimate #", "Customer ID", "Date", "Line item", "Qty", "Price Each", "Total", "Status", "Decided On", "Converted On"],
     [estimate, customer, "2022-02-01", "Heat pump", "1", "1000", "1000", "Won", "2022-02-10", "2022-03-01"],
   ]);
-  await expect(owner.getByRole("combobox", { name: /^Turned into a job on/ })).toHaveValue("convertedOn");
+  await expect(owner.getByRole("combobox", { name: /^Converted On/ })).toHaveValue("convertedOn");
   await owner.getByRole("button", { name: "Check all 1 rows" }).click();
   await owner.getByRole("button", { name: "Load 1 row" }).click();
   await expect(owner.getByText("1 loaded.")).toBeVisible();
