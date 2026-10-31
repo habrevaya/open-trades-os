@@ -732,7 +732,11 @@ export const removeVendorItem = defineRoute({
 
 const CatalogueOptions = {
   /** The file, as text: a header line naming sku, description, cost and vendor columns, then a row per part. A pack column and a unit column say how the supplier sells it, and a `Pack Part Number` column gives the supplier's number for the pack that row sells when it is not the part's. */
-  csv: z.string().min(1).max(2_000_000),
+  csv: z.string().min(1).max(2_000_000).optional(),
+  /** Or the file as an .xlsx workbook, base64, of at most five megabytes. Send `csv` or `workbook`, not both. Read by the same reader as the spreadsheet import: formulas are never worked out and macros never opened. */
+  workbook: z.string().min(1).max(20_000_000).optional(),
+  /** The sheet of the workbook to read. Needed when it has more than one (`POST /v1/vendor-catalogue/sheets` lists them). Its first row is the header, with the same columns a CSV has. */
+  sheet: z.string().min(1).max(200).optional(),
   /** The vendor for rows that name none, or for a file with no vendor column. */
   vendorId: Uuid.nullable().optional(),
   /** The margin a new item is priced at over its cost, as a fraction: 0.4 is forty per cent. Without one, new parts are skipped rather than sold at cost. */
@@ -805,12 +809,36 @@ const CatalogueResult = z.object({
   newVendors: z.array(z.object({ name: z.string(), line: z.number().int() })),
 });
 
+export const listVendorCatalogueSheets = defineRoute({
+  method: "post",
+  path: "/v1/vendor-catalogue/sheets",
+  summary: "The sheets of a supplier's workbook, to choose one",
+  description:
+    "A workbook (.xlsx) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be read. Nothing is kept: send the workbook again to preview or apply with `sheet` set to the one chosen. Formulas are never worked out and macros are never opened.",
+  module: "M16",
+  permissions: ["vendor:write", "pricebook:write"],
+  /** Reading a file and keeping nothing: a retry is the same answer. */
+  idempotent: true,
+  input: z.object({ workbook: z.string().min(1).max(20_000_000) }),
+  output: z.object({
+    sheets: z.array(z.object({
+      name: z.string(),
+      /** Rows under the header, or null when the sheet cannot be read. */
+      rows: z.number().int().nullable(),
+      /** The first columns of the header, to tell sheets apart. */
+      header: z.array(z.string()),
+      /** Why the sheet cannot be read, or null. */
+      why: z.string().nullable(),
+    })),
+  }),
+});
+
 export const previewVendorCatalogue = defineRoute({
   method: "post",
   path: "/v1/vendor-catalogue/preview",
   summary: "What a supplier's catalogue file would do, with nothing written",
   description:
-    "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.",
+    "The file is a CSV as `csv` or an .xlsx workbook as `workbook` with the `sheet` to read (a workbook with several sheets is refused until `sheet` says which), under the same size limit and refusals as the spreadsheet import; a row keeps its number from the spreadsheet. Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.",
   module: "M16",
   permissions: ["vendor:write", "pricebook:write"],
   idempotent: true,
@@ -899,5 +927,5 @@ export const inventoryRoutes = {
   listVendors, createVendor,
   listPurchaseOrders, createPurchaseOrder, getPurchaseOrder, editPurchaseOrder, setPurchaseOrderStatus, receivePurchaseOrder,
   recordPurchaseOrderAcknowledgement, getPurchasingSettings, setPurchasingSettings,
-  listVendorItems, setVendorItem, removeVendorItem, previewVendorCatalogue, applyVendorCatalogue,
+  listVendorItems, setVendorItem, removeVendorItem, listVendorCatalogueSheets, previewVendorCatalogue, applyVendorCatalogue,
 } as const;

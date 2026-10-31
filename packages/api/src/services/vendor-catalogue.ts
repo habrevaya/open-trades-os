@@ -1,12 +1,13 @@
 import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, can, catalogue, money as m } from "@opentradesos/core";
+import { assertCan, can, catalogue, imports as importRules, money as m } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { refusingDuplicate } from "./duplicates";
 import { costPerUseUnit, inForceAt, load, reviseWithin, unitsOf } from "./pricebook";
 import * as once from "./once";
+import * as workbooks from "../imports/workbook";
 
 /**
  * WHAT A VENDOR CALLS OUR PARTS, AND THEIR CATALOGUE
@@ -306,8 +307,12 @@ export async function removeLink(ctx: ServiceContext, input: { id: string }): Pr
 /* ------------------------------------------------------- the catalogue */
 
 export interface CatalogueInput {
-  /** The file, as text. */
-  csv: string;
+  /** The file, as text. Send this or `workbook`. */
+  csv?: string | undefined;
+  /** An .xlsx workbook, as base64. Send this or `csv`. */
+  workbook?: string | undefined;
+  /** The sheet of the workbook to read. Needed when it has more than one. */
+  sheet?: string | undefined;
   /** The vendor for rows that name none, or a file with no vendor column. */
   vendorId?: string | null | undefined;
   /** The margin new items are priced at over cost, as a fraction. Without one, new parts are skipped. */
@@ -386,6 +391,61 @@ async function stateFor(tx: Database, rows: readonly catalogue.CatalogueRow[]): 
   };
 }
 
+/** The most base64 text a five megabyte workbook can come to, as the spreadsheet import allows. */
+const MAX_BASE64 = Math.ceil((importRules.MAX_BYTES * 4) / 3) + 16;
+
+/**
+ * The file as rows of a catalogue, whether it came as text or as a workbook.
+ *
+ * A workbook goes through the same reader the spreadsheet import (M30) uses, so
+ * it has the same size cap, the same refusals in the same words (a password, an
+ * older .xls, a workbook that opens into gigabytes), a formula read as the
+ * answer stored beside it and never worked out, and one sheet named when there
+ * are several. The sheet's rows then meet the same checks a CSV does, and each
+ * row keeps its number from the spreadsheet.
+ */
+async function parseFile(input: Pick<CatalogueInput, "csv" | "workbook" | "sheet">): Promise<catalogue.ParsedCatalogue> {
+  if (input.csv !== undefined && input.workbook !== undefined) {
+    throw new ConflictError("Send the file as a CSV or as a workbook, not both.");
+  }
+  if (input.workbook !== undefined) {
+    if (input.workbook.length > MAX_BASE64) {
+      throw new ConflictError(importRules.tooBigMessage(Math.floor((input.workbook.length * 3) / 4)));
+    }
+    try {
+      const read = await workbooks.readSheet(Buffer.from(input.workbook, "base64"), input.sheet);
+      return catalogue.parseCatalogueSheet(read.header, read.rows, read.numbers);
+    } catch (error) {
+      if (error instanceof workbooks.WorkbookRefused) throw new ConflictError(error.message);
+      throw error;
+    }
+  }
+  if (input.csv === undefined) throw new ConflictError("Send the file to bring in.");
+  if (input.sheet !== undefined) throw new ConflictError("A CSV file has no sheets. Send a workbook to choose one.");
+  return catalogue.parseCatalogue(input.csv);
+}
+
+/**
+ * THE SHEETS OF A SUPPLIER'S WORKBOOK, for choosing one.
+ *
+ * Nothing is kept: the workbook is sent again with the sheet chosen. It needs
+ * what previewing a catalogue needs, so nobody is shown the inside of a file
+ * they cannot bring in.
+ */
+export async function sheets(ctx: ServiceContext, input: { workbook: string }) {
+  assertCan(ctx.actor, "pricebook:write");
+  assertCan(ctx.actor, "vendor:write");
+  if (input.workbook.length > MAX_BASE64) {
+    throw new ConflictError(importRules.tooBigMessage(Math.floor((input.workbook.length * 3) / 4)));
+  }
+  try {
+    return { sheets: await workbooks.listSheets(Buffer.from(input.workbook, "base64")) };
+  } catch (error) {
+    if (error instanceof workbooks.WorkbookRefused) throw new ConflictError(error.message);
+    throw error;
+  }
+}
+
 async function planWithin(tx: Database, ctx: ServiceContext, input: CatalogueInput): Promise<CatalogueResult & {
   parsed: catalogue.ParsedCatalogue;
 }> {
@@ -394,7 +454,7 @@ async function planWithin(tx: Database, ctx: ServiceContext, input: CatalogueInp
       .where(and(eq(schema.vendor.id, input.vendorId), isNull(schema.vendor.deletedAt))).limit(1);
     if (!vendor) throw new NotFoundError("Vendor");
   }
-  const parsed = catalogue.parseCatalogue(input.csv);
+  const parsed = await parseFile(input);
   if (parsed.rows.length === 0 && parsed.problems.length > 0 && parsed.problems[0]!.line === 1) {
     /** The header itself is the problem, so there is no file to preview. */
     throw new ConflictError(parsed.problems[0]!.message);
@@ -635,6 +695,7 @@ export async function apply(
       input.vendorId ?? ctx.actor.organizationId, null, {
       created, linked, updated, itemCostsRevised, vendorsAdded,
       skipped: result.counts.skip + skip.size, problems: result.problems.length,
+      ...(input.workbook !== undefined && input.sheet ? { sheet: input.sheet } : {}),
     });
     await once.remember(tx, ctx, "vendor_catalogue", null, answer);
     return answer;
@@ -727,6 +788,7 @@ export const handlers = {
     } | null | undefined;
   }) => setLink(ctx, input),
   removeVendorItem: (ctx: ServiceContext, input: { id: string }) => removeLink(ctx, input),
+  listVendorCatalogueSheets: (ctx: ServiceContext, input: { workbook: string }) => sheets(ctx, input),
   previewVendorCatalogue: (ctx: ServiceContext, input: CatalogueInput) => preview(ctx, input),
   applyVendorCatalogue: (ctx: ServiceContext, input: CatalogueInput & { skipLines?: number[] | undefined }) =>
     apply(ctx, input),

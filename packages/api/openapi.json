@@ -146848,7 +146848,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -146963,7 +146963,137 @@
       "post": {
         "operationId": "previewVendorCatalogue",
         "summary": "What a supplier's catalogue file would do, with nothing written",
-        "description": "Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.\n\nRequires a session holding: vendor:write, pricebook:write.",
+        "description": "The file is a CSV as `csv` or an .xlsx workbook as `workbook` with the `sheet` to read (a workbook with several sheets is refused until `sheet` says which), under the same size limit and refusals as the spreadsheet import; a row keeps its number from the spreadsheet. Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.\n\nRequires a session holding: vendor:write, pricebook:write.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewVendorCatalogueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "What a supplier's catalogue file would do, with nothing written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewVendorCatalogueOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "vendor:write",
+          "pricebook:write"
+        ]
+      }
+    },
+    "/v1/vendor-catalogue/sheets": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "listVendorCatalogueSheets",
+        "summary": "The sheets of a supplier's workbook, to choose one",
+        "description": "A workbook (.xlsx) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be read. Nothing is kept: send the workbook again to preview or apply with `sheet` set to the one chosen. Formulas are never worked out and macros are never opened.\n\nRequires a session holding: vendor:write, pricebook:write.",
         "tags": [
           "M16"
         ],
@@ -146983,18 +147113,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PreviewVendorCatalogueInput"
+                "$ref": "#/components/schemas/ListVendorCatalogueSheetsInput"
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "What a supplier's catalogue file would do, with nothing written",
+            "description": "The sheets of a supplier's workbook, to choose one",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PreviewVendorCatalogueOutput"
+                  "$ref": "#/components/schemas/ListVendorCatalogueSheetsOutput"
                 }
               }
             }
@@ -160319,6 +160449,16 @@
             "minLength": 1,
             "maxLength": 2000000
           },
+          "workbook": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000000
+          },
+          "sheet": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
           "vendorId": {
             "type": [
               "string",
@@ -160363,10 +160503,7 @@
             },
             "maxItems": 5000
           }
-        },
-        "required": [
-          "csv"
-        ]
+        }
       },
       "ApplyVendorCatalogueOutput": {
         "type": "object",
@@ -253015,6 +253152,62 @@
           "estimates"
         ]
       },
+      "ListVendorCatalogueSheetsInput": {
+        "type": "object",
+        "properties": {
+          "workbook": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000000
+          }
+        },
+        "required": [
+          "workbook"
+        ]
+      },
+      "ListVendorCatalogueSheetsOutput": {
+        "type": "object",
+        "properties": {
+          "sheets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "header": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "why": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "rows",
+                "header",
+                "why"
+              ]
+            }
+          }
+        },
+        "required": [
+          "sheets"
+        ]
+      },
       "ListVendorItemsOutput": {
         "type": "object",
         "properties": {
@@ -262579,6 +262772,16 @@
             "minLength": 1,
             "maxLength": 2000000
           },
+          "workbook": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000000
+          },
+          "sheet": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
           "vendorId": {
             "type": [
               "string",
@@ -262615,10 +262818,7 @@
             "type": "boolean",
             "default": false
           }
-        },
-        "required": [
-          "csv"
-        ]
+        }
       },
       "PreviewVendorCatalogueOutput": {
         "type": "object",

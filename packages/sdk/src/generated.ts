@@ -1244,7 +1244,9 @@ export interface ApplyTradePackOutput {
 }
 
 export interface ApplyVendorCatalogueInput {
-  csv: string;
+  csv?: string;
+  workbook?: string;
+  sheet?: string;
   vendorId?: string | null;
   margin?: string | null;
   ending?: string | null;
@@ -18940,6 +18942,19 @@ export interface ListUnsoldEstimatesOutput {
   }>;
 }
 
+export interface ListVendorCatalogueSheetsInput {
+  workbook: string;
+}
+
+export interface ListVendorCatalogueSheetsOutput {
+  sheets: Array<{
+    name: string;
+    rows: number | null;
+    header: string[];
+    why: string | null;
+  }>;
+}
+
 export interface ListVendorItemsOutput {
   links: Array<{
     id: string;
@@ -20842,7 +20857,9 @@ export interface PreviewTradePackUpgradeOutput {
 }
 
 export interface PreviewVendorCatalogueInput {
-  csv: string;
+  csv?: string;
+  workbook?: string;
+  sheet?: string;
   vendorId?: string | null;
   margin?: string | null;
   ending?: string | null;
@@ -36186,6 +36203,7 @@ export interface OperationTypes {
   listUnplacedSources: { input: ListUnplacedSourcesInput; output: ListUnplacedSourcesOutput };
   listUnsignedSafetyLines: { input: ListUnsignedSafetyLinesInput; output: ListUnsignedSafetyLinesOutput };
   listUnsoldEstimates: { input: ListUnsoldEstimatesInput; output: ListUnsoldEstimatesOutput };
+  listVendorCatalogueSheets: { input: ListVendorCatalogueSheetsInput; output: ListVendorCatalogueSheetsOutput };
   listVendorItems: { input: ListVendorItemsInput; output: ListVendorItemsOutput };
   listVendorReturns: { input: ListVendorReturnsInput; output: ListVendorReturnsOutput };
   listVendors: { input: ListVendorsInput; output: ListVendorsOutput };
@@ -37440,6 +37458,7 @@ export const OPERATIONS = {
   listUnplacedSources: { method: "GET", path: "/v1/marketing/unplaced-sources", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listUnsignedSafetyLines: { method: "GET", path: "/v1/safety/unsigned", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:read"] },
   listUnsoldEstimates: { method: "GET", path: "/v1/unsold-estimates", pathParams: [], queryParams: ["sort","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
+  listVendorCatalogueSheets: { method: "POST", path: "/v1/vendor-catalogue/sheets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write","pricebook:write"] },
   listVendorItems: { method: "GET", path: "/v1/vendor-items", pathParams: [], queryParams: ["itemId","vendorId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
   listVendorReturns: { method: "GET", path: "/v1/vendor-returns", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listVendors: { method: "GET", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:read"] },
@@ -38447,7 +38466,7 @@ export abstract class GeneratedOperations {
    *
    * POST /v1/vendor-catalogue/apply. Needs vendor:write, pricebook:write.
    */
-  applyVendorCatalogue(input: ApplyVendorCatalogueInput, options?: CallOptions): Promise<ApplyVendorCatalogueOutput> {
+  applyVendorCatalogue(input: ApplyVendorCatalogueInput = {} as ApplyVendorCatalogueInput, options?: CallOptions): Promise<ApplyVendorCatalogueOutput> {
     return this.call("applyVendorCatalogue", input, options);
   }
 
@@ -44464,6 +44483,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The sheets of a supplier's workbook, to choose one.
+   *
+   * POST /v1/vendor-catalogue/sheets. Needs vendor:write, pricebook:write.
+   */
+  listVendorCatalogueSheets(input: ListVendorCatalogueSheetsInput, options?: CallOptions): Promise<ListVendorCatalogueSheetsOutput> {
+    return this.call("listVendorCatalogueSheets", input, options);
+  }
+
+  /**
    * Vendors' part numbers for our items.
    *
    * GET /v1/vendor-items. Needs vendor:read.
@@ -45197,7 +45225,7 @@ export abstract class GeneratedOperations {
    *
    * POST /v1/vendor-catalogue/preview. Needs vendor:write, pricebook:write.
    */
-  previewVendorCatalogue(input: PreviewVendorCatalogueInput, options?: CallOptions): Promise<PreviewVendorCatalogueOutput> {
+  previewVendorCatalogue(input: PreviewVendorCatalogueInput = {} as PreviewVendorCatalogueInput, options?: CallOptions): Promise<PreviewVendorCatalogueOutput> {
     return this.call("previewVendorCatalogue", input, options);
   }
 

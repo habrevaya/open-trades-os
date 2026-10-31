@@ -372,6 +372,7 @@ export const handlers = {
   listVendorItems: vendorCatalogue.handlers.listVendorItems,
   setVendorItem: vendorCatalogue.handlers.setVendorItem,
   removeVendorItem: vendorCatalogue.handlers.removeVendorItem,
+  listVendorCatalogueSheets: vendorCatalogue.handlers.listVendorCatalogueSheets,
   previewVendorCatalogue: vendorCatalogue.handlers.previewVendorCatalogue,
   applyVendorCatalogue: vendorCatalogue.handlers.applyVendorCatalogue,
   setPurchaseOrderStatus: inventory.handlers.setPurchaseOrderStatus,

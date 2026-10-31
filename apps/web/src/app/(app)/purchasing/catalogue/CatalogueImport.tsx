@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { imports as importRules } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { useKeptAction } from "@/lib/use-kept-action";
-import { applyCatalogue, previewCatalogue, type CatalogueState } from "./actions";
+import { applyCatalogue, previewCatalogue, readCatalogueSheets, type CatalogueSheets, type CatalogueState } from "./actions";
 
 type Row = NonNullable<NonNullable<CatalogueState>["preview"]>["rows"][number];
 
@@ -14,8 +15,9 @@ const SAYS: Record<Row["action"], string> = {
 /**
  * A SUPPLIER'S SPREADSHEET, PREVIEWED BEFORE ANYTHING IS WRITTEN
  *
- * Paste it or pick the file, say which vendor it is from when the file does
- * not, and how new parts should be priced. The preview says what every row
+ * Paste it or pick the file (a CSV, or an .xlsx workbook, which asks which
+ * sheet), say which vendor it is from when the file does not, and how new parts
+ * should be priced. The preview says what every row
  * would do and why a row would be skipped; untick anything to leave alone,
  * then apply. Applying works it out again from the same file, so what is
  * written is the plan as it stands at that moment.
@@ -26,30 +28,120 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
   seesCost: boolean;
 }) {
   const [csv, setCsv] = useState("");
+  /** A workbook chosen, with the sheets it holds and the one to read. It travels with both forms as a file. */
+  const [book, setBook] = useState<File | null>(null);
+  const [sheets, setSheets] = useState<CatalogueSheets | "reading" | null>(null);
+  const [sheet, setSheet] = useState("");
+  const [tooBig, setTooBig] = useState<string | null>(null);
+  /** Which file the sheets belong to, so a slow answer for a file since replaced is dropped. */
+  const latest = useRef(0);
+  const previewFile = useRef<HTMLInputElement>(null);
+  const applyFile = useRef<HTMLInputElement>(null);
   const [preview, previewForm, previewing] = useKeptAction(previewCatalogue, null);
   const [applied, applyForm, applying] = useKeptAction(applyCatalogue, null);
   const [settings, setSettings] = useState<FormData | null>(null);
 
   const rows = preview?.preview?.rows ?? [];
-  const carried = settings ? Array.from(settings.entries()).filter(([name]) => name !== "csv") : [];
+  const carried = settings
+    ? Array.from(settings.entries()).filter(([name, value]) => name !== "csv" && name !== "sheet" && typeof value === "string")
+    : [];
+
+  /**
+   * Put the workbook into the two hidden file boxes. A form is emptied when its action
+   * finishes, a file box with it, so this runs again after every answer.
+   */
+  useLayoutEffect(() => {
+    for (const box of [previewFile.current, applyFile.current]) {
+      if (!box) continue;
+      const held = new DataTransfer();
+      if (book) held.items.add(book);
+      box.files = held.files;
+    }
+  }, [book, preview, applied]);
+
+  async function chosen(file: File | undefined) {
+    const mine = ++latest.current;
+    setBook(null);
+    setSheets(null);
+    setSheet("");
+    setTooBig(null);
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) {
+      if (/\.(xls|xlsm|xlsb|numbers|ods)$/i.test(file.name)) {
+        setSheets({ ok: false, refusal: "That kind of workbook cannot be read. In your spreadsheet program choose Save As or Download and pick Excel Workbook (.xlsx) or CSV, and bring in that file." });
+        return;
+      }
+      setCsv(await file.text());
+      return;
+    }
+    if (file.size > importRules.MAX_BYTES) {
+      setTooBig(`That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. Bring in at most 5 MB at a time: split it into smaller files and bring each one in.`);
+      return;
+    }
+    setCsv("");
+    setSheets("reading");
+    const body = new FormData();
+    body.set("file", file);
+    const answer = await readCatalogueSheets(body);
+    if (mine !== latest.current) return;
+    setSheets(answer);
+    if (answer.ok) {
+      setBook(file);
+      setSheet(answer.sheets.find((s) => s.why === null)?.name ?? "");
+    }
+  }
+  const unreadable = sheets !== null && sheets !== "reading" && (!sheets.ok || sheets.sheets.every((s) => s.why !== null));
 
   return (
     <div className="space-y-6">
       <form {...previewForm} onSubmit={(event) => setSettings(new FormData(event.currentTarget))} className="space-y-4">
         <label className="block text-sm">
-          <span className="font-medium text-ink-700">The file</span>
-          <input type="file" accept=".csv,text/csv" className="mt-1 block text-sm"
-                 onChange={async (event) => {
-                   const file = event.target.files?.[0];
-                   if (file) setCsv(await file.text());
-                 }} />
+          <span className="font-medium text-ink-700">The file: a CSV or an .xlsx workbook</span>
+          <input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                 className="mt-1 block text-sm"
+                 onChange={(event) => { void chosen(event.currentTarget.files?.[0]); }} />
         </label>
-        <label className="block text-sm">
-          <span className="font-medium text-ink-700">Or paste it: a header line, then a row per part</span>
-          <textarea name="csv" rows={8} value={csv} onChange={(event) => setCsv(event.target.value)} required
-                    placeholder={"sku,description,cost,vendor\nC455R,\"Capacitor, dual run 45/5\",12.50,Ferguson"}
-                    className="mt-1 w-full rounded border border-steel-300 bg-canvas px-3 py-2 font-mono text-sm" />
-        </label>
+        <input ref={previewFile} type="file" name="workbook" hidden tabIndex={-1} aria-hidden="true" />
+        {sheets === "reading" ? <p role="status" className="text-sm text-ink-500">Reading the workbook</p> : null}
+        {tooBig ? <p role="alert" className="text-sm text-red-600">{tooBig}</p> : null}
+        {sheets !== null && sheets !== "reading" && !sheets.ok ? (
+          <p role="alert" className="text-sm text-red-600">{sheets.refusal}</p>
+        ) : null}
+        {sheets !== null && sheets !== "reading" && sheets.ok ? (
+          <fieldset>
+            <legend className="text-sm font-medium text-ink-700">Which sheet to read</legend>
+            <p className="mt-1 text-sm text-ink-500">
+              {sheets.sheets.length === 1 ? "This workbook has one sheet." : "This workbook has more than one sheet. Choose the one with the prices."}
+              {" "}Its first row has to name the columns.
+            </p>
+            <div className="mt-2 space-y-2">
+              {sheets.sheets.map((s) => (
+                <label key={s.name} className="flex items-start gap-2 text-sm">
+                  <input type="radio" name="sheet" value={s.name} checked={sheet === s.name} disabled={s.why !== null}
+                         onChange={() => setSheet(s.name)} className="mt-1 h-4 w-4" />
+                  <span>
+                    <span className="font-medium">{s.name}</span>
+                    {s.why === null ? (
+                      <span className="block text-ink-500">
+                        {s.rows} {s.rows === 1 ? "row" : "rows"}. Columns: {s.header.filter((h) => h !== "").join(", ") || "none named"}
+                      </span>
+                    ) : (
+                      <span className="block text-ink-500">Cannot be read. {s.why}</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
+        {book === null ? (
+          <label className="block text-sm">
+            <span className="font-medium text-ink-700">Or paste it: a header line, then a row per part</span>
+            <textarea name="csv" rows={8} value={csv} onChange={(event) => setCsv(event.target.value)} required
+                      placeholder={"sku,description,cost,vendor\nC455R,\"Capacitor, dual run 45/5\",12.50,Ferguson"}
+                      className="mt-1 w-full rounded border border-steel-300 bg-canvas px-3 py-2 font-mono text-sm" />
+          </label>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="block text-sm">
             <span className="font-medium text-ink-700">Vendor, for rows that name none</span>
@@ -86,7 +178,7 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
             name in the file does not become a second supplier.
           </label>
         </div>
-        <button type="submit" disabled={previewing}
+        <button type="submit" disabled={previewing || sheets === "reading" || unreadable}
                 className="inline-flex h-9 items-center rounded bg-ink-900 px-3.5 text-sm font-medium text-white hover:bg-ink-700 disabled:opacity-60">
           {previewing ? "Reading" : "Preview"}
         </button>
@@ -96,6 +188,8 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
       {preview?.preview ? (
         <form {...applyForm} className="space-y-3" aria-label="Preview">
           <input type="hidden" name="csv" value={csv} />
+          <input type="hidden" name="sheet" value={book ? sheet : ""} />
+          <input ref={applyFile} type="file" name="workbook" hidden tabIndex={-1} aria-hidden="true" />
           {carried.map(([name, value]) => <input key={name} type="hidden" name={name} value={String(value)} />)}
           <p className="text-sm text-ink-700">
             {preview.preview.counts.create} new, {preview.preview.counts.link} linked, {preview.preview.counts.update} updated,{" "}
