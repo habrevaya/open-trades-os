@@ -197,17 +197,28 @@ run("recurring tasks", () => {
     });
   });
 
+  /** The last Friday of a month, and the Friday a week before it, as days. */
+  const YEAR = new Date().getUTCFullYear() + 1;
+  const lastFriday = (year: number, month: number) => {
+    const day = new Date(Date.UTC(year, month, 0));
+    while (day.getUTCDay() !== 5) day.setUTCDate(day.getUTCDate() - 1);
+    return day.toISOString().slice(0, 10);
+  };
+  const weekBefore = (date: string) => new Date(Date.parse(`${date}T12:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+
   it("raises a last Friday of the month task on the fourth or the fifth Friday, whichever is last", async () => {
     const template = await rules.createTemplate(owner(), {
-      title: "Month end count", frequency: "last_weekday_of_month", weekday: 5, startsOn: "2026-10-01",
+      title: "Month end count", frequency: "last_weekday_of_month", weekday: 5, startsOn: `${YEAR}-10-01`,
     });
-    expect(template.nextOn).toBe("2026-10-30");
-    const at = (iso: string) => rules.raiseRecurringFor(db(), ORG, new Date(iso));
-    // The 23rd is a Friday but not the last one in October 2026.
-    expect(await at("2026-10-23T15:00:00Z")).toEqual([]);
-    expect(await at("2026-10-30T15:00:00Z")).toHaveLength(1);
-    expect(await at("2026-11-20T15:00:00Z")).toEqual([]);
-    expect(await at("2026-11-27T15:00:00Z")).toHaveLength(1);
+    /** Next year, so the first one is still to come whenever the suite runs. */
+    expect(template.nextOn).toBe(lastFriday(YEAR, 10));
+    const at = (iso: string) => rules.raiseRecurringFor(db(), ORG, new Date(`${iso}T15:00:00Z`));
+    // The Friday a week before the last is a Friday but not the last one.
+    for (const month of [10, 11]) {
+      const last = lastFriday(YEAR, month);
+      expect(await at(weekBefore(last))).toEqual([]);
+      expect(await at(last)).toHaveLength(1);
+    }
   });
 
   it("refuses the new schedules without a weekday, and keeps the weekday only where it means something", async () => {
