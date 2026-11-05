@@ -106,7 +106,7 @@ export const listImportSheets = defineRoute({
   path: "/v1/import-sheets",
   summary: "The sheets of a workbook, to choose one to bring in",
   description:
-    "A workbook (.xlsx) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be brought in. Nothing is kept: send the workbook again to `POST /v1/imports` with `sheet` set to the one chosen. Formulas are never evaluated and macros are never opened.",
+    "A workbook (.xlsx or .ods, which is told apart by what is inside it and not by a file name) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be brought in. Nothing is kept: send the workbook again to `POST /v1/imports` with `sheet` set to the one chosen. Formulas are never evaluated and macros are never opened.",
   module: "M30",
   permissions: ["data:import"],
   /** Reading a file and keeping nothing: a retry is the same answer. */
@@ -133,7 +133,7 @@ export const startImport = defineRoute({
   path: "/v1/imports",
   summary: "Upload a spreadsheet of customers, equipment, price book items, past jobs, past invoices, past payments, past estimates, notes or visits",
   description:
-    "A CSV as `csv` (text), or a workbook as `workbook` (.xlsx, base64) with the `sheet` to read, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. A workbook with several sheets is refused until `sheet` says which (`POST /v1/import-sheets` lists them). Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds, and a formula in a workbook is read as the answer stored beside it. `holdAutomations`, on unless sent false, starts no automation for anything the file brings in: every event its creates raise names the file, and the workflow engine holds them.",
+    "A CSV as `csv` (text), or a workbook as `workbook` (.xlsx or .ods, base64) with the `sheet` to read, of at most five megabytes and ten thousand rows; a larger file is refused in words, to be split. A workbook with several sheets is refused until `sheet` says which (`POST /v1/import-sheets` lists them). Nothing is loaded: the rows are kept as they are, each column is guessed from its header (or mapped by a mapping saved from a file with the same headers), and the answer is what `GET /v1/imports/{id}` returns. A cell is never evaluated: one that starts with `=` is stored as the characters it holds, and a formula in a workbook is read as the answer stored beside it. `holdAutomations`, on unless sent false, starts no automation for anything the file brings in: every event its creates raise names the file, and the workflow engine holds them.",
   module: "M30",
   permissions: ["data:import"],
   idempotent: true,

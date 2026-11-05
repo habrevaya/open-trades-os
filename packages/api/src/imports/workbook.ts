@@ -27,6 +27,20 @@ import { imports as rules } from "@opentradesos/core";
  *     a stranger made, and "it threw" is not something a person can act on.
  *
  * It is loaded when a workbook arrives, not when the server starts.
+ *
+ * AN .ods IS READ THE SAME WAY, WITH NO LIBRARY AT ALL. An OpenDocument
+ * spreadsheet is a zip whose `content.xml` holds every sheet, so it goes through
+ * the same zip directory, the same refusal of a password, the same ceiling on
+ * what its parts may open into, the same caps on rows, columns, sheets and span,
+ * and the same turning of anything that goes wrong into a sentence. Its cells
+ * are read by a single pass over the tags (no regular expression runs over the
+ * whole file, so a hostile one cannot make it quadratic), and repeats are done
+ * as arithmetic and never by building the rows they stand for: LibreOffice ends
+ * every sheet with a row "repeated" a million times, and a file that repeats a
+ * row of data past the row cap is refused before any of it is built. As with an
+ * .xlsx, only values are read: the answer stored beside a formula and never the
+ * formula, a cell showing an error is empty, and comments, pictures, merged
+ * cells and hidden rows are not looked at.
  */
 
 /** A workbook that cannot be read, said in words a person can act on. */
@@ -97,12 +111,15 @@ function directoryOf(bytes: Uint8Array): Part[] {
 }
 
 /** The parts the library opens, which are XML, opened here under a budget. */
-function open(bytes: Uint8Array): Map<string, string> {
+function open(
+  bytes: Uint8Array, directory: Part[] = directoryOf(bytes),
+  wanted: (name: string) => boolean = (name) => name.endsWith(".xml") || name.endsWith(".xml.rels"),
+): Map<string, string> {
   const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const opened = new Map<string, string>();
   let budget = rules.MAX_OPENED_BYTES;
-  for (const part of directoryOf(bytes)) {
-    if (!part.name.endsWith(".xml") && !part.name.endsWith(".xml.rels")) continue;
+  for (const part of directory) {
+    if (!wanted(part.name)) continue;
     if (part.offset + 30 > view.length || view.readUInt32LE(part.offset) !== LOCAL) throw new WorkbookRefused(DAMAGED);
     const start = part.offset + 30 + view.readUInt16LE(part.offset + 26) + view.readUInt16LE(part.offset + 28);
     const data = view.subarray(start, start + part.compressed);
@@ -251,8 +268,257 @@ function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-/** The checks every call makes first, and the layout they leave. */
-function checked(bytes: Uint8Array): { parts: Map<string, string>; sheets: Layout[] } {
+/* ------------------------------------------------------ an OpenDocument sheet */
+
+const ODS_TYPE = "application/vnd.oasis.opendocument.spreadsheet";
+
+/** What every reader of either kind of file hands back: the sheets' names, and one sheet's cells. */
+interface Book {
+  names: string[];
+  cells(name: string): Promise<rules.WorkbookValue[][]>;
+}
+
+/** A tag as a scanner sees it: its name, whether it closes, whether it closes itself, and its attributes as written. */
+const TAG = /<(\/?)([A-Za-z][\w:.-]*)((?:"[^"]*"|'[^']*'|[^>"'/]|\/(?!>))*)(\/?)>/g;
+
+/** One attribute of a tag's text, decoded, or null. */
+function attr(attrs: string, name: string): string | null {
+  const at = attrs.search(new RegExp(`(?:^|\\s)${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=`));
+  if (at < 0) return null;
+  const match = /=\s*(?:"([^"]*)"|'([^']*)')/.exec(attrs.slice(at));
+  return match ? decode(match[1] ?? match[2] ?? "") : null;
+}
+
+/** A repeat count: at least one, and anything that is not a whole number is one. */
+function repeatOf(attrs: string, name: string): number {
+  const said = attr(attrs, name);
+  const n = said === null ? 1 : Number(said);
+  return Number.isSafeInteger(n) && n >= 1 ? n : 1;
+}
+
+/** `PT14H30M00S` as a time on the day spreadsheets keep a time with no day on. */
+function timeOf(said: string): Date | null {
+  const match = /^P(?:(\d+)D)?T(\d+)H(\d+)M(\d+(?:\.\d+)?)S$/.exec(said.trim());
+  if (!match) return null;
+  const ms = ((Number(match[1] ?? 0) * 24 + Number(match[2])) * 3600 + Number(match[3]) * 60 + Number(match[4])) * 1000;
+  return new Date(Date.UTC(1899, 11, 30) + ms);
+}
+
+/** `2026-01-31` or `2026-01-31T14:30:00`, as the wall clock in a date's UTC fields, the way a workbook's are. */
+function dateOf(said: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?$/.exec(said.trim());
+  if (!match) return null;
+  const at = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4] ?? 0), Number(match[5] ?? 0), Number(match[6] ?? 0)));
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * One cell's value. A formula's stored answer is read and the formula never; a
+ * cell the program marked as an error is empty; a cell with no type is empty.
+ */
+function odsValue(attrs: string, text: string): rules.WorkbookValue {
+  if (attr(attrs, "calcext:value-type") === "error") return null;
+  switch (attr(attrs, "office:value-type")) {
+    case "float":
+    case "percentage":
+    case "currency": {
+      const said = attr(attrs, "office:value");
+      const n = said === null ? NaN : Number(said);
+      return Number.isFinite(n) ? n : null;
+    }
+    case "date": {
+      const said = attr(attrs, "office:date-value");
+      return said === null ? null : dateOf(said);
+    }
+    case "time": {
+      const said = attr(attrs, "office:time-value");
+      return said === null ? null : timeOf(said);
+    }
+    case "boolean": {
+      const said = attr(attrs, "office:boolean-value");
+      return said === "true" ? true : said === "false" ? false : null;
+    }
+    case "string": {
+      const said = attr(attrs, "office:string-value");
+      const value = said ?? decode(text);
+      return value === "" ? null : value;
+    }
+    default:
+      return null;
+  }
+}
+
+interface OdsSheet { name: string; xml: string }
+
+/** The sheets of a `content.xml`, each with the text between its own tags: found in one pass over the tags. */
+function odsSheets(content: string): OdsSheet[] {
+  const sheets: OdsSheet[] = [];
+  let depth = 0;
+  let name = "";
+  let from = 0;
+  for (const tag of content.matchAll(TAG)) {
+    if (tag[2] !== "table:table") continue;
+    if (tag[1] === "") {
+      if (tag[4] === "/") {
+        if (depth === 0) {
+          const said = attr(tag[3]!, "table:name");
+          if (said !== null) sheets.push({ name: said, xml: "" });
+        }
+        continue;
+      }
+      if (depth === 0) {
+        name = attr(tag[3]!, "table:name") ?? "";
+        from = tag.index! + tag[0].length;
+      }
+      depth += 1;
+    } else if (depth > 0) {
+      depth -= 1;
+      if (depth === 0 && name !== "") sheets.push({ name, xml: content.slice(from, tag.index!) });
+    }
+  }
+  return sheets;
+}
+
+/**
+ * One sheet's cells, in a single pass over its tags.
+ *
+ * ROWS AND CELLS REPEAT. `table:number-rows-repeated` and
+ * `table:number-columns-repeated` say "this, a million times", and a program
+ * writes one at the end of every sheet to mean "and then nothing". They are
+ * counted and never built: a blank row or cell only moves the position on, and
+ * a row of data that repeats is refused if its last copy would be past the row
+ * cap, before one copy is made. A cell of data that repeats past the column cap
+ * is refused the same way.
+ *
+ * The text of a cell is its paragraphs, joined with a new line; a comment on the
+ * cell and a picture's caption are not its text.
+ */
+function odsGrid(name: string, xml: string): rules.WorkbookValue[][] {
+  const grid: rules.WorkbookValue[][] = [];
+  let row = 1;
+  let widest = 0;
+  let last = 0;
+
+  let rowAttrs: string | null = null;
+  let cells: rules.WorkbookValue[] = [];
+  let column = 0;
+  let hasData = false;
+  let cell: { attrs: string; repeat: number; paragraphs: string[] } | null = null;
+  let paragraph: string | null = null;
+  let aside = 0;
+
+  const over = (at: number) => new WorkbookRefused(
+    `The sheet "${name}" has data down to row ${at.toLocaleString("en-US")}. Bring in at most ${rules.MAX_ROWS.toLocaleString("en-US")} rows at a time: split it into smaller sheets.`);
+
+  const endCell = () => {
+    if (!cell) return;
+    const value = odsValue(cell.attrs, cell.paragraphs.join("\n"));
+    if (value !== null) {
+      if (column + cell.repeat > rules.MAX_COLUMNS) {
+        throw new WorkbookRefused(`The sheet "${name}" reaches column ${(column + cell.repeat).toLocaleString("en-US")}. Bring in at most ${rules.MAX_COLUMNS} columns.`);
+      }
+      for (let n = 0; n < cell.repeat; n++) cells[column + n] = value;
+      hasData = true;
+      widest = Math.max(widest, column + cell.repeat);
+    }
+    column += cell.repeat;
+    cell = null;
+  };
+
+  const endRow = () => {
+    const repeat = repeatOf(rowAttrs ?? "", "table:number-rows-repeated");
+    if (hasData) {
+      if (row + repeat - 1 > rules.MAX_ROWS + 1) throw over(row + repeat - 1);
+      for (let n = 0; n < repeat; n++) grid[row - 1 + n] = cells;
+      last = row + repeat - 1;
+    }
+    row += repeat;
+    rowAttrs = null;
+    cells = [];
+    column = 0;
+    hasData = false;
+  };
+
+  let at = 0;
+  for (const tag of xml.matchAll(TAG)) {
+    if (paragraph !== null && aside === 0) paragraph += xml.slice(at, tag.index!);
+    at = tag.index! + tag[0].length;
+    const [, closing, tagName, attrs = "", selfClosing] = tag;
+    if (tagName === "table:table-row") {
+      if (closing === "") {
+        rowAttrs = attrs;
+        if (selfClosing === "/") endRow();
+      } else if (rowAttrs !== null) {
+        endCell();
+        endRow();
+      }
+    } else if (rowAttrs !== null && (tagName === "table:table-cell" || tagName === "table:covered-table-cell")) {
+      if (closing === "") {
+        endCell();
+        const repeat = repeatOf(attrs, "table:number-columns-repeated");
+        if (tagName === "table:covered-table-cell") {
+          column += repeat;
+        } else {
+          cell = { attrs, repeat, paragraphs: [] };
+          if (selfClosing === "/") endCell();
+        }
+      } else {
+        endCell();
+      }
+    } else if (cell !== null && aside === 0 && tagName === "text:p") {
+      if (closing === "") {
+        paragraph = selfClosing === "/" ? null : "";
+        if (selfClosing === "/") cell.paragraphs.push("");
+      } else if (paragraph !== null) {
+        cell.paragraphs.push(paragraph);
+        paragraph = null;
+      }
+    } else if (paragraph !== null && closing === "" && aside === 0) {
+      if (tagName === "text:s") paragraph += " ".repeat(Math.min(repeatOf(attrs, "text:c"), 1000));
+      else if (tagName === "text:tab") paragraph += "\t";
+      else if (tagName === "text:line-break") paragraph += "\n";
+    }
+    if (tagName === "office:annotation" || tagName === "draw:frame") {
+      if (closing === "") { if (selfClosing !== "/") aside += 1; } else if (aside > 0) aside -= 1;
+    }
+  }
+  if (last > 0 && last * widest > rules.MAX_SPAN) {
+    throw new WorkbookRefused(`The sheet "${name}" is larger than this can read: ${last.toLocaleString("en-US")} rows of ${widest.toLocaleString("en-US")} columns. Bring in a smaller sheet.`);
+  }
+  return grid;
+}
+
+/** An OpenDocument spreadsheet, opened under the same budget as a workbook. */
+function odsBook(bytes: Uint8Array, directory: Part[]): Book {
+  const parts = open(bytes, directory, (n) => n === "mimetype" || n === "content.xml" || n === "META-INF/manifest.xml");
+  const said = (parts.get("mimetype") ?? "").trim();
+  if (said !== ODS_TYPE) {
+    throw new WorkbookRefused(said.startsWith("application/vnd.oasis.opendocument.")
+      ? "That is an OpenDocument file, but not a spreadsheet. Open the spreadsheet in your spreadsheet program, choose Save As, and pick Excel Workbook (.xlsx), OpenDocument Spreadsheet (.ods) or CSV."
+      : NOT_XLSX);
+  }
+  /** A protected .ods encrypts its content inside the zip, which the zip's own flag does not say. */
+  if (/<manifest:encryption-data\b/.test(parts.get("META-INF/manifest.xml") ?? "")) {
+    throw new WorkbookRefused("That workbook is protected with a password. Open it, remove the password, save it, and bring it in again.");
+  }
+  const content = parts.get("content.xml");
+  if (content === undefined) throw new WorkbookRefused(DAMAGED);
+  const sheets = odsSheets(content);
+  if (sheets.length === 0) throw new WorkbookRefused(NOT_XLSX);
+  if (sheets.length > rules.MAX_SHEETS) tooManySheets(sheets.length);
+  const byName = new Map(sheets.map((sheet) => [sheet.name, sheet] as const));
+  return {
+    names: sheets.map((sheet) => sheet.name),
+    cells: async (name) => odsGrid(name, byName.get(name)!.xml),
+  };
+}
+
+function tooManySheets(count: number): never {
+  throw new WorkbookRefused(`That workbook has ${count} sheets. Bring in a workbook of at most ${rules.MAX_SHEETS}: save the sheet you want on its own.`);
+}
+
+/** The checks every call makes first, and the book they leave: an .xlsx or an .ods, whichever the bytes are. */
+function checked(bytes: Uint8Array): Book {
   if (bytes.byteLength === 0) throw new WorkbookRefused("That file is empty.");
   if (bytes.byteLength > rules.MAX_BYTES) throw new WorkbookRefused(rules.tooBigMessage(bytes.byteLength));
   /** D0 CF 11 E0: the container older .xls files, and password protected workbooks of any age, are kept in. */
@@ -260,17 +526,26 @@ function checked(bytes: Uint8Array): { parts: Map<string, string>; sheets: Layou
     throw new WorkbookRefused("That is an older .xls workbook, or one protected with a password, which this cannot read. Open it, remove any password, choose Save As, pick Excel Workbook (.xlsx) or CSV, and bring in that file.");
   }
   if (!(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04)) throw new WorkbookRefused(NOT_XLSX);
-  const parts = open(bytes);
+  const directory = directoryOf(bytes);
+  /** Every OpenDocument file carries a `mimetype` part first; an .xlsx never has one. */
+  if (directory.some((part) => part.name === "mimetype")) return odsBook(bytes, directory);
+  const parts = open(bytes, directory);
   const sheets = layoutOf(parts);
-  if (sheets.length > rules.MAX_SHEETS) {
-    throw new WorkbookRefused(`That workbook has ${sheets.length} sheets. Bring in a workbook of at most ${rules.MAX_SHEETS}: save the sheet you want on its own.`);
-  }
-  return { parts, sheets };
+  if (sheets.length > rules.MAX_SHEETS) tooManySheets(sheets.length);
+  return {
+    names: sheets.map((s) => s.name),
+    cells: async (name) => {
+      const sheet = sheets.find((s) => s.name === name)!;
+      const why = overSpan(sheet.name, sheet.part ? parts.get(sheet.part) : undefined);
+      if (why) throw new WorkbookRefused(why);
+      return cellsOf(await library(), bytes, name);
+    },
+  };
 }
 
 /** The names of a workbook's sheets, without reading any of their cells. */
 export function sheetNames(bytes: Uint8Array): string[] {
-  return checked(bytes).sheets.map((s) => s.name);
+  return checked(bytes).names;
 }
 
 /**
@@ -280,19 +555,16 @@ export function sheetNames(bytes: Uint8Array): string[] {
  * is not a list at all next to the one that is.
  */
 export async function listSheets(bytes: Uint8Array): Promise<SheetListing[]> {
-  const { parts, sheets } = checked(bytes);
-  const lib = await library();
+  const book = checked(bytes);
   const out: SheetListing[] = [];
-  for (const sheet of sheets) {
-    const why = overSpan(sheet.name, sheet.part ? parts.get(sheet.part) : undefined);
-    if (why) { out.push({ name: sheet.name, rows: null, header: [], why }); continue; }
+  for (const name of book.names) {
     try {
-      const read = rules.readSheetGrid(sheet.name, await cellsOf(lib, bytes, sheet.name));
+      const read = rules.readSheetGrid(name, await book.cells(name));
       out.push(read.ok
-        ? { name: sheet.name, rows: read.rows.length, header: read.header.slice(0, 8), why: null }
-        : { name: sheet.name, rows: null, header: [], why: read.why });
+        ? { name, rows: read.rows.length, header: read.header.slice(0, 8), why: null }
+        : { name, rows: null, header: [], why: read.why });
     } catch (error) {
-      out.push({ name: sheet.name, rows: null, header: [], why: refusal(error).message });
+      out.push({ name, rows: null, header: [], why: refusal(error).message });
     }
   }
   return out;
@@ -306,30 +578,27 @@ export interface SheetRows { sheet: string; header: string[]; rows: string[][]; 
  * because choosing for the owner could load the wrong list.
  */
 export async function readSheet(bytes: Uint8Array, wanted: string | undefined): Promise<SheetRows> {
-  const { parts, sheets } = checked(bytes);
-  let sheet: Layout | undefined;
+  const book = checked(bytes);
+  let name: string | undefined;
   if (wanted === undefined || wanted.trim() === "") {
-    if (sheets.length > 1) {
-      throw new WorkbookRefused(`That workbook has ${sheets.length} sheets: ${sheets.map((s) => `"${s.name}"`).join(", ")}. Say which one to bring in.`);
+    if (book.names.length > 1) {
+      throw new WorkbookRefused(`That workbook has ${book.names.length} sheets: ${book.names.map((n) => `"${n}"`).join(", ")}. Say which one to bring in.`);
     }
-    sheet = sheets[0];
+    name = book.names[0];
   } else {
-    sheet = sheets.find((s) => s.name === wanted);
-    if (!sheet) {
-      throw new WorkbookRefused(`That workbook has no sheet called "${wanted}". Its sheets are ${sheets.map((s) => `"${s.name}"`).join(", ")}.`);
+    name = book.names.find((n) => n === wanted);
+    if (!name) {
+      throw new WorkbookRefused(`That workbook has no sheet called "${wanted}". Its sheets are ${book.names.map((n) => `"${n}"`).join(", ")}.`);
     }
   }
-  if (!sheet) throw new WorkbookRefused(NOT_XLSX);
-  const why = overSpan(sheet.name, sheet.part ? parts.get(sheet.part) : undefined);
-  if (why) throw new WorkbookRefused(why);
-  const lib = await library();
+  if (!name) throw new WorkbookRefused(NOT_XLSX);
   let grid: rules.WorkbookValue[][];
   try {
-    grid = await cellsOf(lib, bytes, sheet.name);
+    grid = await book.cells(name);
   } catch (error) {
     throw refusal(error);
   }
-  const read = rules.readSheetGrid(sheet.name, grid);
+  const read = rules.readSheetGrid(name, grid);
   if (!read.ok) throw new WorkbookRefused(read.why);
-  return { sheet: sheet.name, header: read.header, rows: read.rows, numbers: read.numbers };
+  return { sheet: name, header: read.header, rows: read.rows, numbers: read.numbers };
 }

@@ -50,7 +50,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
         Bringing in the same file twice does not make copies.
       </p>
       <p className="mt-2 max-w-2xl text-sm text-ink-500">
-        A CSV file or an Excel workbook (.xlsx). A workbook with several sheets is brought in one sheet at a time, and a
+        A CSV file, an Excel workbook (.xlsx) or an OpenDocument spreadsheet (.ods). A workbook with several sheets is brought in one sheet at a time, and a
         formula comes in as the answer it shows. In your spreadsheet program choose Save As or Download to get either.
         A file can be up to 5 MB and {rules.MAX_ROWS.toLocaleString("en-US")} rows. Bring in customers first: jobs, equipment and invoices are
         matched to them. Bring in invoices before payments: a payment is matched to the invoices it paid.
