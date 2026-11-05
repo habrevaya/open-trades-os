@@ -204,7 +204,8 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
       .orderBy(desc(schema.priceBookItemVersion.version));
     const makers = await tx.select().from(schema.warrantyMaker).where(isNull(schema.warrantyMaker.deletedAt));
     const customRoles = await tx.select().from(schema.role).where(isNull(schema.role.deletedAt));
-    const branches = await tx.select().from(schema.businessUnit).where(isNull(schema.businessUnit.deletedAt));
+    /** Every branch, retired ones included (they are marked `active`, never deleted), so a job type keeps the branch it was in. */
+    const branches = await tx.select().from(schema.businessUnit);
     const coverKeys = templates.map((t) => t.cover?.photoKey).filter((k): k is string => Boolean(k));
     const held = coverKeys.length === 0 ? [] : await tx.select({ key: schema.storedFile.storageKey, ...HELD })
       .from(schema.storedFile).where(and(inArray(schema.storedFile.storageKey, coverKeys), isNull(schema.storedFile.deletedAt)));

@@ -226,7 +226,6 @@ export async function find(
         eq(schema.message.organizationId, ctx.actor.organizationId),
         eq(schema.conversation.organizationId, ctx.actor.organizationId),
         isNull(schema.conversation.deletedAt),
-        isNull(schema.message.deletedAt),
         conversationScopeFilter(scopeOf(ctx, "conversation"), ctx.actor),
         textFilter(input.q, [schema.message.body, schema.message.subject], undefined, { close: input.close }) ?? sql`false`,
       ))

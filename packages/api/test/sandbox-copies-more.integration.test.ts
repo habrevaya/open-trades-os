@@ -45,7 +45,7 @@ beforeAll(async () => {
 
   const [branch] = await raw<{ id: string }[]>`insert into public.business_unit (organization_id, name, code) values (${ORG}, 'Houston', 'HOU') returning id`;
   houston = branch!.id;
-  await raw`insert into public.business_unit (organization_id, name, deleted_at) values (${ORG}, 'Closed branch', now())`;
+  await raw`insert into public.business_unit (organization_id, name, active) values (${ORG}, 'Closed branch', false)`;
   await raw`insert into public.job_type (organization_id, name, business_unit_id) values (${ORG}, 'Houston drains', ${houston})`;
 
   await raw`insert into public.message_template (organization_id, code, name, channel, purpose, subject, body, variables)
@@ -101,20 +101,22 @@ run("making one copies more of how the company is set up", () => {
     // Ours, and not the one that was deleted.
     expect(live!.n).toBe(1);
     expect(made.copied).toMatchObject({
-      messageTemplates: live!.n, priceBookCategories: 2, priceBookItems: 3, roles: 1, branches: 1,
+      messageTemplates: live!.n, priceBookCategories: 2, priceBookItems: 3, roles: 1, branches: 2,
     });
   });
 
   it("copies branches, and a job type keeps its branch in the copy", async () => {
     const made = await sandbox.create(owner());
     const inside = made.sandboxOrganizationId;
-    const branches = await raw<{ id: string; name: string; code: string | null }[]>`
-      select id, name, code from public.business_unit where organization_id = ${inside}`;
-    expect(branches.map((b) => [b.name, b.code])).toEqual([["Houston", "HOU"]]);
-    expect(branches[0]!.id).not.toBe(houston);
+    const branches = await raw<{ id: string; name: string; code: string | null; active: boolean }[]>`
+      select id, name, code, active from public.business_unit where organization_id = ${inside} order by name`;
+    // A retired branch is copied as retired: branches are marked, never deleted.
+    expect(branches.map((b) => [b.name, b.code, b.active])).toEqual([["Closed branch", null, false], ["Houston", "HOU", true]]);
+    const copy = branches.find((b) => b.name === "Houston")!;
+    expect(copy.id).not.toBe(houston);
     const [type] = await raw<{ business_unit_id: string | null }[]>`
       select business_unit_id from public.job_type where organization_id = ${inside} and name = 'Houston drains'`;
-    expect(type!.business_unit_id).toBe(branches[0]!.id);
+    expect(type!.business_unit_id).toBe(copy.id);
   });
 
   it("copies message templates as their own rows", async () => {

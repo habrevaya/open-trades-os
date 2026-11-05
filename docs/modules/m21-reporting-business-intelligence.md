@@ -1625,6 +1625,17 @@ narrowing of a dashboard to one customer's records. The dashboard's screen takes
 automation step, and a dashboard printed from its screen is as it stands. A dashboard's
 PDF prints the screen's chart with the usual scale, never "Around the data". A tile that
 draws a second measure cannot also be broken down, and a report's own chart screen has
-no second measure.
+no second measure. A second measure is added to a tile after the tile is added ("Also
+draw" under it), not on the "Add a tile" form, it is one measure and not several, and a
+bars tile draws it as a second bar with its own value written beside it rather than on a
+shared axis, because a horizontal bar chart has no second scale to read it against.
+Whether a tile follows a dashboard's dates is set on each tile by a person and is off for
+every tile saved before this existed; nothing works it out from the report, because a
+guess turns a figure about how things stand into one about a week. A tile that follows
+dates has its report's own dates replaced for that delivery, not narrowed by them. The
+dashboard's own screen and its "Download as PDF" have no date box: the days come only from
+a schedule or an automation step, so a dashboard looked at is always as it stands now.
+The days are the schedule's five (the day before, the seven days before, the month
+before, this month so far, or none) and not a range typed in.
 No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

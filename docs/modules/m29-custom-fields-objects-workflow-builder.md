@@ -518,7 +518,7 @@ a technician finds words only in threads attached to a job they can see or to a
 customer they were sent to, never in a lead attached to nothing. A message is found
 by its body and its subject; the hit is the customer (or the number or address, for
 a thread with no customer), with the part of the message around the word, and opens
-the thread (`/inbox/{id}`). A message or a thread that was deleted finds nothing.
+the thread (`/inbox/{id}`). A message in a deleted thread finds nothing (a message is never deleted on its own).
 Somebody who may read visits and not messages (the accountant) sees the one group
 and not the other. Neither has a list screen the words could be handed to, so theirs
 is the search page showing that group alone (`in=visits`, `in=messages`), at up to
@@ -570,7 +570,7 @@ every live item at the version in force now as its first and only version (the p
 pointing at the copies, and no pictures (the files are the real company's) and no
 link back to a system an item was imported from. Roles arrive as definitions that
 nobody in the sandbox holds, so the owner decides who gets one; branches arrive
-with their job types still in them. A message template whose code the sandbox
+with their job types still in them, a retired branch as retired. A message template whose code the sandbox
 started with (the renewal notices every new company has) takes the real company's
 wording. Changing any of these in the sandbox changes nothing at home. The make
 answer (`copied` on `POST /v1/sandbox`) counts each: `messageTemplates`,

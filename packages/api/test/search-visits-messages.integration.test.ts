@@ -172,10 +172,7 @@ run("what the owner finds", () => {
     expect(stray.groups.find((g) => g.key === "messages")!.hits[0]).toMatchObject({ title: "+15125559999" });
   });
 
-  it("does not find a message that was deleted, or one in a deleted thread", async () => {
-    await raw`update public.message set deleted_at = now() where id = ${bea.message}`;
-    expect(hits(await search.everything(owner(), { q: "see you monday" }), "messages")).toEqual([]);
-    await raw`update public.message set deleted_at = null where id = ${bea.message}`;
+  it("does not find a message in a deleted thread", async () => {
     await raw`update public.conversation set deleted_at = now() where id = ${bea.thread}`;
     expect(hits(await search.everything(owner(), { q: "see you monday" }), "messages")).toEqual([]);
     await raw`update public.conversation set deleted_at = null where id = ${bea.thread}`;
