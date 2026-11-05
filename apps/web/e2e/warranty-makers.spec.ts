@@ -64,8 +64,8 @@ test("Makers: write one down, name it on an item, and take a registration back f
   await section.getByText("It was not registered after all").click();
   await section.getByLabel("Why").fill("It was the unit next door");
   await section.getByRole("button", { name: "Take it back and reopen the deadline" }).click();
-  await expect(owner.getByText(/Taken back\./)).toBeVisible();
-  await owner.reload();
+  // The page is drawn again without the registration, so the form that took it back is gone with it.
   await expect(owner.getByRole("region", { name: "Warranty registration" })).toContainText("Nothing recorded");
+  await expect(owner.getByRole("region", { name: "Warranty registration" })).not.toContainText("WRONG-1");
   expect(errors).toEqual([]);
 });

@@ -1,4 +1,18 @@
+import { sql } from "drizzle-orm";
+import { createClient } from "@opentradesos/db";
 import { test, expect, run } from "./fixtures";
+
+/** The tiles as stored, read from the database: the screen keeps the box as it was chosen, so a save is told by what was written. */
+async function storedTiles(name: string): Promise<Array<Record<string, unknown>>> {
+  const db = createClient();
+  try {
+    const rows = await db.execute<{ tiles: Array<Record<string, unknown>> }>(sql`
+      select tiles from public.dashboard where name = ${name} and deleted_at is null`);
+    return rows[0]?.tiles ?? [];
+  } finally {
+    await db.$close();
+  }
+}
 
 /**
  * A TILE WITH A SECOND MEASURE, AND A DASHBOARD SENT WITH DATES
@@ -14,6 +28,7 @@ test("Dashboards: a second measure on a tile, and a schedule that gives the dash
   await owner.getByLabel("Name").fill(board);
   await owner.getByRole("button", { name: "Create it" }).click();
   await expect(owner).toHaveURL(/\/dashboards\/saved\//);
+  const boardUrl = owner.url();
 
   await owner.locator('select[name="report"]').selectOption({ label: "Revenue by month" });
   await owner.locator('select[name="kind"]').selectOption("trend");
@@ -24,7 +39,7 @@ test("Dashboards: a second measure on a tile, and a schedule that gives the dash
   await expect(also).toBeVisible();
   await also.selectOption({ label: "Invoices" });
   await owner.getByRole("button", { name: "Change", exact: true }).click();
-  await expect(owner.getByLabel("Also draw on Revenue by month")).toHaveValue("count");
+  await expect.poll(async () => (await storedTiles(board))[0]?.["secondMeasure"]).toBe("count");
   await owner.reload();
   await expect(owner.getByLabel("Also draw on Revenue by month")).toHaveValue("count");
 
@@ -37,10 +52,10 @@ test("Dashboards: a second measure on a tile, and a schedule that gives the dash
   await expect(owner.getByText(/None of this dashboard's tiles follow dates/)).toBeVisible();
 
   // Turn it on for the tile, and the same schedule is taken.
-  await owner.goBack();
-  await owner.goBack();
+  await owner.goto(boardUrl);
   await owner.getByLabel("Revenue by month follows the dashboard's dates").check();
   await owner.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(async () => (await storedTiles(board))[0]?.["followsDates"]).toBe(true);
   await owner.reload();
   await expect(owner.getByLabel("Revenue by month follows the dashboard's dates")).toBeChecked();
 
