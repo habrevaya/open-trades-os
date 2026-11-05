@@ -381,6 +381,30 @@ export const projectChangeOrder = pgTable("project_change_order", {
 }));
 
 /**
+ * A CHANGE ORDER'S CREW HOURS, ONE ROW PER JOB.
+ *
+ * The work a change order adds is not always on one job: a second furnace and
+ * a duct run may be two jobs of the project. Each row is hours on one of the
+ * project's own jobs, a job once per change order. They come off those jobs'
+ * actual hours in the budgeted hour variance once the change order is
+ * approved, and the page the customer signs lists them. A change order made
+ * before this table has its one job's hours in `project_change_order.crew_hours`
+ * and `job_id`, which stay readable (a change order with no rows here counts
+ * those); a change order edited since keeps its hours here and those two
+ * columns empty.
+ */
+export const projectChangeOrderHours = pgTable("project_change_order_hours", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  changeOrderId: uuid("change_order_id").notNull().references(() => projectChangeOrder.id, { onDelete: "cascade" }),
+  jobId: uuid("job_id").notNull().references(() => job.id, { onDelete: "restrict" }),
+  crewHours: money("crew_hours").notNull(),
+  ...timestamps,
+}, (t) => ({
+  oncePerJob: uniqueIndex("project_change_order_hours_job_idx").on(t.changeOrderId, t.jobId),
+}));
+
+/**
  * One line of a change order, PRICED WHEN IT WAS WRITTEN.
  *
  * The price is frozen on the line, with where it came from: the price book

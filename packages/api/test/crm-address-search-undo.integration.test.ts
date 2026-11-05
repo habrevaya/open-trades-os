@@ -40,7 +40,7 @@ const place = (line1: string, customerId?: string) => properties.create(owner(),
   address: { line1, city: "Austin", state: "TX", postalCode: "78701", country: "US" },
   hasDog: false, customFields: {},
   ...(customerId ? { customerId, customerRole: "owner" as const } : {}),
-}).then((p) => p.id as string);
+} as Parameters<typeof properties.create>[1]).then((p) => p.id as string);
 
 let visited = "";
 let unvisited = "";
@@ -78,20 +78,20 @@ run("the customer list reads notes", () => {
     await notes.add(owner(), { id: visited, body: "Beware the parrot.", forField: true });
     await notes.add(owner(), { id: unvisited, body: "Swordfish for dinner." });
 
-    const found = await customers.list(owner(), { q: "swordfish", limit: 20 });
+    const found = await customers.list(owner(), { q: "swordfish", limit: 20, includeInactive: false });
     expect(found.data.map((c) => c.id).sort()).toEqual([visited, unvisited].sort());
     // Every word has to be somewhere: a name word and a note word together.
-    expect((await customers.list(owner(), { q: "vera swordfish", limit: 20 })).data.map((c) => c.id)).toEqual([visited]);
-    expect((await customers.list(owner(), { q: "swordfish parrot", limit: 20 })).data.map((c) => c.id)).toEqual([visited]);
-    expect((await customers.list(owner(), { q: "nothingwritten", limit: 20 })).data).toEqual([]);
+    expect((await customers.list(owner(), { q: "vera swordfish", limit: 20, includeInactive: false })).data.map((c) => c.id)).toEqual([visited]);
+    expect((await customers.list(owner(), { q: "swordfish parrot", limit: 20, includeInactive: false })).data.map((c) => c.id)).toEqual([visited]);
+    expect((await customers.list(owner(), { q: "nothingwritten", limit: 20, includeInactive: false })).data).toEqual([]);
   });
 
   it("shows a technician only the notes marked for the field, and only their own customers", async () => {
-    expect((await customers.list(ray(), { q: "swordfish", limit: 20 })).data).toEqual([]);
-    expect((await customers.list(ray(), { q: "parrot", limit: 20 })).data.map((c) => c.id)).toEqual([visited]);
+    expect((await customers.list(ray(), { q: "swordfish", limit: 20, includeInactive: false })).data).toEqual([]);
+    expect((await customers.list(ray(), { q: "parrot", limit: 20, includeInactive: false })).data.map((c) => c.id)).toEqual([visited]);
     // A note on a customer they were not sent to is not found by it, marked for the field or not.
     await notes.add(owner(), { id: unvisited, body: "Parrot on the porch.", forField: true });
-    expect((await customers.list(ray(), { q: "parrot", limit: 20 })).data.map((c) => c.id)).toEqual([visited]);
+    expect((await customers.list(ray(), { q: "parrot", limit: 20, includeInactive: false })).data.map((c) => c.id)).toEqual([visited]);
   });
 });
 

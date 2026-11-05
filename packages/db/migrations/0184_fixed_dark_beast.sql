@@ -1,0 +1,1 @@
+ALTER TABLE "estimate" ADD COLUMN "expired_as_draft_at" timestamp with time zone;

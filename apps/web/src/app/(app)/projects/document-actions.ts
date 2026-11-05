@@ -84,11 +84,15 @@ export async function actOnChangeOrder(_previous: FormState, form: FormData): Pr
         return;
       }
       case "crew-hours": {
-        await projectChangeOrders.update(c, parsed(updateChangeOrder.input, {
-          id: changeOrderId,
-          crewHours: field(form, "crewHours") ?? null,
-          jobId: field(form, "crewJobId") ?? null,
-        }));
+        /** One row per job: hours and the job, as many as were filled in. A row with only one of the two is refused in words. */
+        const hours = form.getAll("crewHours").map((v) => String(v).trim());
+        const jobs = form.getAll("crewJobId").map((v) => String(v).trim());
+        const rows = hours.map((crewHours, i) => ({ crewHours, jobId: jobs[i] ?? "" }))
+          .filter((r) => r.crewHours !== "" || r.jobId !== "");
+        if (rows.some((r) => r.crewHours === "" || r.jobId === "")) {
+          throw new ConflictError("Each row of crew hours needs the hours and the job they are worked on. Fill in both, or clear the row.");
+        }
+        await projectChangeOrders.update(c, parsed(updateChangeOrder.input, { id: changeOrderId, hours: rows }));
         return;
       }
       case "line": {

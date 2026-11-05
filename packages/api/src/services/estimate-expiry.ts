@@ -1,14 +1,15 @@
-import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, assertCan, time, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, assertCan, comms, time, type Actor } from "@opentradesos/core";
 import {
-  audit, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { emit } from "./events";
 import { fire } from "./workflow-runner";
 import { sendWithin } from "./estimates";
 import { extendedScope, renderExtended } from "./estimate-extended-notice";
-import { identityOf } from "./estimate-delivery";
+import { identityOf, hourWord } from "./estimate-delivery";
+import { quietHoursFor } from "./comms-send";
 
 /**
  * AN ESTIMATE PAST ITS DATE IS MARKED EXPIRED, BY THE WORKER
@@ -25,12 +26,16 @@ import { identityOf } from "./estimate-delivery";
  * with the customer's last evening still ahead of them. It is expired on the
  * company's first moment of the 31st.
  *
- * ONLY WHAT IS OPEN. A `sent` or `viewed` estimate is one the customer was
- * given and has not answered. A draft has not gone anywhere, so its date has
- * not started running; approved, declined and converted are decisions, and an
- * estimate the customer said yes to does not stop being agreed because the
- * date on the paper passed. They are never selected, so they are never
- * touched.
+ * ONLY WHAT IS NOT ANSWERED. A `sent` or `viewed` estimate is one the customer
+ * was given and has not answered. A DRAFT whose date has passed is marked
+ * expired too: it was never sent, and a quote with a date in the past is not
+ * one anybody should send as though it were fresh. It keeps `expired_as_draft_at`
+ * so everything knows the customer never had it: giving the customer longer
+ * has nothing to extend until it is sent, and it can still be sent (it goes out
+ * expired, as any estimate sent after its date does) and still approved.
+ * Approved, declined and converted are decisions, and an estimate the customer
+ * said yes to does not stop being agreed because the date on the paper passed.
+ * They are never selected, so they are never touched.
  *
  * IDEMPOTENT BECAUSE OF THE WHERE CLAUSE. The update selects only the open
  * statuses, so an estimate it already marked is not selected again, a pass
@@ -55,8 +60,8 @@ function workerActor(organizationId: string): Actor {
   };
 }
 
-/** The statuses an estimate has when the customer has it and has not answered. */
-export const OPEN_STATUSES = ["sent", "viewed"] as const;
+/** The statuses an estimate has when nobody has answered it: the customer has it, or it is a draft not yet sent. */
+export const OPEN_STATUSES = ["draft", "sent", "viewed"] as const;
 
 export interface ExpiredEstimate { id: string; number: number; expiresOn: string }
 
@@ -74,23 +79,35 @@ export async function expireFor(
 /** The same, inside a transaction that is already in the tenant. */
 export async function expireWithin(tx: Database, ctx: ServiceContext, now: Date): Promise<ExpiredEstimate[]> {
   const today = time.dateIn(now, await timezoneOf(tx, ctx.actor.organizationId));
-  const changed = await tx.update(schema.estimate)
-    .set({ status: "expired", updatedAt: new Date() })
+  const due = await tx.select({
+    id: schema.estimate.id, number: schema.estimate.number, expiresOn: schema.estimate.expiresOn,
+    status: schema.estimate.status,
+  }).from(schema.estimate)
     .where(and(
       eq(schema.estimate.organizationId, ctx.actor.organizationId),
       inArray(schema.estimate.status, [...OPEN_STATUSES]),
       isNotNull(schema.estimate.expiresOn),
       lt(schema.estimate.expiresOn, today),
     ))
-    .returning({
-      id: schema.estimate.id, number: schema.estimate.number, expiresOn: schema.estimate.expiresOn,
-    });
+    .for("update");
 
-  for (const row of changed) {
+  const changed: ExpiredEstimate[] = [];
+  for (const row of due) {
+    /** The status is in the update's own where, so a row answered a moment ago is left alone. */
+    const [done] = await tx.update(schema.estimate)
+      .set({
+        status: "expired", updatedAt: new Date(),
+        ...(row.status === "draft" ? { expiredAsDraftAt: now } : {}),
+      })
+      .where(and(eq(schema.estimate.id, row.id), eq(schema.estimate.status, row.status)))
+      .returning({ id: schema.estimate.id });
+    if (!done) continue;
     await audit(tx, ctx, "estimate.expired", "estimate", row.id,
-      { status: "open" }, { status: "expired", expiresOn: row.expiresOn, on: today });
+      { status: row.status === "draft" ? "draft" : "open" },
+      { status: "expired", expiresOn: row.expiresOn, on: today, ...(row.status === "draft" ? { wasDraft: true } : {}) });
+    changed.push({ id: row.id, number: row.number, expiresOn: row.expiresOn! });
   }
-  return changed.map((row) => ({ id: row.id, number: row.number, expiresOn: row.expiresOn! }));
+  return changed;
 }
 
 /** When this process last went round, so the worker's few second loop does not ask a date question every few seconds. */
@@ -156,6 +173,8 @@ export interface ToldCustomer {
   channels: ("email" | "sms")[];
   /** Why it did not go, or why one of two did not, in words for the office. Null when everything asked went. */
   explanation: string | null;
+  /** A text was kept for the morning, because it is the company's quiet hours, and goes once they end. */
+  heldForMorning: boolean;
 }
 
 /**
@@ -250,8 +269,8 @@ export async function extend(
       /** The same change again, a retry after a lost answer, is the change already made. */
       return { ...(await shapeExtended(tx, row)), previousExpiresOn: row.expiresOn, told: null };
     }
-    if (row.status === "draft") {
-      throw new ConflictError(`Estimate ${row.number} has not been sent, so its date has not started. Change it before sending by writing it again.`);
+    if (row.status === "draft" || (row.status === "expired" && row.expiredAsDraftAt && !row.sentAt)) {
+      throw new ConflictError(`Estimate ${row.number} has not been sent, so there is no customer to give longer. Send it, or write it again with a later date.`);
     }
     if (!(["sent", "viewed", "expired"] as string[]).includes(row.status)) {
       throw new ConflictError(`Estimate ${row.number} is ${row.status}, so the customer has answered and its date no longer matters.`);
@@ -335,7 +354,7 @@ async function tellCustomer(
   ];
   if (missing.length > 0) {
     return {
-      sent: false, channels: [],
+      sent: false, channels: [], heldForMorning: false,
       explanation: `${customer?.name ?? "The customer"} has no ${missing.join(" or ")} on file, so they were not told. `
         + "Add one to the customer, or tell them yourself.",
     };
@@ -347,6 +366,7 @@ async function tellCustomer(
     title: estimate.title, expiresOn: estimate.expiresOn!, previousExpiresOn: how.previousExpiresOn,
   }));
 
+  let held = false;
   const sent = await sendWithin(tx, ctx, { id: estimate.id, channel, expiresInDays: 30 }, {
     subject: notice.email.subject,
     notes: { sms: notice.text, email: notice.email.body },
@@ -354,17 +374,175 @@ async function tellCustomer(
     quiet: how.quiet,
     linkUntil: how.linkUntil,
     keyless: true,
+    onHeld: () => { held = true; },
   });
 
+  /**
+   * A TEXT HELD IN THE QUIET HOURS IS KEPT, NOT LOST. The words and the date
+   * they name are stored, and the worker sends the text when the hours end
+   * (`sendHeldTexts`), checking the customer's consent and the estimate again
+   * at that moment. One waiting per estimate: a newer one replaces an older.
+   */
+  if (held) {
+    await tx.update(schema.estimateHeldText)
+      .set({ state: "cancelled", reason: "Replaced by a newer text.", resolvedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(schema.estimateHeldText.estimateId, estimate.id), eq(schema.estimateHeldText.state, "waiting")));
+    await tx.insert(schema.estimateHeldText).values({
+      organizationId: ctx.actor.organizationId, estimateId: estimate.id, note: notice.text,
+      expiresOn: estimate.expiresOn!, linkUntil: how.linkUntil, heldByUserId: isSystemActor(ctx) ? null : ctx.actor.userId,
+    });
+    await audit(tx, ctx, "estimate.text_held", "estimate", estimate.id, null, { expiresOn: estimate.expiresOn });
+  }
+
   const went = sent.deliveries.filter((d) => d.messageId && !d.error);
-  const refused = sent.deliveries.filter((d) => d.error);
+  const refused = sent.deliveries.filter((d) => d.error && !(held && d.channel === "sms"));
+  const quiet = held ? await quietHoursFor(tx, ctx.actor.organizationId, new Date()) : null;
+  const heldWords = held
+    ? `The text is held, because it is outside the hours we text people${quiet?.window ? ` (${hourWord(quiet.window.endHour)} to ${hourWord(quiet.window.startHour)})` : ""}. It will go in the morning.`
+    : null;
+  const refusedWords = refused.length === 0 ? null
+    : `${refused.map((d) => (d.channel === "sms" ? "The text" : "The email")).join(" and ")} did not go. `
+      + `${[...new Set(refused.map((d) => d.error))].join(" ")}`;
   return {
     sent: went.length > 0,
     channels: went.map((d) => d.channel as "email" | "sms"),
-    explanation: refused.length === 0 ? null
-      : `${refused.map((d) => (d.channel === "sms" ? "The text" : "The email")).join(" and ")} did not go. `
-        + `${[...new Set(refused.map((d) => d.error))].join(" ")}`,
+    heldForMorning: held,
+    explanation: [refusedWords, heldWords].filter(Boolean).join(" ") || null,
   };
+}
+
+const isSystemActor = (ctx: ServiceContext): boolean => ctx.actor.userId === SYSTEM_USER_ID;
+
+/* ----------------------------------------------- texts held for the morning */
+
+export interface HeldTextResult {
+  estimateId: string;
+  state: "sent" | "refused" | "cancelled";
+  reason: string | null;
+}
+
+/** What the worker acts as to send a held text: it reads estimates and sends the one text. */
+function senderActor(organizationId: string): Actor {
+  return {
+    userId: SYSTEM_USER_ID, organizationId, roles: [],
+    grants: ["estimate:read", "estimate:write", "estimate:send", "portal:grant"],
+    agentId: "estimate-held-text",
+  };
+}
+
+/**
+ * Send this company's held texts if the quiet hours are over, once each.
+ *
+ * Checked again at this moment, not trusted from when it was held: the
+ * company's hours (they may have changed), the estimate (answered, given a
+ * different date since, or sent to the customer by text by hand in the
+ * meantime) and the customer (a STOP, withdrawn consent or a lost number are
+ * all refused by the send itself, as for any text). A text that cannot go is
+ * recorded with its reason and not tried again; one that went is `sent` in the
+ * same transaction as the send, and the row is taken with `for update skip
+ * locked`, so two workers cannot send it twice.
+ */
+export async function sendHeldTexts(
+  db: Database, organizationId: string, now: Date = new Date(),
+): Promise<HeldTextResult[]> {
+  const ctx: ServiceContext = { actor: senderActor(organizationId), db };
+  const waiting = await inTenant(ctx, async (tx) => {
+    const quiet = await quietHoursFor(tx, organizationId, now);
+    if (quiet.window && comms.inQuietHours(quiet.localHour, quiet.window)) return [];
+    return tx.select({ id: schema.estimateHeldText.id }).from(schema.estimateHeldText)
+      .where(eq(schema.estimateHeldText.state, "waiting"))
+      .orderBy(asc(schema.estimateHeldText.createdAt)).limit(50);
+  });
+  const results: HeldTextResult[] = [];
+  for (const { id } of waiting) {
+    try {
+      const done = await inTenant(ctx, (tx) => sendOneHeld(tx, ctx, id));
+      if (done) results.push(done);
+    } catch (error) {
+      /** Whatever went wrong, the text is not left waiting to be tried every minute for ever. */
+      const reason = error instanceof ConflictError || error instanceof NotFoundError
+        ? error.message : "It could not be sent.";
+      const failed = await inTenant(ctx, async (tx) => {
+        const [row] = await tx.update(schema.estimateHeldText)
+          .set({ state: "refused", reason, resolvedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(schema.estimateHeldText.id, id), eq(schema.estimateHeldText.state, "waiting")))
+          .returning({ estimateId: schema.estimateHeldText.estimateId });
+        return row ? { estimateId: row.estimateId, state: "refused" as const, reason } : null;
+      });
+      if (failed) results.push(failed);
+    }
+  }
+  return results;
+}
+
+async function sendOneHeld(tx: Database, ctx: ServiceContext, id: string): Promise<HeldTextResult | null> {
+  const [held] = await tx.select().from(schema.estimateHeldText)
+    .where(and(eq(schema.estimateHeldText.id, id), eq(schema.estimateHeldText.state, "waiting")))
+    .for("update", { skipLocked: true });
+  if (!held) return null;
+  const finish = async (
+    state: "sent" | "refused" | "cancelled", reason: string | null, deliveryId: string | null = null,
+  ): Promise<HeldTextResult> => {
+    await tx.update(schema.estimateHeldText)
+      .set({ state, reason, deliveryId, resolvedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.estimateHeldText.id, held.id));
+    await audit(tx, ctx, `estimate.held_text_${state}`, "estimate", held.estimateId, null, { reason, deliveryId });
+    return { estimateId: held.estimateId, state, reason };
+  };
+
+  const [estimate] = await tx.select().from(schema.estimate).where(eq(schema.estimate.id, held.estimateId)).limit(1);
+  if (!estimate) return finish("cancelled", "The estimate is gone.");
+  if (!(["sent", "viewed", "expired"] as string[]).includes(estimate.status)) {
+    return finish("cancelled", `The customer has answered (the estimate is ${estimate.status}), so they were not texted.`);
+  }
+  if (estimate.expiresOn !== held.expiresOn) {
+    return finish("cancelled", "The date was moved again since, so the words in the text are out of date.");
+  }
+  const [newer] = await tx.select({ id: schema.estimateDelivery.id }).from(schema.estimateDelivery)
+    .where(and(
+      eq(schema.estimateDelivery.estimateId, held.estimateId),
+      eq(schema.estimateDelivery.channel, "sms"),
+      isNotNull(schema.estimateDelivery.messageId),
+      gt(schema.estimateDelivery.createdAt, held.createdAt),
+    )).limit(1);
+  if (newer) return finish("cancelled", "The estimate was texted to the customer again since, so this one was not sent.");
+
+  const sent = await sendWithin(tx, ctx, { id: held.estimateId, channel: "sms", expiresInDays: 30 }, {
+    notes: { sms: held.note }, holdTextsInQuietHours: true, quiet: true, linkUntil: held.linkUntil, keyless: true,
+  });
+  const delivery = sent.deliveries[0];
+  if (delivery?.messageId && !delivery.error) return finish("sent", null, delivery.id);
+  return finish("refused", delivery?.error ?? "The text could not be sent.", delivery?.id ?? null);
+}
+
+/** The worker's pass over every company with a text held for the morning. */
+export async function heldTextPass(
+  db: Database, options: { now?: Date; limit?: number; shouldStop?: () => boolean } = {},
+): Promise<{ organizationId: string; sent: HeldTextResult[]; failed: string | null }[]> {
+  const rows = await db.execute<{ organization_id: string }>(
+    sql`select organization_id from app.estimate_held_text_organizations(${options.limit ?? 200})`,
+  );
+  const results: { organizationId: string; sent: HeldTextResult[]; failed: string | null }[] = [];
+  for (const row of rows) {
+    if (options.shouldStop?.()) break;
+    try {
+      results.push({ organizationId: row.organization_id, sent: await sendHeldTexts(db, row.organization_id, options.now), failed: null });
+    } catch (error) {
+      results.push({ organizationId: row.organization_id, sent: [], failed: (error as Error).message });
+    }
+  }
+  return results;
+}
+
+/** What is waiting or was held for one estimate, newest first, for the estimate's page. */
+export async function heldTextsFor(tx: Database, estimateId: string) {
+  const rows = await tx.select().from(schema.estimateHeldText)
+    .where(eq(schema.estimateHeldText.estimateId, estimateId))
+    .orderBy(desc(schema.estimateHeldText.createdAt)).limit(5);
+  return rows.map((r) => ({
+    id: r.id, state: r.state, expiresOn: r.expiresOn, reason: r.reason,
+    heldAt: r.createdAt.toISOString(), resolvedAt: r.resolvedAt?.toISOString() ?? null,
+  }));
 }
 
 /**
@@ -445,4 +623,9 @@ async function shapeExtended(
 
 export const handlers = {
   extendEstimateExpiry: (ctx: ServiceContext, input: Parameters<typeof extend>[1]) => extend(ctx, input),
+  listEstimateHeldTexts: (ctx: ServiceContext, input: { id: string }) => guardedRead(ctx, "estimate:read", async (tx) => {
+    const [row] = await tx.select({ id: schema.estimate.id }).from(schema.estimate).where(eq(schema.estimate.id, input.id)).limit(1);
+    if (!row) throw new NotFoundError("Estimate");
+    return { heldTexts: await heldTextsFor(tx, input.id) };
+  }),
 } as const;

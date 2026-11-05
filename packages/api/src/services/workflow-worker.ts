@@ -22,7 +22,7 @@ import { releasePass as chatNoticePass } from "./portal-chat-notice";
 import { idleClosePass as chatIdleClosePass } from "./portal-chat";
 import { reminderPass as appRequestReminderPass } from "./app-request-reminders";
 import { taskPass, loopScanPass } from "./task-rules";
-import { expiryPass } from "./estimate-expiry";
+import { expiryPass, heldTextPass } from "./estimate-expiry";
 import { nightlyPass as truckFillPass } from "./truck-fills";
 import { purgePass } from "./retention";
 import { talkPass } from "./safety-talks";
@@ -521,6 +521,18 @@ export async function runPass(options: PassOptions): Promise<DrainResult[]> {
       }
     } catch (error) {
       console.error("[worker] estimate expiry:", (error as Error).message);
+    }
+    /**
+     * Texts telling a customer they were given longer, held in the quiet hours
+     * and sent once they end. Its own try, so a company's failure is kept to
+     * it; one cheap read when nothing is waiting.
+     */
+    try {
+      for (const result of await heldTextPass(options.db, stop ? { shouldStop: stop } : {})) {
+        if (result.failed) console.error(`[worker] held estimate texts ${result.organizationId}: ${result.failed}`);
+      }
+    } catch (error) {
+      console.error("[worker] held estimate texts:", (error as Error).message);
     }
     /**
      * Truck fills proposed overnight, as drafts a person confirms, for each

@@ -131,6 +131,12 @@ export interface AddChangeOrderLineOutput {
   scheduleDays: number | null;
   crewHours: string | null;
   jobId: string | null;
+  hours: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    jobLabel: string;
+    crewHours: string;
+  }>;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -1485,6 +1491,7 @@ export interface ApproveEstimateOutput {
   expiresOn: string | null;
   sentAt: string | null;
   viewedAt: string | null;
+  expiredAsDraftAt?: string | null;
   decidedAt: string | null;
   convertedAt: string | null;
   declineReason: string | null;
@@ -1597,6 +1604,10 @@ export interface ApprovePortalChangeOrderOutput {
     unitPrice: string;
     lineTotal: string;
   }>;
+  crewHours: Array<{
+    jobLabel: string;
+    hours: string;
+  }>;
   amount: string;
   contractValue: string | null;
   contractValueAfter: string | null;
@@ -1626,6 +1637,7 @@ export interface ApprovePortalEstimateOutput {
     expiresOn: string | null;
     sentAt: string | null;
     viewedAt: string | null;
+    expiredAsDraftAt?: string | null;
     decidedAt: string | null;
     convertedAt: string | null;
     declineReason: string | null;
@@ -2915,6 +2927,7 @@ export interface ConvertEstimateOutput {
     expiresOn: string | null;
     sentAt: string | null;
     viewedAt: string | null;
+    expiredAsDraftAt?: string | null;
     decidedAt: string | null;
     convertedAt: string | null;
     declineReason: string | null;
@@ -3819,6 +3832,7 @@ export interface CreateEstimateOutput {
   expiresOn: string | null;
   sentAt: string | null;
   viewedAt: string | null;
+  expiredAsDraftAt?: string | null;
   decidedAt: string | null;
   convertedAt: string | null;
   declineReason: string | null;
@@ -5514,6 +5528,12 @@ export interface DecideChangeOrderOutput {
   scheduleDays: number | null;
   crewHours: string | null;
   jobId: string | null;
+  hours: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    jobLabel: string;
+    crewHours: string;
+  }>;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -5800,6 +5820,7 @@ export interface DeclineEstimateOutput {
   expiresOn: string | null;
   sentAt: string | null;
   viewedAt: string | null;
+  expiredAsDraftAt?: string | null;
   decidedAt: string | null;
   convertedAt: string | null;
   declineReason: string | null;
@@ -7079,6 +7100,7 @@ export interface ExtendEstimateExpiryOutput {
     sent: boolean;
     channels: Array<"email" | "sms">;
     explanation: string | null;
+    heldForMorning: boolean;
   } | null;
 }
 
@@ -7811,6 +7833,12 @@ export interface GetChangeOrderOutput {
   scheduleDays: number | null;
   crewHours: string | null;
   jobId: string | null;
+  hours: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    jobLabel: string;
+    crewHours: string;
+  }>;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -9034,6 +9062,18 @@ export interface GetEquipmentOutput {
   };
 }
 
+export interface GetEstimateExtendedWordsOutput {
+  templates: Array<{
+    code: "estimate_extended.sms" | "estimate_extended.email";
+    channel: "sms" | "email";
+    name: string;
+    subject: string | null;
+    body: string;
+    isDefault: boolean;
+  }>;
+  variables: string[];
+}
+
 export interface GetEstimateFinancingOutput {
   connected: boolean;
   lender: string | null;
@@ -9095,6 +9135,7 @@ export interface GetEstimateOutput {
   expiresOn: string | null;
   sentAt: string | null;
   viewedAt: string | null;
+  expiredAsDraftAt?: string | null;
   decidedAt: string | null;
   convertedAt: string | null;
   declineReason: string | null;
@@ -15129,6 +15170,12 @@ export interface ListChangeOrdersOutput {
     scheduleDays: number | null;
     crewHours: string | null;
     jobId: string | null;
+    hours: Array<{
+      jobId: string;
+      jobNumber: number | null;
+      jobLabel: string;
+      crewHours: string;
+    }>;
     amount: string;
     cost: string | null;
     sentAt: string | null;
@@ -16289,6 +16336,17 @@ export interface ListEstimateDraftsOutput {
   }>;
 }
 
+export interface ListEstimateHeldTextsOutput {
+  heldTexts: Array<{
+    id: string;
+    state: "waiting" | "sent" | "refused" | "cancelled";
+    expiresOn: string;
+    reason: string | null;
+    heldAt: string;
+    resolvedAt: string | null;
+  }>;
+}
+
 export interface ListEstimatesOutput {
   data: Array<{
     id: string;
@@ -16302,6 +16360,7 @@ export interface ListEstimatesOutput {
     expiresOn: string | null;
     sentAt: string | null;
     viewedAt: string | null;
+    expiredAsDraftAt?: string | null;
     decidedAt: string | null;
     convertedAt: string | null;
     declineReason: string | null;
@@ -23413,6 +23472,12 @@ export interface RemoveChangeOrderLineOutput {
   scheduleDays: number | null;
   crewHours: string | null;
   jobId: string | null;
+  hours: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    jobLabel: string;
+    crewHours: string;
+  }>;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -24041,6 +24106,10 @@ export interface RequestChangeOrderInput {
   scheduleDays?: number | null;
   crewHours?: string | null;
   jobId?: string | null;
+  hours?: Array<{
+    jobId: string;
+    crewHours: string;
+  }>;
 }
 
 export interface RequestChangeOrderOutput {
@@ -24057,6 +24126,12 @@ export interface RequestChangeOrderOutput {
   scheduleDays: number | null;
   crewHours: string | null;
   jobId: string | null;
+  hours: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    jobLabel: string;
+    crewHours: string;
+  }>;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -25766,6 +25841,7 @@ export interface SendEstimateOutput {
     expiresOn: string | null;
     sentAt: string | null;
     viewedAt: string | null;
+    expiredAsDraftAt?: string | null;
     decidedAt: string | null;
     convertedAt: string | null;
     declineReason: string | null;
@@ -29672,6 +29748,10 @@ export interface UpdateChangeOrderInput {
   scheduleDays?: number | null;
   crewHours?: string | null;
   jobId?: string | null;
+  hours?: Array<{
+    jobId: string;
+    crewHours: string;
+  }>;
 }
 
 export interface UpdateChangeOrderOutput {
@@ -29688,6 +29768,12 @@ export interface UpdateChangeOrderOutput {
   scheduleDays: number | null;
   crewHours: string | null;
   jobId: string | null;
+  hours: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    jobLabel: string;
+    crewHours: string;
+  }>;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -30103,6 +30189,26 @@ export interface UpdateEquipmentInput {
 
 export interface UpdateEquipmentOutput {
   id: string;
+}
+
+export interface UpdateEstimateExtendedWordsInput {
+  templates: Array<{
+    code: "estimate_extended.sms" | "estimate_extended.email";
+    subject?: string | null;
+    body: string;
+  }>;
+}
+
+export interface UpdateEstimateExtendedWordsOutput {
+  templates: Array<{
+    code: "estimate_extended.sms" | "estimate_extended.email";
+    channel: "sms" | "email";
+    name: string;
+    subject: string | null;
+    body: string;
+    isDefault: boolean;
+  }>;
+  variables: string[];
 }
 
 export interface UpdateHolidayInput {
@@ -31840,6 +31946,10 @@ export interface ViewPortalChangeOrderOutput {
     unitPrice: string;
     lineTotal: string;
   }>;
+  crewHours: Array<{
+    jobLabel: string;
+    hours: string;
+  }>;
   amount: string;
   contractValue: string | null;
   contractValueAfter: string | null;
@@ -31859,6 +31969,7 @@ export interface ViewPortalEstimateOutput {
   expiresOn: string | null;
   sentAt: string | null;
   viewedAt: string | null;
+  expiredAsDraftAt?: string | null;
   decidedAt: string | null;
   convertedAt: string | null;
   declineReason: string | null;
@@ -32351,6 +32462,12 @@ export interface WithdrawChangeOrderOutput {
   scheduleDays: number | null;
   crewHours: string | null;
   jobId: string | null;
+  hours: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    jobLabel: string;
+    crewHours: string;
+  }>;
   amount: string;
   cost: string | null;
   sentAt: string | null;
@@ -33419,6 +33536,8 @@ export interface GetEstimateInput {
   id: string;
 }
 
+export type GetEstimateExtendedWordsInput = Record<string, never>;
+
 export interface GetEstimateFinancingInput {
   estimateId: string;
 }
@@ -34397,6 +34516,10 @@ export interface ListEstimateDeliveriesInput {
 export interface ListEstimateDraftsInput {
   jobId?: string;
   limit?: number;
+}
+
+export interface ListEstimateHeldTextsInput {
+  id: string;
 }
 
 export interface ListEstimatesInput {
@@ -36897,6 +37020,7 @@ export interface OperationTypes {
   getEquipment: { input: GetEquipmentInput; output: GetEquipmentOutput };
   getEquipmentHistory: { input: GetEquipmentHistoryInput; output: GetEquipmentHistoryOutput };
   getEstimate: { input: GetEstimateInput; output: GetEstimateOutput };
+  getEstimateExtendedWords: { input: GetEstimateExtendedWordsInput; output: GetEstimateExtendedWordsOutput };
   getEstimateFinancing: { input: GetEstimateFinancingInput; output: GetEstimateFinancingOutput };
   getEstimateProposal: { input: GetEstimateProposalInput; output: GetEstimateProposalOutput };
   getExportFile: { input: GetExportFileInput; output: GetExportFileOutput };
@@ -37144,6 +37268,7 @@ export interface OperationTypes {
   listEquipmentSerialMatches: { input: ListEquipmentSerialMatchesInput; output: ListEquipmentSerialMatchesOutput };
   listEstimateDeliveries: { input: ListEstimateDeliveriesInput; output: ListEstimateDeliveriesOutput };
   listEstimateDrafts: { input: ListEstimateDraftsInput; output: ListEstimateDraftsOutput };
+  listEstimateHeldTexts: { input: ListEstimateHeldTextsInput; output: ListEstimateHeldTextsOutput };
   listEstimates: { input: ListEstimatesInput; output: ListEstimatesOutput };
   listExpenses: { input: ListExpensesInput; output: ListExpensesOutput };
   listExpiringCertifications: { input: ListExpiringCertificationsInput; output: ListExpiringCertificationsOutput };
@@ -37780,6 +37905,7 @@ export interface OperationTypes {
   updateCustomer: { input: UpdateCustomerParams & UpdateCustomerInput; output: UpdateCustomerOutput };
   updateDisposalFacility: { input: UpdateDisposalFacilityParams & UpdateDisposalFacilityInput; output: UpdateDisposalFacilityOutput };
   updateEquipment: { input: UpdateEquipmentParams & UpdateEquipmentInput; output: UpdateEquipmentOutput };
+  updateEstimateExtendedWords: { input: UpdateEstimateExtendedWordsInput; output: UpdateEstimateExtendedWordsOutput };
   updateHoliday: { input: UpdateHolidayParams & UpdateHolidayInput; output: UpdateHolidayOutput };
   updateInvoice: { input: UpdateInvoiceParams & UpdateInvoiceInput; output: UpdateInvoiceOutput };
   updateJob: { input: UpdateJobParams & UpdateJobInput; output: UpdateJobOutput };
@@ -38177,6 +38303,7 @@ export const OPERATIONS = {
   getEquipment: { method: "GET", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: ["on"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEquipmentHistory: { method: "GET", path: "/v1/equipment/{id}/history", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   getEstimate: { method: "GET", path: "/v1/estimates/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
+  getEstimateExtendedWords: { method: "GET", path: "/v1/estimate-extended-words", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getEstimateFinancing: { method: "GET", path: "/v1/estimates/{estimateId}/financing", pathParams: ["estimateId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getEstimateProposal: { method: "GET", path: "/v1/estimates/{id}/proposal", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getExportFile: { method: "GET", path: "/v1/export-files/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
@@ -38424,6 +38551,7 @@ export const OPERATIONS = {
   listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
+  listEstimateHeldTexts: { method: "GET", path: "/v1/estimates/{id}/held-texts", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimates: { method: "GET", path: "/v1/estimates", pathParams: [], queryParams: ["cursor","limit","q","status","customerId","jobId","sentBefore","businessUnitId","externalSource","externalId","fieldKey","fieldValue","fields","fieldMatch"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["estimate:read"] },
   listExpenses: { method: "GET", path: "/v1/expenses", pathParams: [], queryParams: ["status","technicianId","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:approve"] },
   listExpiringCertifications: { method: "GET", path: "/v1/certifications/expiring", pathParams: [], queryParams: ["within"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
@@ -39060,6 +39188,7 @@ export const OPERATIONS = {
   updateCustomer: { method: "PATCH", path: "/v1/customers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   updateDisposalFacility: { method: "PATCH", path: "/v1/disposal-facilities/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   updateEquipment: { method: "PATCH", path: "/v1/equipment/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
+  updateEstimateExtendedWords: { method: "PUT", path: "/v1/estimate-extended-words", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateHoliday: { method: "PATCH", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   updateInvoice: { method: "PATCH", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   updateJob: { method: "PATCH", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -42107,6 +42236,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The words that tell a customer they were given longer.
+   *
+   * GET /v1/estimate-extended-words. Needs settings:read.
+   */
+  getEstimateExtendedWords(input: GetEstimateExtendedWordsInput = {} as GetEstimateExtendedWordsInput, options?: CallOptions): Promise<GetEstimateExtendedWordsOutput> {
+    return this.call("getEstimateExtendedWords", input, options);
+  }
+
+  /**
    * Financing on one estimate: a monthly figure per option and the applications.
    *
    * GET /v1/estimates/{estimateId}/financing. Needs estimate:read.
@@ -44327,6 +44465,15 @@ export abstract class GeneratedOperations {
    */
   listEstimateDrafts(input: ListEstimateDraftsInput = {} as ListEstimateDraftsInput, options?: CallOptions): Promise<ListEstimateDraftsOutput> {
     return this.call("listEstimateDrafts", input, options);
+  }
+
+  /**
+   * Texts held for the morning on an estimate.
+   *
+   * GET /v1/estimates/{id}/held-texts. Needs estimate:read.
+   */
+  listEstimateHeldTexts(input: ListEstimateHeldTextsInput, options?: CallOptions): Promise<ListEstimateHeldTextsOutput> {
+    return this.call("listEstimateHeldTexts", input, options);
   }
 
   /**
@@ -50051,6 +50198,15 @@ export abstract class GeneratedOperations {
    */
   updateEquipment(input: UpdateEquipmentParams & UpdateEquipmentInput, options?: CallOptions): Promise<UpdateEquipmentOutput> {
     return this.call("updateEquipment", input, options);
+  }
+
+  /**
+   * Change the words that tell a customer they were given longer.
+   *
+   * PUT /v1/estimate-extended-words. Needs settings:write.
+   */
+  updateEstimateExtendedWords(input: UpdateEstimateExtendedWordsInput, options?: CallOptions): Promise<UpdateEstimateExtendedWordsOutput> {
+    return this.call("updateEstimateExtendedWords", input, options);
   }
 
   /**

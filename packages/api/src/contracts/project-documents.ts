@@ -37,12 +37,21 @@ export const ChangeOrder = z.object({
   /** Days added to the programme, or taken off. Printed on the change order, not applied to the schedule. */
   scheduleDays: z.number().int().nullable(),
   /**
-   * Crew hours the change adds to one of the project's jobs, and which job.
-   * When the change order is approved they come off that job's actual hours
-   * in the budgeted hour variance. Not printed on the page the customer signs.
+   * Crew hours the change adds, in all, and the one job they are on when they
+   * are on exactly one (null when none, or when they are split: see `hours`).
+   * When the change order is approved they come off those jobs' actual hours
+   * in the budgeted hour variance. The page the customer signs lists them.
    */
   crewHours: MoneyString.nullable(),
   jobId: Uuid.nullable(),
+  /** The crew hours job by job, in the order of the jobs' numbers. */
+  hours: z.array(z.object({
+    jobId: Uuid,
+    jobNumber: z.number().int().nullable(),
+    /** "Job 1042": how the page the customer signs names it. */
+    jobLabel: z.string(),
+    crewHours: MoneyString,
+  })),
   /** Negative for a credit. */
   amount: MoneyString,
   /** Null for a caller without job.cost:read, and when a line's cost is unknown. */
@@ -100,9 +109,15 @@ export const requestChangeOrder = defineRoute({
     /** The phase the work lands on. A credit has to name one. */
     phaseId: Uuid.nullable().optional(),
     scheduleDays: z.number().int().min(-3650).max(3650).nullable().optional(),
-    /** Crew hours the change adds, on which of the project's jobs. Both or neither. */
+    /** Crew hours the change adds, on which of the project's jobs. Both or neither. The one-job way of writing `hours`. */
     crewHours: MoneyString.nullable().optional(),
     jobId: Uuid.nullable().optional(),
+    /**
+     * Crew hours the change adds, job by job, replacing whatever it had (an
+     * empty list clears them). Each a job of the project's own, once, with more
+     * than nought hours. Not given together with `crewHours` or `jobId`.
+     */
+    hours: z.array(z.object({ jobId: Uuid, crewHours: MoneyString })).max(25).optional(),
   }),
   output: ChangeOrder,
 });
@@ -133,9 +148,15 @@ export const updateChangeOrder = defineRoute({
     reason: z.string().max(2000).nullable().optional(),
     phaseId: Uuid.nullable().optional(),
     scheduleDays: z.number().int().min(-3650).max(3650).nullable().optional(),
-    /** Crew hours the change adds, on which of the project's jobs. Both or neither. */
+    /** Crew hours the change adds, on which of the project's jobs. Both or neither. The one-job way of writing `hours`. */
     crewHours: MoneyString.nullable().optional(),
     jobId: Uuid.nullable().optional(),
+    /**
+     * Crew hours the change adds, job by job, replacing whatever it had (an
+     * empty list clears them). Each a job of the project's own, once, with more
+     * than nought hours. Not given together with `crewHours` or `jobId`.
+     */
+    hours: z.array(z.object({ jobId: Uuid, crewHours: MoneyString })).max(25).optional(),
   }),
   output: ChangeOrder,
 });
@@ -246,6 +267,8 @@ export const PortalChangeOrder = z.object({
     unitPrice: MoneyString,
     lineTotal: MoneyString,
   })),
+  /** The crew hours the change adds, job by job, as the page lists them. Empty when it adds none. */
+  crewHours: z.array(z.object({ jobLabel: z.string(), hours: MoneyString })),
   amount: MoneyString,
   contractValue: MoneyString.nullable(),
   contractValueAfter: MoneyString.nullable(),

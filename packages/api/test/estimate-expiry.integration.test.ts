@@ -100,7 +100,7 @@ run("marking an estimate expired", () => {
       approved: await estimate("approved", "2026-01-01"),
       declined: await estimate("declined", "2026-01-01"),
       converted: await estimate("converted", "2026-01-01"),
-      draft: await estimate("draft", "2026-01-01"),
+      // A draft past its date is now marked expired (see estimate-held-draft.integration.test.ts), so it is not among those left alone.
     };
     const before = await raw<{ id: string; updated_at: Date }[]>`
       select id, updated_at from public.estimate where id in ${raw(Object.values(kept))}`;

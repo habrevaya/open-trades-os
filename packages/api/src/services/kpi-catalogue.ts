@@ -1038,9 +1038,21 @@ const CREW_HOURS = `((
     and te.kind::text <> all(array['${reporting.NOT_A_DAY_WORKED.join("', '")}'])
 )::numeric / 60)`;
 
+/**
+ * Hours of change orders approved for the job: its rows in
+ * `project_change_order_hours`, and the one-job columns of a change order made
+ * before hours could be split (counted only while it has no rows of its own).
+ */
 const CHANGE_HOURS = `(
-  select coalesce(sum(co.crew_hours), 0) from public.project_change_order co
-  where co.job_id = j.id and co.status = 'approved' and co.crew_hours is not null
+  select coalesce(sum(x.hours), 0) from (
+    select h.crew_hours as hours from public.project_change_order_hours h
+      join public.project_change_order co on co.id = h.change_order_id
+     where h.job_id = j.id and co.status = 'approved'
+    union all
+    select co.crew_hours from public.project_change_order co
+     where co.job_id = j.id and co.status = 'approved' and co.crew_hours is not null
+       and not exists (select 1 from public.project_change_order_hours h where h.change_order_id = co.id)
+  ) x
 )`;
 
 const budgetedJobs = (value: string): Records => (from, to, zone) => sql`

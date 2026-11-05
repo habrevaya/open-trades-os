@@ -53898,6 +53898,217 @@
         ]
       }
     },
+    "/v1/estimate-extended-words": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getEstimateExtendedWords",
+        "summary": "The words that tell a customer they were given longer",
+        "description": "The company's text and email for \"we are holding your price until\", the message templates `estimate_extended.sms` and `estimate_extended.email`. Where a company has written none, the product's own wording is what is sent and `isDefault` is true. The same templates can be read and written through the message templates routes; this is the one place for them on the screen.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M07"
+        ],
+        "responses": {
+          "200": {
+            "description": "The words that tell a customer they were given longer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEstimateExtendedWordsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "put": {
+        "operationId": "updateEstimateExtendedWords",
+        "summary": "Change the words that tell a customer they were given longer",
+        "description": "Only what is sent changes. The words are checked as every message template is: a placeholder that is not one of `variables` is refused, because it would reach a customer as a gap in a sentence. An email's `subject` is kept for an email and ignored for a text. A message already held for the morning keeps the words it was held with.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M07"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEstimateExtendedWordsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change the words that tell a customer they were given longer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateEstimateExtendedWordsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/estimate-option-photos/{id}": {
       "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -55683,6 +55894,115 @@
         "x-authorization": "session",
         "x-permissions": [
           "estimate:write"
+        ]
+      }
+    },
+    "/v1/estimates/{id}/held-texts": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listEstimateHeldTexts",
+        "summary": "Texts held for the morning on an estimate",
+        "description": "A text telling the customer they were given longer is not sent in the company's quiet hours; it is kept and the worker sends it once the hours end, once, after checking again that the customer may be texted, that the estimate is still open and still has the date the words name, and that it was not texted to the customer again by hand since. `waiting` has not gone yet; `sent`, `refused` (the customer could not be texted any more) and `cancelled` (it no longer made sense) say why in `reason`. The last five, newest first.\n\nRequires a session holding: estimate:read.",
+        "tags": [
+          "M07"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Texts held for the morning on an estimate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEstimateHeldTextsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "estimate:read"
         ]
       }
     },
@@ -157920,6 +158240,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -158063,6 +158414,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -164686,6 +165038,13 @@
             ],
             "format": "date-time"
           },
+          "expiredAsDraftAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "decidedAt": {
             "type": [
               "string",
@@ -165271,6 +165630,25 @@
               ]
             }
           },
+          "crewHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobLabel": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobLabel",
+                "hours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -165316,6 +165694,7 @@
           "scheduleDays",
           "status",
           "lines",
+          "crewHours",
           "amount",
           "contractValue",
           "contractValueAfter",
@@ -165434,6 +165813,13 @@
                 "format": "date-time"
               },
               "viewedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "expiredAsDraftAt": {
                 "type": [
                   "string",
                   "null"
@@ -171687,6 +172073,13 @@
                 ],
                 "format": "date-time"
               },
+              "expiredAsDraftAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "decidedAt": {
                 "type": [
                   "string",
@@ -176408,6 +176801,13 @@
             "format": "date-time"
           },
           "viewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expiredAsDraftAt": {
             "type": [
               "string",
               "null"
@@ -185728,6 +186128,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -185871,6 +186302,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -187239,6 +187671,13 @@
             "format": "date-time"
           },
           "viewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expiredAsDraftAt": {
             "type": [
               "string",
               "null"
@@ -193369,12 +193808,16 @@
                   "string",
                   "null"
                 ]
+              },
+              "heldForMorning": {
+                "type": "boolean"
               }
             },
             "required": [
               "sent",
               "channels",
-              "explanation"
+              "explanation",
+              "heldForMorning"
             ]
           }
         },
@@ -197181,6 +197624,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -197324,6 +197798,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -203694,6 +204169,13 @@
             ],
             "format": "date-time"
           },
+          "expiredAsDraftAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "decidedAt": {
             "type": [
               "string",
@@ -204031,6 +204513,66 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "GetEstimateExtendedWordsOutput": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "estimate_extended.sms",
+                    "estimate_extended.email"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "sms",
+                    "email"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "body": {
+                  "type": "string"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "channel",
+                "name",
+                "subject",
+                "body",
+                "isDefault"
+              ]
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "templates",
+          "variables"
         ]
       },
       "GetEstimateFinancingOutput": {
@@ -235873,6 +236415,37 @@
                   ],
                   "format": "uuid"
                 },
+                "hours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "jobId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "jobNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "jobLabel": {
+                        "type": "string"
+                      },
+                      "crewHours": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "jobId",
+                      "jobNumber",
+                      "jobLabel",
+                      "crewHours"
+                    ]
+                  }
+                },
                 "amount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -236016,6 +236589,7 @@
                 "scheduleDays",
                 "crewHours",
                 "jobId",
+                "hours",
                 "amount",
                 "cost",
                 "sentAt",
@@ -242069,6 +242643,64 @@
           "drafts"
         ]
       },
+      "ListEstimateHeldTextsOutput": {
+        "type": "object",
+        "properties": {
+          "heldTexts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "waiting",
+                    "sent",
+                    "refused",
+                    "cancelled"
+                  ]
+                },
+                "expiresOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "heldAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "resolvedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "expiresOn",
+                "reason",
+                "heldAt",
+                "resolvedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "heldTexts"
+        ]
+      },
       "ListEstimatesOutput": {
         "type": "object",
         "properties": {
@@ -242139,6 +242771,13 @@
                   "format": "date-time"
                 },
                 "viewedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "expiredAsDraftAt": {
                   "type": [
                     "string",
                     "null"
@@ -278730,6 +279369,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -278873,6 +279543,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -281487,6 +282158,27 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "crewHours"
+              ]
+            },
+            "maxItems": 25
           }
         },
         "required": [
@@ -281571,6 +282263,37 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
           },
           "amount": {
             "type": "string",
@@ -281715,6 +282438,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -289909,6 +290633,13 @@
                 "format": "date-time"
               },
               "viewedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "expiredAsDraftAt": {
                 "type": [
                   "string",
                   "null"
@@ -309093,6 +309824,27 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "crewHours"
+              ]
+            },
+            "maxItems": 25
           }
         }
       },
@@ -309174,6 +309926,37 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
           },
           "amount": {
             "type": "string",
@@ -309318,6 +310101,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -311378,6 +312162,107 @@
         },
         "required": [
           "id"
+        ]
+      },
+      "UpdateEstimateExtendedWordsInput": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "estimate_extended.sms",
+                    "estimate_extended.email"
+                  ]
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200
+                },
+                "body": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                }
+              },
+              "required": [
+                "code",
+                "body"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "templates"
+        ]
+      },
+      "UpdateEstimateExtendedWordsOutput": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "estimate_extended.sms",
+                    "estimate_extended.email"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "sms",
+                    "email"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "body": {
+                  "type": "string"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "channel",
+                "name",
+                "subject",
+                "body",
+                "isDefault"
+              ]
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "templates",
+          "variables"
         ]
       },
       "UpdateHolidayInput": {
@@ -320718,6 +321603,25 @@
               ]
             }
           },
+          "crewHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobLabel": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobLabel",
+                "hours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -320763,6 +321667,7 @@
           "scheduleDays",
           "status",
           "lines",
+          "crewHours",
           "amount",
           "contractValue",
           "contractValueAfter",
@@ -320835,6 +321740,13 @@
             "format": "date-time"
           },
           "viewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expiredAsDraftAt": {
             "type": [
               "string",
               "null"
@@ -323445,6 +324357,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -323588,6 +324531,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",

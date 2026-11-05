@@ -1995,7 +1995,7 @@ returns table (organization_id uuid)
   as $$
     select x.organization_id from (
       select distinct e.organization_id from public.estimate e
-       where e.status in ('sent', 'viewed')
+       where e.status in ('draft', 'sent', 'viewed')
          and e.expires_on is not null
          and e.expires_on <= coalesce(p_on, (now() at time zone 'utc')::date)
     ) x
@@ -2008,6 +2008,31 @@ returns table (organization_id uuid)
 
 revoke all on function app.estimate_expiry_organizations(int, date) from public;
 grant execute on function app.estimate_expiry_organizations(int, date) to background;
+
+-- ---- Companies with a text held for the morning ---------------------------
+-- Telling a customer they were given longer can be held in the company's
+-- quiet hours and sent when they end. The worker has no tenant until it picks
+-- one, so it asks here which companies have such a text waiting and nothing
+-- else: a list of ids. Whether the hours are over is the company's own to
+-- say (its zone and its window), so the pass asks that inside the tenant. A
+-- suspended company is left alone, like every other pass.
+create or replace function app.estimate_held_text_organizations(p_limit int default 200)
+returns table (organization_id uuid)
+  language sql stable security definer set search_path = public, pg_temp
+  as $$
+    select x.organization_id from (
+      select distinct h.organization_id from public.estimate_held_text h
+       where h.state = 'waiting'
+    ) x
+    where not exists (
+      select 1 from public.organization o
+       where o.id = x.organization_id and o.suspended_at is not null
+    )
+    limit p_limit
+  $$;
+
+revoke all on function app.estimate_held_text_organizations(int) from public;
+grant execute on function app.estimate_held_text_organizations(int) to background;
 
 -- ---- Companies with review requests the office queued, due now -------------
 -- A request made from the reviews screen or `POST /v1/reviews/requests` that the

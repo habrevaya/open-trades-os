@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { branding as brand, comms, money as m, type Actor } from "@opentradesos/core";
+import { branding as brand, comms, isSystem, money as m, type Actor } from "@opentradesos/core";
 import type { ServiceContext } from "./context";
 import * as email from "./email";
 import { quietHoursFor, sendTransactional } from "./comms-send";
@@ -209,7 +209,7 @@ export async function transport(
       address: input.to,
       body: composeText(input),
       customerId: input.customerId,
-      sentByUserId: ctx.portalGrantId ? null : ctx.actor.userId,
+      sentByUserId: ctx.portalGrantId || isSystem(ctx.actor) ? null : ctx.actor.userId,
     });
     return outcome.sent
       ? { sent: true, messageId: outcome.messageId, conversationId: outcome.conversationId }

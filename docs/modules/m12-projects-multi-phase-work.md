@@ -245,14 +245,43 @@ emails it when asked), and the customer approves and signs at `/co/{token}`, or
 Each change order prints at `/projects/{id}/change-orders/{changeOrderId}/document`.
 
 A change order can also say how many **crew hours** it adds and to which of the
-project's jobs (`crewHours` and `jobId` on the log form, on
-`POST /v1/projects/{projectId}/change-orders` and on
-`PATCH /v1/project-change-orders/{id}`, both or neither, the job one of the
-project's own). They are set while it can still be edited, and are the office's
-figure for the work: they are not printed on the page the customer signs, so
-the signature covers what it always covered. Once the customer approves it, the
-hours come off that job's actual crew hours in the budgeted hour variance (M21),
-so agreed extra work does not read as an overrun.
+project's jobs, and the hours can be **split across several of the project's
+jobs**: a second furnace on one job and a duct run on another are one change
+order with hours on each. On the change order's page, "Crew hours it adds" is a
+row of hours and a job for each job that has hours, with one more row to add
+another ("Hours on another job", "Another job"); clearing a row takes the job
+off. Through the API, `hours` on `POST /v1/projects/{projectId}/change-orders`
+and `PATCH /v1/project-change-orders/{id}` is the whole list of
+`{ jobId, crewHours }`, replacing what it had (an empty list clears it). Each is a
+job of the project's own, a job once (named twice is refused), with more than
+nought hours, up to 25 jobs. The one-job way still works and means a list of one:
+`crewHours` and `jobId`, both or neither. The two ways are not given together, and
+changing one figure on a change order whose hours are split is refused, because
+it is not clear which job it means: the whole list is asked for. They are set
+while it can still be edited. The change order's `crewHours` is the total, `jobId`
+is the one job when the hours are on exactly one (null otherwise), and `hours` is
+the list in the order of the jobs' numbers, each with how the customer reads the
+job ("Job 1042").
+
+**The signed page shows them.** The page the customer signs, at `/co/{token}`, and
+the printable copy list the hours under the lines, job by job ("Job 1042, 6
+hours"): only the job's number and the hours, no cost and no summary of the job.
+They are part of what the signature covers: the document hash includes the list
+when there is one (a change order with none is hashed as it always was), the hours
+cannot change once the change order is sent, and the signature kept with an
+approval is against the page with the hours on it. A link sent before the page
+listed hours still verifies against the page as it was sent, so a change order
+that was waiting for a signature when this arrived can be signed; the signature
+then covers the page as the customer saw it, hours and all.
+
+Once the customer approves it, each job's hours come off that job's actual crew
+hours in the budgeted hour variance (M21), so agreed extra work does not read as
+an overrun. They are kept one row per job (`project_change_order_hours`). A change
+order made before the split keeps its one job's hours in its own two columns and
+they are still counted, once; editing its hours moves them to rows and empties the
+columns, so the same hours are never counted twice. Every change to the list is in
+the audit log on the change order (`project_change_order.updated`, the list before
+and after).
 
 ### Plan it
 
@@ -419,7 +448,9 @@ lien rules of any state are encoded: notices and waivers are records with dates
 and amounts, and BUILD.md is explicit that this project records the dates and
 does not author the rules.
 
-A change order's crew hours name one job; work spread over two jobs is two change
-orders, or the hours on the job that carries most of it. They are not on the
-signed page, so a customer is never asked to agree to them, and nothing compares
-them with the hours that job's crew then punch beyond the budgeted hour variance.
+A change order's crew hours are the office's figure for the work. The page the
+customer signs lists them by job number and hours, so the customer is asked to
+agree to them; nothing compares them with the hours that job's crew then punch
+beyond the budgeted hour variance. They name a job by its number alone on that
+page, not what the job is, because a job's summary is the office's wording. A
+change order's hours cannot be changed once it is sent, as nothing else on it can.

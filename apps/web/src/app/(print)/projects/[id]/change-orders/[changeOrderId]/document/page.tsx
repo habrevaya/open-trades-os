@@ -91,6 +91,20 @@ export default async function ChangeOrderDocument({ params }: { params: Promise<
         </tfoot>
       </table>
 
+      {order.crewHoursListed.length > 0 && (
+        <section className="mt-4" aria-label="Crew hours">
+          <p className="font-medium">Crew hours this change adds</p>
+          <ul className="mt-1">
+            {order.crewHoursListed.map((h) => (
+              <li key={h.jobLabel} className="flex justify-between gap-4 border-b border-steel-200 py-1">
+                <span>{h.jobLabel}</span>
+                <span className="tabular-nums">{Number(h.hours)} {Number(h.hours) === 1 ? "hour" : "hours"}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {before !== null && after !== null && (
         <dl className="mt-4 ml-auto grid w-full max-w-sm grid-cols-[1fr_auto] gap-y-1">
           <dt className="text-ink-500">Contract before this change</dt><dd className="text-right tabular-nums"><Money value={before} /></dd>

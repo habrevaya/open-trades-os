@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { agreements, customers, customFields, deposits, estimates, financing, fieldSales, NotFoundError } from "@opentradesos/api/services";
+import { agreements, customers, customFields, deposits, estimateExpiry, estimates, financing, fieldSales, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { ProposalLayoutPanel } from "./ProposalLayoutPanel";
@@ -30,12 +30,15 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
     number: number; title: string | null; expiresOn: string | null; signerName: string | null;
     selectedOptionId: string | null;
   };
-  const [customer, held, sent] = await Promise.all([
+  const [customer, held, sent, heldTexts] = await Promise.all([
     customers.get(ctx, { id: estimate.customerId }).catch(() => null),
     can(user.actor, "deposit:read") ? deposits.list(ctx, { estimateId: id }).then((r) => r.deposits) : [],
     estimates.deliveries(ctx, { id }),
+    estimateExpiry.handlers.listEstimateHeldTexts(ctx, { id }).then((r) => r.heldTexts),
   ]);
   const chosen = estimate.options.find((o) => o.id === estimate.selectedOptionId);
+  /** Ran out while still a draft and not sent since: the customer never had it, so there is nobody to give longer. */
+  const neverSent = Boolean((raw as { expiredAsDraftAt?: Date | null }).expiredAsDraftAt) && !(raw as { sentAt?: Date | null }).sentAt;
   const memberIds = estimate.options.flatMap((o) => o.lines)
     .map((l) => l.memberAgreementId).filter((x): x is string => Boolean(x));
   const plans = memberIds.length > 0 && can(user.actor, "customer:read")
@@ -82,9 +85,24 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
       {estimate.status === "expired" ? (
         <p role="note" className="mt-4 max-w-prose rounded border border-steel-200 bg-steel-100 p-3 text-sm text-ink-700">
           {estimate.expiresOn ? `This estimate was good until ${formatDay(estimate.expiresOn, user.organizationTimezone)}. ` : ""}
+          {neverSent ? "It ran out before it was ever sent to the customer. " : ""}
           It is out of the unsold list and cannot be financed. The customer can still say yes, and you can
           still record it below.
         </p>
+      ) : null}
+
+      {heldTexts.length > 0 ? (
+        <section aria-label="Text held for the morning" className="mt-4 max-w-prose rounded border border-steel-200 bg-canvas p-3 text-sm text-ink-700">
+          {heldTexts.map((h) => (
+            <p key={h.id}>
+              {h.state === "waiting"
+                ? "A text telling the customer you are holding the price is waiting for the morning. It goes once, when the hours we text people begin."
+                : h.state === "sent"
+                  ? `The text telling the customer you are holding the price was sent in the morning (${formatIn(h.resolvedAt!, user.organizationTimezone)}).`
+                  : `The text telling the customer you are holding the price was not sent. ${h.reason ?? ""}`}
+            </p>
+          ))}
+        </section>
       ) : null}
 
       {/*
@@ -92,7 +110,7 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
         nothing priced changes. Only while they have it and have not answered.
       */}
       {can(user.actor, "estimate:write") && estimate.expiresOn
-        && ["sent", "viewed", "expired"].includes(estimate.status) ? (
+        && ["sent", "viewed", "expired"].includes(estimate.status) && !neverSent ? (
           <details className="mt-4 max-w-prose rounded border border-steel-200 bg-canvas p-3">
             <summary className="cursor-pointer text-sm font-medium">Give them longer to answer</summary>
             <ActionForm action={extendEstimate} submit="Move the date" hidden={{ estimateId: id }} className="mt-3 space-y-3">
@@ -121,7 +139,8 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
                       Tell the customer.
                       <span className="block text-xs text-ink-500">
                         Sends them the estimate again with a line saying you are holding the price until the new date.
-                        A text is not sent in the hours we do not text people.
+                        A text is not sent in the hours we do not text people. It is kept and goes in the morning.{" "}
+                        <a href="/estimates/given-longer" className="underline underline-offset-4">Change the words</a>
                       </span>
                     </span>
                   </label>
