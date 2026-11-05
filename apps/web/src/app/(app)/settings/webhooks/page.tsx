@@ -345,7 +345,7 @@ export default async function WebhooksPage({
           <ActionForm action={act} submit="Save how long" hidden={{ op: "keep" }} className="mt-3 flex flex-wrap items-end gap-3">
             <TextField label="Days to keep" name="keepDays" type="number" min={1} max={365}
                        defaultValue={String(keeping.keepDays)} required />
-            <TextField label="Attempts to keep for each address" name="keepPerEndpoint" type="number" min={100} max={10000}
+            <TextField label="Attempts to keep per receiver" name="keepPerEndpoint" type="number" min={100} max={10000}
                        defaultValue={String(keeping.keepPerEndpoint)} required />
           </ActionForm>
         ) : null}

@@ -88,8 +88,8 @@ describe("a rule over several answers", () => {
       expect(sent.values).not.toHaveProperty("flue");
     }
     const missing = checkSubmission(form, { values: { phone: "5125550134", system: "boiler", age: 20, problem: "a smell" } });
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.refusals.map((r) => r.field).sort()).toEqual(["flue", "gas", "serial"]);
+    expect(missing).toMatchObject({ ok: false, reason: "invalid" });
+    if (!missing.ok && missing.reason === "invalid") expect(missing.refusals.map((r) => r.field).sort()).toEqual(["flue", "gas", "serial"]);
   });
 
   it("checks a page without the questions its answers hide", () => {

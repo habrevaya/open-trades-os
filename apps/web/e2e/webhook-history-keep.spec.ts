@@ -13,7 +13,7 @@ test("the owner chooses how long delivery history is kept, and puts it back", as
   await expect(keep).toContainText("Each address keeps thirty days of attempts");
   try {
     await keep.getByLabel("Days to keep").fill("90");
-    await keep.getByLabel("Attempts to keep for each address").fill("500");
+    await keep.getByLabel("Attempts to keep per receiver").fill("500");
     await keep.getByRole("button", { name: "Save how long" }).click();
     await expect(keep.getByRole("status")).toHaveText("Saved. Each address keeps 90 days of history, and no more than 500 attempts.");
     await owner.reload();
@@ -21,7 +21,7 @@ test("the owner chooses how long delivery history is kept, and puts it back", as
   } finally {
     await owner.goto("/settings/webhooks");
     await keep.getByLabel("Days to keep").fill("30");
-    await keep.getByLabel("Attempts to keep for each address").fill("1000");
+    await keep.getByLabel("Attempts to keep per receiver").fill("1000");
     await keep.getByRole("button", { name: "Save how long" }).click();
     await expect(keep.getByRole("status")).toContainText("30 days");
   }
