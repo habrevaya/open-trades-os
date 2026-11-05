@@ -5,7 +5,7 @@ import { dashboards, reports, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { DashboardTile, tileSpan } from "@/components/DashboardTile";
 import { PageHeader, Empty } from "@/components/Table";
-import { AddTile, TileControls, CutBy, type ReportOption } from "./TileEditor";
+import { AddTile, TileControls, CutBy, AlsoDraw, FollowDates, type ReportOption } from "./TileEditor";
 import { DeleteDashboard } from "./DeleteDashboard";
 import { DashboardActions } from "../../DashboardActions";
 
@@ -88,6 +88,18 @@ export default async function SavedDashboardPage({ params }: { params: Promise<{
                     <CutBy
                       id={id} tiles={stored} tileKey={tile.key} title={tile.title}
                       cuts={tile.cuts} current={tile.breakdown.key}
+                    />
+                  ) : null}
+                  {tile.alsoCanDraw ? (
+                    <AlsoDraw
+                      id={id} tiles={stored} tileKey={tile.key} title={tile.title}
+                      options={tile.alsoCanDraw} current={tile.second?.key ?? ""}
+                    />
+                  ) : null}
+                  {!tile.problem ? (
+                    <FollowDates
+                      id={id} tiles={stored} tileKey={tile.key} title={tile.title}
+                      follows={tile.followsDates ?? false}
                     />
                   ) : null}
                   <TileControls

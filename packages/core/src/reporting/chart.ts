@@ -102,6 +102,8 @@ export interface ChartPlan {
   /** Set when the chart is cut by a second grouping. */
   split: ChartSplit | null;
   scale: Scale;
+  /** Set when a second measure is drawn beside the first. Never on a chart that is cut. */
+  secondary?: ChartSecondary | null;
   /**
    * Whether the scale could start at the data instead of zero: a line of a
    * plain number (never an amount of money, and never bars or columns, which
@@ -110,6 +112,25 @@ export interface ChartPlan {
    * makes every wobble look like a swing and should be asked for.
    */
   narrowable: boolean;
+}
+
+/**
+ * A SECOND MEASURE, drawn beside the first over the same groups.
+ *
+ * Over time it is a dashed line with its own dots on top of the columns or the
+ * line; over categories it is a second, thinner bar under each bar. When both
+ * measures are the same unit (two amounts of money, two counts) they share one
+ * scale, so a taller mark is a bigger number on both. When the units differ (an
+ * amount against a count) it gets a scale of its own, drawn on the right with
+ * its own labels, and the chart says which is which.
+ */
+export interface ChartSecondary {
+  measure: ChartColumn;
+  /** One for each point of the plan, in the same order. */
+  values: { exact: string; value: number }[];
+  scale: Scale;
+  /** True when the units differ and the scale is drawn on its own. */
+  ownAxis: boolean;
 }
 
 export type ChartRefusal = { ok: false; reason: string };
@@ -155,6 +176,11 @@ export function chartFor(
     /** Cut each group by this other grouping, instead of adding it up. */
     split?: string | undefined;
     arrange?: ChartArrangement | undefined;
+    /**
+     * A second measure to draw beside the first over the same groups. Ignored
+     * on a chart that is cut by a second grouping, which has no room for it.
+     */
+    second?: string | undefined;
     prefer?: "line" | "columns" | undefined;
     additive?: Additivity | undefined;
     /**
@@ -237,11 +263,23 @@ export function chartFor(
   const high = Math.max(...kept.map((p) => p.value));
   const narrowable = !split && kind === "line" && measure.type === "number" && kept.length >= 2
     && (low > 0 || high < 0);
-  const scale = split
+  const secondColumn = !splitBy && options.second && options.second !== measure.key
+    ? measures.find((m) => m.key === options.second)
+    : undefined;
+  if (secondColumn && others.length > 0 && !(options.additive?.(secondColumn.key) ?? false)) {
+    return {
+      ok: false,
+      reason: `This report is grouped by ${dimensions.map((d) => d.label.toLowerCase()).join(" and ")}, and ${secondColumn.label.toLowerCase()} cannot be added up across ${others.map((d) => d.label.toLowerCase()).join(" and ")} without changing what it means. Group it by one thing to chart it.`,
+    };
+  }
+  const secondary = secondColumn ? secondaryFor(result.rows, dimension.key, secondColumn, measure, kept) : null;
+
+  let scale = split
     ? splitScale(kept, arrangement)
-    : narrowable && options.baseline === "data"
+    : narrowable && options.baseline === "data" && !secondary
       ? narrowScale(low, high)
       : niceScale(Math.min(0, low), Math.max(0, high));
+  if (secondary && !secondary.ownAxis) scale = secondary.scale;
 
   return {
     ok: true,
@@ -254,9 +292,36 @@ export function chartFor(
       summedOver: others.map((d) => d.label),
       split,
       scale,
-      narrowable,
+      secondary,
+      narrowable: narrowable && !secondary,
     },
   };
+}
+
+/**
+ * The second measure over the same groups the plan kept, and the scale it is
+ * drawn on: the first measure's own, widened to hold both, when the units are
+ * the same, and its own when they are not.
+ */
+function secondaryFor(
+  rows: readonly ChartRow[], key: string, second: ChartColumn, first: ChartColumn, kept: readonly ChartPoint[],
+): ChartSecondary {
+  const byId = new Map(fold(rows, key, second).map((p) => [idOfKey(p.key), p]));
+  const values = kept.map((point) => {
+    const found = byId.get(idOfKey(point.key));
+    return found ? { exact: found.exact, value: found.value } : { exact: "0", value: 0 };
+  });
+  const sameUnit = second.type === first.type;
+  const own = values.map((v) => v.value);
+  if (sameUnit) {
+    const all = [...kept.map((p) => p.value), ...own];
+    return { measure: second, values, scale: niceScale(Math.min(0, ...all), Math.max(0, ...all)), ownAxis: false };
+  }
+  return { measure: second, values, scale: niceScale(Math.min(0, ...own), Math.max(0, ...own)), ownAxis: true };
+}
+
+function idOfKey(value: string | number | null): string {
+  return value === null ? "\u0000" : `${typeof value}:${String(value)}`;
 }
 
 /** The scale a split chart is drawn on: the tallest stack and deepest, or the biggest single part. */
@@ -468,21 +533,41 @@ export interface Box { x: number; y: number; width: number; height: number }
  * rather than being drawn as a short positive one.
  */
 export function barLayout(plan: ChartPlan, width: number, row = 28, labelWidth = 160): {
-  height: number; zeroX: number; bars: (Box & { point: ChartPoint })[];
+  height: number; rowHeight: number; zeroX: number; bars: (Box & { point: ChartPoint })[];
+  /** The second measure's bar under each bar, on its own scale when the units differ. Empty without one. */
+  seconds: (Box & { value: { exact: string; value: number } })[];
+  secondZeroX: number;
 } {
+  const second = plan.secondary ?? null;
   const plot = Math.max(1, width - labelWidth - 90);
   const zeroX = labelWidth + position(0, plan.scale) * plot;
+  const secondZeroX = second ? labelWidth + position(0, second.scale) * plot : zeroX;
+  /** Two bars to a row when there is a second measure, each a little thinner. */
+  const rowHeight = second ? Math.round(row * 1.75) : row;
+  const barHeight = second ? Math.floor((rowHeight - 12) / 2) : row - 12;
   const bars = plan.points.map((point, index) => {
     const x = labelWidth + position(point.value, plan.scale) * plot;
     return {
       point,
       x: Math.min(x, zeroX),
-      y: index * row + 6,
+      y: index * rowHeight + 6,
       width: Math.abs(x - zeroX),
-      height: row - 12,
+      height: barHeight,
     };
   });
-  return { height: plan.points.length * row + 24, zeroX, bars };
+  const seconds = second
+    ? second.values.map((value, index) => {
+        const x = labelWidth + position(value.value, second.scale) * plot;
+        return {
+          value,
+          x: Math.min(x, secondZeroX),
+          y: index * rowHeight + 6 + barHeight + 2,
+          width: Math.abs(x - secondZeroX),
+          height: barHeight,
+        };
+      })
+    : [];
+  return { height: plan.points.length * rowHeight + 24, rowHeight, zeroX, bars, seconds, secondZeroX };
 }
 
 /**
@@ -495,11 +580,19 @@ export function seriesLayout(plan: ChartPlan, width: number, height: number, ins
   zeroY: number;
   points: { x: number; y: number; column: Box; point: ChartPoint }[];
   gridlines: { y: number; value: number }[];
+  /** The second measure's points over the same slots, and the labels of its own axis when it has one. */
+  second: {
+    points: { x: number; y: number; value: { exact: string; value: number }; point: ChartPoint }[];
+    ticks: { y: number; value: number }[];
+  } | null;
 } {
+  const secondary = plan.secondary ?? null;
+  /** Room on the right for the labels of a scale of its own. */
+  const right = secondary?.ownAxis ? Math.max(inset.right, 64) : inset.right;
   const plot: Box = {
     x: inset.left,
     y: inset.top,
-    width: Math.max(1, width - inset.left - inset.right),
+    width: Math.max(1, width - inset.left - right),
     height: Math.max(1, height - inset.top - inset.bottom),
   };
   const count = plan.points.length;
@@ -517,11 +610,22 @@ export function seriesLayout(plan: ChartPlan, width: number, height: number, ins
       column: { x: x - columnWidth / 2, y: Math.min(y, zeroY), width: columnWidth, height: Math.abs(zeroY - y) },
     };
   });
+  const secondY = (value: number) => secondary
+    ? plot.y + plot.height - position(value, secondary.scale) * plot.height
+    : 0;
   return {
     plot,
     zeroY,
     points,
     gridlines: plan.scale.ticks.map((value) => ({ value, y: yOf(value) })),
+    second: secondary
+      ? {
+          points: secondary.values.map((value, index) => ({
+            x: plot.x + slot * index + slot / 2, y: secondY(value.value), value, point: plan.points[index]!,
+          })),
+          ticks: secondary.ownAxis ? secondary.scale.ticks.map((value) => ({ value, y: secondY(value) })) : [],
+        }
+      : null,
   };
 }
 

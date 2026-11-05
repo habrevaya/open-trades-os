@@ -12,7 +12,7 @@ import {
   deliverReport, sourceOf, mayReceive, companyPeople, cleanAddresses, isDashboard,
   type DeliverySource, type DeliveryRecipient,
 } from "./report-delivery";
-import { couldOpen, dashboardSourceOf } from "./dashboards";
+import { couldOpen, dashboardSourceOf, datesFollowers, NO_DATE_FOLLOWERS } from "./dashboards";
 import { deliverStatements, type StatementRunResult } from "./statement-delivery";
 import { within } from "./workflow-schedule";
 import { replayed, remember } from "./once";
@@ -177,19 +177,17 @@ async function checkReportSchedule(tx: Database, ctx: ServiceContext, input: Rep
   if (!cadence.ok) throw new ConflictError(cadence.reason);
 
   /**
-   * A dashboard is sent as it stands: each tile reads its own report's dates,
-   * and most have none. Laying a schedule's "seven days before" over every
-   * tile would turn "Outstanding, every unpaid balance" into last week's
-   * invoices without a word on the page, so a dashboard takes no period, and
-   * one asked for is refused rather than quietly ignored.
+   * A dashboard still defaults to no dates: each tile reads its own report's
+   * dates, and most have none. Given a period, it reaches only the tiles marked
+   * as following dates, so "Outstanding, every unpaid balance" is never turned
+   * into last week's invoices. A period on a dashboard none of whose tiles
+   * follow dates would change nothing and read as though it had, so that is
+   * refused rather than quietly ignored.
    */
   const period = input.period ?? (isDashboard(source) ? "all" : reporting.defaultPeriod(cadence.cadence.frequency));
   if (!reporting.isPeriod(period)) throw new ConflictError(`There is no such period as "${period}".`);
-  if (isDashboard(source) && period !== "all") {
-    throw new ConflictError(
-      "A dashboard is sent as it stands, each tile with its own report's dates, so it does not take dates of its own. "
-      + "Choose \"Everything, with no dates\" for which days it covers.",
-    );
+  if (isDashboard(source) && period !== "all" && (await datesFollowers(tx, source)) === 0) {
+    throw new ConflictError(NO_DATE_FOLLOWERS);
   }
 
   const userIds = [...new Set(input.userIds ?? [])];

@@ -1151,6 +1151,28 @@ checked when the tile is saved: a grouping the report does not have, a cut on
 a tile that is not broken down, and a trend cut by its own date (which would
 leave it running along something that is not a date) are each refused in
 words. A tile that picked no cut is cut by the second, as before.
+
+A tile can also draw **a second measure** beside the first, over the same
+groups. A trend tile on "Invoiced by month" (invoiced, invoice count, average
+invoice) can say "Also draw: Invoices": the first stays as columns or a line and
+the second is a dashed amber line with its own dots over the same months. A bars
+tile draws a thinner second bar under each bar. When both are the same unit (two
+amounts of money, two counts) they share one scale, so a taller mark is a bigger
+number on both. When the units differ, the second gets a scale of its own, drawn
+on the right with its own labels, and the legend under the chart says which mark
+is which and which side each scale is on. Every mark names both numbers in its
+tooltip, "View as a table" has a column for each, and a mark opens the records of
+its group. It is picked from the other measures the tile's report already selects,
+so it is held to the permissions the report is, and it is stored on the tile
+(`secondMeasure`), set from "Also draw" under a tile on a saved dashboard (and
+taken off with "Nothing else"). Checked when the tile is saved, in words: a measure
+the report does not select, the same measure twice, a number tile (one value), and
+a tile that is broken down (the colours would stand for two different things) are
+each refused. The emailed PDF draws it the same way, from the same plan, with the
+legend in words (`Invoiced, columns, left scale`, `Invoices, amber line, right
+scale`), and the table under it has both columns. A report's own chart screen
+still draws one measure; the second measure is a dashboard tile's.
+
 The emailed PDF of a report draws the chart as the screen draws it before anybody
 breaks it down: a breakdown is a choice made on the screen, and is on the printed
 page and not in the schedule.
@@ -1289,13 +1311,28 @@ is refused at the save and again on the day. An outside address is sent the
 copy of the person who set it up. There is no CSV, because a dashboard is not
 one table.
 
-A dashboard is sent as it stands, each tile with its own report's dates (most
-have none and read "as of now"), and the page says when it was drawn. So a
-dashboard schedule takes no dates of its own: "Everything, with no dates" is
-its only period, and any other is refused in words rather than laid over
-every tile, which would turn "Outstanding, every unpaid balance" into last
-week's invoices without a word on the page. That is the conservative reading,
-and the product owner has not been asked for another.
+A dashboard is sent as it stands unless the schedule gives it dates. With
+"Everything, with no dates", each tile has its own report's dates (most have none
+and read "as of now") and the page says when it was drawn. With any other period
+("The day before", "The seven days before", "The month before", "This month so
+far") the dashboard is given those days, and they reach only the tiles that
+follow dates. Whether a tile follows dates is said on the tile (`followsDates`,
+the "Follows the dashboard's dates" box under a tile on a saved dashboard) and
+never guessed from the report, because laying last week over "Outstanding, every
+unpaid balance" would turn it into last week's invoices without a word on the
+page. The tiles that ship say it for themselves: Invoiced, Average invoice,
+Invoiced by month and Visits by technician follow dates; what is owed, what is
+open and the receivables by age do not. A tile that follows dates is run over the
+days in place of its report's own (the period replaces them, as it does for a
+report), and a number opened for its records opens what was drawn. The PDF says
+"Dates" under its title, names the tiles that did not take them ("Not cut to
+these dates, because they show how things stand or have dates of their own"), and
+the email's subject and body carry the days. The delivery row records the days it
+covered. A period on a dashboard none of whose tiles follow dates is refused in
+words at the save, and again on the day if the last one was turned off since
+(the delivery fails and sends nothing), because it would change nothing and read
+as though it had. That is the conservative reading, and the product owner has not
+been asked for another.
 
 ### Email a report from an automation
 
@@ -1313,8 +1350,9 @@ an outside address sent the publisher's copy, the same outbox and do-not-email
 list. It is checked at publish as a dashboard schedule is at its save, with the
 step's number in the refusal: the author must be able to open it and see
 something on it, every person picked must too, it goes to people and never to
-the customer the event is about, and it takes no dates of its own ("Everything,
-with no dates" is its only period, and the canvas hides the choice). On the day,
+the customer the event is about, and its "Which days it covers" works as a dashboard
+schedule's does: dates reach only the tiles that follow dates, and are refused when
+none does. On the day,
 the delivery asks all of it again of the publisher as they are then, and a
 publisher who can no longer see it fails the step and sends nothing.
 
@@ -1576,14 +1614,17 @@ accents print as the plain letter where there is one and as "?" where there is
 not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
-Nothing is emailed until an email provider is connected. A chart draws one
-measure at a time. A tile is cut by one of its report's two groupings and drawn
+Nothing is emailed until an email provider is connected. A report's own chart draws one
+measure at a time (a dashboard tile can draw a second beside the first, above). A tile is cut by one of its report's two groupings and drawn
 along the other: a report grouped by three things is still refused on a tile,
 because the third would be added up out of sight, and the cut is chosen on the
 tile once it is added ("Add a tile" always starts on the second).
 A dashboard is printed and emailed whole (above), on a schedule or from an
 automation's "Run and email a report" step, and never to a customer: there is no
-narrowing of a dashboard to one customer's records. A dashboard emailed or printed takes no dates of its own, and its
-PDF prints the screen's chart with the usual scale, never "Around the data".
+narrowing of a dashboard to one customer's records. The dashboard's screen takes no dates of its own: dates come only from a schedule or an
+automation step, and a dashboard printed from its screen is as it stands. A dashboard's
+PDF prints the screen's chart with the usual scale, never "Around the data". A tile that
+draws a second measure cannot also be broken down, and a report's own chart screen has
+no second measure.
 No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

@@ -49,8 +49,9 @@ export function ScheduleForm({
     <ActionForm action={action} submit={submit} {...(hidden ? { hidden } : {})} className="mt-6 space-y-5">
       <Select label="Report or dashboard" name="report" options={reports} defaultValue={defaults.report ?? reports[0]?.value} />
       <p className="-mt-3 text-xs text-ink-500">
-        A dashboard goes as one PDF of every tile, as it stands when it is sent, so for one pick
-        &quot;Everything, with no dates&quot; below.
+        A dashboard goes as one PDF of every tile. Pick &quot;Everything, with no dates&quot; below to send it as it stands
+        when it is sent. Pick days and only the tiles set to follow the dashboard&apos;s dates are cut to them; the
+        PDF names the tiles that are not.
       </p>
       <TextField label="Name it (optional)" name="name" defaultValue={defaults.name ?? ""}
                  placeholder="The report's own name" />

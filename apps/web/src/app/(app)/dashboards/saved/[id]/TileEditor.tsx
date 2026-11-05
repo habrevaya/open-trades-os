@@ -1,7 +1,7 @@
 "use client";
 
 import { useKeptAction } from "@/lib/use-kept-action";
-import { addTile, removeTile, moveTile, recutTile } from "../../actions";
+import { addTile, removeTile, moveTile, recutTile, alsoDrawTile, followDatesTile } from "../../actions";
 
 export interface ReportOption {
   /** `saved:<uuid>` or `builtIn:<slug>`, because both are strings. */
@@ -188,6 +188,78 @@ export function CutBy({ id, tiles, tileKey, title, cuts, current }: {
       <button type="submit" disabled={pending}
               className="rounded px-1 hover:bg-steel-100 disabled:opacity-30">
         {pending ? "Changing" : "Change"}
+      </button>
+      {state && "error" in state && state.error ? (
+        <span role="alert" className="text-red-600">{state.error}</span>
+      ) : null}
+    </form>
+  );
+}
+
+/**
+ * A SECOND MEASURE ON A TILE, picked from the others its report selects, drawn
+ * beside the first over the same groups. "Nothing else" takes it off again.
+ * Its own scale is drawn on the right when the units differ.
+ */
+export function AlsoDraw({ id, tiles, tileKey, title, options, current }: {
+  id: string;
+  tiles: string;
+  tileKey: string;
+  title: string;
+  options: { key: string; label: string }[];
+  current: string;
+}) {
+  const [state, submitForm, pending] = useKeptAction(alsoDrawTile, null);
+  return (
+    <form {...submitForm} className="flex flex-wrap items-center gap-1 text-xs text-ink-500">
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="tiles" value={tiles} />
+      <input type="hidden" name="key" value={tileKey} />
+      <label className="flex items-center gap-1">
+        <span>Also draw</span>
+        <select name="second" defaultValue={current} aria-label={`Also draw on ${title}`}
+                className="h-7 rounded border border-steel-300 px-1 text-xs">
+          <option value="">Nothing else</option>
+          {options.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+        </select>
+      </label>
+      <button type="submit" disabled={pending}
+              className="rounded px-1 hover:bg-steel-100 disabled:opacity-30">
+        {pending ? "Changing" : "Change"}
+      </button>
+      {state && "error" in state && state.error ? (
+        <span role="alert" className="text-red-600">{state.error}</span>
+      ) : null}
+    </form>
+  );
+}
+
+/**
+ * WHETHER A TILE TAKES THE DASHBOARD'S DATES. A schedule or an automation can
+ * send the dashboard for a stretch of days. A tile that follows dates is run
+ * over those days; a tile that does not shows how things stand, or its
+ * report's own dates, and the page says which tiles those are.
+ */
+export function FollowDates({ id, tiles, tileKey, title, follows }: {
+  id: string;
+  tiles: string;
+  tileKey: string;
+  title: string;
+  follows: boolean;
+}) {
+  const [state, submitForm, pending] = useKeptAction(followDatesTile, null);
+  return (
+    <form {...submitForm} className="flex flex-wrap items-center gap-1 text-xs text-ink-500">
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="tiles" value={tiles} />
+      <input type="hidden" name="key" value={tileKey} />
+      <label className="flex items-center gap-1">
+        <input type="checkbox" name="follows" defaultChecked={follows} aria-label={`${title} follows the dashboard's dates`} />
+        <span>Follows the dashboard&apos;s dates</span>
+      </label>
+      <button type="submit" disabled={pending}
+              className="rounded px-1 hover:bg-steel-100 disabled:opacity-30">
+        {pending ? "Saving" : "Save"}
       </button>
       {state && "error" in state && state.error ? (
         <span role="alert" className="text-red-600">{state.error}</span>

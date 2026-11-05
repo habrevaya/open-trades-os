@@ -50,6 +50,15 @@ export interface TileResult {
    * the chart stack it. Said by the catalogue, not guessed by the screen.
    */
   additive?: boolean;
+  /** The second measure drawn beside the first, resolved. Only on a chart tile that has one. */
+  second?: { key: string; label: string; type: string };
+  /**
+   * The other measures the tile's report selects, which "Also draw" offers.
+   * Only on a chart tile that is not broken down, the only kind that can take one.
+   */
+  alsoCanDraw?: { key: string; label: string }[];
+  /** Whether the tile takes the dates a delivery gives its dashboard. */
+  followsDates?: boolean;
   /**
    * On a tile broken down, the report's two groupings, either of which can
    * cut it: what the tile's "Cut by" offers. Only from the report's own
@@ -99,14 +108,28 @@ export function catalogue(ctx: ServiceContext): BuiltInDashboard[] {
  */
 export interface DrawOptions {
   inOrder?: boolean | undefined;
+  /**
+   * Dates for the whole dashboard, given by a schedule or an automation step.
+   * Every tile that follows dates (`followsDates`) is run over them in place
+   * of its report's own; the others keep theirs. Inclusive start, exclusive
+   * end, the way every report range is.
+   */
+  dates?: DashboardDates | undefined;
+}
+
+export interface DashboardDates {
+  from: string;
+  to: string;
+  /** In words, for the page: "Sep 1, 2026 to Sep 30, 2026". */
+  label: string;
 }
 
 async function drawAll(
   ctx: ServiceContext, entries: dashboard.TileDecision[], options: DrawOptions,
 ): Promise<TileResult[]> {
-  if (!options.inOrder) return Promise.all(entries.map((entry) => drawTile(ctx, entry)));
+  if (!options.inOrder) return Promise.all(entries.map((entry) => drawTile(ctx, entry, options.dates)));
   const drawn: TileResult[] = [];
-  for (const entry of entries) drawn.push(await drawTile(ctx, entry));
+  for (const entry of entries) drawn.push(await drawTile(ctx, entry, options.dates));
   return drawn;
 }
 
@@ -139,7 +162,7 @@ export async function get(
  * feature is for.
  */
 async function drawTile(
-  ctx: ServiceContext, entry: dashboard.TileDecision,
+  ctx: ServiceContext, entry: dashboard.TileDecision, dates?: DashboardDates,
 ): Promise<TileResult> {
   const base = {
     key: entry.tile.key,
@@ -147,6 +170,7 @@ async function drawTile(
     kind: entry.tile.kind,
     width: entry.tile.width,
     ...(entry.tile.caption ? { caption: entry.tile.caption } : {}),
+    ...(entry.tile.followsDates ? { followsDates: true } : {}),
   };
 
   if (!entry.ok) {
@@ -166,11 +190,32 @@ async function drawTile(
     : entry.report.dimensions[0];
   const split = axes ? entry.report.dimensions.find((d) => d.key === axes.cutBy) : undefined;
 
+  const second = entry.tile.secondMeasure !== undefined
+    ? entry.report.measures.find((m) => m.key === entry.tile.secondMeasure)
+    : undefined;
+  /**
+   * The dashboard's dates replace the report's own on a tile that follows
+   * them, and leave every other tile as it is. The definition drawn is the
+   * narrowed one, so a number opened for its records opens what was drawn.
+   */
+  const drawn: reporting.ReportDefinition = dates && entry.tile.followsDates
+    ? { ...entry.tile.definition, from: dates.from, to: dates.to }
+    : entry.tile.definition;
+  const canTakeSecond = entry.tile.kind !== "number" && !entry.tile.breakdown && !axes;
+
   try {
-    const result = await run(ctx, entry.tile.definition);
+    const result = await run(ctx, drawn);
     return {
       ...base,
       measure: { key: measure.key, label: measure.label, type: measure.type },
+      ...(second ? { second: { key: second.key, label: second.label, type: second.type } } : {}),
+      ...(canTakeSecond && entry.report.measures.length > 1
+        ? {
+            alsoCanDraw: entry.report.measures
+              .filter((m) => m.key !== measure.key)
+              .map((m) => ({ key: m.key, label: m.label })),
+          }
+        : {}),
       ...(dimension
         ? {
             dimension: {
@@ -193,7 +238,7 @@ async function drawTile(
         ? { cuts: entry.report.dimensions.map((d) => ({ key: d.key, label: d.label })) }
         : {}),
       result,
-      definition: entry.tile.definition,
+      definition: drawn,
     };
   } catch (error) {
     /**
@@ -244,6 +289,10 @@ export interface StoredTile {
    * second if left out. See `splitBy` on core's `Tile`.
    */
   splitBy?: string;
+  /** A second measure of the report, drawn beside the first. See `secondMeasure` on core's `Tile`. */
+  secondMeasure?: string;
+  /** Whether this tile takes the dates a delivery gives its dashboard. See `followsDates` on core's `Tile`. */
+  followsDates?: boolean;
 }
 
 const WIDTHS = [3, 6, 12] as const;
@@ -357,6 +406,12 @@ export async function setTiles(
       if (tile.splitBy !== undefined && (typeof tile.splitBy !== "string" || tile.splitBy === "")) {
         throw new ConflictError("A tile is cut by one of its report's groupings, named by its key.");
       }
+      if (tile.secondMeasure !== undefined && (typeof tile.secondMeasure !== "string" || tile.secondMeasure === "")) {
+        throw new ConflictError("A second measure is one of its report's measures, named by its key.");
+      }
+      if (tile.followsDates !== undefined && typeof tile.followsDates !== "boolean") {
+        throw new ConflictError("A tile either follows the dashboard's dates or it does not.");
+      }
       if (seen.has(tile.key)) {
         // Keys address a tile for removal and reordering. Two tiles with one
         // key means a remove takes both of them.
@@ -382,6 +437,7 @@ export async function setTiles(
           key: tile.key, title: tile.title ?? source.title, kind: tile.kind, width: tile.width, definition: source.definition,
           ...(tile.breakdown ? { breakdown: tile.breakdown } : {}),
           ...(tile.splitBy !== undefined ? { splitBy: tile.splitBy } : {}),
+          ...(tile.secondMeasure !== undefined ? { secondMeasure: tile.secondMeasure } : {}),
         },
         dataset,
       );
@@ -473,6 +529,8 @@ async function resolveSaved(tx: Database, actor: ServiceContext["actor"], id: st
       ...(tile.caption ? { caption: tile.caption } : {}),
       ...(tile.breakdown ? { breakdown: tile.breakdown } : {}),
       ...(tile.splitBy !== undefined ? { splitBy: tile.splitBy } : {}),
+      ...(tile.secondMeasure !== undefined ? { secondMeasure: tile.secondMeasure } : {}),
+      ...(tile.followsDates ? { followsDates: true } : {}),
     });
   }
 
@@ -517,6 +575,26 @@ export interface DrawnDashboard {
   tiles: TileResult[];
   /** The titles of the tiles this reader may not see, in layout order. */
   leftOut: string[];
+  /**
+   * The dates this copy was drawn over, when a delivery gave the dashboard
+   * some; null when it is drawn as it stands. Said on the page.
+   */
+  dates: DashboardDates | null;
+  /**
+   * With dates, the titles of the tiles that did not take them and show their
+   * own report's dates (or none), named on the page so nobody reads a figure
+   * that is not about those dates as if it were.
+   */
+  keepsOwnDates: string[];
+}
+
+/** What a drawn dashboard says about the dates it took, from the tiles as drawn. */
+function datesOf(tiles: TileResult[], dates: DashboardDates | undefined): Pick<DrawnDashboard, "dates" | "keepsOwnDates"> {
+  if (!dates) return { dates: null, keepsOwnDates: [] };
+  return {
+    dates,
+    keepsOwnDates: tiles.filter((tile) => !tile.followsDates && !tile.problem).map((tile) => tile.title),
+  };
 }
 
 /**
@@ -530,7 +608,10 @@ export async function drawDashboard(
 ): Promise<DrawnDashboard> {
   if ("builtInDashboard" in source) {
     const drawn = await get(ctx, { slug: source.builtInDashboard }, options);
-    return { name: drawn.definition.title, description: drawn.definition.description, tiles: drawn.tiles, leftOut: drawn.leftOut };
+    return {
+      name: drawn.definition.title, description: drawn.definition.description, tiles: drawn.tiles, leftOut: drawn.leftOut,
+      ...datesOf(drawn.tiles, options.dates),
+    };
   }
   const drawn = await getSaved(ctx, { id: source.dashboardId }, options);
   /**
@@ -539,8 +620,33 @@ export async function drawDashboard(
    * may not see is the same disclosure the screen avoids.
    */
   if (drawn.tiles.length === 0 && drawn.leftOut.length > 0) throw new NotFoundError("Dashboard");
-  return { name: drawn.definition.name, description: drawn.definition.description, tiles: drawn.tiles, leftOut: drawn.leftOut };
+  return {
+    name: drawn.definition.name, description: drawn.definition.description, tiles: drawn.tiles, leftOut: drawn.leftOut,
+    ...datesOf(drawn.tiles, options.dates),
+  };
 }
+
+/**
+ * How many tiles of this dashboard follow dates, for the check a schedule or
+ * a step makes before it takes a period: dates laid over a dashboard none of
+ * whose tiles follow them would change nothing, and a person who chose them
+ * would believe it had.
+ */
+export async function datesFollowers(tx: Database, source: DashboardSource): Promise<number> {
+  if ("builtInDashboard" in source) {
+    const found = BUILT_IN_DASHBOARDS.find((d) => d.slug === source.builtInDashboard);
+    return found ? found.tiles.filter((tile) => tile.followsDates).length : 0;
+  }
+  if (!UUID.test(source.dashboardId)) return 0;
+  const [saved] = await tx.select().from(schema.dashboard)
+    .where(and(eq(schema.dashboard.id, source.dashboardId), isNull(schema.dashboard.deletedAt))).limit(1);
+  return saved ? (saved.tiles as unknown as StoredTile[]).filter((tile) => tile.followsDates).length : 0;
+}
+
+/** The words a schedule or step is refused with when its dashboard has no tile that follows dates. */
+export const NO_DATE_FOLLOWERS =
+  "None of this dashboard's tiles follow dates, so dates would change nothing on it. "
+  + "Turn on \"Follows the dashboard's dates\" on the tiles that should, or choose \"Everything, with no dates\".";
 
 /**
  * Whether this person could open this dashboard and see something on it,
@@ -599,9 +705,11 @@ export function printedTile(tile: TileResult): pdf.DashboardPdfTile {
         }]
       : []),
     { key: measure.key, label: measure.label, type: measure.type, role: "measure" as const },
+    ...(tile.second ? [{ key: tile.second.key, label: tile.second.label, type: tile.second.type, role: "measure" as const }] : []),
   ];
   const decision = reporting.chartFor({ columns, rows }, {
     measure: measure.key,
+    second: tile.second?.key,
     dimension: tile.dimension?.key,
     prefer: "columns",
     split: tile.breakdown?.key,
@@ -645,6 +753,8 @@ export function dashboardFile(input: {
       ranAs: input.ranAs,
       tiles: input.drawn.tiles.map(printedTile),
       leftOut: input.drawn.leftOut,
+      dates: input.drawn.dates ? input.drawn.dates.label : null,
+      keepsOwnDates: input.drawn.keepsOwnDates,
       generatedAt: input.at,
     }, RENDER),
   };

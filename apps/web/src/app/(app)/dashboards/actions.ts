@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { dashboards, ConflictError } from "@opentradesos/api/services";
-import { tileFromForm, withoutTile, moved, withCut } from "@/lib/dashboard-tiles";
+import { tileFromForm, withoutTile, moved, withCut, withSecondMeasure, withFollowsDates } from "@/lib/dashboard-tiles";
 
 const ctx = async () => ({ actor: (await requireSetupUser()).actor, db: getDb() });
 
@@ -105,6 +105,40 @@ export async function recutTile(_previous: unknown, form: FormData) {
   try {
     await dashboards.setTiles(await ctx(), {
       id, tiles: withCut(existing, String(form.get("key") ?? ""), String(form.get("splitBy") ?? "")),
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath(`/dashboards/saved/${id}`);
+  return { done: true };
+}
+
+/** Draw a second measure beside a tile's first, or take it off again. */
+export async function alsoDrawTile(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const existing = JSON.parse(String(form.get("tiles") ?? "[]")) as dashboards.StoredTile[];
+
+  try {
+    await dashboards.setTiles(await ctx(), {
+      id, tiles: withSecondMeasure(existing, String(form.get("key") ?? ""), String(form.get("second") ?? "")),
+    });
+  } catch (error) {
+    if (error instanceof ConflictError) return refused(form, error.message);
+    throw error;
+  }
+  revalidatePath(`/dashboards/saved/${id}`);
+  return { done: true };
+}
+
+/** Whether a tile takes the dates a schedule or an automation gives its dashboard. */
+export async function followDatesTile(_previous: unknown, form: FormData) {
+  const id = String(form.get("id") ?? "");
+  const existing = JSON.parse(String(form.get("tiles") ?? "[]")) as dashboards.StoredTile[];
+
+  try {
+    await dashboards.setTiles(await ctx(), {
+      id, tiles: withFollowsDates(existing, String(form.get("key") ?? ""), form.get("follows") === "on"),
     });
   } catch (error) {
     if (error instanceof ConflictError) return refused(form, error.message);

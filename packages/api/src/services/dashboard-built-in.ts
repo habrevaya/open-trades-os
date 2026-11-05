@@ -18,6 +18,12 @@ import type { dashboard } from "@opentradesos/core";
  *   `report.financial:read`, which is correct: reading one invoice and
  *   reading the company's revenue are different things to be trusted with.
  *
+ * A tile about a stretch of time follows the dates a delivery gives its
+ * dashboard (`followsDates`): what was invoiced, the visits done. A tile about
+ * how things stand now does not (what is still owed, what is open), so the
+ * money dashboard sent for last week says what was invoiced last week and still
+ * says what is owed today.
+ *
  * Every tile is a report definition. Not a widget with its own query: the
  * same shape somebody builds by hand, resolved by the same function, so a
  * tile and the report behind it cannot drift into disagreeing about what
@@ -71,6 +77,7 @@ export const BUILT_IN_DASHBOARDS: BuiltInDashboard[] = [
       },
       {
         key: "visits-by-technician",
+        followsDates: true,
         title: "Visits by technician",
         caption: "Who is carrying the day.",
         kind: "bars",
@@ -146,6 +153,7 @@ export const BUILT_IN_DASHBOARDS: BuiltInDashboard[] = [
       },
       {
         key: "invoiced",
+        followsDates: true,
         title: "Invoiced",
         caption: "Everything issued, whether or not it is paid.",
         kind: "number",
@@ -154,6 +162,7 @@ export const BUILT_IN_DASHBOARDS: BuiltInDashboard[] = [
       },
       {
         key: "average-invoice",
+        followsDates: true,
         title: "Average invoice",
         kind: "number",
         width: 3,
@@ -161,6 +170,7 @@ export const BUILT_IN_DASHBOARDS: BuiltInDashboard[] = [
       },
       {
         key: "revenue-by-month",
+        followsDates: true,
         title: "Invoiced by month",
         kind: "trend",
         width: 12,

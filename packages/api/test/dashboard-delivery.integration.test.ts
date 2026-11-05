@@ -151,9 +151,9 @@ run("a dashboard on a schedule", () => {
 
   it("refuses dates on a dashboard, which is sent as it stands", async () => {
     await expect(schedules.createReportSchedule(owner(), {
-      dashboard: "operations", frequency: "weekly", weekdays: [1], time: "07:00", period: "last_7_days",
+      dashboardId: savedId, frequency: "weekly", weekdays: [1], time: "07:00", period: "last_7_days",
       userIds: [OWNER],
-    })).rejects.toThrow(/does not take dates of its own/);
+    })).rejects.toThrow(/None of this dashboard's tiles follow dates/);
   });
 
   it("refuses two things at once, and somebody who could not open the dashboard", async () => {

@@ -4,8 +4,8 @@ import { test, expect, run } from "./fixtures";
  * THE AUTOMATION CANVAS: A STEP THAT EMAILS A WHOLE DASHBOARD
  *
  * "Run and email a report" offers the dashboards beside the reports. Picking
- * one hides the dates and the customer choice, because a dashboard is sent as
- * it stands and only to people, and says so under it. Saved and opened again,
+ * one hides the customer choice, because a dashboard is sent only to people,
+ * and says so under it. Saved and opened again,
  * it is the same picture, stored as the dashboard schedules store it.
  */
 test("a step that emails a dashboard is drawn, saved with no dates, and opens again the same", async ({ owner }) => {
@@ -22,7 +22,8 @@ test("a step that emails a dashboard is drawn, saved with no dates, and opens ag
   await pick.selectOption("builtIn:ar-aging");
   await card.getByLabel("step 1, Run and email a report, which days it covers").selectOption("last_month");
   await pick.selectOption("dashboard:operations");
-  await expect(card.getByLabel("step 1, Run and email a report, which days it covers")).toHaveCount(0);
+  // The days stay on offer for a dashboard now (they reach the tiles that follow dates); this one is sent with none.
+  await card.getByLabel("step 1, Run and email a report, which days it covers").selectOption("all");
   await expect(card.getByText("The customer this is about")).toHaveCount(0);
   await expect(card.getByText(/The whole dashboard is sent as one PDF/)).toBeVisible();
   await card.getByLabel("step 1, Run and email a report, outside addresses").fill(`books+${run}@accountant.test`);
