@@ -211,7 +211,7 @@ export const getInspectionProgramVersion = defineRoute({
 
 export const listTradePackInspectionPrograms = defineRoute({
   method: "get",
-  path: "/v1/inspection-programs/trade-packs",
+  path: "/v1/trade-packs/inspection-programs",
   summary: "The programmes trade packs declare, to start your own from",
   description:
     "Every trade pack's programmes, the company's own trades first, each whole with its checkpoints and what has to be fixed before an inspection could be filed against it. Copy one by sending it, changed as you need, to `POST /v1/inspection-programs` with `copiedFrom`. `inCompany` names the company's own row of it, set up by the pack, which `replaces` can stop offering in the same step.",

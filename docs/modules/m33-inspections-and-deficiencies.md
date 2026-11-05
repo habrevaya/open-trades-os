@@ -306,7 +306,7 @@ may read it; anybody else types the code.
 | `GET /v1/inspection-programs` | `compliance:read` |
 | `GET /v1/inspection-programs/{id}` | `compliance:read` |
 | `GET /v1/inspection-programs/{id}/versions/{version}` | `compliance:read` |
-| `GET /v1/inspection-programs/trade-packs` | `compliance:read` |
+| `GET /v1/trade-packs/inspection-programs` | `compliance:read` |
 | `POST /v1/inspection-programs` | `compliance:write` |
 | `POST /v1/inspection-programs/{id}/versions` | `compliance:write` |
 | `PUT /v1/inspection-programs/{id}/offered` | `compliance:write` |
@@ -323,7 +323,7 @@ or one of the company's (`program`), and `replaces` naming one that stops being
 offered in the same step. `POST /v1/inspection-programs/{id}/versions` takes the
 whole programme as it should now read and `baseVersion`, the version it was changed
 from. Both take an idempotency key and answer a retry with what the first one
-wrote. `GET /v1/inspection-programs/trade-packs` lists every pack's programmes whole,
+wrote. `GET /v1/trade-packs/inspection-programs` lists every pack's programmes whole,
 with what has to be fixed before each could be filed and the company's own row of it
 when the pack set one up. `POST /v1/inspections` takes `programVersion`, the version
 the answers were given against.

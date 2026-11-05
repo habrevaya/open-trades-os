@@ -62506,104 +62506,6 @@
         ]
       }
     },
-    "/v1/inspection-programs/trade-packs": {
-      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
-      "x-allowed-methods": [
-        "GET"
-      ],
-      "get": {
-        "operationId": "listTradePackInspectionPrograms",
-        "summary": "The programmes trade packs declare, to start your own from",
-        "description": "Every trade pack's programmes, the company's own trades first, each whole with its checkpoints and what has to be fixed before an inspection could be filed against it. Copy one by sending it, changed as you need, to `POST /v1/inspection-programs` with `copiedFrom`. `inCompany` names the company's own row of it, set up by the pack, which `replaces` can stop offering in the same step.\n\nRequires a session holding: compliance:read.",
-        "tags": [
-          "M33"
-        ],
-        "responses": {
-          "200": {
-            "description": "The programmes trade packs declare, to start your own from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListTradePackInspectionProgramsOutput"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The record was not found, or is outside this caller's tenant.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The request conflicts with the current state of the record.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "sessionCookie": []
-          },
-          {
-            "appToken": []
-          }
-        ],
-        "x-authorization": "session",
-        "x-permissions": [
-          "compliance:read"
-        ]
-      }
-    },
     "/v1/inspection-programs/{id}": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -146088,6 +145990,104 @@
         "x-authorization": "session",
         "x-permissions": [
           "settings:read"
+        ]
+      }
+    },
+    "/v1/trade-packs/inspection-programs": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTradePackInspectionPrograms",
+        "summary": "The programmes trade packs declare, to start your own from",
+        "description": "Every trade pack's programmes, the company's own trades first, each whole with its checkpoints and what has to be fixed before an inspection could be filed against it. Copy one by sending it, changed as you need, to `POST /v1/inspection-programs` with `copiedFrom`. `inCompany` names the company's own row of it, set up by the pack, which `replaces` can stop offering in the same step.\n\nRequires a session holding: compliance:read.",
+        "tags": [
+          "M33"
+        ],
+        "responses": {
+          "200": {
+            "description": "The programmes trade packs declare, to start your own from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTradePackInspectionProgramsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:read"
         ]
       }
     },

@@ -37779,7 +37779,7 @@ export const OPERATIONS = {
   listTrackedItems: { method: "GET", path: "/v1/stock-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
-  listTradePackInspectionPrograms: { method: "GET", path: "/v1/inspection-programs/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  listTradePackInspectionPrograms: { method: "GET", path: "/v1/trade-packs/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTransferTargets: { method: "GET", path: "/v1/softphone/transfer-targets", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
@@ -44755,7 +44755,7 @@ export abstract class GeneratedOperations {
   /**
    * The programmes trade packs declare, to start your own from.
    *
-   * GET /v1/inspection-programs/trade-packs. Needs compliance:read.
+   * GET /v1/trade-packs/inspection-programs. Needs compliance:read.
    */
   listTradePackInspectionPrograms(input: ListTradePackInspectionProgramsInput = {} as ListTradePackInspectionProgramsInput, options?: CallOptions): Promise<ListTradePackInspectionProgramsOutput> {
     return this.call("listTradePackInspectionPrograms", input, options);

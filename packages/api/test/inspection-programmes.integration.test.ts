@@ -454,7 +454,7 @@ run("over HTTP", () => {
 
     const reader = as(["office_manager"], ["compliance:read"]);
     expect((await call(reader, "PUT", `/v1/inspection-programs/${id}/offered`, { offered: false })).status).toBe(403);
-    expect((await call(reader, "GET", "/v1/inspection-programs/trade-packs")).status).toBe(200);
+    expect((await call(reader, "GET", "/v1/trade-packs/inspection-programs")).status).toBe(200);
     const off = await call(owner(), "PUT", `/v1/inspection-programs/${id}/offered`, { offered: false });
     expect(off.body).toMatchObject({ offered: false, version: 2 });
     const listed = await call(owner(), "GET", "/v1/inspection-programs?includeRetired=true");
