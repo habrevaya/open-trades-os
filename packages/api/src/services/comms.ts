@@ -14,6 +14,7 @@ import {
   NotFoundError, ConflictError, type ServiceContext,
 } from "./context";
 import { conversationScopeFilter, customerScopeFilter } from "./scope";
+import { closeMatching, textFilter } from "./text-search";
 import { sendability, sendTransactional, refusal } from "./comms-send";
 import * as email from "./email";
 import * as files from "./files";
@@ -177,6 +178,60 @@ export async function threads(
           ? (people.get(closers.get(conversation.id)!.userId ?? "") ?? null) : null,
       })),
     };
+  });
+}
+
+export interface FoundMessage {
+  id: string;
+  conversationId: string;
+  direction: string;
+  channel: string;
+  subject: string | null;
+  body: string | null;
+  createdAt: Date;
+  customerName: string | null;
+  externalAddress: string;
+}
+
+/**
+ * THE MESSAGES A WORD FINDS, for the search box.
+ *
+ * Read exactly as the inbox reads a thread: `message:read`, through the
+ * conversation's own scope (`conversationScopeFilter`), so a technician finds
+ * words in the threads attached to jobs and customers they have been sent to
+ * and never in the company's inbox at large, and a thread that was deleted
+ * finds nothing. A message is found by its body and its subject, and the hit
+ * opens its thread. Newest first, the words matched as every list matches
+ * them (`text-search.ts`).
+ */
+export async function find(
+  ctx: ServiceContext, input: { q: string; limit: number; close?: boolean | undefined },
+): Promise<{ data: FoundMessage[]; hasMore: boolean }> {
+  return guardedRead(ctx, "message:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
+    const rows = await tx.select({
+      id: schema.message.id,
+      conversationId: schema.message.conversationId,
+      direction: schema.message.direction,
+      channel: schema.message.channel,
+      subject: schema.message.subject,
+      body: schema.message.body,
+      createdAt: schema.message.createdAt,
+      customerName: schema.customer.name,
+      externalAddress: schema.conversation.externalAddress,
+    }).from(schema.message)
+      .innerJoin(schema.conversation, eq(schema.conversation.id, schema.message.conversationId))
+      .leftJoin(schema.customer, eq(schema.customer.id, schema.conversation.customerId))
+      .where(and(
+        eq(schema.message.organizationId, ctx.actor.organizationId),
+        eq(schema.conversation.organizationId, ctx.actor.organizationId),
+        isNull(schema.conversation.deletedAt),
+        conversationScopeFilter(scopeOf(ctx, "conversation"), ctx.actor),
+        textFilter(input.q, [schema.message.body, schema.message.subject], undefined, { close: input.close }) ?? sql`false`,
+      ))
+      .orderBy(desc(schema.message.createdAt), desc(schema.message.id))
+      .limit(input.limit + 1);
+    return { data: rows.slice(0, input.limit), hasMore: rows.length > input.limit };
   });
 }
 

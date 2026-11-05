@@ -146,9 +146,11 @@ function Body({ tile, drill }: { tile: TileResult; drill: Drill }) {
               }]
             : []),
           { key: measure.key, label: measure.label, type: measure.type, role: "measure" as const },
+          ...(tile.second ? [{ key: tile.second.key, label: tile.second.label, type: tile.second.type, role: "measure" as const }] : []),
         ],
       }}
       measure={measure.key}
+      second={tile.second?.key}
       dimension={tile.dimension?.key}
       prefer="columns"
       split={breakdown?.key}

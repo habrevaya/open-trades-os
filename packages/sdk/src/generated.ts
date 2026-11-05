@@ -2996,6 +2996,18 @@ export interface CorrectCashTipOutput {
   }>;
 }
 
+export interface CorrectWarrantyRegistrationInput {
+  reason: string;
+}
+
+export interface CorrectWarrantyRegistrationOutput {
+  id: string;
+  wasRegisteredOn: string;
+  wasReference: string | null;
+  reopened: boolean;
+  dueBy: string | null;
+}
+
 export interface CountStockInput {
   itemId: string;
   locationId: string;
@@ -4586,6 +4598,7 @@ export interface CreatePriceBookItemOutput {
   laborMinutes: number | null;
   warrantyMonths: number | null;
   warrantyRegistrationDays: number | null;
+  warrantyMakerId: string | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -5080,6 +5093,12 @@ export interface CreateSandboxOutput {
     reports: number;
     proposalTemplates: number;
     jobWorkflows: number;
+    messageTemplates: number;
+    priceBookItems: number;
+    priceBookCategories: number;
+    warrantyMakers: number;
+    roles: number;
+    branches: number;
   };
   sampleJobs: number;
 }
@@ -5381,6 +5400,20 @@ export interface CreateVendorReturnOutput {
     quantity: string;
     locationName: string;
   }>;
+}
+
+export interface CreateWarrantyMakerInput {
+  name: string;
+  registrationDays?: number | null;
+  notes?: string | null;
+}
+
+export interface CreateWarrantyMakerOutput {
+  id: string;
+  name: string;
+  registrationDays: number | null;
+  notes: string | null;
+  items: number;
 }
 
 export interface CreateWorkflowInput {
@@ -12151,6 +12184,7 @@ export interface GetPriceBookItemOutput {
   laborMinutes: number | null;
   warrantyMonths: number | null;
   warrantyRegistrationDays: number | null;
+  warrantyMakerId: string | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -17914,6 +17948,7 @@ export interface ListPriceBookOutput {
     laborMinutes: number | null;
     warrantyMonths: number | null;
     warrantyRegistrationDays: number | null;
+    warrantyMakerId: string | null;
     components: Array<{
       itemId: string;
       quantity: number;
@@ -19665,6 +19700,16 @@ export interface ListWageScalesOutput {
     effectiveFrom: string | null;
     effectiveTo: string | null;
     active: boolean;
+  }>;
+}
+
+export interface ListWarrantyMakersOutput {
+  makers: Array<{
+    id: string;
+    name: string;
+    registrationDays: number | null;
+    notes: string | null;
+    items: number;
   }>;
 }
 
@@ -23663,6 +23708,7 @@ export interface RemovePriceBookPictureOutput {
   laborMinutes: number | null;
   warrantyMonths: number | null;
   warrantyRegistrationDays: number | null;
+  warrantyMakerId: string | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -24670,6 +24716,13 @@ export interface RetireWageScaleOutput {
   active: boolean;
 }
 
+export type RetireWarrantyMakerInput = Record<string, unknown>;
+
+export interface RetireWarrantyMakerOutput {
+  id: string;
+  retired: true;
+}
+
 export type RetryAccountingDocumentInput = Record<string, unknown>;
 
 export interface RetryAccountingDocumentOutput {
@@ -24999,6 +25052,7 @@ export interface RevisePriceBookItemOutput {
   laborMinutes: number | null;
   warrantyMonths: number | null;
   warrantyRegistrationDays: number | null;
+  warrantyMakerId: string | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -30584,6 +30638,7 @@ export interface UpdatePriceBookItemInput {
     epaRegistrationNumber: string | null;
   } | null;
   quantityIsCrewHours?: boolean;
+  warrantyMakerId?: string | null;
 }
 
 export type UpdatePriceBookItemOutput = {
@@ -30609,6 +30664,7 @@ export type UpdatePriceBookItemOutput = {
   laborMinutes: number | null;
   warrantyMonths: number | null;
   warrantyRegistrationDays: number | null;
+  warrantyMakerId: string | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -31273,6 +31329,20 @@ export interface UpdateTruckKindOutput {
   }>;
 }
 
+export interface UpdateWarrantyMakerInput {
+  name?: string;
+  registrationDays?: number | null;
+  notes?: string | null;
+}
+
+export interface UpdateWarrantyMakerOutput {
+  id: string;
+  name: string;
+  registrationDays: number | null;
+  notes: string | null;
+  items: number;
+}
+
 export interface UpdateWebhookEndpointInput {
   url?: string;
   events?: string[];
@@ -31366,6 +31436,7 @@ export interface UploadPriceBookPictureOutput {
   laborMinutes: number | null;
   warrantyMonths: number | null;
   warrantyRegistrationDays: number | null;
+  warrantyMakerId: string | null;
   components: Array<{
     itemId: string;
     quantity: number;
@@ -32822,6 +32893,10 @@ export interface ConvertEstimateParams {
 }
 
 export interface CorrectCashTipParams {
+  id: string;
+}
+
+export interface CorrectWarrantyRegistrationParams {
   id: string;
 }
 
@@ -34944,6 +35019,8 @@ export interface ListWageScalesInput {
   classification?: string;
 }
 
+export type ListWarrantyMakersInput = Record<string, never>;
+
 export interface ListWebhookDeliveriesInput {
   id: string;
   cursor?: string;
@@ -35627,6 +35704,10 @@ export interface RetireWageScaleParams {
   id: string;
 }
 
+export interface RetireWarrantyMakerParams {
+  id: string;
+}
+
 export interface RetryAccountingDocumentParams {
   id: string;
 }
@@ -35715,7 +35796,7 @@ export interface SearchAvailableNumbersInput {
 
 export interface SearchEverythingInput {
   q: string;
-  in?: "customers" | "jobs" | "invoices" | "estimates" | "addresses" | "units" | "notes" | "pricebook" | "people";
+  in?: "customers" | "jobs" | "invoices" | "estimates" | "visits" | "messages" | "addresses" | "units" | "notes" | "pricebook" | "people";
 }
 
 export interface SendArrivalNoticeParams {
@@ -36339,6 +36420,10 @@ export interface UpdateTruckKindParams {
   id: string;
 }
 
+export interface UpdateWarrantyMakerParams {
+  id: string;
+}
+
 export interface UpdateWebhookEndpointParams {
   id: string;
 }
@@ -36582,6 +36667,7 @@ export interface OperationTypes {
   convertEstimate: { input: ConvertEstimateParams & ConvertEstimateInput; output: ConvertEstimateOutput };
   copyBackFromSandbox: { input: CopyBackFromSandboxInput; output: CopyBackFromSandboxOutput };
   correctCashTip: { input: CorrectCashTipParams & CorrectCashTipInput; output: CorrectCashTipOutput };
+  correctWarrantyRegistration: { input: CorrectWarrantyRegistrationParams & CorrectWarrantyRegistrationInput; output: CorrectWarrantyRegistrationOutput };
   countStock: { input: CountStockInput; output: CountStockOutput };
   createAgreementPlan: { input: CreateAgreementPlanInput; output: CreateAgreementPlanOutput };
   createBookableService: { input: CreateBookableServiceInput; output: CreateBookableServiceOutput };
@@ -36640,6 +36726,7 @@ export interface OperationTypes {
   createTruckKind: { input: CreateTruckKindInput; output: CreateTruckKindOutput };
   createVendor: { input: CreateVendorInput; output: CreateVendorOutput };
   createVendorReturn: { input: CreateVendorReturnInput; output: CreateVendorReturnOutput };
+  createWarrantyMaker: { input: CreateWarrantyMakerInput; output: CreateWarrantyMakerOutput };
   createWorkflow: { input: CreateWorkflowInput; output: CreateWorkflowOutput };
   deactivateCommissionPlan: { input: DeactivateCommissionPlanInput; output: DeactivateCommissionPlanOutput };
   decideChangeOrder: { input: DecideChangeOrderParams & DecideChangeOrderInput; output: DecideChangeOrderOutput };
@@ -37197,6 +37284,7 @@ export interface OperationTypes {
   listVisitChangeRequests: { input: ListVisitChangeRequestsInput; output: ListVisitChangeRequestsOutput };
   listVisitChangeTimes: { input: ListVisitChangeTimesInput; output: ListVisitChangeTimesOutput };
   listWageScales: { input: ListWageScalesInput; output: ListWageScalesOutput };
+  listWarrantyMakers: { input: ListWarrantyMakersInput; output: ListWarrantyMakersOutput };
   listWebhookDeliveries: { input: ListWebhookDeliveriesInput; output: ListWebhookDeliveriesOutput };
   listWebhookEndpoints: { input: ListWebhookEndpointsInput; output: ListWebhookEndpointsOutput };
   listWebhookEventDeliveries: { input: ListWebhookEventDeliveriesInput; output: ListWebhookEventDeliveriesOutput };
@@ -37427,6 +37515,7 @@ export interface OperationTypes {
   retireTaxRate: { input: RetireTaxRateParams & RetireTaxRateInput; output: RetireTaxRateOutput };
   retireTruckKind: { input: RetireTruckKindParams & RetireTruckKindInput; output: RetireTruckKindOutput };
   retireWageScale: { input: RetireWageScaleParams & RetireWageScaleInput; output: RetireWageScaleOutput };
+  retireWarrantyMaker: { input: RetireWarrantyMakerParams & RetireWarrantyMakerInput; output: RetireWarrantyMakerOutput };
   retryAccountingDocument: { input: RetryAccountingDocumentParams & RetryAccountingDocumentInput; output: RetryAccountingDocumentOutput };
   retryConversionSend: { input: RetryConversionSendParams & RetryConversionSendInput; output: RetryConversionSendOutput };
   returnAssetToService: { input: ReturnAssetToServiceParams & ReturnAssetToServiceInput; output: ReturnAssetToServiceOutput };
@@ -37698,6 +37787,7 @@ export interface OperationTypes {
   updateTerritory: { input: UpdateTerritoryParams & UpdateTerritoryInput; output: UpdateTerritoryOutput };
   updateTrackingCampaign: { input: UpdateTrackingCampaignParams & UpdateTrackingCampaignInput; output: UpdateTrackingCampaignOutput };
   updateTruckKind: { input: UpdateTruckKindParams & UpdateTruckKindInput; output: UpdateTruckKindOutput };
+  updateWarrantyMaker: { input: UpdateWarrantyMakerParams & UpdateWarrantyMakerInput; output: UpdateWarrantyMakerOutput };
   updateWebhookEndpoint: { input: UpdateWebhookEndpointParams & UpdateWebhookEndpointInput; output: UpdateWebhookEndpointOutput };
   upgradeTradePack: { input: UpgradeTradePackParams & UpgradeTradePackInput; output: UpgradeTradePackOutput };
   uploadAttachment: { input: UploadAttachmentInput; output: UploadAttachmentOutput };
@@ -37858,6 +37948,7 @@ export const OPERATIONS = {
   convertEstimate: { method: "POST", path: "/v1/estimates/{id}/convert", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write","job:write"] },
   copyBackFromSandbox: { method: "POST", path: "/v1/sandbox/copy-back", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   correctCashTip: { method: "POST", path: "/v1/cash-tips/{id}/correction", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["tip:record"] },
+  correctWarrantyRegistration: { method: "POST", path: "/v1/equipment/{id}/warranty-registration/correct", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write","task:write"] },
   countStock: { method: "POST", path: "/v1/stock/counts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
   createAgreementPlan: { method: "POST", path: "/v1/agreement-plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   createBookableService: { method: "POST", path: "/v1/booking/services", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
@@ -37916,6 +38007,7 @@ export const OPERATIONS = {
   createTruckKind: { method: "POST", path: "/v1/truck-kinds", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   createVendor: { method: "POST", path: "/v1/vendors", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write"] },
   createVendorReturn: { method: "POST", path: "/v1/vendor-returns", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write","inventory:adjust"] },
+  createWarrantyMaker: { method: "POST", path: "/v1/warranty-makers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   createWorkflow: { method: "POST", path: "/v1/workflows", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["workflow:write"] },
   deactivateCommissionPlan: { method: "POST", path: "/v1/commissions/plans/deactivate", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["commission:configure"] },
   decideChangeOrder: { method: "POST", path: "/v1/project-change-orders/{id}/decision", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:approve"] },
@@ -38473,6 +38565,7 @@ export const OPERATIONS = {
   listVisitChangeRequests: { method: "GET", path: "/v1/visit-change-requests", pathParams: [], queryParams: ["status","jobId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listVisitChangeTimes: { method: "GET", path: "/v1/visit-change-requests/{id}/times", pathParams: ["id"], queryParams: ["from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listWageScales: { method: "GET", path: "/v1/payroll/wage-scales", pathParams: [], queryParams: ["classification"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
+  listWarrantyMakers: { method: "GET", path: "/v1/warranty-makers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   listWebhookDeliveries: { method: "GET", path: "/v1/webhooks/endpoints/{id}/deliveries", pathParams: ["id"], queryParams: ["cursor","limit","status","eventId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["integration:read"] },
   listWebhookEndpoints: { method: "GET", path: "/v1/webhooks/endpoints", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   listWebhookEventDeliveries: { method: "GET", path: "/v1/webhooks/deliveries", pathParams: [], queryParams: ["eventId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -38703,6 +38796,7 @@ export const OPERATIONS = {
   retireTaxRate: { method: "POST", path: "/v1/tax-rates/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   retireTruckKind: { method: "DELETE", path: "/v1/truck-kinds/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   retireWageScale: { method: "POST", path: "/v1/payroll/wage-scales/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
+  retireWarrantyMaker: { method: "POST", path: "/v1/warranty-makers/{id}/retire", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   retryAccountingDocument: { method: "POST", path: "/v1/accounting/problems/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   retryConversionSend: { method: "POST", path: "/v1/marketing/conversion-sends/{id}/retry", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   returnAssetToService: { method: "POST", path: "/v1/rentable-assets/{id}/in-service", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
@@ -38974,6 +39068,7 @@ export const OPERATIONS = {
   updateTerritory: { method: "PATCH", path: "/v1/territories/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   updateTrackingCampaign: { method: "PATCH", path: "/v1/marketing/tracking-campaigns/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   updateTruckKind: { method: "PATCH", path: "/v1/truck-kinds/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  updateWarrantyMaker: { method: "PATCH", path: "/v1/warranty-makers/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   updateWebhookEndpoint: { method: "PATCH", path: "/v1/webhooks/endpoints/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   upgradeTradePack: { method: "POST", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   uploadAttachment: { method: "POST", path: "/v1/attachments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:write"] },
@@ -40136,6 +40231,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take back a registration that was recorded by mistake, and reopen its deadline.
+   *
+   * POST /v1/equipment/{id}/warranty-registration/correct. Needs equipment:write, task:write.
+   */
+  correctWarrantyRegistration(input: CorrectWarrantyRegistrationParams & CorrectWarrantyRegistrationInput, options?: CallOptions): Promise<CorrectWarrantyRegistrationOutput> {
+    return this.call("correctWarrantyRegistration", input, options);
+  }
+
+  /**
    * Record a physical count.
    *
    * POST /v1/stock/counts. Needs inventory:adjust.
@@ -40655,6 +40759,15 @@ export abstract class GeneratedOperations {
    */
   createVendorReturn(input: CreateVendorReturnInput, options?: CallOptions): Promise<CreateVendorReturnOutput> {
     return this.call("createVendorReturn", input, options);
+  }
+
+  /**
+   * Add a maker.
+   *
+   * POST /v1/warranty-makers. Needs pricebook:write.
+   */
+  createWarrantyMaker(input: CreateWarrantyMakerInput, options?: CallOptions): Promise<CreateWarrantyMakerOutput> {
+    return this.call("createWarrantyMaker", input, options);
   }
 
   /**
@@ -45671,6 +45784,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The makers a company writes down, with the days each gives to register a unit.
+   *
+   * GET /v1/warranty-makers. Needs pricebook:read.
+   */
+  listWarrantyMakers(input: ListWarrantyMakersInput = {} as ListWarrantyMakersInput, options?: CallOptions): Promise<ListWarrantyMakersOutput> {
+    return this.call("listWarrantyMakers", input, options);
+  }
+
+  /**
    * What was sent to this endpoint and what it answered.
    *
    * GET /v1/webhooks/endpoints/{id}/deliveries. Needs integration:read.
@@ -47741,6 +47863,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a maker off the list.
+   *
+   * POST /v1/warranty-makers/{id}/retire. Needs pricebook:write.
+   */
+  retireWarrantyMaker(input: RetireWarrantyMakerParams & RetireWarrantyMakerInput, options?: CallOptions): Promise<RetireWarrantyMakerOutput> {
+    return this.call("retireWarrantyMaker", input, options);
+  }
+
+  /**
    * Offer a failed document again.
    *
    * POST /v1/accounting/problems/{id}/retry. Needs accounting:sync.
@@ -48038,7 +48169,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Find customers, jobs, invoices, estimates, addresses, units, customer notes, price book items, people and the company's own records.
+   * Find customers, jobs, invoices, estimates, visits, messages, addresses, units, customer notes, price book items, people and the company's own records.
    *
    * GET /v1/search.
    */
@@ -50000,7 +50131,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Change an item's kind, code, category, fee, chemical mark or crew hours mark.
+   * Change an item's kind, code, category, fee, chemical mark, crew hours mark or maker.
    *
    * PATCH /v1/pricebook/items/{id}. Needs pricebook:write.
    */
@@ -50177,6 +50308,15 @@ export abstract class GeneratedOperations {
    */
   updateTruckKind(input: UpdateTruckKindParams & UpdateTruckKindInput, options?: CallOptions): Promise<UpdateTruckKindOutput> {
     return this.call("updateTruckKind", input, options);
+  }
+
+  /**
+   * Rename a maker, or change its days or notes.
+   *
+   * PATCH /v1/warranty-makers/{id}. Needs pricebook:write.
+   */
+  updateWarrantyMaker(input: UpdateWarrantyMakerParams & UpdateWarrantyMakerInput, options?: CallOptions): Promise<UpdateWarrantyMakerOutput> {
+    return this.call("updateWarrantyMaker", input, options);
   }
 
   /**

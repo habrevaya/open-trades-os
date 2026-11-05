@@ -204,6 +204,13 @@ of the item is used on a job, which raises the registration deadline described i
 an item with nothing in it raises none. A trade pack sets none and its upgrades carry
 it forward.
 
+"Maker it comes from" (`warrantyMakerId`, on "What it is" on the item's page and in
+`PATCH /v1/pricebook/items/{id}`) names one of the company's makers (`/pricebook/makers`,
+M32), who is written down once with the days it gives. When that maker has days, those are
+the days a unit of the item is registered within and the item's own number is not read;
+without a maker, or with a maker that has no days, the item's own number is the word. It is
+on the item and not on a version, like the fee role, so choosing one writes no version.
+
 `POST /v1/pricebook/items` creates one. `GET /v1/pricebook/items/{id}` is the
 item with every version. `POST /v1/pricebook/items/{id}/revise` is how a price
 changes: it writes a new version rather than editing the old one, and carries

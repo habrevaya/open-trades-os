@@ -93,8 +93,9 @@ export default async function SandboxPage() {
       <PageHeader title="Sandbox" />
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
         A practice copy of your settings to try automations, kinds of record, custom fields and proposal layouts in,
-        without any of your customers. Its job types, fields, kinds of record, saved reports, proposal layouts and
-        automations are copied; every automation arrives switched off. Your integrations are not, so nothing in it can
+        without any of your customers. Its job types, fields, kinds of record, saved reports, proposal layouts, message templates, price book
+        (at today&apos;s prices, without pictures), roles you made and branches are copied, and so are your automations;
+        every automation arrives switched off. Your integrations are not, so nothing in it can
         text, email or charge anybody. You can copy chosen settings back when they work.
       </p>
       {!manages ? (

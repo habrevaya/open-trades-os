@@ -11,7 +11,7 @@ import { uploadSpreadsheet, readWorkbookSheets, type Sheets } from "./actions";
  * truck's signal is a long wait for "too large". The server still checks:
  * this only saves the wait.
  *
- * A WORKBOOK ASKS WHICH SHEET. As soon as an .xlsx is chosen it is sent to be
+ * A WORKBOOK ASKS WHICH SHEET. As soon as an .xlsx or .ods is chosen it is sent to be
  * read, the sheets come back with their rows, and the owner picks one. It is
  * sent again with the form, so nothing is kept on the server between the two.
  */
@@ -30,7 +30,7 @@ export function UploadForm() {
     setSheets(null);
     setSheet("");
     setTooBig(null);
-    if (!file || !/\.xlsx$/i.test(file.name)) return;
+    if (!file || !/\.(xlsx|ods)$/i.test(file.name)) return;
     if (file.size > rules.MAX_BYTES) {
       setTooBig(`That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. Bring in at most 5 MB at a time: split it into smaller files and bring each one in.`);
       return;
@@ -76,8 +76,9 @@ export function UploadForm() {
       </fieldset>
       <label className="block">
         <span className="text-sm font-medium text-ink-700">The file (CSV) or workbook (.xlsx)</span>
-        <input type="file" name="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        <input type="file" name="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.ods,application/vnd.oasis.opendocument.spreadsheet"
                required className="mt-1 block text-sm" onChange={(event) => { void chosen(event.currentTarget.files?.[0]); }} />
+        <span className="mt-1 block text-xs text-ink-500">An OpenDocument spreadsheet (.ods) from LibreOffice works the same way.</span>
       </label>
       {sheets === "reading" ? <p role="status" className="text-sm text-ink-500">Reading the workbook</p> : null}
       {sheets !== null && sheets !== "reading" && !sheets.ok ? (

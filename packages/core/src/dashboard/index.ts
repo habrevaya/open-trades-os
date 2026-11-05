@@ -78,6 +78,24 @@ export interface Tile {
    * rather than two copies of the report saved in two orders.
    */
   splitBy?: string;
+  /**
+   * A SECOND MEASURE, drawn beside the first over the same groups: a dashed
+   * line over the columns of a trend, a thinner bar under each bar. It is one
+   * of the measures the tile's report already selects, so it is held to the
+   * same permissions as the first. With its own scale on the right when its
+   * unit is not the first's. Not on a number tile (one value) and not on a
+   * tile broken down (no room to tell the parts and a second measure apart).
+   */
+  secondMeasure?: string;
+  /**
+   * Whether this tile takes the dates a delivery gives its dashboard. A tile
+   * about a stretch of time (invoiced, visits done) follows them; a tile about
+   * how things stand now (what is still owed, what is open) does not, and
+   * keeps its report's own dates. Said on the tile, never guessed from the
+   * report, because turning "everything still owed" into "owed on invoices
+   * from last week" would change what the number means without a word.
+   */
+  followsDates?: boolean;
 }
 
 /**
@@ -177,6 +195,34 @@ export function checkShape(tile: Tile, dataset: Dataset): ShapeRefusal | { ok: t
         detail: tile.splitBy !== undefined
           ? `A trend needs a date to run along. Cut by ${label(tile.splitBy)}, "${tile.title}" runs along ${dimension.label.toLowerCase()}, which is not one: cut it by ${dimension.label.toLowerCase()} instead.`
           : `A trend needs a date to run along. "${dimension.label}" is not one.`,
+      };
+    }
+  }
+
+  if (tile.secondMeasure !== undefined) {
+    const first = tile.measure ?? tile.definition.measures[0];
+    if (tile.kind === "number") {
+      return {
+        ok: false, reason: "wrong_shape",
+        detail: `A number tile shows one value, so it has no second measure to draw. Draw "${tile.title}" as bars or a trend to add one.`,
+      };
+    }
+    if (tile.breakdown) {
+      return {
+        ok: false, reason: "wrong_shape",
+        detail: `"${tile.title}" is broken down, and a tile broken down cannot also draw a second measure: the colours would stand for two different things. Take one of them off.`,
+      };
+    }
+    if (!tile.definition.measures.includes(tile.secondMeasure)) {
+      return {
+        ok: false, reason: "wrong_shape",
+        detail: `"${tile.title}" draws "${tile.secondMeasure}" beside the first, which its report does not select.`,
+      };
+    }
+    if (tile.secondMeasure === first) {
+      return {
+        ok: false, reason: "wrong_shape",
+        detail: `"${tile.title}" already draws "${tile.secondMeasure}". Pick a different measure to draw beside it.`,
       };
     }
   }

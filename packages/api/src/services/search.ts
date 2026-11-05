@@ -10,6 +10,8 @@ import * as customObjects from "./custom-objects";
 import * as customerNotes from "./customer-notes";
 import * as pricebook from "./pricebook";
 import * as people from "./people";
+import * as visits from "./visits";
+import * as comms from "./comms";
 
 /**
  * ONE BOX THAT FINDS THINGS
@@ -46,6 +48,14 @@ import * as people from "./people";
  * A customer's notes, the price book and the company's people are groups too,
  * each behind the permission that reads it (`customer:read` through the
  * customer's scope, `pricebook:read`, `user:read` through the people scope).
+ *
+ * VISITS AND MESSAGES are groups behind the permissions that read them.
+ * A visit (`visit:read`, through its job and the reader's visit scope) is found
+ * by both of its notes, its job's summary and number and the customer's name,
+ * and opens its own page. A message (`message:read`, through the conversation's
+ * scope) is found by its body and its subject, and opens its thread. Neither has
+ * a list screen the words could be handed to, so each group's "See all" is this
+ * page showing that group alone, as addresses' is.
  */
 export interface SearchHit {
   id: string;
@@ -66,7 +76,7 @@ export interface SearchGroup {
 }
 
 export const GROUPS = [
-  "customers", "jobs", "invoices", "estimates", "addresses", "units", "notes", "pricebook", "people",
+  "customers", "jobs", "invoices", "estimates", "visits", "messages", "addresses", "units", "notes", "pricebook", "people",
 ] as const;
 export type GroupKey = (typeof GROUPS)[number];
 
@@ -75,6 +85,12 @@ const EACH = 5;
 const ALONE = 50;
 
 const joined = (parts: Array<string | null | undefined>, by = " ") => parts.filter((p) => p && p.trim() !== "").join(by);
+
+/** A day, `YYYY-MM-DD`, in words: "Nov 5, 2026". */
+function inWords(day: string): string {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+    .format(new Date(`${day}T12:00:00Z`));
+}
 
 /** A note as one line: the start of it, or the part around the first word typed when that is further in. */
 export function excerpt(body: string, q: string, width = 120): string {
@@ -161,6 +177,34 @@ export async function everything(
       hits: found.rows.map(({ row: e, close }) => ({
         id: e.id, title: joined([`Estimate ${e.number}`, e.title], ": "), detail: e.customerName,
         href: `/estimates/${e.id}`, close,
+      })),
+    });
+  }
+
+  if (wanted("visits", "visit:read")) {
+    const found = await looked(q, limit, (close, n) => visits.find(ctx, { q, limit: n, close }));
+    add({
+      key: "visits", label: "Visits", more: found.more, seeAll: here("visits"),
+      hits: found.rows.map(({ row: v, close }) => ({
+        id: v.id,
+        title: `Visit ${v.sequence} on job ${v.jobNumber}: ${v.jobSummary}`,
+        detail: joined([v.customerName, v.day ? inWords(v.day) : "not scheduled"], ", ") || null,
+        href: `/visits/${v.id}`,
+        close,
+      })),
+    });
+  }
+
+  if (wanted("messages", "message:read")) {
+    const found = await looked(q, limit, (close, n) => comms.find(ctx, { q, limit: n, close }));
+    add({
+      key: "messages", label: "Messages", more: found.more, seeAll: here("messages"),
+      hits: found.rows.map(({ row: m, close }) => ({
+        id: m.id,
+        title: m.customerName ?? m.externalAddress,
+        detail: excerpt(joined([m.subject, m.body], ": "), q) || null,
+        href: `/inbox/${m.conversationId}`,
+        close,
       })),
     });
   }

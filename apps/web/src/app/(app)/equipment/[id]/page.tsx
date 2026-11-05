@@ -13,7 +13,7 @@ import { formatDay, formatIn, todayIn } from "@/lib/dates";
 import { JOB_STATUS, JOB_TONE, label, tone, enumText } from "@/lib/labels";
 import { attributeLines, keptAsTheyAre } from "@/lib/unit-attributes";
 import { followUp } from "../../customers/warranties/actions";
-import { declineFinding, editUnit, moveUnit, recordRegistration } from "./actions";
+import { correctRegistration, declineFinding, editUnit, moveUnit, recordRegistration } from "./actions";
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
 
@@ -218,6 +218,19 @@ export default async function EquipmentPage({
               <TextField label="Their reference, if they gave one" name="reference" maxLength={120}
                          defaultValue={unit.warrantyRegistration.reference ?? ""} className="block w-64" />
             </ActionForm>
+          ) : null}
+          {canEdit && unit.warrantyRegistration.registeredOn && can(user.actor, "task:write") ? (
+            <details className="mt-3 rounded-md border border-steel-200 bg-canvas p-4">
+              <summary className="cursor-pointer text-sm font-medium">It was not registered after all</summary>
+              <p className="mt-2 text-sm text-ink-700">
+                This takes the day and the reference off the unit and opens the deadline again with the last day it had.
+                If that day has gone, it comes back past due. Say why, so the record shows it.
+              </p>
+              <ActionForm action={correctRegistration} tone="quiet" hidden={{ id: unit.id }}
+                          submit="Take it back and reopen the deadline" className="mt-3 flex flex-wrap items-end gap-3">
+                <TextField label="Why" name="reason" required maxLength={500} className="block w-96" />
+              </ActionForm>
+            </details>
           ) : null}
         </section>
       ) : null}

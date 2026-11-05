@@ -99,6 +99,26 @@ months (M06, "Register with the maker within (days)", `warrantyRegistrationDays`
 are empty for every item until somebody fills them in: an item whose maker asks for
 nothing raises nothing.
 
+**Makers, each with its own days.** A company writes its makers down once at
+`/pricebook/makers` (Price book, Makers; `GET /v1/warranty-makers`, `POST
+/v1/warranty-makers`, `PATCH /v1/warranty-makers/{id}`, `POST
+/v1/warranty-makers/{id}/retire`): a name, the days the maker gives to register a unit
+(1 to 365, or empty), and a note on where to register. Reading needs `pricebook:read`;
+changing needs `pricebook:write`, the permission the item's own days take. A name another
+maker has is refused without regard to case, and every add, change and retirement is
+audited. An item names its maker ("Maker it comes from" under "What it is" on the item,
+`warrantyMakerId` in `PATCH /v1/pricebook/items/{id}`; it is on the item and not on a
+version, so choosing one writes no version). When a serialised unit of the item goes
+on a job, the days are the maker's when it has some; a maker with no days, or an item that
+names no maker, leaves the item's own number as the only word, as it was before makers
+existed, and an item with neither raises nothing. The deadline's sentence names the maker
+from the list ("with Carrier Corporation") when there is one, and the make typed on the
+unit otherwise. Changing a maker's days applies to units installed from then on: a
+deadline already open keeps the last day it was given, because the office has read that
+day and may have put it in a calendar. A maker cannot be taken off the list while an item
+still sold names it (the refusal says how many), so no item quietly goes back to its own
+days and stops raising deadlines. The sandbox copies makers with the price book (M29).
+
 When a serialised part of such an item is used on a job and becomes the customer's
 unit, or goes into one of their units (`POST /v1/stock/issues` with `installAs` or
 `equipmentId`, M16), a deadline of the kind `warranty.register_by` is raised for the
@@ -130,10 +150,32 @@ closes the open deadline with the day it was done, as the thing that closed it, 
 takes the queue task out with it. Registering after the last day closes it too, and
 the record says it was met late rather than hiding that. A day that has not come, or
 one before the unit went in, is refused. Saying it again corrects the day or the
-reference the unit shows; a deadline already closed stays closed. Taking the unit off
+reference the unit shows; a deadline already closed stays closed (unless the whole registration
+is taken back, below). Taking the unit off
 the register cancels an open deadline: it is cancelled rather than met, so a count of
 deadlines met does not include it. `GET /v1/equipment/{id}` carries `warrantyRegistration`
 (`registeredOn`, `reference`, `dueBy`, `overdue`).
+
+### Take a registration back
+
+A registration recorded against the wrong unit, or recorded and never finished, closes a
+deadline that should have stayed open, and saying it again only changes the day. "It was
+not registered after all" on the unit's page (`POST
+/v1/equipment/{id}/warranty-registration/correct`) takes the day and the reference off
+the unit and **reopens the deadline the record closed**, with its original last day: one
+whose day has gone comes back past due, and the reminder returns to the task queue on
+the next sweep. A reason is required, and the correction is audited
+(`equipment.warranty_registration_corrected`) with the day and reference that were taken
+off, the reason, and whether a deadline came back.
+
+The conservative choices, which the product owner has not ruled on. It needs `equipment:write`
+and also `task:write`: recording is the technician's, but putting a deadline back into the
+office's queue is the office's, so a technician sees the button's absence and asks the
+office. Only a deadline the registration itself closed is reopened, never one that was waived
+or cancelled, and not when another is already open for the unit (the earlier day stands, as
+an install does); then the registration is taken back and the page says there was no deadline
+to reopen. It is refused when nothing is recorded. Sent again with the same idempotency key
+it answers with the first answer. Recording the registration again closes the same deadline.
 
 ### Find out what to charge
 
@@ -236,7 +278,7 @@ attached to it.
 
 ## Permissions
 
-Resolving coverage needs `job:write`, because it is a decision about the job. Recording that a unit was registered with its maker needs `equipment:write`, not the task permissions, because the person who registers a unit is usually the technician who installed it, and the register is theirs to write (M04); it closes only that unit's registration deadline.
+Resolving coverage needs `job:write`, because it is a decision about the job. Recording that a unit was registered with its maker needs `equipment:write`, not the task permissions, because the person who registers a unit is usually the technician who installed it, and the register is theirs to write (M04); it closes only that unit's registration deadline. Taking a registration back needs `equipment:write` and `task:write`. Reading the makers needs `pricebook:read`; adding, changing and retiring one needs `pricebook:write`.
 Quoting needs `invoice:read`. The coverage report needs
 `report.financial:read`, because it is a revenue number. Filing a claim,
 recording its decision and billing the rest to the customer need `invoice:write`;
@@ -257,13 +299,15 @@ changes that on the draft when the customer's part should carry tax.
 Coverage read from a unit covers what the dates say and nothing about why: a
 warranty voided by an unlicensed install is not something the dates know.
 
-The maker's registration days are one number per item. There is no list of makers with
-their own terms, so two makers whose items share a price book entry share its days, and
-a maker who gives different days for different models needs a price book item for each.
-The deadline asks for a day and a reference and nothing more: no registration is sent to
-the maker's portal, and the product cannot tell whether the registration was real. The
-deadline starts from the day a serialised part was used on a job, which is not
-necessarily the day the unit was switched on, and a unit added to the register by hand
-or an item not tracked by serial raises none. Recording the registration cannot be undone
-to reopen the deadline: a mistaken record is corrected by recording the right day, and a
-deadline it closed stays closed.
+The maker's days are one number per maker: a maker who gives different days for different
+models still needs a maker row for each (or the item's own days on the exceptions, which a
+maker with no days leaves to the item). A maker with no days is read as "ask the item", never
+as "this maker asks for nothing". The deadline asks for a day and a reference and nothing more:
+no registration is sent to the maker's portal, and the product cannot tell whether the
+registration was real. The deadline starts from the day a serialised part was used on a job,
+which is not necessarily the day the unit was switched on, and a unit added to the register by
+hand or an item not tracked by serial raises none. A maker's days changed later move no
+deadline that is open. Taking a registration back reopens only the deadline that the
+registration closed, and not a waived or cancelled one: a unit whose deadline was waived and
+then registered by mistake is corrected to unregistered with no deadline, which the office
+raises by hand if it wants one.

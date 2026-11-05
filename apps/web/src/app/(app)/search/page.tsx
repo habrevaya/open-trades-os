@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 /** The groups with no list screen of their own, whose "See all" is this page showing them alone. */
 const ALONE: Record<string, { label: string; key: search.GroupKey }> = {
+  visits: { label: "Visits", key: "visits" },
+  messages: { label: "Messages", key: "messages" },
   addresses: { label: "Addresses", key: "addresses" },
   units: { label: "Equipment", key: "units" },
   notes: { label: "Customer notes", key: "notes" },
@@ -16,7 +18,7 @@ const ALONE: Record<string, { label: string; key: search.GroupKey }> = {
 /**
  * FIND ANYTHING
  *
- * Customers, jobs, invoices, estimates, addresses, units, customer notes, the
+ * Customers, jobs, invoices, estimates, visits, messages, addresses, units, customer notes, the
  * price book, people and the company's own records, five of each, each found
  * by its own list's service, so nothing appears here that its list would not
  * show this person. "See all" opens the list filtered by the same words; the

@@ -98,12 +98,17 @@ function fit(text: string, characters: number): string {
 }
 
 export function ReportChart({
-  result, measure, dimension, prefer, split, arrange, additive, drill, title, toggle, pick, splitHref, arrangeHref, withTable, bare,
+  result, measure, second, dimension, prefer, split, arrange, additive, drill, title, toggle, pick, splitHref, arrangeHref, withTable, bare,
   baseline, baselineHref,
 }: {
   result: ReportResult;
   /** Which measure to draw. The first, when not said. */
   measure?: string | undefined;
+  /**
+   * A second measure to draw beside the first, over the same groups, with a
+   * scale of its own when its unit is not the first's. Not on a chart that is cut.
+   */
+  second?: string | undefined;
   /**
    * Which grouping to draw along. The first date, else the first, when not
    * said; a dashboard tile cut by its first grouping says its second.
@@ -140,7 +145,7 @@ export function ReportChart({
    */
   bare?: boolean | undefined;
 }) {
-  const decision = reporting.chartFor(result, { measure, dimension, prefer, split, arrange, additive, baseline });
+  const decision = reporting.chartFor(result, { measure, second, dimension, prefer, split, arrange, additive, baseline });
   if (!decision.ok) {
     return (
       <>
@@ -226,6 +231,7 @@ export function ReportChart({
       ) : null}
 
       {plan.split ? <Legend split={plan.split} /> : null}
+      {plan.secondary ? <MeasureLegend plan={plan} /> : null}
 
       {plan.kind === "bars"
         ? (plan.split
@@ -269,6 +275,26 @@ function Legend({ split }: { split: reporting.ChartSplit }) {
   );
 }
 
+/** Which mark is which measure, in words beside its swatch, and which side the scale of each is on. */
+function MeasureLegend({ plan }: { plan: Plan }) {
+  const second = plan.secondary!;
+  const bars = plan.kind === "bars";
+  return (
+    <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-700" aria-label="Measures, by colour">
+      <li className="flex items-center gap-1.5">
+        <span className={`inline-block h-2.5 w-2.5 rounded-sm ${plan.kind === "line" ? "bg-blue-600" : "bg-ink-700"}`} aria-hidden="true" />
+        {plan.measure.label}{bars ? ", upper bar" : plan.kind === "columns" ? ", columns" : ", solid line"}
+        {second.ownAxis && !bars ? ", scale on the left" : ""}
+      </li>
+      <li className="flex items-center gap-1.5">
+        <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-700" aria-hidden="true" />
+        {second.measure.label}{bars ? ", lower bar" : ", dashed line"}
+        {second.ownAxis && !bars ? ", scale on the right" : second.ownAxis ? ", on its own scale" : ""}
+      </li>
+    </ul>
+  );
+}
+
 /**
  * THE SAME NUMBERS AS A TABLE, for anybody who reads a table better than a
  * picture and for a screen that has no table of its own under the chart (a
@@ -290,8 +316,9 @@ function ChartTable({ plan, described }: { plan: Plan; described: string }) {
                 ? split.series.map((_, index) => (
                   <th key={index} scope="col" className="py-1 pr-3 text-right font-medium">{fit(seriesName(split, index), 20)}</th>
                 ))
-                : <th scope="col" className="py-1 text-right font-medium">{plan.measure.label}</th>}
+                : <th scope="col" className="py-1 pr-3 text-right font-medium">{plan.measure.label}</th>}
               {split ? <th scope="col" className="py-1 text-right font-medium">Total</th> : null}
+              {plan.secondary ? <th scope="col" className="py-1 text-right font-medium">{plan.secondary.measure.label}</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -308,7 +335,12 @@ function ChartTable({ plan, described }: { plan: Plan; described: string }) {
                     );
                   })
                   : null}
-                <td className="py-1 text-right font-mono tabular-nums">{exactValue(type, point.exact)}</td>
+                <td className={`py-1 text-right font-mono tabular-nums${plan.secondary ? " pr-3" : ""}`}>{exactValue(type, point.exact)}</td>
+                {plan.secondary ? (
+                  <td className="py-1 text-right font-mono tabular-nums">
+                    {exactValue(plan.secondary.measure.type, plan.secondary.values[row]?.exact ?? "0")}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
@@ -336,17 +368,39 @@ function Bars({ plan, drill, title, described }: {
          aria-label={`${title}: ${described}, as bars`}>
       <title>{`${title}: ${described}`}</title>
       <line x1={layout.zeroX} x2={layout.zeroX} y1={0} y2={layout.height - 18} className="stroke-steel-300" strokeWidth={1} />
+      {plan.secondary && layout.secondZeroX !== layout.zeroX ? (
+        <line x1={layout.secondZeroX} x2={layout.secondZeroX} y1={0} y2={layout.height - 18} className="stroke-amber-700" strokeWidth={1} strokeDasharray="3 3" />
+      ) : null}
       {layout.bars.map((bar, index) => {
         const name = pointLabel(plan.dimension, bar.point.key);
         const value = exactValue(type, bar.point.exact);
         const negative = bar.point.value < 0;
+        const other = layout.seconds[index];
+        const otherType = plan.secondary?.measure.type ?? type;
+        const otherValue = other ? exactValue(otherType, other.value.exact) : "";
         return (
           <Open key={index} href={drill ? drill(bar.point.row, [plan.dimension.key]) : null}>
             <g>
-              <title>{`${name}: ${value}`}</title>
-              <text x={150} y={bar.y + bar.height / 2 + 4} textAnchor="end" className="fill-ink-700" fontSize={12}>
+              <title>{other && plan.secondary
+                ? `${name}, ${plan.measure.label}: ${value}, ${plan.secondary.measure.label}: ${otherValue}`
+                : `${name}: ${value}`}</title>
+              <text x={150} y={bar.y + (other ? bar.height + 1 : bar.height / 2) + 4} textAnchor="end" className="fill-ink-700" fontSize={12}>
                 {fit(name, 22)}
               </text>
+              {other ? (
+                <>
+                  <rect
+                    x={other.x} y={other.y} width={Math.max(other.width, other.value.value === 0 ? 0 : 2)} height={other.height}
+                    rx={2} className="fill-amber-700"
+                  />
+                  <text
+                    x={other.value.value < 0 ? other.x - 6 : other.x + other.width + 6} y={other.y + other.height / 2 + 4}
+                    textAnchor={other.value.value < 0 ? "end" : "start"} className="fill-amber-700" fontSize={12}
+                  >
+                    {otherValue}
+                  </text>
+                </>
+              ) : null}
               <rect
                 x={bar.x} y={bar.y} width={Math.max(bar.width, bar.point.value === 0 ? 0 : 2)} height={bar.height}
                 rx={2} className={negative ? "fill-red-600" : "fill-ink-700"}
@@ -380,6 +434,9 @@ export function Series({ plan, drill, title, described }: {
   const type = plan.measure.type;
   const every = reporting.labelEvery(layout.points.length);
   const path = layout.points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const secondPath = layout.second
+    ? layout.second.points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
+    : "";
   const fromData = Boolean(plan.scale.fromData);
   const startsAt = tickValue(type, plan.scale.min);
   return (
@@ -403,14 +460,29 @@ export function Series({ plan, drill, title, described }: {
         <path d={path} fill="none" className="stroke-blue-600" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
       ) : null}
 
+      {layout.second && plan.secondary ? (
+        <>
+          {layout.second.ticks.map((tick) => (
+            <text key={tick.value} x={layout.plot.x + layout.plot.width + 8} y={tick.y + 4} textAnchor="start" className="fill-amber-700" fontSize={11}>
+              {tickValue(plan.secondary!.measure.type, tick.value)}
+            </text>
+          ))}
+          <path d={secondPath} fill="none" className="stroke-amber-700" strokeWidth={2} strokeDasharray="6 4" strokeLinejoin="round" strokeLinecap="round" />
+        </>
+      ) : null}
+
       {layout.points.map((point, index) => {
         const name = pointLabel(plan.dimension, point.point.key);
         const value = exactValue(type, point.point.exact);
         const negative = point.point.value < 0;
+        const other = layout.second?.points[index];
         return (
           <Open key={index} href={drill ? drill(point.point.row, [plan.dimension.key]) : null}>
             <g>
-              <title>{`${name}: ${value}`}</title>
+              <title>{other && plan.secondary
+                ? `${name}, ${plan.measure.label}: ${value}, ${plan.secondary.measure.label}: ${exactValue(plan.secondary.measure.type, other.value.exact)}`
+                : `${name}: ${value}`}</title>
+              {other ? <circle cx={other.x} cy={other.y} r={3.5} className="fill-amber-700" /> : null}
               {plan.kind === "columns" ? (
                 <rect
                   x={point.column.x} y={point.column.y} width={point.column.width}

@@ -84,7 +84,12 @@ export default async function SchedulesPage() {
                     )}
                     <p className="mt-0.5 text-sm text-ink-700">
                       {schedule.dashboard || schedule.dashboardId
-                        ? <>A dashboard, as one PDF. {schedule.cadenceText}. As it stands when it goes.</>
+                        ? <>
+                            A dashboard, as one PDF. {schedule.cadenceText}.{" "}
+                            {schedule.period === "all"
+                              ? "As it stands when it goes."
+                              : `${schedule.periodText}, for the tiles that follow the dashboard's dates.`}
+                          </>
                         : <>{schedule.cadenceText}. {schedule.periodText}.</>}
                     </p>
                     <p className="mt-0.5 text-sm text-ink-500">

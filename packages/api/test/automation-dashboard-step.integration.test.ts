@@ -105,8 +105,8 @@ run("publishing one", () => {
   it("refuses a dashboard to a customer, with dates of its own, or to somebody who could not open it", async () => {
     await expect(workflows.create(owner(), step({ report: `savedDashboard:${savedId}`, to: "customer" })))
       .rejects.toThrow(/Step 1: A dashboard is the company's own, so it is never sent to a customer/);
-    await expect(workflows.create(owner(), step({ report: "dashboard:operations", userIds: [OWNER], period: "last_7_days" })))
-      .rejects.toThrow(/Step 1: .*does not take dates of its own/);
+    await expect(workflows.create(owner(), step({ report: `savedDashboard:${savedId}`, userIds: [OWNER], period: "last_7_days" })))
+      .rejects.toThrow(/Step 1: None of this dashboard's tiles follow dates/);
     await expect(workflows.create(owner(), step({ report: "dashboard:money", userIds: [DISPATCH] })))
       .rejects.toThrow("Step 1: Dee Dispatch may not see anything on this dashboard, so it cannot be sent to them.");
     await expect(workflows.create(owner(), step({ report: "dashboard:operations", userIds: [TECH] })))

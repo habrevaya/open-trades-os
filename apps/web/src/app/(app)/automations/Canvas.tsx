@@ -589,7 +589,7 @@ function ReportFields({
   const reports = choices?.reports ?? [];
   const people = choices?.people ?? [];
   const chosen = String(config["report"] ?? "");
-  /** A whole dashboard: sent to people, as it stands, with no dates of its own. */
+  /** A whole dashboard: sent to people, with dates of its own for the tiles that follow dates. */
   const dashboard = chosen.startsWith("dashboard:") || chosen.startsWith("savedDashboard:");
   const toCustomer = config["to"] === "customer" && !dashboard;
   const ticked = Array.isArray(config["userIds"]) ? (config["userIds"] as string[]) : [];
@@ -606,7 +606,7 @@ function ReportFields({
             onChange={(e) => {
               const next = e.target.value;
               const whole = next.startsWith("dashboard:") || next.startsWith("savedDashboard:");
-              set(whole ? { ...config, report: next, period: "all", to: "people" } : { ...config, report: next });
+              set(whole ? { ...config, report: next, to: "people" } : { ...config, report: next });
             }}
             aria-label={`${name}, report`}
             className={`${FIELD} w-64`}
@@ -615,7 +615,6 @@ function ReportFields({
             {reports.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </label>
-        {dashboard ? null : (
         <label>
           <span className="block text-ink-700">Which days it covers</span>
           <select
@@ -627,12 +626,12 @@ function ReportFields({
             {(choices?.periods ?? []).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
         </label>
-        )}
       </div>
       {dashboard ? (
         <p className="text-xs text-ink-500">
-          The whole dashboard is sent as one PDF, as it stands: each tile with its own dates. Each person gets it as they
-          would see it, and a tile they may not see is left out and named. A dashboard never goes to a customer.
+          The whole dashboard is sent as one PDF. With days picked, only the tiles set to follow the dashboard&apos;s dates
+          are cut to them, and the page names the tiles that are not. Each person gets it as they would see it, and a
+          tile they may not see is left out and named. A dashboard never goes to a customer.
         </p>
       ) : (
       <fieldset>

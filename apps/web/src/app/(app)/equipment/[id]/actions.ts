@@ -151,3 +151,23 @@ export async function recordRegistration(_previous: FormState, form: FormData): 
   revalidatePath("/tasks");
   return state;
 }
+
+/**
+ * Take a registration back that was recorded by mistake, and reopen its
+ * deadline: `POST /v1/equipment/{id}/warranty-registration/correct` runs. The
+ * reason is required and is kept with who did it.
+ */
+export async function correctRegistration(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = field(form, "id") ?? "";
+  const state = await attempt(form, async () => {
+    const done = await warrantyRegistration.correct(await ctx(), { id, reason: field(form, "reason") ?? "" });
+    return {
+      message: done.reopened
+        ? `Taken back. The deadline to register it is open again, with its last day of ${done.dueBy ?? "the day it had"}.`
+        : "Taken back. There was no deadline to reopen.",
+    };
+  });
+  revalidatePath(`/equipment/${id}`);
+  revalidatePath("/tasks");
+  return state;
+}

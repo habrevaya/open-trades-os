@@ -1,7 +1,9 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { coverage, time, work } from "@opentradesos/core";
+import { assertCan } from "@opentradesos/core";
 import { audit, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext } from "./context";
+import { remember, replayed } from "./once";
 import { raise } from "./obligations";
 import { load as currentItem } from "./pricebook";
 
@@ -21,6 +23,13 @@ import { load as currentItem } from "./pricebook";
  * beside it as `warrantyRegistrationDays`, empty for every item until somebody
  * says otherwise: a deadline invented for an item whose maker asks for nothing
  * would put a false obligation in a real queue.
+ *
+ * AND THE MAKER'S OWN DAYS WIN. An item can name a maker (`warranty_maker`,
+ * `services/warranty-makers.ts`), who is written down once with the days it
+ * gives. When the item names one that has days, those are the days and the
+ * item's own number is not read; a maker with no days, or an item that names
+ * none, leaves the item's own number as the only word, as it always was
+ * (`registrationDaysOf`).
  *
  * WHEN IT IS RAISED. When a serialised part is issued to a job and becomes, or
  * goes into, a customer's unit (`inventory.issue`, the one place the product
@@ -47,6 +56,27 @@ function unitWords(unit: { category: string; model: string | null; serialNumber:
 }
 
 /**
+ * The days a maker gives for this item, and the maker's name for the sentence.
+ *
+ * The maker named on the item when it has days of its own, else the item's own
+ * number (which may be empty, and then nothing is owed). A maker that has been
+ * retired is not read: the item goes back to its own number, and a maker cannot
+ * be retired while an item still sold names it.
+ */
+export async function registrationDaysOf(
+  tx: Database, item: { item: { warrantyMakerId: string | null }; version: { warrantyRegistrationDays: number | null } },
+): Promise<{ days: number | null; maker: string | null }> {
+  if (item.item.warrantyMakerId) {
+    const [maker] = await tx.select({ name: schema.warrantyMaker.name, days: schema.warrantyMaker.registrationDays })
+      .from(schema.warrantyMaker)
+      .where(and(eq(schema.warrantyMaker.id, item.item.warrantyMakerId), isNull(schema.warrantyMaker.deletedAt))).limit(1);
+    if (maker?.days != null) return { days: maker.days, maker: maker.name };
+    if (maker) return { days: item.version.warrantyRegistrationDays ?? null, maker: maker.name };
+  }
+  return { days: item.version.warrantyRegistrationDays ?? null, maker: null };
+}
+
+/**
  * Raise the registration deadline for a unit that has just gone onto a job, if
  * the item it came from says its maker asks for one.
  *
@@ -59,7 +89,8 @@ export async function raiseForInstall(
   tx: Database, organizationId: string, input: { equipmentId: string; itemId: string; jobId: string },
 ): Promise<{ raised: boolean; lastDay: string | null }> {
   const item = await currentItem(tx, input.itemId);
-  const days = item?.version.warrantyRegistrationDays ?? null;
+  const terms = item ? await registrationDaysOf(tx, item) : { days: null, maker: null };
+  const days = terms.days;
   if (days === null) return { raised: false, lastDay: null };
 
   const [open] = await tx.select({ id: schema.obligation.id }).from(schema.obligation)
@@ -87,7 +118,7 @@ export async function raiseForInstall(
     /** The end of the last day, so registering on it is in time. */
     dueAt: time.startOfDayIn(time.nextDay(lastDay), zone),
     consequence: coverage.registrationConsequence({
-      unit: unitWords(unit), maker: unit.manufacturer, lastDay,
+      unit: unitWords(unit), maker: terms.maker ?? unit.manufacturer, lastDay,
       jobLabel: job ? work.documentNumber(job.prefix, job.number) : null,
     }),
     /** A week ahead, or the install day when the maker allows a week or less: the reminder lands in the task queue. */
@@ -229,8 +260,105 @@ export async function record(
   });
 }
 
+export interface RegistrationCorrected {
+  id: string;
+  /** What the unit said before: the day and the reference that were taken off it. */
+  wasRegisteredOn: string;
+  wasReference: string | null;
+  /** The deadline came back, with its original last day. False when there was none to bring back. */
+  reopened: boolean;
+  /** The last day of the deadline now open for the unit, if one is. */
+  dueBy: string | null;
+}
+
+/**
+ * CORRECT A REGISTRATION THAT WAS RECORDED BY MISTAKE.
+ *
+ * Recording a registration closes the deadline, and the wrong unit, the wrong
+ * day or a registration that was begun and never finished closed one that should
+ * have stayed open. "Saying it again" fixes the day, and cannot say "this was
+ * not done". This takes the record off the unit and REOPENS the deadline it
+ * closed, with its original last day (a deadline that has passed comes back
+ * past due, and the sweep says so), and clears the sweep's mark so the reminder
+ * comes back to the queue.
+ *
+ * THE CONSERVATIVE CHOICES. It needs a reason, in words, because a registration
+ * undone with no reason is how a deadline gets reopened by accident or hidden on
+ * purpose. It needs `task:write` as well as `equipment:write`: the person who
+ * registers a unit is usually the technician, and reopening a deadline puts work
+ * back in the office's queue, which is the office's permission. Only a deadline
+ * the registration itself closed is brought back, never one that was waived or
+ * cancelled, and not when another is open for the unit already (the earlier day
+ * stands, as an install does). Audited with the day and reference that were
+ * taken off.
+ */
+export async function correct(
+  ctx: ServiceContext, input: { id: string; reason: string },
+): Promise<RegistrationCorrected> {
+  return guardedWrite(ctx, "equipment:write", async (tx) => {
+    assertCan(ctx.actor, "task:write");
+    const again = await replayed<RegistrationCorrected>(tx, ctx, "equipment_registration_correct");
+    if (again) return again;
+
+    const reason = input.reason.trim();
+    if (reason === "") throw new ConflictError("Say why the registration is being taken back.");
+    const [before] = await tx.select().from(schema.equipment)
+      .where(and(
+        eq(schema.equipment.id, input.id),
+        eq(schema.equipment.organizationId, ctx.actor.organizationId),
+        isNull(schema.equipment.deletedAt),
+      )).limit(1);
+    if (!before) throw new NotFoundError("Equipment");
+    if (!before.warrantyRegisteredOn) {
+      throw new ConflictError("No registration is recorded on this unit, so there is nothing to correct.");
+    }
+
+    const now = new Date();
+    await tx.update(schema.equipment)
+      .set({ warrantyRegisteredOn: null, warrantyRegistrationReference: null, updatedAt: now })
+      .where(eq(schema.equipment.id, input.id));
+
+    const where = and(
+      eq(schema.obligation.organizationId, ctx.actor.organizationId),
+      eq(schema.obligation.kind, KIND),
+      eq(schema.obligation.entityType, "equipment"),
+      eq(schema.obligation.entityId, input.id),
+    );
+    const [alreadyOpen] = await tx.select({ id: schema.obligation.id }).from(schema.obligation)
+      .where(and(where, inArray(schema.obligation.state, ["open", "breached"]))).limit(1);
+    let reopened = false;
+    if (!alreadyOpen) {
+      const [closed] = await tx.select({ id: schema.obligation.id }).from(schema.obligation)
+        .where(and(where, eq(schema.obligation.state, "satisfied"), like(schema.obligation.satisfiedByEvent, "Registered with the maker%")))
+        .orderBy(desc(schema.obligation.satisfiedAt)).limit(1);
+      if (closed) {
+        await tx.update(schema.obligation).set({
+          state: "open", satisfiedAt: null, satisfiedByEvent: null, breachedAt: null, escalatedAt: null, updatedAt: now,
+        }).where(eq(schema.obligation.id, closed.id));
+        reopened = true;
+      }
+    }
+
+    const standing = await standingWithin(tx, ctx.actor.organizationId, { id: input.id, registeredOn: null, reference: null });
+    await audit(tx, ctx, "equipment.warranty_registration_corrected", "equipment", input.id,
+      { registeredOn: before.warrantyRegisteredOn, reference: before.warrantyRegistrationReference },
+      { registeredOn: null, reference: null, reason, reopened, dueBy: standing.dueBy });
+
+    const answer: RegistrationCorrected = {
+      id: input.id,
+      wasRegisteredOn: before.warrantyRegisteredOn,
+      wasReference: before.warrantyRegistrationReference,
+      reopened,
+      dueBy: standing.dueBy,
+    };
+    await remember(tx, ctx, "equipment_registration_correct", input.id, answer);
+    return answer;
+  });
+}
+
 export const handlers = {
   recordWarrantyRegistration: (
     ctx: ServiceContext, input: { id: string; registeredOn?: string | undefined; reference?: string | null | undefined },
   ) => record(ctx, input),
+  correctWarrantyRegistration: (ctx: ServiceContext, input: { id: string; reason: string }) => correct(ctx, input),
 } as const;

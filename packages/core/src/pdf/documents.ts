@@ -902,7 +902,18 @@ function drawChart(flow: Flow, plan: ChartPlan, accent: Rgb): void {
         size: 8, color: MUTED, align: bar.point.value < 0 ? "right" : "left",
       });
     }
+    if (plan.secondary) {
+      page.line(flow.left + layout.secondZeroX, top, flow.left + layout.secondZeroX, top + layout.height - 18, { color: RULE });
+      layout.seconds.forEach((box) => {
+        page.rect(flow.left + box.x, top + box.y, Math.max(0.5, box.width), box.height, { fill: SECOND });
+        const end = box.value.value < 0 ? flow.left + box.x - 4 : flow.left + box.x + box.width + 4;
+        page.text(end, top + box.y + box.height - 1, reportCell(plan.secondary!.measure, box.value.exact), {
+          size: 8, color: MUTED, align: box.value.value < 0 ? "right" : "left",
+        });
+      });
+    }
     flow.y = top + layout.height;
+    drawMeasureLegend(flow, plan, accent);
     return;
   }
 
@@ -931,6 +942,15 @@ function drawChart(flow: Flow, plan: ChartPlan, accent: Rgb): void {
       page.rect(flow.left + p.x - 1.5, top + p.y - 1.5, 3, 3, { fill: p.point.value < 0 ? LOSS : accent });
     }
   }
+  if (layout.second && plan.secondary) {
+    const second = layout.second;
+    page.polyline(second.points.map((p) => ({ x: flow.left + p.x, y: top + p.y })), { color: SECOND, width: 1.5 });
+    for (const p of second.points) page.rect(flow.left + p.x - 2, top + p.y - 2, 4, 4, { fill: SECOND });
+    for (const tick of second.ticks) {
+      page.text(flow.left + layout.plot.x + layout.plot.width + 6, top + tick.y + 3,
+        reportCell(plan.secondary.measure, String(tick.value)), { size: 7, color: SECOND });
+    }
+  }
   const every = labelEvery(layout.points.length, 8);
   layout.points.forEach((p, i) => {
     if (i % every !== 0 && i !== layout.points.length - 1) return;
@@ -939,6 +959,34 @@ function drawChart(flow: Flow, plan: ChartPlan, accent: Rgb): void {
     });
   });
   flow.y = top + height;
+  drawMeasureLegend(flow, plan, accent);
+}
+
+/** The amber of a chart's second measure, the screen's own fourth colour. */
+const SECOND: Rgb = { r: 0xb4 / 255, g: 0x53 / 255, b: 0x09 / 255 };
+
+/**
+ * Which mark is which measure, in words, under a chart that draws two: the
+ * first in the accent, the second in amber, and where each one's scale is.
+ * Nothing when there is only one.
+ */
+function drawMeasureLegend(flow: Flow, plan: ChartPlan, accent: Rgb): void {
+  const second = plan.secondary;
+  if (!second) return;
+  const how = plan.kind === "bars"
+    ? ["upper bar", "lower bar"]
+    : [plan.kind === "columns" ? "columns" : "solid line", "amber line"];
+  const first = `${plan.measure.label}, ${how[0]}${second.ownAxis && plan.kind !== "bars" ? ", left scale" : ""}`;
+  const other = `${second.measure.label}, ${how[1]}${second.ownAxis && plan.kind !== "bars" ? ", right scale" : ""}`;
+  flow.ensure(14);
+  flow.y += 10;
+  flow.page.rect(flow.left, flow.y - 7, 8, 8, { fill: accent });
+  const firstText = fit(first, "regular", 8, 200);
+  flow.page.text(flow.left + 12, flow.y, firstText, { size: 8, color: INK });
+  const x = flow.left + 12 + widthOf(firstText, "regular", 8) + 16;
+  flow.page.rect(x, flow.y - 7, 8, 8, { fill: SECOND });
+  flow.page.text(x + 12, flow.y, fit(other, "regular", 8, 200), { size: 8, color: INK });
+  flow.y += 4;
 }
 
 export function reportPdf(input: ReportPdfInput, options: RenderOptions = {}): Uint8Array {
@@ -1123,6 +1171,14 @@ export interface DashboardPdfInput {
    * saying so reads as the whole dashboard to whoever it is handed to.
    */
   leftOut: string[];
+  /**
+   * The dates the tiles that follow dates were drawn over, in words, when a
+   * delivery gave the dashboard some. Said under the title, because a copy
+   * that is about a week and does not say so reads as being about all time.
+   */
+  dates?: string | null | undefined;
+  /** With dates, the tiles that did not take them, named so they are not read as being about those dates. */
+  keepsOwnDates?: string[] | undefined;
   generatedAt: Date;
 }
 
@@ -1146,7 +1202,13 @@ export function dashboardPdf(input: DashboardPdfInput, options: RenderOptions = 
   });
 
   if (input.description) flow.paragraph(input.description, { color: MUTED });
-  flow.facts([["As seen by", input.ranAs]]);
+  flow.facts([["Dates", input.dates], ["As seen by", input.ranAs]]);
+  if (input.dates && input.keepsOwnDates && input.keepsOwnDates.length > 0) {
+    flow.paragraph(
+      `Not cut to these dates, because they show how things stand or have dates of their own: ${input.keepsOwnDates.join(", ")}.`,
+      { size: 8, color: MUTED },
+    );
+  }
   flow.gap(6);
 
   if (input.tiles.length === 0) {

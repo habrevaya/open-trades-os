@@ -16,9 +16,9 @@ const ctx = async (): Promise<ServiceContext> => ({ actor: (await requireUser())
  * so the service still checks what is inside.
  */
 function shapeOf(name: string): "csv" | "workbook" | { refusal: string } {
-  if (/\.xlsx$/i.test(name)) return "workbook";
-  if (/\.(xls|xlsm|xlsb|numbers|ods)$/i.test(name)) {
-    return { refusal: "That kind of workbook cannot be read. In your spreadsheet program choose Save As or Download and pick Excel Workbook (.xlsx) or CSV, and bring in that file." };
+  if (/\.(xlsx|ods)$/i.test(name)) return "workbook";
+  if (/\.(xls|xlsm|xlsb|numbers)$/i.test(name)) {
+    return { refusal: "That kind of workbook cannot be read. In your spreadsheet program choose Save As or Download and pick Excel Workbook (.xlsx), OpenDocument Spreadsheet (.ods) or CSV, and bring in that file." };
   }
   return "csv";
 }

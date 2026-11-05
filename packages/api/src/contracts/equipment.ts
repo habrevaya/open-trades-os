@@ -405,7 +405,28 @@ export const recordWarrantyRegistration = defineRoute({
   }),
 });
 
+export const correctWarrantyRegistration = defineRoute({
+  method: "post",
+  path: "/v1/equipment/{id}/warranty-registration/correct",
+  summary: "Take back a registration that was recorded by mistake, and reopen its deadline",
+  description:
+    "Takes the day and the reference off the unit and reopens the registration deadline the record closed, with its original last day: one that has passed comes back past due, and the reminder returns to the task queue on the next sweep. A reason is required and is audited with the day and reference taken off. Only a deadline the registration itself closed is reopened, never one that was waived or cancelled, and not when another is open for the unit already. Refused when no registration is recorded. Needs `equipment:write` and `task:write`: recording is the technician's, and putting a deadline back in the queue is the office's.",
+  module: "M32",
+  permissions: ["equipment:write", "task:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, reason: z.string().min(1).max(500) }),
+  output: z.object({
+    id: Uuid,
+    wasRegisteredOn: IsoDate,
+    wasReference: z.string().nullable(),
+    /** The deadline came back. False when there was none to bring back. */
+    reopened: z.boolean(),
+    /** The last day of the deadline now open for the unit, if one is. */
+    dueBy: IsoDate.nullable(),
+  }),
+});
+
 export const equipmentRoutes = {
   listEquipment, getEquipment, getEquipmentHistory, getWarrantyWatch, listEquipmentSerialMatches,
-  registerEquipment, updateEquipment, moveEquipment, retireEquipment, recordWarrantyRegistration,
+  registerEquipment, updateEquipment, moveEquipment, retireEquipment, recordWarrantyRegistration, correctWarrantyRegistration,
 } as const;

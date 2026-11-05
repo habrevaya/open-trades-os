@@ -85,8 +85,9 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
        * people and addresses are dropped rather than carried along unseen.
        */
       /**
-       * A whole dashboard goes to people, as it stands: no dates of its own and
-       * never to a customer, the same as a dashboard schedule.
+       * A whole dashboard goes to people and never to a customer, the same as a
+       * dashboard schedule. It takes the step's dates for the tiles that follow
+       * dates; the service refuses dates on a dashboard with none.
        */
       const dashboard = text("report").startsWith("dashboard:") || text("report").startsWith("savedDashboard:");
       if (text("to") === "customer" && !dashboard) {
@@ -97,7 +98,7 @@ function configFor(kind: string, raw: Record<string, unknown>): Record<string, u
         report: text("report"),
         userIds: ids.map((id) => String(id).trim()).filter((id) => id !== ""),
         addresses: text("addresses").split(/[\s,;]+/).filter((a) => a !== ""),
-        period: dashboard ? "all" : text("period") || "all",
+        period: text("period") || "all",
       };
     }
     case "stop_unless":

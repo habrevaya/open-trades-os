@@ -108,3 +108,26 @@ export function moved(tiles: StoredTile[], key: string, by: number): StoredTile[
 export function withCut(tiles: StoredTile[], key: string, splitBy: string): StoredTile[] {
   return tiles.map((tile) => (tile.key === key ? { ...tile, splitBy } : tile));
 }
+
+/**
+ * One tile drawing a second measure beside the first, or none again (a blank
+ * measure). Only the second measure changes. Whether it is one of the report's
+ * measures, and whether the tile can take one, is the server's to say, in
+ * words, against the report as it is now.
+ */
+export function withSecondMeasure(tiles: StoredTile[], key: string, secondMeasure: string): StoredTile[] {
+  return tiles.map((tile) => {
+    if (tile.key !== key) return tile;
+    const { secondMeasure: _dropped, ...rest } = tile;
+    return secondMeasure === "" ? rest : { ...rest, secondMeasure };
+  });
+}
+
+/** One tile following the dates a delivery gives its dashboard, or keeping its report's own. */
+export function withFollowsDates(tiles: StoredTile[], key: string, follows: boolean): StoredTile[] {
+  return tiles.map((tile) => {
+    if (tile.key !== key) return tile;
+    const { followsDates: _dropped, ...rest } = tile;
+    return follows ? { ...rest, followsDates: true } : rest;
+  });
+}

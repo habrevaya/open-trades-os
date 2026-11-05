@@ -233,12 +233,13 @@ the toolkit. It takes nine kinds of file: customers with their addresses and
 a person to contact, equipment, price book items, past jobs, past invoices
 with their lines and what was paid on them, past payments, each split across
 the invoices it paid, past estimates with how they ended and the day they
-were sent, customer notes, and past visits on past jobs. A file is a CSV or an
-Excel workbook (`.xlsx`). A file can be 5 MB and ten thousand rows; a larger one
+were sent, customer notes, and past visits on past jobs. A file is a CSV, an
+Excel workbook (`.xlsx`) or an OpenDocument spreadsheet (`.ods`, what LibreOffice
+saves). A file can be 5 MB and ten thousand rows; a larger one
 is refused in words, to be split.
 
 **A workbook is read a sheet at a time, into the same rows a CSV makes.** When
-an `.xlsx` is chosen on the upload form it is read for its sheets
+an `.xlsx` or `.ods` is chosen on the upload form it is read for its sheets
 (`POST /v1/import-sheets`), and the form lists each with its rows and the start
 of its header: the owner picks one, the workbook goes up again with `sheet`
 named (`POST /v1/imports`), and from there the sheet is a file like any other,
@@ -268,9 +269,34 @@ refused whatever sizes it declares, a sheet whose cells reach row 200,000 or spa
 more than five million cells (a single formatted cell in the far corner) is
 refused with how to clear it, and a password protected or damaged workbook, or
 an older `.xls`, is refused with how to save it as `.xlsx` or CSV. The screen
-takes files named `.csv` or `.xlsx` and refuses an `.xlsm`, `.xlsb`, `.ods` or
-`.numbers` file by its name with the same advice. Anything the library throws is
-turned into a sentence.
+takes files named `.csv`, `.xlsx` or `.ods` and refuses an `.xls`, `.xlsm`, `.xlsb` or
+`.numbers` file by its name with the same advice (now naming `.ods` among the ways to
+save). Anything the library throws is turned into a sentence.
+
+**An `.ods` is read by the same rules, with no library.** An OpenDocument
+spreadsheet is a zip whose `content.xml` holds every sheet, so
+`packages/api/src/imports/workbook.ts` reads it with the zip directory, the budget on
+what its parts may open into, the refusal of a password and the caps on size, rows,
+columns, sheets and span that the `.xlsx` reader has, and turns the same things into
+the same sentences. The file is told apart from an `.xlsx` by what is inside it (a
+`mimetype` part first, which an `.xlsx` never has), never by its name, so the API takes
+either as `workbook` and a file whose name lies is still read as what it is. A file
+that says it is another kind of OpenDocument (a document, a presentation) is refused
+as "not a spreadsheet", and a protected file is refused by the manifest naming its
+encryption, which the zip's own flag does not say. Its cells are read in one pass over
+the tags of the sheet (no pattern runs over the whole file, so a hostile one cannot make
+it slow), and repeats are done as arithmetic and never by building what they stand for:
+LibreOffice ends every sheet with a row "repeated" a million times, which costs nothing
+and does not count as data, while a row of data repeated past the row cap, or a cell of
+data repeated past the column cap, is refused before one copy is made. A repeated row
+of data is that many rows, each with its own number from the sheet. Values are read as
+they are stored: a number, a text (its paragraphs joined by a new line, a comment or a
+picture's caption on the cell not counted), a yes or no, a date as the day it shows, a
+date with a time as both, a time alone as the clock, and a percentage or an amount as the
+number. The answer stored beside a formula is read and the formula never, a cell the
+program marked as an error is empty, and an entity a file defines for itself is not
+expanded. Merged cells keep the place they cover, so a number beside a merged cell stays
+in its own column. A header in a `table-header-rows` group is the first row like any other.
 
 **The columns are guessed, and the owner has the last word.** A plain matcher
 in `packages/core/src/imports` reads each header for the words people put at
@@ -791,10 +817,12 @@ already exists.
 
 Nothing in this repository reads another product's export format. The
 migration toolkit is separate and loads through `/api/v1` with a connected
-app's token; the spreadsheet screen reads a CSV or an `.xlsx` workbook whose
-columns the owner matches. It reads no older `.xls`, no `.xlsb`, `.ods` or
-`.numbers` file, no workbook with a password, and the screen takes no `.xlsm`:
-each is refused with how to save it as `.xlsx` or CSV. A workbook is read for its cells' values only: a
+app's token; the spreadsheet screen reads a CSV, an `.xlsx` workbook or an `.ods`
+spreadsheet whose columns the owner matches. It reads no older `.xls`, no `.xlsb`,
+`.numbers` or flat `.fods` file, no workbook or spreadsheet with a password, and the
+screen takes no `.xlsm`: each is refused with how to save it as `.xlsx`, `.ods` or CSV. An `.ods` is also not read when it is a
+template (`.ots`), which is a different kind of file; a spreadsheet made from one is.
+A workbook (or an `.ods`) is read for its cells' values only: a
 formula that a program wrote without storing its answer reads as empty, a cell
 showing an error (`#N/A`) reads as empty, and merged cells, hidden rows,
 comments and pictures are not looked at. A number with more than fifteen digits

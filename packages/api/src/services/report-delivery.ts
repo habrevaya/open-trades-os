@@ -12,8 +12,8 @@ import { BUILT_IN } from "./report-built-in";
 import { publicBaseUrl } from "./setup-tokens";
 import { companyOf, reportFile } from "./documents";
 import {
-  couldOpen, dashboardFile, dashboardSourceOf, drawDashboard, printedTile,
-  type DashboardSource, type DrawnDashboard,
+  couldOpen, dashboardFile, dashboardSourceOf, datesFollowers, drawDashboard, printedTile, NO_DATE_FOLLOWERS,
+  type DashboardDates, type DashboardSource, type DrawnDashboard,
 } from "./dashboards";
 
 /**
@@ -400,9 +400,13 @@ export async function deliverReport(tx: Database, input: DeliverReportInput): Pr
  * the delivery row says why. An outside address is sent the copy of the
  * person who set it up, as with a report.
  *
- * NO DATES OF ITS OWN. A dashboard's tiles carry their own reports' dates
- * (most have none, and read "as of now"), so it is sent as it stands when it
- * is drawn and says so on the page; the schedule takes no period for one.
+ * DATES OF ITS OWN, ONLY WHERE A TILE FOLLOWS THEM. With a period, the
+ * dashboard is given those days and every tile marked as following dates is
+ * run over them in place of its report's own. The tiles about how things stand
+ * now (what is still owed) keep theirs, and the page says which those are.
+ * With no period it is sent as it stands when it is drawn. A period on a
+ * dashboard none of whose tiles follow dates is refused at the save and again
+ * on the day, because it would change nothing and read as though it had.
  *
  * ONE ATTACHMENT. The PDF of every tile. There is no CSV, because a dashboard
  * is not one table; each tile's rows are printed under its chart.
@@ -411,6 +415,10 @@ async function deliverDashboard(
   tx: Database, input: DeliverReportInput, source: DashboardSource,
 ): Promise<DeliverReportResult> {
   const named = await dashboardSourceOf(tx, source);
+  const range = reporting.periodFor(input.period, input.at, input.timezone);
+  const dates: DashboardDates | undefined = range.from && range.to
+    ? { from: range.from, to: range.to, label: range.label }
+    : undefined;
 
   const [claimed] = await tx.insert(schema.reportDelivery).values({
     organizationId: input.organizationId,
@@ -422,6 +430,8 @@ async function deliverDashboard(
     dashboardId: "dashboardId" in source ? source.dashboardId : null,
     status: "failed",
     ranAsUserId: input.ownerUserId,
+    periodFrom: range.from ?? null,
+    periodTo: range.to ?? null,
   }).onConflictDoNothing().returning({ id: schema.reportDelivery.id });
 
   if (!claimed) {
@@ -453,10 +463,12 @@ async function deliverDashboard(
     return fail(`It did not run as the person who set it up, who ${ownerRefusal}.`);
   }
 
+  if (dates && (await datesFollowers(tx, source)) === 0) return fail(NO_DATE_FOLLOWERS);
+
   /** The dashboard as one person sees it, or null when they may see none of it. */
   const drawAs = async (actor: Actor): Promise<DrawnDashboard | null> => {
     try {
-      return await drawDashboard({ actor, db: tx }, source, { inOrder: true });
+      return await drawDashboard({ actor, db: tx }, source, { inOrder: true, dates });
     } catch (error) {
       if (error instanceof NotFoundError) return null;
       throw error;
@@ -566,7 +578,7 @@ export function composeDashboardEmail(input: {
   const { drawn } = input;
   const day = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" })
     .format(new Date(`${input.asOf}T12:00:00Z`));
-  const subject = `${drawn.name}: ${day}`;
+  const subject = `${drawn.name}: ${drawn.dates ? drawn.dates.label : day}`;
   const numbers = drawn.tiles.flatMap((tile) => {
     const printed = printedTile(tile);
     return printed.figure !== undefined && printed.figure !== null ? [`${tile.title}: ${printed.figure}`] : [];
@@ -575,11 +587,17 @@ export function composeDashboardEmail(input: {
     ? `Left out of your copy because you may not see ${drawn.leftOut.length === 1 ? "it" : "them"}: ${drawn.leftOut.join(", ")}.`
     : null;
   const tail = `Every tile is in the attached file, ${input.pdfName}.`;
+  const covers = drawn.dates
+    ? `Dates: ${drawn.dates.label}.${drawn.keepsOwnDates.length > 0
+      ? ` Not cut to these dates, because they show how things stand or have dates of their own: ${drawn.keepsOwnDates.join(", ")}.`
+      : ""}`
+    : null;
 
   const text = [
     drawn.name,
     drawn.description ?? "",
     `As it stood on ${day}.`,
+    ...(covers ? [covers] : []),
     "",
     ...numbers,
     "",
@@ -592,7 +610,8 @@ export function composeDashboardEmail(input: {
     `<div style="font-family:system-ui,sans-serif;color:#111827;max-width:680px">`,
     `<h1 style="font-size:18px;margin:0 0 4px">${escapeHtml(drawn.name)}</h1>`,
     drawn.description ? `<p style="margin:0 0 4px;color:#374151">${escapeHtml(drawn.description)}</p>` : "",
-    `<p style="margin:0 0 16px;color:#4b5563">As it stood on ${escapeHtml(day)}.</p>`,
+    `<p style="margin:0 0 ${covers ? "4px" : "16px"};color:#4b5563">As it stood on ${escapeHtml(day)}.</p>`,
+    covers ? `<p style="margin:0 0 16px;color:#4b5563">${escapeHtml(covers)}</p>` : "",
     numbers.length > 0
       ? `<ul style="margin:0;padding-left:18px;font-size:14px">${numbers.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
       : "",
@@ -927,7 +946,7 @@ export async function checkReportStep(
  * published by this author: the checks a dashboard schedule gets at its save
  * (`delivery-schedules.checkReportSchedule`), in the same words. The author
  * can open it and see something on it, it goes to people and never to a
- * customer, it takes no dates of its own, and everybody picked could open it
+ * customer, any dates it is given reach at least one tile that follows dates, and everybody picked could open it
  * themselves. At run time `deliverDashboard` asks all of it again of the
  * publisher as they are that day.
  */
@@ -940,10 +959,7 @@ async function checkDashboardStep(
   if (step.audience === "customer") {
     return "A dashboard is the company's own, so it is never sent to a customer. Pick the people to send it to.";
   }
-  if (step.period !== "all") {
-    return "A dashboard is sent as it stands, each tile with its own report's dates, so it does not take dates of its own. "
-      + "Choose \"Everything, with no dates\" for which days it covers.";
-  }
+  if (step.period !== "all" && (await datesFollowers(tx, source)) === 0) return NO_DATE_FOLLOWERS;
   let addresses: string[];
   try {
     addresses = cleanAddresses(step.addresses);
