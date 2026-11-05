@@ -3,6 +3,7 @@ import {
   type RoutingDestination, type RoutingTable,
 } from "../telephony/index.js";
 import { instantOfLocal as instantAt, isZone, wallTimeExists } from "../time/index.js";
+import type { MenuHoursFrom } from "../holidays/week.js";
 import { clientAddress } from "./softphone.js";
 
 /**
@@ -178,6 +179,14 @@ export interface PhoneMenu {
    * and charges for it, and a menu with it off works exactly as before.
    */
   speech?: boolean | undefined;
+  /**
+   * Whose hours decide whether the menu is open: the number's the call came
+   * in on (`number`, and absent, which is what every menu did before), or
+   * hours of the menu's own choosing (`branch`, `company`, `own`). A menu
+   * keeping hours apart from the number's checks them whenever a call
+   * reaches it, from a number or from another menu, and needs `afterHoursTo`.
+   */
+  hoursFrom?: MenuHoursFrom | undefined;
 }
 
 /**
@@ -301,6 +310,13 @@ export function checkMenu(menu: PhoneMenu, directory: Directory): Check {
     return {
       ok: false,
       reason: "A caller who presses nothing would be sent back to this same menu, forever. Send them to voicemail or a person instead.",
+    };
+  }
+
+  if (menu.hoursFrom && menu.hoursFrom !== "number" && !menu.afterHoursTo) {
+    return {
+      ok: false,
+      reason: "This menu keeps hours of its own, so it needs somewhere for calls to go when it is closed. Choose where, or let it follow the number's hours.",
     };
   }
 

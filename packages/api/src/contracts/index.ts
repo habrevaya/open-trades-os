@@ -101,6 +101,7 @@ import { truckWaterRoutes } from "./truck-water";
 import { haulTimeRoutes } from "./haul-times";
 import { productsAppliedRoutes } from "./products-applied";
 import { numberHoursRoutes } from "./number-hours";
+import { menuHoursRoutes } from "./menu-hours";
 import { afterHoursRoutes } from "./after-hours";
 import { safetyTalkRoutes } from "./safety-talks";
 import { stockTrackingRoutes } from "./stock-tracking";
@@ -185,6 +186,7 @@ export * from "./truck-water";
 export * from "./haul-times";
 export * from "./products-applied";
 export * from "./number-hours";
+export * from "./menu-hours";
 export * from "./after-hours";
 export * from "./safety-talks";
 export * from "./apps";
@@ -350,6 +352,7 @@ export const routes = {
   ...haulTimeRoutes,
   ...productsAppliedRoutes,
   ...numberHoursRoutes,
+  ...menuHoursRoutes,
   ...afterHoursRoutes,
   ...safetyTalkRoutes,
   ...stockTrackingRoutes,

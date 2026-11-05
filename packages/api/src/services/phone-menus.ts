@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { comms, voice, type telephony } from "@opentradesos/core";
+import { comms, voice, type holidays, type telephony } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -106,13 +106,15 @@ export interface MenuView {
   timeoutSeconds: number;
   /** Whether callers may say an option as well as press its key. */
   speech: boolean;
+  /** Whose hours decide whether it is open: the number's, or its own choice (`menu-hours.ts`). */
+  hoursFrom: holidays.MenuHoursFrom;
   /** What the caller hears, assembled exactly as the call will say it. */
   prompt: string;
   /** The numbers this menu answers. */
   numbers: { id: string; e164: string; label: string | null }[];
 }
 
-const menuOf = (row: typeof schema.phoneMenu.$inferSelect): voice.PhoneMenu => ({
+export const menuOf = (row: typeof schema.phoneMenu.$inferSelect): voice.PhoneMenu => ({
   id: row.id,
   name: row.name,
   greeting: row.greeting,
@@ -121,6 +123,7 @@ const menuOf = (row: typeof schema.phoneMenu.$inferSelect): voice.PhoneMenu => (
   afterHoursTo: (row.afterHoursTo ?? null) as Destination | null,
   timeoutSeconds: row.timeoutSeconds,
   speech: row.speech,
+  hoursFrom: row.hoursFrom,
 });
 
 async function numbersByMenu(tx: Database) {
@@ -142,6 +145,7 @@ const viewOf = (menu: voice.PhoneMenu, numbers: MenuView["numbers"]): MenuView =
   ...menu,
   options: menu.options.map((o) => ({ key: o.key, label: o.label, to: o.to, words: [...(o.words ?? [])] })),
   speech: menu.speech ?? false,
+  hoursFrom: menu.hoursFrom ?? "number",
   prompt: voice.menuPrompt(menu),
   numbers,
 });
@@ -205,7 +209,8 @@ const wordsOf = (words: readonly string[] | undefined): string[] => {
 /** The voicemail box is one box today, whatever a caller sent. */
 const normal = (to: Destination): Destination => to.kind === "voicemail" ? { kind: "voicemail", box: "main" } : to;
 
-function proposed(id: string, input: MenuInput, speechBefore: boolean): voice.PhoneMenu {
+/** Its hours are set on their own screen (`menu-hours.ts`): a save keeps them, and is checked against them. */
+function proposed(id: string, input: MenuInput, speechBefore: boolean, hoursFrom: holidays.MenuHoursFrom = "number"): voice.PhoneMenu {
   return {
     id,
     name: input.name.trim(),
@@ -215,6 +220,7 @@ function proposed(id: string, input: MenuInput, speechBefore: boolean): voice.Ph
     afterHoursTo: input.afterHoursTo ? normal(input.afterHoursTo) : null,
     timeoutSeconds: input.timeoutSeconds ?? 6,
     speech: input.speech ?? speechBefore,
+    hoursFrom,
   };
 }
 
@@ -239,7 +245,7 @@ export async function saveMenu(ctx: ServiceContext, input: MenuInput & { id?: st
     const before = creating ? null : await menuRow(tx, ctx.actor.organizationId, id);
     if (!creating && !before) throw new NotFoundError("Phone menu");
 
-    const menu = proposed(id, input, before?.speech ?? false);
+    const menu = proposed(id, input, before?.speech ?? false, before?.hoursFrom ?? "number");
     const directory = await directoryFor(tx, ctx.actor.organizationId);
     (directory.menus as Map<string, string>).set(id, menu.name || "this");
     const verdict = voice.checkMenu(menu, directory);

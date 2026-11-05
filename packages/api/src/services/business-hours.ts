@@ -281,6 +281,8 @@ const ownerIs = (organizationId: string, branchId: string | null) => and(
   eq(schema.businessHours.organizationId, organizationId),
   branchId ? eq(schema.businessHours.businessUnitId, branchId) : isNull(schema.businessHours.businessUnitId),
   isNull(schema.businessHours.phoneNumberId),
+  /** A phone menu's own week is the menu's (`menu-hours.ts`). */
+  isNull(schema.businessHours.phoneMenuId),
   /** A season's rows are the season's, changed with it. */
   isNull(schema.businessHours.seasonId),
 );

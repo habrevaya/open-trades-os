@@ -149,6 +149,13 @@ export type StoredDestination =
   | { kind: "agent" };
 
 /**
+ * Where a phone menu's hours come from: the number the call came in on
+ * (`number`, every menu's until a menu could keep its own), a branch's, the
+ * company's, or a week and days off of the menu's own.
+ */
+export const phoneMenuHoursFrom = pgEnum("phone_menu_hours_from", ["number", "branch", "company", "own"]);
+
+/**
  * A PHONE MENU: "press 1 for service, 2 for billing".
  *
  * The options are a list on the row rather than a table of their own,
@@ -177,6 +184,20 @@ export const phoneMenu = pgTable("phone_menu", {
    * what each caller says.
    */
   speech: boolean("speech").notNull().default(false),
+  /**
+   * Whose hours decide whether the menu is open when a call reaches it. The
+   * number's by default, as before. Any other answer is checked wherever the
+   * call comes from, a number or another menu, and needs `after_hours_to`.
+   * The menu's own week is seven rows of `business_hours` with its id, and
+   * its own days off are rows of `company_holiday` with it.
+   */
+  hoursFrom: phoneMenuHoursFrom("hours_from").notNull().default("number"),
+  /**
+   * The branch whose hours it follows with `hours_from = 'branch'`. A branch
+   * deleted afterwards leaves it on the company's, as a branch keeping no
+   * week does.
+   */
+  businessUnitId: uuid("business_unit_id").references(() => businessUnit.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
   orgIdx: index("phone_menu_org_idx").on(t.organizationId),

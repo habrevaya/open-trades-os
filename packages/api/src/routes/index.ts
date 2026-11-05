@@ -28,7 +28,7 @@ import {
   agents, agentIntake, agentChat, agentEstimates, agentCollections, agentDispatch, agentField,
   projectChangeOrders, projectApplications, projectLiens, projectSchedule,
   rateCards, jobBilling, claims, payerDelivery,
-  safety, retention, holidays, permitInspections, truckWater, haulTimes, productsApplied, businessHours, numberHours, afterHours, safetyTalks,
+  safety, retention, holidays, permitInspections, truckWater, haulTimes, productsApplied, businessHours, numberHours, menuHours, afterHours, safetyTalks,
   financing, costing, budgets, journals, taxRates,
   stockUnits, purchaseApprovals, purchaseOrderEmail, stockReturns, landedCost, rentalBilling, trucks, disposalFacilities, peopleRecords,
   customObjects, proposalTemplates, sandbox, search,
@@ -898,6 +898,7 @@ export const handlers = {
   removeHoursSeason: businessHours.handlers.removeHoursSeason,
   // A phone number's own hours and days off (M18)
   ...numberHours.handlers,
+  ...menuHours.handlers,
   // Which item is charged after hours and on a holiday, offered on the invoice (M02, M13)
   ...afterHours.handlers,
   // Toolbox talk topics, talks on a schedule and who has not signed (M23)
