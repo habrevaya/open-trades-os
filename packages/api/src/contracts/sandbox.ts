@@ -64,6 +64,8 @@ export const createSandbox = defineRoute({
       /** Items on the price book's shelves, each copied at the price it has today. */
       priceBookItems: z.number().int(),
       priceBookCategories: z.number().int(),
+      /** The makers the price book's items come from, with the days each gives to register a unit. */
+      warrantyMakers: z.number().int(),
       /** Roles the company defined, copied as definitions that nobody there holds. */
       roles: z.number().int(),
       branches: z.number().int(),

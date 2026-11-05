@@ -138,6 +138,8 @@ export interface Created {
     /** Items on the price book's shelves, each at the price it has now. */
     priceBookItems: number;
     priceBookCategories: number;
+    /** The makers the price book's items come from, with the days each gives to register a unit. */
+    warrantyMakers: number;
     roles: number;
     branches: number;
   };
@@ -200,6 +202,7 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
         inArray(schema.priceBookItemVersion.itemId, bookItems.map((i) => i.id)),
       ))
       .orderBy(desc(schema.priceBookItemVersion.version));
+    const makers = await tx.select().from(schema.warrantyMaker).where(isNull(schema.warrantyMaker.deletedAt));
     const customRoles = await tx.select().from(schema.role).where(isNull(schema.role.deletedAt));
     const branches = await tx.select().from(schema.businessUnit).where(isNull(schema.businessUnit.deletedAt));
     const coverKeys = templates.map((t) => t.cover?.photoKey).filter((k): k is string => Boolean(k));
@@ -287,6 +290,13 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
      * the book is dropped), no picture (the files are the real company's), and
      * no link back to the system it was imported from.
      */
+    /** The makers an item comes from, with their days, so an item's maker is the sandbox's own copy and never the real company's row. */
+    const makerIds = new Map(makers.map((maker) => [maker.id, randomUUID()] as const));
+    for (const maker of makers) {
+      await tx.insert(schema.warrantyMaker).values({
+        ...maker, id: makerIds.get(maker.id)!, organizationId: sandboxId, createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
     const shelfIds = new Map(shelves.map((shelf) => [shelf.id, randomUUID()] as const));
     for (const shelf of shelves) {
       await tx.insert(schema.priceBookCategory).values({
@@ -304,6 +314,7 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
       await tx.insert(schema.priceBookItem).values({
         ...item, id, organizationId: sandboxId,
         categoryId: item.categoryId ? shelfIds.get(item.categoryId) ?? null : null,
+        warrantyMakerId: item.warrantyMakerId ? makerIds.get(item.warrantyMakerId) ?? null : null,
         sourceSystem: null, sourceId: null, sourcePayload: null,
         createdAt: new Date(), updatedAt: new Date(),
       });
@@ -445,6 +456,7 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
         messageTemplates: messageTemplates.length,
         priceBookItems: copiedItems,
         priceBookCategories: shelves.length,
+        warrantyMakers: makers.length,
         roles: customRoles.length,
         branches: branches.length,
       },

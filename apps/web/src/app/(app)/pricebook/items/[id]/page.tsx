@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { inventory, priceBook, priceCategories, vendorCatalogue, NotFoundError } from "@opentradesos/api/services";
+import { inventory, priceBook, priceCategories, vendorCatalogue, warrantyMakers, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
@@ -46,10 +46,11 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
   const setsCommission = can(user.actor, "commission:configure") && "commissionRate" in item;
   const readsVendors = can(user.actor, "vendor:read");
   const writesVendors = can(user.actor, "vendor:write");
-  const [shelves, links, vendors] = await Promise.all([
+  const [shelves, links, vendors, makers] = await Promise.all([
     priceCategories.list(ctx),
     readsVendors ? vendorCatalogue.links(ctx, { itemId: id }) : Promise.resolve([]),
     writesVendors ? inventory.vendors(ctx) : Promise.resolve([]),
+    warrantyMakers.list(ctx),
   ]);
   const hidden = { id };
   const scheduled = item.versions.some((v) => v.state === "scheduled");
@@ -244,8 +245,16 @@ export default async function PriceBookItemPage({ params }: { params: Promise<{ 
               <TextField label="Code" name="code" required maxLength={60} defaultValue={item.code} />
               <Select label="Category" name="categoryId" options={shelfOptions(shelves)} defaultValue={item.categoryId ?? ""} />
               <Select label="Fee a plan can waive" name="feeRole" options={FEE_ROLES} defaultValue={item.feeRole ?? ""} />
+              <Select label="Maker it comes from" name="warrantyMakerId" defaultValue={item.warrantyMakerId ?? ""}
+                      options={[{ value: "", label: "None: use this item's own days" }, ...makers.makers.map((m) => ({
+                        value: m.id, label: `${m.name}${m.registrationDays == null ? "" : `, ${m.registrationDays} days`}`,
+                      }))]} />
               <CrewHoursBox defaultChecked={item.quantityIsCrewHours} />
             </div>
+            <p className="text-xs text-ink-500">
+              A maker with days gives the days to register a unit of this item (<a href="/pricebook/makers" className="underline underline-offset-4">Makers</a>).
+              Without one, the days typed on the item are used.
+            </p>
           </ActionForm>
         </section>
       ) : null}

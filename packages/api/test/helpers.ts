@@ -166,6 +166,8 @@ const ORDER = [
   /** Which item is charged after hours and on a holiday points at the items, so it goes first. */
   "after_hours_rate",
   "price_book_item_version", "price_book_item", "price_book_category",
+  /** A price book item names its maker (set null), so the makers go after the items. */
+  "warranty_maker",
   "rate_card_line", "rate_card", "contract_site",
   /** A contract's billed periods point at the schedule, the contract and an invoice. */
   "contract_billing_difference", "contract_billing_period", "contract_billing_fee", "contract_billing_schedule", "contract_escalation_notice", "contract_escalation_rise", "service_contract",

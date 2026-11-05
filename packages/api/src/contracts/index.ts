@@ -81,6 +81,7 @@ import { customerTagRoutes } from "./customer-tags";
 import { contactRoutes } from "./contacts";
 import { customerNoteRoutes } from "./customer-notes";
 import { priceBookBulkRoutes } from "./pricebook-bulk";
+import { warrantyMakerRoutes } from "./warranty-makers";
 import { taskRuleRoutes } from "./task-rules";
 import { customerPortalRoutes } from "./customer-portal";
 import { cardOnFileRoutes } from "./card-on-file";
@@ -203,6 +204,7 @@ export * from "./contacts";
 export * from "./customer-notes";
 export * from "./equipment";
 export * from "./pricebook-bulk";
+export * from "./warranty-makers";
 export * from "./task-rules";
 export * from "./customer-portal";
 export * from "./card-on-file";
@@ -329,6 +331,7 @@ export const routes = {
   ...contactRoutes,
   ...customerNoteRoutes,
   ...priceBookBulkRoutes,
+  ...warrantyMakerRoutes,
   ...taskRuleRoutes,
   ...customerPortalRoutes,
   ...cardOnFileRoutes,

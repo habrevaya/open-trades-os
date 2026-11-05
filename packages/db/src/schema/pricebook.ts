@@ -33,6 +33,39 @@ export const itemKind = pgEnum("item_kind", ["service", "material", "equipment",
  */
 export const feeRole = pgEnum("price_book_fee_role", ["diagnostic", "after_hours"]);
 
+/**
+ * A MAKER, AND THE TERMS IT GIVES FOR REGISTERING A UNIT.
+ *
+ * Most makers ask the installer to register a unit within a number of days or
+ * the warranty may not start, and the days belong to the maker, not to each
+ * item: Carrier's furnace, coil and condenser all share one set of days. A
+ * company writes its makers down once with their days, and a price book item
+ * names the maker it comes from (`price_book_item.warranty_maker_id`). An item
+ * that names none falls back to the days typed on the item itself, which is
+ * how every company worked before this table existed.
+ *
+ * `registration_days` is null for a maker that has not been given any, which
+ * means "ask the item", never "this maker asks for nothing": a deadline invented
+ * for a maker that asks for none would put a false obligation in a real queue,
+ * and one that is missing would lose a warranty, so the item's own days (empty
+ * until somebody types them) are the only other word on it.
+ */
+export const warrantyMaker = pgTable("warranty_maker", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** Days after the install to register the unit, or null when the maker has not been given any. */
+  registrationDays: integer("registration_days"),
+  /** Where to register and what they ask for, for whoever does it. */
+  notes: text("notes"),
+  ...timestamps,
+}, (t) => ({
+  /** One "Carrier", whatever the case, among the live ones, so a retired maker does not hold its name. */
+  nameIdx: uniqueIndex("warranty_maker_name_idx")
+    .on(t.organizationId, sql`lower(${t.name})`)
+    .where(sql`${t.deletedAt} is null`),
+}));
+
 export const priceBookCategory = pgTable("price_book_category", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
@@ -110,6 +143,15 @@ export const priceBookItem = pgTable("price_book_item", {
    * the register says rather than one typed on a phone in a crawl space.
    */
   epaRegistrationNumber: text("epa_registration_number"),
+  /**
+   * THE MAKER THIS ITEM COMES FROM, and through it the days to register a unit
+   * of it. Null for nearly everything: the item's own days
+   * (`warrantyRegistrationDays` on its version) are then the only word. On the
+   * item rather than the version, like `feeRole`, because it is what the item IS.
+   * Cleared when the maker is retired (a retired maker is refused while an item
+   * names it, so this is only the database's last word).
+   */
+  warrantyMakerId: uuid("warranty_maker_id").references(() => warrantyMaker.id, { onDelete: "set null" }),
   /** Set when the row came from a trade pack, so pack updates can be offered later. */
   tradePackId: text("trade_pack_id"),
   ...sourceRef,

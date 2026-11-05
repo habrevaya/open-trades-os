@@ -105,6 +105,8 @@ const REFUSED: Record<string, Refused> = {
   },
   /** Two shelves with one name under one parent, typed into the category manager. */
   price_book_category_name_idx: { file: "price-categories.ts", how: "catch" },
+  /** Two makers with one name, typed into the list of makers an item comes from. */
+  warranty_maker_name_idx: { file: "warranty-makers.ts", how: "catch" },
   marketing_campaign_utm_idx: { file: "campaigns.ts", how: "catch" },
   marketing_channel_name_idx: { file: "acquisition.ts", how: "catch" },
   acquisition_campaign_name_idx: { file: "acquisition.ts", how: "catch" },

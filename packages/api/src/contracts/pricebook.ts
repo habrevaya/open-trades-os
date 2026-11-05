@@ -71,6 +71,8 @@ export const PriceBookItem = z.object({
   warrantyMonths: z.number().int().nullable(),
   /** The maker wants a unit of this registered within this many days of the install; null when they do not ask. Raises a deadline when a serialised unit is installed on a job (M32). */
   warrantyRegistrationDays: z.number().int().nullable(),
+  /** The maker this item comes from (`GET /v1/warranty-makers`). When it has days of its own those are the days to register a unit; otherwise this item's `warrantyRegistrationDays` is the word. Null for an item that names none. */
+  warrantyMakerId: Uuid.nullable(),
   /** A kit's parts: other items included in it, each with how many. Empty for an item that is not a kit. */
   components: z.array(KitComponent),
   /** Bought in one unit and used in another; null for an item that is not, whose cost is per the one unit its lines count. */
@@ -220,9 +222,9 @@ export const getPriceBookItem = defineRoute({
 export const updatePriceBookItem = defineRoute({
   method: "patch",
   path: "/v1/pricebook/items/{id}",
-  summary: "Change an item's kind, code, category, fee, chemical mark or crew hours mark",
+  summary: "Change an item's kind, code, category, fee, chemical mark, crew hours mark or maker",
   description:
-    "What the item IS rather than what it costs or is called, so it changes the item in place and writes no version: no document points at any of these. The name, description, price and cost are a revision. A code another item already has is refused. `chemical` marks a material as a product technicians apply, with the unit its cost is per and its EPA registration number, and null takes the mark off; anything but a material is refused, and so is changing a marked item to another kind. `quantityIsCrewHours` says a line of the item counts its quantity in crew hours, which an estimate line copies when it is written and a conversion adds up as the job's budgeted hours; it changes no price and no estimate already written.",
+    "What the item IS rather than what it costs or is called, so it changes the item in place and writes no version: no document points at any of these. The name, description, price and cost are a revision. A code another item already has is refused. `chemical` marks a material as a product technicians apply, with the unit its cost is per and its EPA registration number, and null takes the mark off; anything but a material is refused, and so is changing a marked item to another kind. `quantityIsCrewHours` says a line of the item counts its quantity in crew hours, which an estimate line copies when it is written and a conversion adds up as the job's budgeted hours; it changes no price and no estimate already written. `warrantyMakerId` names the maker the item comes from (M32): when that maker has days to register a unit, those are the days a unit of this item is registered within, and the item's own `warrantyRegistrationDays` is read only when the maker has none or the item names no maker.",
   module: "M06",
   permissions: ["pricebook:write"],
   idempotent: true,
@@ -234,6 +236,8 @@ export const updatePriceBookItem = defineRoute({
     feeRole: FeeRole.nullable().optional(),
     chemical: ChemicalMark.nullable().optional(),
     quantityIsCrewHours: z.boolean().optional(),
+    /** The maker it comes from, or null to take it off. A maker that does not exist or was retired is refused. */
+    warrantyMakerId: Uuid.nullable().optional(),
   }),
   output: PriceBookItem.nullable(),
 });

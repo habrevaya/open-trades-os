@@ -150,6 +150,7 @@ export async function actOnItem(_previous: FormState, form: FormData): Promise<F
           id, kind: field(form, "kind"), code: field(form, "code"),
           categoryId: field(form, "categoryId") ?? null, feeRole: field(form, "feeRole") ?? null,
           quantityIsCrewHours: form.get("quantityIsCrewHours") === "on",
+          ...(form.has("warrantyMakerId") ? { warrantyMakerId: field(form, "warrantyMakerId") ?? null } : {}),
         }));
         return { message: "Saved. No version was written: nothing anybody was charged changes." };
       case "chemical":

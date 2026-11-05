@@ -565,8 +565,8 @@ the company's job types, custom fields, kinds of record, saved reports, proposal
 layouts, automations (all switched off) and the job workflows connected
 applications registered, and also its **message templates**, its **price book**,
 the **roles** it made and its **branches**. The price book arrives as it stands
-today: the shelves with their parents, every live item at the version in force now
-as its first and only version (the price history is not copied), a kit's parts
+today: the shelves with their parents, the makers items come from (with their days, M32),
+every live item at the version in force now as its first and only version (the price history is not copied), a kit's parts
 pointing at the copies, and no pictures (the files are the real company's) and no
 link back to a system an item was imported from. Roles arrive as definitions that
 nobody in the sandbox holds, so the owner decides who gets one; branches arrive
@@ -574,7 +574,7 @@ with their job types still in them. A message template whose code the sandbox
 started with (the renewal notices every new company has) takes the real company's
 wording. Changing any of these in the sandbox changes nothing at home. The make
 answer (`copied` on `POST /v1/sandbox`) counts each: `messageTemplates`,
-`priceBookItems`, `priceBookCategories`, `roles` and `branches`. Copying back is as
+`priceBookItems`, `priceBookCategories`, `warrantyMakers`, `roles` and `branches`. Copying back is as
 it was. Inside it a band
 on every screen says it is a sandbox and of which company, and the same page lists
 its settings (kinds of record, custom fields, proposal layouts, automations) with

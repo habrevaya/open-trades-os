@@ -35,6 +35,7 @@ let houston = "";
 let drains = "";
 let snake = "";
 let kit = "";
+let realMaker = "";
 
 beforeAll(async () => {
   if (!url) return;
@@ -66,6 +67,10 @@ beforeAll(async () => {
     return row!.id;
   };
   snake = await item("SNAKE", "Snake a drain", "189.00");
+  const [maker] = await raw<{ id: string }[]>`insert into public.warranty_maker (organization_id, name, registration_days)
+    values (${ORG}, 'Rheem', 45) returning id`;
+  realMaker = maker!.id;
+  await raw`update public.price_book_item set warranty_maker_id = ${realMaker} where id = ${snake}`;
   const part = await item("TRAP", "P-trap", "35.00");
   kit = await item("KIT", "Drain kit", "260.00");
   await raw`update public.price_book_item_version set components = ${raw.json([{ itemId: snake, quantity: 1 }, { itemId: part, quantity: 2 }, { itemId: crypto.randomUUID(), quantity: 1 }])}
@@ -163,6 +168,17 @@ run("making one copies more of how the company is set up", () => {
     expect(kitVersion.components).toEqual([
       { itemId: copyOf.get("SNAKE"), quantity: 1 }, { itemId: copyOf.get("TRAP"), quantity: 2 },
     ]);
+
+    // The maker an item comes from is the sandbox's own copy, with its days, and never the real company's row.
+    const copiedMakers = await raw<{ id: string; name: string; registration_days: number | null }[]>`
+      select id, name, registration_days from public.warranty_maker where organization_id = ${inside}`;
+    expect(copiedMakers.map((m) => [m.name, m.registration_days])).toEqual([["Rheem", 45]]);
+    expect(copiedMakers[0]!.id).not.toBe(realMaker);
+    const snakeCopy = items.find((i) => i.code === "SNAKE")!;
+    const [named] = await raw<{ warranty_maker_id: string | null }[]>`
+      select warranty_maker_id from public.price_book_item where id = ${snakeCopy.id}`;
+    expect(named!.warranty_maker_id).toBe(copiedMakers[0]!.id);
+    expect(made.copied.warrantyMakers).toBe(1);
 
     // A price changed in the practice copy is not changed at home.
     await raw`update public.price_book_item_version set price = '1.00' where organization_id = ${inside}`;

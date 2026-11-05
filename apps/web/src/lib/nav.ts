@@ -275,6 +275,8 @@ export const NAV: NavGroup[] = [
           { href: "/pricebook", label: "Items" },
           /** The shelves a technician browses by, which nothing could reorganise. */
           { href: "/pricebook/categories", label: "Categories" },
+          /** The makers items come from, and the days each gives to register a unit. */
+          { href: "/pricebook/makers", label: "Makers" },
           /** Many prices at once, previewed, written as new versions and undoable. */
           { href: "/pricebook/changes", label: "Change prices" },
           { href: "/pricebook/tax", label: "Sales tax" },

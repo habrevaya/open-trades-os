@@ -243,6 +243,7 @@ function shape(ctx: ServiceContext, row: ItemRow) {
     laborMinutes: row.version.laborMinutes ?? null,
     warrantyMonths: row.version.warrantyMonths ?? null,
     warrantyRegistrationDays: row.version.warrantyRegistrationDays ?? null,
+    warrantyMakerId: row.item.warrantyMakerId ?? null,
     components: row.version.components,
     /** Bought in one unit and used in another, when the version says so: its cost is per the buy unit. */
     units,
@@ -864,6 +865,8 @@ export async function updateItem(
     feeRole?: "diagnostic" | "after_hours" | null | undefined;
     chemical?: { unit: string; epaRegistrationNumber: string | null } | null | undefined;
     quantityIsCrewHours?: boolean | undefined;
+    /** The maker it comes from, who gives the days to register a unit of it; null takes it off. */
+    warrantyMakerId?: string | null | undefined;
   },
 ) {
   return guardedWrite(ctx, "pricebook:write", async (tx) => {
@@ -885,6 +888,14 @@ export async function updateItem(
     }
     if (input.feeRole !== undefined) set.feeRole = input.feeRole;
     if (input.quantityIsCrewHours !== undefined) set.quantityIsCrewHours = input.quantityIsCrewHours;
+    if (input.warrantyMakerId !== undefined) {
+      if (input.warrantyMakerId !== null) {
+        const [maker] = await tx.select({ id: schema.warrantyMaker.id }).from(schema.warrantyMaker)
+          .where(and(eq(schema.warrantyMaker.id, input.warrantyMakerId), isNull(schema.warrantyMaker.deletedAt))).limit(1);
+        if (!maker) throw new NotFoundError("Maker");
+      }
+      set.warrantyMakerId = input.warrantyMakerId;
+    }
 
     /**
      * A CHEMICAL IS A MATERIAL. The chemical cost per stop leaves out devices,
@@ -925,10 +936,12 @@ export async function updateItem(
       {
         kind: before.kind, code: before.code, categoryId: before.categoryId, feeRole: before.feeRole,
         quantityIsCrewHours: before.quantityIsCrewHours, chemical: chemicalOf(before),
+        warrantyMakerId: before.warrantyMakerId,
       },
       {
         kind: after!.kind, code: after!.code, categoryId: after!.categoryId, feeRole: after!.feeRole,
         quantityIsCrewHours: after!.quantityIsCrewHours, chemical: chemicalOf(after!),
+        warrantyMakerId: after!.warrantyMakerId,
       });
 
     const fresh = await load(tx, input.id);
