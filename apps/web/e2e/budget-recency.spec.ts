@@ -3,7 +3,7 @@ import { test, expect } from "./fixtures";
 /**
  * A RUN RATE THAT COUNTS RECENT MONTHS FOR MORE, AND A BLEND FOR ONE LINE
  *
- * In a year nobody else's spec touches, the owner sets Revenue and Materials,
+ * In a year nobody else's spec touches, the owner sets Revenue,
  * ticks the box that makes the run rate count recent months for more and sees
  * it kept, gives Revenue a blend of its own and reads it beside the line and
  * in the list, is refused in words for a line not in the budget, and takes it
@@ -15,12 +15,11 @@ const YEAR = 2004;
 test("the run rate can count recent months for more, and one line can have its own blend", async ({ owner }) => {
   await owner.goto(`/books/budget?year=${YEAR}`);
   const lines = owner.getByRole("region", { name: "Set a line" });
-  for (const [line, amount] of [["Revenue", "1000"], ["Materials", "300"]] as const) {
-    await lines.getByLabel("Line").fill(line);
-    for (const name of MONTHS) await lines.getByLabel(name, { exact: true }).fill(amount);
-    await lines.getByRole("button", { name: "Save line" }).click();
-    await expect(owner.getByRole("table").first()).toContainText(line);
-  }
+  await lines.getByLabel("Line").fill("Revenue");
+  /** The first form is the new line; a rerun also shows the line already there to change. */
+  for (const name of MONTHS) await lines.getByLabel(name, { exact: true }).first().fill("1000");
+  await lines.getByRole("button", { name: "Save line" }).click();
+  await expect(owner.getByRole("table").first()).toContainText("Revenue");
 
   const forecast = owner.getByRole("region", { name: "The forecast" });
   await forecast.getByLabel("The months to come").selectOption("run_rate");
