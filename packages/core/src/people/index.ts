@@ -355,6 +355,52 @@ export function ownPhoneWords(phone: string | null): string {
   return us ? `(${us[1]}) ${us[2]}-${us[3]}` : phone;
 }
 
+/**
+ * What a colleague did, for the sentence the office is told: "changed their
+ * phone number", "added a home address", "removed their phone number and
+ * changed their home address". Never the new number or address: a notice goes
+ * to a lock screen and sometimes a text, and the office reads the details on
+ * the person's page.
+ */
+export function ownContactNoticeWords(changes: readonly OwnContactChange[]): string {
+  const parts = changes.map((c) => ({
+    noun: c.field === "phone" ? "phone number" : "home address",
+    verb: c.before === "none" ? "added" : c.after === "none" ? "removed" : "changed",
+  }));
+  const phrase = (p: { noun: string; verb: string }) => `${p.verb} ${p.verb === "added" ? "a" : "their"} ${p.noun}`;
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return phrase(parts[0]!);
+  /** The verb is said once where it repeats: "changed their phone number and home address". */
+  return parts[0]!.verb === parts[1]!.verb
+    ? `${phrase(parts[0]!)} and ${parts[1]!.noun}`
+    : `${phrase(parts[0]!)} and ${phrase(parts[1]!)}`;
+}
+
+/**
+ * THE SECOND MAILBOX FOR LICENCE AND SKILL EXPIRY EMAILS
+ *
+ * A person may keep one more address, beside the one they sign in with, that
+ * their own licence and skill expiry emails also go to. Checked the way an
+ * address typed into a box is: something@somewhere.tld, no spaces, and not the
+ * address they already sign in with (it already gets them).
+ */
+export type SecondEmailCheck = { ok: true; email: string | null } | { ok: false; reason: string };
+
+export function checkSecondEmail(typed: string | null | undefined, signInAddress: string): SecondEmailCheck {
+  const email = (typed ?? "").trim().toLowerCase();
+  if (email === "") return { ok: true, email: null };
+  if (email.length > 254 || !/^[^\s@,;<>()]+@[^\s@,;<>()]+\.[^\s@,;<>()]+$/.test(email)) {
+    return { ok: false, reason: `${typed!.trim()} is not an email address. Type it like name@example.com.` };
+  }
+  if (email === signInAddress.trim().toLowerCase()) {
+    return {
+      ok: false,
+      reason: "That is the address you already sign in with, and it already gets these emails. Type a different one, or leave the box empty.",
+    };
+  }
+  return { ok: true, email };
+}
+
 export interface OwnContactChange {
   field: "phone" | "address";
   /** "none" when there was nothing. */

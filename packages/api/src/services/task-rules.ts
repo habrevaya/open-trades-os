@@ -1,11 +1,12 @@
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { SYSTEM_USER_ID, taskRules, holidays as holidayRules, time, type Actor } from "@opentradesos/core";
+import { SYSTEM_USER_ID, taskRules, holidays as holidayRules, notices, time, type Actor } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, inTenant, timezoneOf, ConflictError, NotFoundError,
   type ServiceContext,
 } from "./context";
 import { tellAssignee, writeChecklist } from "./tasks";
+import { deliveryToday as onCallDelivery, type OnCallDelivery } from "./office-on-call";
 import { raiseWithin } from "./staff-notices";
 import * as email from "./email";
 import { publicBaseUrl } from "./setup-tokens";
@@ -225,10 +226,14 @@ export interface TemplateInput {
   body?: string | undefined;
   priority?: taskRules.TaskPriority | undefined;
   assigneeUserId?: string | null | undefined;
+  /** Give each task to whoever is on the office rota the day it is raised, in place of a named person. */
+  assigneeOnCall?: boolean | undefined;
   queue?: string | undefined;
   frequency: taskRules.TaskFrequency;
   weekday?: number | null | undefined;
   monthDay?: number | null | undefined;
+  /** For yearly: the month, 1 to 12. The day is `monthDay`. */
+  yearMonth?: number | null | undefined;
   /** For the given weekday of the month: 1 is the first, 4 the fourth. */
   monthWeek?: number | null | undefined;
   /** For every so many weeks: 2 to 52. */
@@ -250,10 +255,13 @@ export interface TemplateView {
   priority: taskRules.TaskPriority;
   assigneeUserId: string | null;
   assigneeName: string | null;
+  /** True when each task goes to whoever is on the office rota the day it is raised; then there is no named person. */
+  assigneeOnCall: boolean;
   queue: string | null;
   frequency: taskRules.TaskFrequency;
   weekday: number | null;
   monthDay: number | null;
+  yearMonth: number | null;
   monthWeek: number | null;
   intervalWeeks: number | null;
   daysOfWeek: number[] | null;
@@ -282,10 +290,12 @@ function viewOf(
     priority: row.priority,
     assigneeUserId: row.assigneeUserId,
     assigneeName: nameOf(people, row.assigneeUserId),
+    assigneeOnCall: row.assigneeOnCall,
     queue: row.queue,
     frequency: row.frequency,
     weekday: row.weekday,
     monthDay: row.monthDay,
+    yearMonth: row.yearMonth,
     monthWeek: row.monthWeek,
     intervalWeeks: row.intervalWeeks,
     daysOfWeek: row.daysOfWeek,
@@ -304,8 +314,8 @@ function viewOf(
 
 /** A stored template as the schedule core counts. */
 const scheduleOf = (row: Pick<typeof schema.taskTemplate.$inferSelect,
-  "frequency" | "weekday" | "monthDay" | "monthWeek" | "intervalWeeks" | "daysOfWeek" | "startsOn">): taskRules.TaskSchedule => ({
-  frequency: row.frequency, weekday: row.weekday, monthDay: row.monthDay, monthWeek: row.monthWeek,
+  "frequency" | "weekday" | "monthDay" | "yearMonth" | "monthWeek" | "intervalWeeks" | "daysOfWeek" | "startsOn">): taskRules.TaskSchedule => ({
+  frequency: row.frequency, weekday: row.weekday, monthDay: row.monthDay, yearMonth: row.yearMonth, monthWeek: row.monthWeek,
   intervalWeeks: row.intervalWeeks, daysOfWeek: row.daysOfWeek, startsOn: row.startsOn,
 });
 
@@ -317,7 +327,8 @@ const scheduleOf = (row: Pick<typeof schema.taskTemplate.$inferSelect,
 const scheduleColumns = (input: TemplateInput) => ({
   frequency: input.frequency,
   ...weekColumns(input),
-  monthDay: input.frequency === "monthly" ? input.monthDay ?? null : null,
+  monthDay: input.frequency === "monthly" || input.frequency === "yearly" ? input.monthDay ?? null : null,
+  yearMonth: input.frequency === "yearly" ? input.yearMonth ?? null : null,
   monthWeek: input.frequency === "nth_weekday_of_month" ? input.monthWeek ?? null : null,
   intervalWeeks: input.frequency === "every_n_weeks" ? input.intervalWeeks ?? null : null,
 });
@@ -343,7 +354,7 @@ function checkTemplate(input: TemplateInput & { startsOn: string }): void {
   if (input.title.trim() === "") throw new ConflictError("A recurring task needs a title.");
   const verdict = taskRules.checkSchedule({
     frequency: input.frequency, weekday: input.weekday ?? null, monthDay: input.monthDay ?? null,
-    monthWeek: input.monthWeek ?? null, intervalWeeks: input.intervalWeeks ?? null, daysOfWeek: input.daysOfWeek ?? null,
+    yearMonth: input.yearMonth ?? null, monthWeek: input.monthWeek ?? null, intervalWeeks: input.intervalWeeks ?? null, daysOfWeek: input.daysOfWeek ?? null,
     startsOn: input.startsOn,
   });
   if (!verdict.ok) throw new ConflictError(verdict.message);
@@ -376,6 +387,9 @@ export async function createTemplate(ctx: ServiceContext, input: TemplateInput):
     const today = time.dateIn(new Date(), zone);
     const startsOn = input.startsOn ?? today;
     checkTemplate({ ...input, startsOn });
+    if (input.assigneeOnCall && input.assigneeUserId) {
+      throw new ConflictError("Choose one: a person, or whoever is on the office rota today. Not both.");
+    }
     const people = await directory(tx, ctx.actor.organizationId);
     mustBeActive(people, input.assigneeUserId, "The person it goes to");
 
@@ -385,6 +399,7 @@ export async function createTemplate(ctx: ServiceContext, input: TemplateInput):
       body: input.body?.trim() || null,
       priority: input.priority ?? "normal",
       assigneeUserId: input.assigneeUserId ?? null,
+      assigneeOnCall: input.assigneeOnCall ?? false,
       queue: input.queue?.trim() || null,
       ...scheduleColumns(input),
       dueMinutes: input.dueMinutes ?? 17 * 60,
@@ -429,6 +444,7 @@ export async function updateTemplate(
         : input.daysOfWeek !== undefined && taskRules.cleanDays(input.daysOfWeek).length > 0
           && taskRules.EVERY_SO_MANY_WEEKS.includes(input.frequency ?? before.frequency) ? null : before.weekday,
       monthDay: input.monthDay !== undefined ? input.monthDay : before.monthDay,
+      yearMonth: input.yearMonth !== undefined ? input.yearMonth : before.yearMonth,
       monthWeek: input.monthWeek !== undefined ? input.monthWeek : before.monthWeek,
       intervalWeeks: input.intervalWeeks !== undefined ? input.intervalWeeks : before.intervalWeeks,
       daysOfWeek: input.daysOfWeek !== undefined ? input.daysOfWeek
@@ -441,12 +457,36 @@ export async function updateTemplate(
     checkTemplate(merged);
     const people = await directory(tx, ctx.actor.organizationId);
     if (input.assigneeUserId !== undefined) mustBeActive(people, input.assigneeUserId, "The person it goes to");
+    if (input.assigneeOnCall && input.assigneeUserId) {
+      throw new ConflictError("Choose one: a person, or whoever is on the office rota today. Not both.");
+    }
+    /** A person named takes the task off the rota, and the rota takes the person off. */
+    const assignment = input.assigneeOnCall === true ? { assigneeOnCall: true, assigneeUserId: null }
+      : input.assigneeOnCall === false ? { assigneeOnCall: false, ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}) }
+        : input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId, assigneeOnCall: false }
+          : {};
+
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    const today = time.dateIn(new Date(), zone);
+    /**
+     * Moving a yearly task's date to one that has already gone by this year
+     * does not raise it now. The worker raises the latest occurrence on or
+     * before today, which for a date once a year could be months back, and a
+     * licence task for last March appearing today because somebody fixed the
+     * month is a backfill. The day before today is written down as dealt with,
+     * so the next occurrence is the one raised, and a date that is today still is.
+     */
+    const yearlyMoved = merged.frequency === "yearly" && (
+      before.frequency !== "yearly" || before.yearMonth !== merged.yearMonth || before.monthDay !== merged.monthDay);
+    const yesterday = time.addDays(today, -1);
+    const keepRaisedOn = yearlyMoved && (before.lastRaisedOn === null || before.lastRaisedOn < yesterday)
+      ? { lastRaisedOn: yesterday } : {};
 
     const [after] = await tx.update(schema.taskTemplate).set({
       title: merged.title.trim(),
       ...(input.body !== undefined ? { body: input.body.trim() || null } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
-      ...(input.assigneeUserId !== undefined ? { assigneeUserId: input.assigneeUserId } : {}),
+      ...assignment,
       ...(input.queue !== undefined ? { queue: input.queue.trim() || null } : {}),
       ...scheduleColumns(merged),
       dueMinutes: merged.dueMinutes ?? before.dueMinutes,
@@ -454,14 +494,14 @@ export async function updateTemplate(
       startsOn: merged.startsOn,
       ...(input.skipHolidays !== undefined ? { skipHolidays: input.skipHolidays } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
+      ...keepRaisedOn,
       updatedAt: new Date(),
     }).where(eq(schema.taskTemplate.id, input.id)).returning();
 
     await audit(tx, ctx, input.active === false ? "task_template.paused"
       : input.active === true ? "task_template.resumed" : "task_template.updated",
     "task_template", input.id, before, after);
-    const zone = await timezoneOf(tx, ctx.actor.organizationId);
-    return viewOf(after!, people, time.dateIn(new Date(), zone));
+    return viewOf(after!, people, today);
   });
 }
 
@@ -702,6 +742,7 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
       .where(eq(schema.taskTemplate.active, true));
     const raised: string[] = [];
     const holidayList = templates.some((t) => t.skipHolidays) ? await loadHolidays(tx, organizationId) : [];
+    let onCall: OnCallDelivery | null = null;
 
     for (const template of templates) {
       const day = taskRules.occurrenceToRaise(
@@ -727,12 +768,20 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
         continue;
       }
 
+      /**
+       * Given to whoever is on the office rota today: the rota is read once a
+       * pass, the first time a template asks for it. One person gets the task;
+       * two or more are each told of the one task, which stays unassigned;
+       * nobody leaves it unassigned, with a line saying so at the top.
+       */
+      if (template.assigneeOnCall && onCall === null) onCall = await onCallDelivery(tx, organizationId, now);
+      const delivery = template.assigneeOnCall ? onCall : null;
       const [made] = await tx.insert(schema.task).values({
         organizationId,
         title: template.title,
-        body: template.body,
+        body: delivery?.sentTo ? [delivery.sentTo, template.body].filter(Boolean).join("\n\n") : template.body,
         priority: template.priority,
-        assigneeUserId: template.assigneeUserId,
+        assigneeUserId: delivery ? delivery.assigneeUserId : template.assigneeUserId,
         queue: template.queue,
         dueAt: time.instantOfLocal(day, template.dueMinutes, zone),
         templateId: template.id,
@@ -742,8 +791,16 @@ export async function raiseRecurringFor(db: Database, organizationId: string, no
       if (made) {
         await writeChecklist(tx, organizationId, made.id, template.checklist);
         await tellAssignee(tx, made, `task_assigned:${made.id}:${made.assigneeUserId ?? ""}`);
+        for (const userId of delivery?.told ?? []) {
+          await raiseWithin(tx, {
+            organizationId, userId, kind: "task_assigned", key: `task_assigned:${made.id}:${userId}`,
+            title: `A task for your team: ${made.title}`,
+            body: made.dueAt ? `Due ${notices.localWhen(made.dueAt, zone)}.` : null,
+            about: { type: "task", id: made.id },
+          });
+        }
         await audit(tx, ctx, "task.raised_recurring", "task", made.id, null,
-          { templateId: template.id, occurrenceOn: day });
+          { templateId: template.id, occurrenceOn: day, ...(delivery ? { onCall: true, toldUserIds: delivery.told } : {}) });
         raised.push(made.id);
       }
       await tx.update(schema.taskTemplate)

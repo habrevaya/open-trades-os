@@ -215,7 +215,8 @@ beside the card, or "Warn days ahead" when recording it) or with
 hands it back to its type's number. The earlier number is kept in the audit log.
 A notice already sent is not sent again by moving the number.
 
-**Several at once.** On `/certifications`, each card that expires has a "Tick" box, and above
+**Several at once.** On `/certifications`, each card that expires has a "Tick" box, "Tick every card" ticks them all
+(the first 200 when there are more, saying so) and "Clear the ticks" clears them, and above
 "Who holds what" the form "Days ahead for the ticked cards" sets one number on all of them
 (`POST /v1/certification-renewals/days`, `compliance:write`: `ids`, up to 200, and
 `renewalLeadDays`, a whole number of days or `null`). A blank box hands every ticked card back to
@@ -344,6 +345,34 @@ is home contact detail, so it sits behind the same `user:read` as the emergency 
 employment record. **The office cannot write it**, on purpose: it is theirs and the list of changes
 is what they said; somebody who cannot use `/me` is asked for it.
 
+**The office is told when one changes.** A save that changes the phone or the address raises one
+notice of the kind "A colleague changed their phone or address" (`contact_changed`, M34), in the
+same transaction as the change, to everybody who works here, holds `user:read` and whose scope of
+people reaches this person, except the person themselves: the owner and the office manager, and a
+branch manager for their own branch's people only. It says what they did and never the new number
+or address ("Ray Nunez changed their phone number", "added a phone number and home address",
+"removed their home address"), because a notice goes to a lock screen and sometimes a text, and the
+details are one tap away on their page, which is where the notice opens (`/people/{membershipId}`).
+A save that changed nothing writes no version and tells nobody; each version tells once. Each
+person switches the kind off for themselves on `/me` like any other (it is in the app and on the
+phone until they do, and never by text unless they ask), and the notice is held to what its reader
+may open, so a manager whose scope no longer reaches the person stops seeing it. A change to the
+second email below is audited and shown on the page, and raises no notice.
+
+**A second email for their licence emails.** `POST /v1/me/second-email` (`email`, or empty to take it
+off) and `/me` under "A second email for your licence emails". The person's own licence and skill
+expiry emails go to the address they sign in with and, when this is set, also to it: one more
+email to the second address for each notice about the person's OWN card or skill, under the same
+Email switch on `/me`, so switching it off stops both. The copies sent to a manager or to whoever
+keeps the renewals list about somebody else's licence never go to anybody's second address: that
+mailbox is for the person's own cards. The address is checked as an address, lower cased, and may not
+be the one they sign in with (it already gets them); it is **not** confirmed by a message to it, so
+a typo sends their licence emails to a stranger (the email carries the notice's words and a link
+that needs a sign in, not the card's number). Kept as one current row per person
+(`person_second_email`, keyed on the membership), changes audited as `person.second_email_changed`
+with the old and new address. The office reads it on `/people/{membershipId}` (`secondEmail` on
+`GET /v1/people/{membershipId}` and `GET /v1/me`) and cannot write it, as with the phone.
+
 The phone app has the same two boxes, "Your phone and address" at the foot of a
 technician's day (M11): it reads `GET /v1/me` and saves through `POST /v1/me/contact` with the
 phone's own sign in, as the same person and the same permission (`profile:own`), so a change
@@ -467,6 +496,7 @@ Everybody holds `profile:own`: their own record, and nobody else's.
 | `POST /v1/staff-documents/{id}/requests` | `user:write` |
 | `GET /v1/me` | `profile:own` |
 | `POST /v1/me/contact` | `profile:own` |
+| `POST /v1/me/second-email` | `profile:own` |
 | `POST /v1/me/emergency-contacts` | `profile:own` |
 | `POST /v1/me/emergency-contacts/{id}/remove` | `profile:own` |
 | `POST /v1/me/onboarding-lines/{id}` | `profile:own` |
@@ -499,20 +529,23 @@ a printed copy is a record made from them on the day, not a stored file. A perso
 emergency contacts, phone number and home address and nothing else of their record: the
 office cannot enter or correct a phone or address for them (it reads them), and on the phone app they are saved only with a signal, never queued, the address is
 United States only and has no second address or mailing address apart from the home one, a
-changed phone is not texted or checked, and there is no notice to the office when one changes (it
-is on the person's page and in the audit log, not pushed). The phone kept here is not the number
+changed phone is not texted or checked. The office is told that a phone or address changed, never
+what it changed to (the new details are on the person's page and in the audit log). The phone kept here is not the number
 a sign in code for the phone app is sent to (`/settings/phones`, M11), and changing one does not change the other. A person can tick any line of their own onboarding,
 and the office sees that they ticked it rather than the office. A skill's
 record can have an expiry of its own, and its renewals list and its notice follow its
 own number of days: there is no per type notice period for a skill, because a skill has
 no type. A certification's holding follows its type's renewal period unless it was given a
 number of its own, one card at a time or for a ticked set at once (all or nothing, at most 200
-cards; there is no "tick every card" button, so a long list is ticked one by one, and a card
-whose type does not expire cannot be ticked), and a number of a card's own is not carried to the
+cards; "Tick every card" on `/certifications` ticks the cards that expire, the first 200 in the order
+shown and it says so when there are more, so a list longer than 200 is done in more than one go, and
+a card whose type does not expire cannot be ticked), and a number of a card's own is not carried to the
 next card when it is renewed (the renewal is a new row, and follows the type's number until given one). A
 licence or skill running out is emailed to the holder, their manager and each keeper at
-the address they sign in with, and to no other address: a person cannot choose a second
-mailbox, and the email is not a weekly summary but one message per notice. It lands in the
+the address they sign in with, and the holder's own copy also to a second address the holder
+keeps (never the manager's or a keeper's copy, and no other address: the office cannot choose a
+mailbox for somebody, and a second address is not confirmed by a message to it). The email is
+not a weekly summary but one message per notice. It lands in the
 company's email outbox, so whoever may read the inbox can read it, as with the other
 emails to the company's own people; it carries the notice's words and a link, not the
 card's number. Only a licence or skill running out is emailed: the other kinds of notice

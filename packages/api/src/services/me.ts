@@ -7,10 +7,11 @@ import {
 import * as once from "./once";
 import { held, type HeldCertification } from "./people";
 import {
-  ceWithin, contactsWithin, employmentWithin, onboardingWithin, ownContactWithin, ownSkills,
+  ceWithin, contactsWithin, employmentWithin, onboardingWithin, ownContactWithin, ownSkills, secondEmailWithin,
   type OwnContactRecord, type CeView, type EmergencyContactView, type EmploymentView, type OnboardingView, type SkillRecordView,
 } from "./people-records";
 import { attach, decode, put } from "./files";
+import { raiseToOffice } from "./staff-notices";
 import { ownWithin, signWithin, signedPdfWithin, type OwnDocument, type SignInput } from "./staff-documents";
 import type { PdfFile } from "./documents";
 
@@ -88,6 +89,8 @@ export interface MyRecord extends Self {
   emergencyContacts: EmergencyContactView[];
   /** The address and phone they keep themselves, and what each save changed. */
   ownContact: OwnContactRecord;
+  /** The second mailbox they keep for their own licence and skill expiry emails, or null. */
+  secondEmail: string | null;
   onboarding: OnboardingView;
   documents: OwnDocument[];
   /** Theirs only, lapsed and revoked included: a renewal list that drops what has run out is empty when it matters. */
@@ -108,6 +111,7 @@ export function record(ctx: ServiceContext): Promise<MyRecord> {
       employment: await employmentWithin(tx, self.membershipId),
       emergencyContacts: await contactsWithin(tx, self.membershipId),
       ownContact: await ownContactWithin(tx, self.membershipId),
+      secondEmail: await secondEmailWithin(tx, self.membershipId),
       onboarding: await onboardingWithin(tx, self.membershipId),
       documents: await ownWithin(tx, self.membershipId),
       certifications: self.technicianId
@@ -265,15 +269,65 @@ export function setOwnContact(ctx: ServiceContext, input: OwnContactInput): Prom
     /** Compared whole, so a second address line changing on its own is a change too. */
     const same = JSON.stringify(was ?? peopleCore.NO_OWN_CONTACT) === JSON.stringify(checked.contact);
     if (same) return before;
-    await tx.insert(schema.personContact).values({
+    const [version] = await tx.insert(schema.personContact).values({
       organizationId: ctx.actor.organizationId,
       membershipId: self.membershipId,
       changedByUserId: ctx.actor.userId,
       ...checked.contact,
-    });
+    }).returning({ id: schema.personContact.id });
     await audit(tx, ctx, "person.contact_changed", "membership", self.membershipId,
       was ?? peopleCore.NO_OWN_CONTACT, { ...checked.contact, by: "themselves" });
+
+    /**
+     * TELL THE OFFICE, in the same transaction as the change. It says what they
+     * did and never the new number or address (the office reads those on their
+     * page), to everybody who may read people and reaches this one, except them.
+     */
+    const words = peopleCore.ownContactNoticeWords(peopleCore.ownContactChanges(was, checked.contact));
+    if (words !== "") {
+      await raiseToOffice(tx, {
+        organizationId: ctx.actor.organizationId,
+        membershipId: self.membershipId,
+        exceptUserId: ctx.actor.userId,
+        kind: "contact_changed",
+        key: `contact_changed:${version!.id}`,
+        title: `${self.name} ${words}`,
+        body: "Open their page to see what changed.",
+      });
+    }
     return ownContactWithin(tx, self.membershipId);
+  });
+}
+
+/**
+ * Keep, change or take off the second mailbox their own licence and skill
+ * expiry emails also go to. Always the signed in person's own. An empty box
+ * takes it off. The same address again changes nothing and is not audited.
+ * The office reads it on their page and never writes it, and it is not
+ * checked by a message to it: it only ever gets the same emails that the
+ * address they sign in with does, about their own licences and skills.
+ */
+export function setOwnSecondEmail(ctx: ServiceContext, input: { email?: string | null | undefined }): Promise<{ secondEmail: string | null }> {
+  return guardedWrite(ctx, "profile:own", async (tx) => {
+    const self = await selfWithin(tx, ctx);
+    const checked = peopleCore.checkSecondEmail(input.email, self.email);
+    if (!checked.ok) throw new ConflictError(checked.reason);
+    const before = await secondEmailWithin(tx, self.membershipId);
+    if (before === checked.email) return { secondEmail: before };
+    if (checked.email === null) {
+      await tx.delete(schema.personSecondEmail).where(eq(schema.personSecondEmail.membershipId, self.membershipId));
+    } else {
+      await tx.insert(schema.personSecondEmail).values({
+        membershipId: self.membershipId, organizationId: ctx.actor.organizationId,
+        email: checked.email, changedByUserId: ctx.actor.userId,
+      }).onConflictDoUpdate({
+        target: schema.personSecondEmail.membershipId,
+        set: { email: checked.email, changedByUserId: ctx.actor.userId, updatedAt: new Date() },
+      });
+    }
+    await audit(tx, ctx, "person.second_email_changed", "membership", self.membershipId,
+      { secondEmail: before }, { secondEmail: checked.email, by: "themselves" });
+    return { secondEmail: checked.email };
   });
 }
 
@@ -413,6 +467,7 @@ export const handlers = {
   removeMyEmergencyContact: async (ctx: ServiceContext, input: { id: string }) =>
     ({ contacts: await removeContact(ctx, input) }),
   setMyContact: (ctx: ServiceContext, input: OwnContactInput) => setOwnContact(ctx, input),
+  setMySecondEmail: (ctx: ServiceContext, input: { email?: string | null | undefined }) => setOwnSecondEmail(ctx, input),
   setMyOnboardingLine: (ctx: ServiceContext, input: { id: string; done: boolean; note?: string | null | undefined }) =>
     setOnboardingLine(ctx, input),
   logMyContinuingEducation: (ctx: ServiceContext, input: OwnCeInput) => logOwnContinuingEducation(ctx, input),

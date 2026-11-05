@@ -92,6 +92,8 @@ export const getMyRecord = defineRoute({
     emergencyContacts: z.array(Contact),
     /** The address and phone you keep yourself, and what each save changed. */
     ownContact: OwnContactRecord,
+    /** The second mailbox for your own licence and skill expiry emails, or null. */
+    secondEmail: z.string().nullable(),
     onboarding: Onboarding,
     documents: z.array(OwnDocument),
     certifications: z.array(Certification),
@@ -129,6 +131,19 @@ export const setMyContact = defineRoute({
     postalCode: z.string().max(20).nullable().optional(),
   }),
   output: OwnContactRecord,
+});
+
+export const setMySecondEmail = defineRoute({
+  method: "post",
+  path: "/v1/me/second-email",
+  summary: "Keep a second email address for your licence and skill expiry emails",
+  description:
+    "Your own licence and skill expiry emails (M34) go to the address you sign in with, and also to this one when it is set. Only your own: the copies sent to your manager or to whoever keeps the renewals list about someone else's licence never go to it. The same on/off switch on `/me` covers both. An empty `email` takes it off; the address you sign in with is refused, since it already gets them. The address is not checked by a message sent to it, so check it is typed right. The office reads it on your page (`GET /v1/people/{membershipId}`, `user:read`) and never writes it. Always your own: there is no person to name. Audited as `person.second_email_changed`.",
+  module: "M24",
+  permissions: ["profile:own"],
+  idempotent: true,
+  input: z.object({ email: z.string().max(254).nullable().optional() }),
+  output: z.object({ secondEmail: z.string().nullable() }),
 });
 
 export const addMyEmergencyContact = defineRoute({
@@ -334,7 +349,7 @@ export const askToSignStaffDocument = defineRoute({
 });
 
 export const selfServiceRoutes = {
-  getMyRecord, setMyContact, addMyEmergencyContact, removeMyEmergencyContact, setMyOnboardingLine, signMyDocument,
+  getMyRecord, setMyContact, setMySecondEmail, addMyEmergencyContact, removeMyEmergencyContact, setMyOnboardingLine, signMyDocument,
   logMyContinuingEducation, withdrawMyContinuingEducation,
   getMyPayStatements,
   listStaffDocuments, getStaffDocument, createStaffDocument, retireStaffDocument, askToSignStaffDocument,

@@ -143,7 +143,11 @@ export default async function TasksPage({
             <div className="grid gap-3 sm:grid-cols-2">
               <TextField label="Due" name="dueAt" type="datetime-local" />
               <Select label="For" name="assigneeUserId"
-                      options={[{ value: "", label: "Nobody yet (the queue)" }, ...people.map((p) => ({ value: p.userId, label: p.name }))]} />
+                      options={[
+                        { value: "", label: "Nobody yet (the queue)" },
+                        { value: "on_call", label: "Whoever is on the office rota today" },
+                        ...people.map((p) => ({ value: p.userId, label: p.name })),
+                      ]} />
             </div>
             <TextArea label="Checklist, one item a line" name="checklist" rows={3} />
           </ActionForm>

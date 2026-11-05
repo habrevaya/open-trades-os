@@ -903,6 +903,31 @@ A breakdown is refused exactly where the records behind the figure are, in
 the same words: a reader whose scope is narrower than the company, a record
 kind they may not read, and a money half without `report.financial:read`.
 
+**The cancellation rate month by month.** "Over time" under the figure on the scorecard, beside
+"Break it down by", shows the same stops added up by the month each began in, as a table with a
+row for each route (or weekday) and a column for each month, the last 6, 12 or 24 months up to the
+end date of the window, ending on "All months". Each month's cell is that route's figure for the
+month with its two halves under it ("2 of 5"), each half a link to that route's stops in that month
+(`/reports/scorecard/records`, with the month's first and last day and `by` and `group`), and the
+last row adds every route up for the month. A route with no stop that month reads "None", not nought,
+and a route whose only stops that month were the company's own calls reads "No figure", as its
+breakdown does. A month is the days of the company's own calendar the stop's window began in, so a
+stop at eleven at night is in the month it was booked for and not the next one when the clock
+reads tomorrow in UTC. In the API it is `GET /v1/kpi-series` (`key`, `by`, `from`, `to`;
+`report:read`, refused exactly where the breakdown is), giving every month from the window's first to
+its last, oldest first, each with its `groups` (only those with a stop that month) and its `total`,
+and `all`, the months added up by group, which equals `GET /v1/kpi-breakdown` for the whole window.
+A month the window cuts short (the first or last) says `partial` and counts only its own days in
+the window; the screen always starts at the first of a month, so only the last can be part of a
+month, and says so. At most 60 months at a time, and a window longer than that is refused in words.
+Only a figure whose scorecard entry says `monthly` is shown this way: today the cancellation rate,
+because every one of its records says the day it belongs to and that day is the one the window counts
+it on. Any other figure is refused, naming the ones that are, rather than guessed at from a date
+near the one it counts on. `kpi-series.integration.test.ts` works May to August by hand, checks the
+months add up to the breakdown and the scorecard, that a partial month counts only its days, that a
+late stop is in the month of the company's calendar, and runs every figure that declares itself
+monthly. No new data is kept: the series is read from the same stops.
+
 ### The records behind a KPI
 
 Every half of every computed KPI is written as the list of records it counts,
@@ -1326,6 +1351,7 @@ caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
 | `GET /v1/kpis` | `report:read` |
 | `GET /v1/kpi-records` | `report:read`, and see above |
 | `GET /v1/kpi-breakdown` | `report:read`, and refused where the records are |
+| `GET /v1/kpi-series` | `report:read`, and refused where the records are |
 | `GET /v1/report-schedules` | `report:read` |
 | `POST /v1/report-schedules` | `report:build` (a report, or a dashboard by `dashboard` or `dashboardId`) |
 | `PATCH /v1/report-schedules/{id}` | `report:build` |
@@ -1429,8 +1455,11 @@ register's record of it names one of our jobs. A heater whose install date was
 never recorded is counted beside the figure, not in it.
 
 The cancellation rate by route is broken down per route and per weekday on
-the scorecard, one figure at a time; a route's own figure is not tracked over
-months anywhere. It judges lateness by the company's one notice window, not one per job type or
+the scorecard, one figure at a time, and shown month by month for the last 6, 12
+or 24 months. Only that figure is shown month by month: no other figure
+is, and a month is a calendar month in the company's own calendar, never a rolling thirty days or a
+fiscal month. A series does not draw a chart, and does not compare a route
+with its own target. It judges lateness by the company's one notice window, not one per job type or
 plan. A visit is not called off from the phone, so a team turned away at the
 door is recorded by the office; a cancellation recorded before who asked was
 kept, or by an API caller that did not say, is counted beside the figure as not

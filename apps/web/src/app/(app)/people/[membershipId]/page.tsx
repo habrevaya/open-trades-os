@@ -183,6 +183,9 @@ export default async function PersonPage({ params }: { params: Promise<{ members
             <Fact label="Last changed">{formatIn(person.ownContact.contact.savedAt, user.organizationTimezone)}</Fact>
           </Facts>
         )}
+        <Facts>
+          <Fact label="Second email for licence emails">{person.secondEmail ?? "None"}</Fact>
+        </Facts>
         <p className="mt-1 text-xs text-ink-500">The person keeps these themselves. The office reads them and cannot change them here.</p>
         <OwnContactChanges record={person.ownContact} timezone={user.organizationTimezone} />
       </section>

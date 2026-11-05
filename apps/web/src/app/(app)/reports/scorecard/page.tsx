@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import { todayIn, formatDay } from "@/lib/dates";
-import { Figure, Needs, BreakdownPicker, BreakdownTable } from "./Scorecard";
+import { Figure, Needs, BreakdownPicker, BreakdownTable, SeriesTable, SERIES_MONTHS } from "./Scorecard";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +29,13 @@ export const dynamic = "force-dynamic";
  * guesses, because the guesses are the ones somebody makes a hiring decision
  * on.
  */
+/** `2026-08-15` less so many months, as `2026-03`. */
+function monthsBack(day: string, back: number): string {
+  const [y, m] = day.split("-").map(Number);
+  const index = y! * 12 + (m! - 1) - back;
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+}
+
 export default async function ScorecardPage(
   { searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> },
 ) {
@@ -81,18 +88,33 @@ export default async function ScorecardPage(
   const brokenKey = one("kpi") ?? null;
   const brokenBy = one("by") || null;
   let broken: kpis.KpiBreakdown | null = null;
+  let seriesOf: kpis.KpiSeries | null = null;
   let brokenRefusal: string | null = null;
+  /**
+   * Month by month, when the address asks for it: the last so many months up to the end of the window, whole
+   * months, so the first is not cut short by the day the window happened to start on. The window's own start
+   * is not used here, because a month or two is not what somebody choosing "the last 12" means.
+   */
+  const askedMonths = Number(one("months"));
+  const months = (SERIES_MONTHS as readonly number[]).includes(askedMonths) ? askedMonths : null;
+  const seriesFrom = months ? `${monthsBack(to, months - 1)}-01` : from;
   if (card && brokenKey && brokenBy && card.computed.some((k) => k.key === brokenKey)) {
     try {
-      broken = await kpis.breakdown(ctx, { key: brokenKey, by: brokenBy, from, to });
+      if (months && card.computed.find((k) => k.key === brokenKey)?.monthly) {
+        seriesOf = await kpis.series(ctx, { key: brokenKey, by: brokenBy, from: seriesFrom, to });
+      } else {
+        broken = await kpis.breakdown(ctx, { key: brokenKey, by: brokenBy, from, to });
+      }
     } catch (error) {
       if (!(error instanceof ConflictError)) throw error;
       brokenRefusal = error.message;
     }
   }
-  const recordsHref = (key: string, half: kpis.KpiHalf, group?: { by: string; value: string }) =>
+  const recordsHref = (
+    key: string, half: kpis.KpiHalf, group?: { by: string; value: string }, window: { from: string; to: string } = { from, to },
+  ) =>
     `/reports/scorecard/records?${new URLSearchParams({
-      key, half, from, to, ...(group ? { by: group.by, group: group.value } : {}),
+      key, half, from: window.from, to: window.to, ...(group ? { by: group.by, group: group.value } : {}),
     }).toString()}`;
 
   return (
@@ -148,11 +170,27 @@ export default async function ScorecardPage(
                 const open = brokenKey === kpi.key;
                 return (
                   <li key={kpi.key}
-                      className={`rounded-md border border-steel-200 bg-canvas p-4 ${open && (broken || brokenRefusal) ? "sm:col-span-2" : ""}`}>
+                      className={`rounded-md border border-steel-200 bg-canvas p-4 ${open && (broken || seriesOf || brokenRefusal) ? "sm:col-span-2" : ""}`}>
                     <Figure kpi={kpi} records={(half) => recordsHref(kpi.key, half)} />
-                    <BreakdownPicker kpi={kpi} from={from} to={to} chosen={open ? brokenBy : null} />
+                    <BreakdownPicker kpi={kpi} from={from} to={to} chosen={open ? brokenBy : null} months={open ? months : null} />
                     {open && brokenRefusal ? (
                       <p role="alert" className="mt-3 rounded-md border border-steel-200 p-3 text-sm text-ink-700">{brokenRefusal}</p>
+                    ) : null}
+                    {open && seriesOf ? (
+                      <>
+                        <p className="mt-3 text-xs text-ink-500">
+                          The last {months} months up to {formatDay(to, zone)}. A month is the stops whose window began in it,
+                          in your own calendar. {seriesOf.months.some((m) => m.partial) ? "A month marked part of the month is cut short by the end date above. " : ""}
+                          Every figure here opens its stops.
+                        </p>
+                        <SeriesTable
+                          result={seriesOf}
+                          records={(half, group, month) => recordsHref(
+                            kpi.key, half, group === null ? undefined : { by: brokenBy ?? "", value: group },
+                            month ? { from: month.from, to: month.to } : { from: seriesOf!.from, to: seriesOf!.to },
+                          )}
+                        />
+                      </>
                     ) : null}
                     {open && broken ? (
                       <BreakdownTable

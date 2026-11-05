@@ -340,14 +340,14 @@ export async function setCancelNotice(_previous: FormState, form: FormData): Pro
 
 /**
  * One choice from the "who gets the task" list, as the service wants it: nobody, whoever put the job on hold,
- * the manager of the job's branch, `person:<id>` for a colleague or `role:<role>` for everybody in a role.
+ * the manager of the job's branch, whoever is on the office rota today, `person:<id>` for a colleague or `role:<role>` for everybody in a role.
  * Anything else is "bad", so a made up value is refused rather than read as nobody.
  */
 function holdAssignment(choice: string): "bad" | {
-  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId: string | null; assigneeRole: work.HoldNudgeRole | null;
 } {
-  if (choice === "nobody" || choice === "placed_by" || choice === "branch_manager") {
+  if (choice === "nobody" || choice === "placed_by" || choice === "branch_manager" || choice === "on_call") {
     return { assignTo: choice, assigneeUserId: null, assigneeRole: null };
   }
   if (choice.startsWith("person:") && choice.length > "person:".length) {

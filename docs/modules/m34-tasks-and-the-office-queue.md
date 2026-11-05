@@ -174,9 +174,10 @@ Wednesday and Saturday for a crew that works those), every week on a weekday,
 every other week or every so many weeks on a weekday, every month on a date
 (the 31st is held to the last day of a shorter month), on the first, second,
 third, fourth or fifth given weekday of the month (the first Monday; the fifth
-Monday only in the months that have five, the others skipped), or on the last
+Monday only in the months that have five, the others skipped), on the last
 given weekday of every month (the last Friday, whether it is the fourth or the
-fifth), with who it goes to, when on the day it is due, its priority and a
+fifth), or once a year on a month and a day (renew the contractor licence every
+March 1), with who it goes to, when on the day it is due, its priority and a
 checklist. The rules for which day each one is for are in core's `tasks`
 module with unit tests, so the worker, the API and the screen cannot count
 differently.
@@ -188,7 +189,7 @@ moves the on week. Every so many weeks (two to two hundred and sixty, which is f
 the same way with its own gap, so every third Wednesday starting on a Monday is that
 Wednesday and every twenty first day after it, and every 104 weeks is every 728th day
 from the first one (so it slips a day against the calendar across a leap year, and the
-screen says so: for the same date every year, use a monthly task). The fifth given
+screen says so: for the same date every year, choose every year). The fifth given
 weekday of a month is raised only in the months that have one: 2026's fifth Mondays are
 March 30, June 29, August 31 and November 30, and every other month is skipped, not moved
 to the fourth or the last (the last one is its own choice). The list says so in words, "On
@@ -201,7 +202,9 @@ nothing more. In the API the frequencies are `daily`, `weekdays`,
 `chosen_weekdays` (with `daysOfWeek`, any of 0 for Sunday to 6 for Saturday,
 stored once each and in order), `weekly`, `every_other_week`, `every_n_weeks`
 (with `intervalWeeks`), `monthly`, `nth_weekday_of_month` (with `monthWeek`, 1
-to 5) and `last_weekday_of_month`, and the ones that come round on a named day
+to 5) and (with `monthWeek`, 1
+to 5), `last_weekday_of_month` and `yearly` (with `yearMonth`, 1 to 12, and `monthDay`),
+and the ones that come round on a named day
 take `weekday`. A template keeps only the settings its schedule reads, so one
 changed from ticked days to monthly forgets the days. The worker raises each one
 on the day in the COMPANY'S timezone, so Monday's task is not raised on Sunday
@@ -221,6 +224,22 @@ as it always was. The service stores one day as `weekday` and several as `daysOf
 and never both, changes between the two forms without keeping the other, and refuses a
 day that is not a day of the week, no day at all, and two different ways of naming one
 day, in plain words. It reads back as "Every 3 weeks on Monday and Thursday".
+
+A yearly task is a month and a day: "Every year on March 1". On the form it is "Every
+year, on a month and a day", with the Month box and the Date of the month box. It is raised
+on that day in the company's calendar, once, and the list's "next" is the next one, this
+year's if it has not come yet and next year's if it has. A day the month never has (April
+31, February 30) is refused in words; February 29 is allowed and is raised on February 28
+in a year that has no February 29, the earlier of the two, so a renewal that falls on a leap
+day is never raised late, and the list says so: "Every year on February 29, or on February
+28 in a year without a February 29". The no backfill rule is the one every template has,
+with one addition for a date that comes round once a year: a worker that was down raises the
+latest occurrence only, and a yearly task whose month or day is changed to a date that has
+already gone by this year raises nothing for it (the changed task is treated as dealt with up
+to yesterday), because a licence task for last March appearing today since somebody corrected
+the month is a backfill. A date changed to today is raised today. Skipping a closed holiday
+works as for any template: the day is skipped, not moved, and written down. A yearly task
+has no end date: pause it when the licence is no longer needed.
 
 A template can be told to skip holidays ("Not on a holiday" on the form,
 `skipHolidays` in the API): an occurrence on a date the company's holiday list
@@ -258,7 +277,8 @@ killed mid pass, restarted, or running twice raises the day's task once. A
 worker that was down raises the LATEST occurrence, not every day it missed,
 because a queue full of last week's van checks is one people stop reading.
 `GET /v1/task-templates`, `POST /v1/task-templates` and
-`PATCH /v1/task-templates/{id}`.
+`PATCH /v1/task-templates/{id}`. A template's "For" can be a named person, nobody (the
+queue) or whoever is on the office rota that day (`assigneeOnCall`), and the list says which.
 
 ### Escalation
 
@@ -390,7 +410,8 @@ What raises one, each in the same transaction as the thing it is about:
   the holder's own page at `/people/{membershipId}`) when that manager may read
   the holder's record, and to each of the people the company names as keeping
   the renewals list, which is nobody until it names somebody (M24). A renewal
-  recorded since stops it. It is the one kind that also comes by email.
+  recorded since stops it. It is the one kind that also comes by email, and the holder's own
+  also to a second address they keep on `/me` (M24).
 - **A deadline about to be missed**, when a clock reaches its warning time and its
   task lands in the office queue (a contract's clock on a job, a warranty to
   register, a filing falling due). It goes to everybody who may deal with it
@@ -423,6 +444,11 @@ What raises one, each in the same transaction as the thing it is about:
   (M05). Once a day for each job, however many files. It opens their day on
   `/my-day` (the visit, on the phone), or the visit's page for somebody who
   reads visits but is not on it.
+- **A colleague changing their own phone or address**, when a person saves a different phone
+  number or home address on `/me` or the phone app (M24). It goes to everybody who may read people
+  (`user:read`) and whose scope of people reaches that person, except the person, and opens their
+  page at `/people/{membershipId}`. It says what they did ("changed their phone number") and never
+  the new number or address. A save that changed nothing tells nobody.
 
 NEVER ABOUT A RECORD THEY CANNOT OPEN. Before anything is written, the person
 is resolved the way their own session would be, and the record is opened with
@@ -503,6 +529,33 @@ have no technician record. `GET /v1/office-on-call` with `settings:read`;
 manager does not hold by default, deliberately: who hears about a failed payment is a
 company setting like what new people are told, and the owner gives it to an office
 manager by name where they want them to keep it.
+
+A TASK FOR WHOEVER IS ON THE OFFICE ROTA TODAY. The same rota can be the answer to "who is this
+task for". The "For" box on `/tasks` ("Add a task") and on a recurring task's form
+(`/tasks/recurring`, adding and changing) offers "Whoever is on the office rota today" beside the
+names of people, and so do the hold nudge's "Who gets the task" boxes on Settings (the company's
+and each rule's, M10). In the API it is `assigneeOnCall: true` on `POST /v1/tasks`,
+`POST /v1/task-templates` and `PATCH /v1/task-templates/{id}`, and `assignTo: "on_call"` on
+`PATCH /v1/job-hold-nudge` and the hold nudge rules; sent beside a named person it is refused
+in words ("Choose one: a person, or whoever is on the office rota today. Not both."), and
+naming a person on a template, or none, takes the rota choice off. It is read on the day the
+task is raised, in the company's calendar, from the turns above, whether or not a kind of
+notice is sent to the rota: choosing the rota for a task is the choice. Only a person who works
+here now and holds `task:read` counts, because a task they could not open would be no use to them
+(a dispatcher on the rota is not counted, as the dispatcher preset does not open tasks). One
+person: the task is assigned to them and they are told as for any task given to them. Two or more:
+one task, assigned to nobody and kept in the office queue, and each of them is told, as for a task
+given to a role. Nobody, or nobody who can open tasks: the task is raised in the office queue as if
+for nobody, which is where every unassigned task goes, and the first lines of its detail say that it
+was to go to whoever is on the rota and why it did not. That is the same fall back the rota's
+notices make (everybody who handles it is told instead): a task nobody is assigned is already seen
+by everybody who opens the queue. A recurring task reads the rota each time the worker raises one,
+so Monday's goes to Monday's person; a worker that was down and raises the latest occurrence late
+reads the rota for the day it raises it, not the day the task was due. The day's rota is read once
+a pass. A task already raised is never moved when the rota changes later, and there is no
+"reassign to whoever is on the rota" on an existing task: reassign it by name. A change is audited
+as any other task or template change, and the audit row for a recurring task or a task typed in
+says it went by the rota and whom it told.
 
 BY EMAIL, only for a licence or skill running out, to the person's address on
 the company's own email, through the company's email outbox, as one more delivery
@@ -707,7 +760,7 @@ again on the tasks it already acted on. The people a rule tells get a task, an
 email, and a notice on the bell, the phone app or a text as each of them chose;
 somebody who cannot open tasks gets the task and the email and no notice.
 
-Notices are raised by the eleven things listed under "Notices to the company's
+Notices are raised by the twelve things listed under "Notices to the company's
 own people" and nothing else: the rest of what the queue holds reaches people as
 tasks, as before, and so does a customer taking or turning down a time the office
 offered for their visit, and a failed bank payment. A deadline's notice is raised
@@ -745,8 +798,8 @@ after the notice was removed can be raised again for the new date, which is the
 right notice to get.
 
 A gap of more than a year is counted in weeks and days, never in calendar years, and
-none is longer than 260 weeks: a task on a date once a year, or in a given month, is a monthly
-task or a deadline, not this. A fifth weekday that most months do not have is skipped in
+none is longer than 260 weeks: a task on a date once a year is a yearly task, and a gap
+of years that is not a date is these weeks. A fifth weekday that most months do not have is skipped in
 the months without it and nothing says so on the day: the list names the rule and its next day.
 Several weekdays are for the tasks counted in weeks and for "the days I tick";
 the first to fifth or last given weekday of a month is still one

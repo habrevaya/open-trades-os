@@ -10,6 +10,7 @@ import { emit } from "./events";
 import * as plugins from "./plugins";
 import { remember, replayed } from "./once";
 import { tellAssignee } from "./tasks";
+import { deliveryToday, type OnCallDelivery } from "./office-on-call";
 import { raiseWithin } from "./staff-notices";
 
 /**
@@ -690,6 +691,9 @@ export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date
     .where(and(eq(schema.membership.organizationId, organizationId), eq(schema.membership.active, true)));
   const working = new Set(members.map((m) => m.userId));
 
+  /** Whoever is on the office rota today, read once a pass and only if a hold's rule asks for it. */
+  let onCall: OnCallDelivery | null = null;
+
   /** Who gets the task, for a hold under the rules that apply to it. */
   const deliveryFor = (hold: typeof schema.jobHold.$inferSelect, job: typeof schema.job.$inferSelect, rule: work.HoldNudgeRules): Delivery => {
     const queue = (why: string | undefined): Delivery => ({ assigneeUserId: null, told: [], sentTo: why });
@@ -711,6 +715,10 @@ export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date
         return holders.length === 0
           ? queue(`This was to go to ${words}, but nobody holds that role now, so it stays in the office queue.`)
           : { assigneeUserId: null, told: holders, sentTo: `Sent to ${words}.` };
+      }
+      case "on_call": {
+        if (!onCall) return queue("This was to go to whoever is on the office rota today, but the rota could not be read, so it stays in the office queue.");
+        return onCall;
       }
       case "branch_manager": {
         if (!job.businessUnitId) {
@@ -755,6 +763,7 @@ export async function nudgesIn(tx: Database, ctx: ServiceContext, now = new Date
     /** The end of the company day the office has, so the task is late the morning after. */
     const dueAt = rule.dueDays === null ? null : time.startOfDayIn(time.addDays(today, rule.dueDays + 1), zone);
     const label = work.documentNumber(job.numberPrefix, job.number);
+    if (rule.assignTo === "on_call" && onCall === null) onCall = await deliveryToday(tx, organizationId, now);
     const delivery = deliveryFor(hold, job, rule);
     const title = work.holdNudgeTitle({ jobLabel: label, reason: hold.reason, held, again: timesBefore > 0 });
     const [task] = await tx.insert(schema.task).values({

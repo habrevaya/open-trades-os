@@ -152,6 +152,8 @@ export const getPersonRecord = defineRoute({
     reportsTo: z.object({ membershipId: Uuid, userId: Uuid, name: z.string().nullable(), email: z.string(), active: z.boolean() }).nullable(),
     /** The address and phone they keep themselves, with what each change was and when. Home details: `user:read`, like the emergency contacts. */
     ownContact: OwnContactRecord,
+    /** The second mailbox they keep for their own licence and skill expiry emails, or null. The office reads it and never writes it. */
+    secondEmail: z.string().nullable(),
     /** What they were asked to sign, and whether and how they did. */
     documents: z.array(z.object({
       requestId: Uuid, documentId: Uuid, title: z.string(), askedAt: z.string().datetime(),

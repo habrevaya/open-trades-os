@@ -111,6 +111,69 @@ export async function onCallToday(
   return audience.to === "on_call" ? audience.userIds : null;
 }
 
+/**
+ * WHOEVER IS ON THE OFFICE ROTA TODAY, AS THE ONE WHO GETS A TASK
+ *
+ * A task can be given to "whoever is on the office rota today": a hold nudge
+ * (M10), a recurring task and a task typed in by hand (M34). It is read on the
+ * day the task is raised, in the company's calendar, from the same turns the
+ * notices read, and whether a kind of notice goes to the rota does not matter
+ * here: choosing the rota for a task is the choice.
+ *
+ *   one person         the task is given to them
+ *   two or more        one task in the office queue, assigned to nobody, and each
+ *                      of them is told, as a task given to a role is
+ *   nobody, or nobody  the task stays in the office queue and says why, which is
+ *   who can open it    where a task given to nobody goes: never lost
+ *
+ * Only a person who works here now and can open tasks counts, because a notice
+ * for a task they cannot open would be refused anyway.
+ */
+export interface OnCallDelivery {
+  /** The one person it is given to, or null for the office queue. */
+  assigneeUserId: string | null;
+  /** Everybody told as well, when two or more are on call. */
+  told: string[];
+  /** Said at the top of the task, or undefined when there is nothing to add. */
+  sentTo: string | undefined;
+}
+
+export async function deliveryToday(tx: Database, organizationId: string, now: Date = new Date()): Promise<OnCallDelivery> {
+  const today = await todayOf(tx, organizationId, now);
+  const turns = await tx.select({
+    userId: schema.officeOnCall.userId, startsOn: schema.officeOnCall.startsOn, endsOn: schema.officeOnCall.endsOn,
+  }).from(schema.officeOnCall)
+    .where(and(
+      eq(schema.officeOnCall.organizationId, organizationId),
+      lte(schema.officeOnCall.startsOn, today),
+      gte(schema.officeOnCall.endsOn, today),
+    ))
+    .orderBy(asc(schema.officeOnCall.startsOn), asc(schema.officeOnCall.createdAt));
+  const able: string[] = [];
+  for (const userId of rules.onCallOn(turns, today)) {
+    const actor = await memberActor(tx, organizationId, userId);
+    if (actor && !actor.readOnly && can(actor, "task:read")) able.push(userId);
+  }
+  const named = await names(tx);
+  const who = (id: string) => named.get(id) ?? "Somebody who has left";
+  if (able.length === 0) {
+    return {
+      assigneeUserId: null, told: [],
+      sentTo: turns.length === 0
+        ? "This was to go to whoever is on the office rota today, but nobody is on it today, so it stays in the office queue."
+        : "This was to go to whoever is on the office rota today, but nobody on it today can open tasks, so it stays in the office queue.",
+    };
+  }
+  if (able.length === 1) {
+    return { assigneeUserId: able[0]!, told: [], sentTo: `Given to ${who(able[0]!)}, who is on the office rota today.` };
+  }
+  const list = able.map(who);
+  return {
+    assigneeUserId: null, told: able,
+    sentTo: `Sent to whoever is on the office rota today: ${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}.`,
+  };
+}
+
 /** A person's own turns from today on, for their own page. */
 export async function myTurns(
   tx: Database, organizationId: string, userId: string, now: Date = new Date(),

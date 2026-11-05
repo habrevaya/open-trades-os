@@ -313,6 +313,16 @@ export async function ownContactWithin(tx: Database, membershipId: string): Prom
   return { contact: { ...asContact(last), savedAt: last.createdAt.toISOString() }, changes };
 }
 
+/**
+ * The second mailbox a person keeps for their own licence and skill expiry
+ * emails, or null. One current row; every change is in the audit log.
+ */
+export async function secondEmailWithin(tx: Database, membershipId: string): Promise<string | null> {
+  const [row] = await tx.select({ email: schema.personSecondEmail.email }).from(schema.personSecondEmail)
+    .where(eq(schema.personSecondEmail.membershipId, membershipId)).limit(1);
+  return row?.email ?? null;
+}
+
 /* ------------------------------------------------------ emergency contacts */
 
 export interface EmergencyContactView {
@@ -979,6 +989,8 @@ export interface PersonView {
   documents: { requestId: string; documentId: string; title: string; askedAt: string; signedAt: string | null; signedVia: string | null }[];
   /** The address and phone they keep themselves, with what each change was and when. Read with the rest of their record. */
   ownContact: OwnContactRecord;
+  /** The second mailbox they keep for their own licence and skill expiry emails, or null. */
+  secondEmail: string | null;
 }
 
 export function person(ctx: ServiceContext, input: { membershipId: string }) {
@@ -1020,6 +1032,7 @@ export function person(ctx: ServiceContext, input: { membershipId: string }) {
         : null,
       documents: (await staffDocuments.ownWithin(tx, member.id)).map(({ body: _body, signerName: _signer, ...rest }) => rest),
       ownContact: await ownContactWithin(tx, member.id),
+      secondEmail: await secondEmailWithin(tx, member.id),
     };
   });
 }

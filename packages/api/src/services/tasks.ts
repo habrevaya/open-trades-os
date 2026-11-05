@@ -6,6 +6,7 @@ import {
   type ServiceContext,
 } from "./context";
 import { raiseWithin } from "./staff-notices";
+import { deliveryToday } from "./office-on-call";
 
 /**
  * TASKS
@@ -40,6 +41,8 @@ export interface TaskInput {
   entityType?: string | undefined;
   entityId?: string | undefined;
   assigneeUserId?: string | undefined;
+  /** Give it to whoever is on the office rota today, in place of a named person. */
+  assigneeOnCall?: boolean | undefined;
   queue?: string | undefined;
   dueAt?: Date | undefined;
   /** Things to tick off inside it, in order. */
@@ -201,24 +204,42 @@ export async function create(ctx: ServiceContext, input: TaskInput) {
   const title = input.title.trim();
   if (title === "") throw new ConflictError("A task needs a title");
 
+  if (input.assigneeOnCall && input.assigneeUserId) {
+    throw new ConflictError("Choose one: a person, or whoever is on the office rota today. Not both.");
+  }
+
   return guardedWrite(ctx, "task:write", async (tx) => {
+    /** Whoever is on the office rota today, read now: one person is given it, two or more are each told. */
+    const rota = input.assigneeOnCall ? await deliveryToday(tx, ctx.actor.organizationId) : null;
     const [created] = await tx.insert(schema.task).values({
       organizationId: ctx.actor.organizationId,
       title,
-      body: input.body ?? null,
+      body: rota?.sentTo ? [rota.sentTo, input.body].filter(Boolean).join("\n\n") : input.body ?? null,
       priority: input.priority ?? "normal",
       entityType: input.entityType ?? null,
       entityId: input.entityId ?? null,
-      assigneeUserId: input.assigneeUserId ?? null,
+      assigneeUserId: rota ? rota.assigneeUserId : input.assigneeUserId ?? null,
       queue: input.queue ?? null,
       dueAt: input.dueAt ?? null,
       createdByUserId: ctx.actor.userId,
     }).returning();
     await writeChecklist(tx, ctx.actor.organizationId, created!.id, input.checklist ?? []);
 
-    await audit(tx, ctx, "task.created", "task", created!.id, null, created);
+    await audit(tx, ctx, "task.created", "task", created!.id, null,
+      rota ? { ...created, onCall: true, toldUserIds: rota.told } : created);
     if (created!.assigneeUserId && created!.assigneeUserId !== ctx.actor.userId) {
       await tellAssignee(tx, created!, `task_assigned:${created!.id}:${created!.assigneeUserId}`);
+    }
+    const zone = created!.dueAt ? await timezoneOf(tx, ctx.actor.organizationId) : null;
+    for (const userId of rota?.told ?? []) {
+      if (userId === ctx.actor.userId) continue;
+      await raiseWithin(tx, {
+        organizationId: ctx.actor.organizationId, userId, kind: "task_assigned",
+        key: `task_assigned:${created!.id}:${userId}`,
+        title: `A task for your team: ${created!.title}`,
+        body: created!.dueAt && zone ? `Due ${notices.localWhen(created!.dueAt, zone)}.` : null,
+        about: { type: "task", id: created!.id },
+      });
     }
     return created!;
   });
@@ -470,11 +491,12 @@ export const handlers = {
     input: {
       title: string; body?: string | undefined; priority?: TaskInput["priority"];
       entityType?: string | undefined; entityId?: string | undefined;
-      assigneeUserId?: string | undefined; queue?: string | undefined;
+      assigneeUserId?: string | undefined; assigneeOnCall?: boolean | undefined; queue?: string | undefined;
       dueAt?: string | undefined; checklist?: string[] | undefined;
     },
   ) => ({
     id: (await create(ctx, {
+      ...(input.assigneeOnCall !== undefined ? { assigneeOnCall: input.assigneeOnCall } : {}),
       ...(input.checklist !== undefined ? { checklist: input.checklist } : {}),
       title: input.title,
       ...(input.body !== undefined ? { body: input.body } : {}),

@@ -76,11 +76,13 @@ export type About =
   | { type: "technician_skill"; id: string }
   | { type: "visit_change_request"; id: string }
   | { type: "invoice"; id: string }
-  | { type: "visit"; id: string };
+  | { type: "visit"; id: string }
+  /** A person, by membership: opens their page for whoever may read people and reaches this one. */
+  | { type: "person"; id: string };
 
 const ABOUT_TYPES = new Set<About["type"]>([
   "task", "purchase_order", "connected_app", "safety_meeting", "expense", "person_certification", "technician_skill",
-  "visit_change_request", "invoice", "visit",
+  "visit_change_request", "invoice", "visit", "person",
 ]);
 
 /**
@@ -197,6 +199,17 @@ export async function openFor(tx: Database, actor: Actor, about: About): Promise
         .limit(1);
       return job ? `/visits/${visit.id}` : null;
     }
+    case "person": {
+      /** Their page at `/people/{id}`, which is `user:read` and the person must be inside the reader's scope of people. */
+      if (!can(actor, "user:read")) return null;
+      const [row] = await tx.select({ id: schema.membership.id }).from(schema.membership)
+        .where(and(
+          eq(schema.membership.id, about.id),
+          eq(schema.membership.organizationId, actor.organizationId),
+          scoped.members({ actor, db: tx }),
+        )).limit(1);
+      return row ? `/people/${row.id}` : null;
+    }
     default: {
       const unhandled: never = about;
       return unhandled;
@@ -309,6 +322,28 @@ export async function raiseWithin(tx: Database, input: RaiseInput): Promise<Rais
       }).onConflictDoNothing();
       channels.push("email");
     }
+    /**
+     * THE SECOND MAILBOX, for the person's OWN licence or skill only. The
+     * notice that opens `/me` is the one about their own card; the copies to a
+     * manager or a keeper of the renewals list open somebody else's page, and
+     * those stay at the address the company holds for that person. Under the same
+     * switch as the first email, so a person who turned the email off gets neither.
+     */
+    if (href === "/me" && (input.about.type === "person_certification" || input.about.type === "technician_skill")) {
+      const [second] = await tx.select({ email: schema.personSecondEmail.email }).from(schema.personSecondEmail)
+        .innerJoin(schema.membership, eq(schema.membership.id, schema.personSecondEmail.membershipId))
+        .where(and(
+          eq(schema.membership.organizationId, input.organizationId),
+          eq(schema.membership.userId, input.userId),
+        )).limit(1);
+      const other = second?.email ? email.normalizeAddress(second.email) : "";
+      if (other.includes("@") && other !== address) {
+        await tx.insert(schema.staffNoticeDelivery).values({
+          organizationId: input.organizationId, noticeId: notice.id, channel: "email",
+          address: other, target: other,
+        }).onConflictDoNothing();
+      }
+    }
   }
 
   return { told: true, noticeId: notice.id, channels };
@@ -368,6 +403,33 @@ export async function raiseToHolders(
   let told = 0;
   for (const userId of holders) {
     const outcome = await raiseWithin(tx, { ...raise, userId });
+    if (outcome.told) told += 1;
+  }
+  return told;
+}
+
+/**
+ * Tell the office a person changed something on their own record.
+ *
+ * The office is everybody who works here and may read people (`user:read`) and
+ * whose scope of people reaches this one, except the person themselves: a
+ * branch manager is told about their branch's people and nobody else's. Each is
+ * held to `raiseWithin`'s own rule, so somebody who cannot open the person's
+ * page is not told. The same key for all of them: one notice each, however many
+ * times it is looked at. Returns how many were told.
+ */
+export async function raiseToOffice(
+  tx: Database,
+  input: Omit<RaiseInput, "userId" | "about"> & { membershipId: string; exceptUserId: string },
+): Promise<number> {
+  const { membershipId, exceptUserId, ...raise } = input;
+  const members = await tx.select({ userId: schema.membership.userId }).from(schema.membership)
+    .where(and(eq(schema.membership.organizationId, input.organizationId), eq(schema.membership.active, true)))
+    .orderBy(asc(schema.membership.createdAt));
+  let told = 0;
+  for (const member of members) {
+    if (member.userId === exceptUserId) continue;
+    const outcome = await raiseWithin(tx, { ...raise, userId: member.userId, about: { type: "person", id: membershipId } });
     if (outcome.told) told += 1;
   }
   return told;

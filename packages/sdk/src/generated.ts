@@ -3968,7 +3968,7 @@ export interface CreateJobHoldNudgeRuleInput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
 }
@@ -3982,7 +3982,7 @@ export interface CreateJobHoldNudgeRuleOutput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
   assigneeName: string | null;
@@ -5092,6 +5092,7 @@ export interface CreateTaskInput {
   entityType?: string;
   entityId?: string;
   assigneeUserId?: string;
+  assigneeOnCall?: boolean;
   queue?: string;
   dueAt?: string;
   checklist?: string[];
@@ -5106,10 +5107,12 @@ export interface CreateTaskTemplateInput {
   body?: string;
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
+  assigneeOnCall?: boolean;
   queue?: string;
-  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday?: number | null;
   monthDay?: number | null;
+  yearMonth?: number | null;
   monthWeek?: number | null;
   intervalWeeks?: number | null;
   daysOfWeek?: number[] | null;
@@ -5126,10 +5129,12 @@ export interface CreateTaskTemplateOutput {
   priority: "low" | "normal" | "high" | "urgent";
   assigneeUserId: string | null;
   assigneeName: string | null;
+  assigneeOnCall: boolean;
   queue: string | null;
-  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday: number | null;
   monthDay: number | null;
+  yearMonth: number | null;
   monthWeek: number | null;
   intervalWeeks: number | null;
   daysOfWeek: number[] | null;
@@ -10019,7 +10024,7 @@ export interface GetJobHoldNudgeOutput {
   days: number | null;
   dueDays: number | null;
   repeatDays: number | null;
-  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId: string | null;
   assigneeName: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant";
@@ -10409,6 +10414,7 @@ export interface GetKpiScorecardOutput {
       key: string;
       label: string;
     }>;
+    monthly?: boolean;
   }>;
   unavailable: Array<{
     key: string;
@@ -10435,6 +10441,7 @@ export interface GetKpiScorecardOutput {
       key: string;
       label: string;
     }>;
+    monthly?: boolean;
   }>;
   elsewhere: Array<{
     key: string;
@@ -10460,6 +10467,67 @@ export interface GetKpiScorecardOutput {
     groupings: Array<{
       key: string;
       label: string;
+    }>;
+    monthly?: boolean;
+  }>;
+}
+
+export interface GetKpiSeriesOutput {
+  key: string;
+  label: string;
+  format: "percent" | "money" | "number" | "duration";
+  by: {
+    key: string;
+    label: string;
+  };
+  from: string;
+  to: string;
+  numeratorLabel: string;
+  denominatorLabel: string;
+  numeratorMoney: boolean;
+  denominatorMoney: boolean;
+  besides: Array<{
+    key: "excluded" | "unknown";
+    label: string;
+  }>;
+  groups: Array<{
+    value: string;
+    label: string;
+  }>;
+  months: Array<{
+    month: string;
+    from: string;
+    to: string;
+    partial: boolean;
+    groups: Array<{
+      value: string;
+      figure: string | null;
+      numerator: string;
+      denominator: string;
+      besides: Array<{
+        key: "excluded" | "unknown";
+        count: string;
+      }>;
+    }>;
+    total: {
+      value: string;
+      figure: string | null;
+      numerator: string;
+      denominator: string;
+      besides: Array<{
+        key: "excluded" | "unknown";
+        count: string;
+      }>;
+    };
+  }>;
+  all: Array<{
+    value: string;
+    figure: string | null;
+    numerator: string;
+    denominator: string;
+    besides: Array<{
+      key: "excluded" | "unknown";
+      count: string;
     }>;
   }>;
 }
@@ -10927,7 +10995,7 @@ export interface GetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -11039,6 +11107,7 @@ export interface GetMyRecordOutput {
       }>;
     }>;
   };
+  secondEmail: string | null;
   onboarding: {
     lines: Array<{
       id: string;
@@ -11196,7 +11265,7 @@ export interface GetNetworkRollupOutput {
 
 export interface GetNoticeDefaultsOutput {
   kinds: Array<{
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     inApp: boolean;
@@ -11518,6 +11587,7 @@ export interface GetPersonRecordOutput {
       }>;
     }>;
   };
+  secondEmail: string | null;
   documents: Array<{
     requestId: string;
     documentId: string;
@@ -16433,7 +16503,7 @@ export interface ListJobHoldNudgeRulesOutput {
     days?: number | null;
     dueDays?: number | null;
     repeatDays?: number | null;
-    assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+    assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
     assigneeUserId?: string | null;
     assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
     assigneeName: string | null;
@@ -18649,10 +18719,12 @@ export interface ListTaskTemplatesOutput {
     priority: "low" | "normal" | "high" | "urgent";
     assigneeUserId: string | null;
     assigneeName: string | null;
+    assigneeOnCall: boolean;
     queue: string | null;
-    frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
+    frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
     weekday: number | null;
     monthDay: number | null;
+    yearMonth: number | null;
     monthWeek: number | null;
     intervalWeeks: number | null;
     daysOfWeek: number[] | null;
@@ -26150,7 +26222,7 @@ export interface SetJobHoldNudgeInput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
 }
@@ -26159,7 +26231,7 @@ export interface SetJobHoldNudgeOutput {
   days: number | null;
   dueDays: number | null;
   repeatDays: number | null;
-  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId: string | null;
   assigneeName: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant";
@@ -26371,7 +26443,7 @@ export interface SetMyNoticeDigestOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -26407,7 +26479,7 @@ export interface SetMyNoticeSettingsInput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     email?: boolean;
   }>;
 }
@@ -26417,7 +26489,7 @@ export interface SetMyNoticeSettingsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -26459,7 +26531,7 @@ export interface SetMyNoticeTextsOutput {
     inApp: boolean;
     push: boolean;
     text: boolean;
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     email: boolean | null;
@@ -26518,9 +26590,17 @@ export interface SetMyOnboardingLineOutput {
   };
 }
 
+export interface SetMySecondEmailInput {
+  email?: string | null;
+}
+
+export interface SetMySecondEmailOutput {
+  secondEmail: string | null;
+}
+
 export interface SetNoticeDefaultsInput {
   kinds: Array<{
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     inApp: boolean;
     push: boolean;
     email?: boolean;
@@ -26529,7 +26609,7 @@ export interface SetNoticeDefaultsInput {
 
 export interface SetNoticeDefaultsOutput {
   kinds: Array<{
-    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file";
+    kind: "task_assigned" | "task_escalated" | "po_approval" | "app_request" | "talk_unsigned" | "expense_decided" | "qualification_expiry" | "task_deadline" | "visit_change_requested" | "autopay_failed" | "customer_file" | "contact_changed";
     label: string;
     description: string;
     inApp: boolean;
@@ -29630,7 +29710,7 @@ export interface UpdateJobHoldNudgeRuleInput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
   clear?: Array<"days" | "dueDays" | "repeatDays" | "assign">;
@@ -29645,7 +29725,7 @@ export interface UpdateJobHoldNudgeRuleOutput {
   days?: number | null;
   dueDays?: number | null;
   repeatDays?: number | null;
-  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager";
+  assignTo?: "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
   assigneeUserId?: string | null;
   assigneeRole?: "owner" | "admin" | "office_manager" | "branch_manager" | "dispatcher" | "csr" | "accountant" | null;
   assigneeName: string | null;
@@ -30569,10 +30649,12 @@ export interface UpdateTaskTemplateInput {
   body?: string;
   priority?: "low" | "normal" | "high" | "urgent";
   assigneeUserId?: string | null;
+  assigneeOnCall?: boolean;
   queue?: string;
-  frequency?: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
+  frequency?: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday?: number | null;
   monthDay?: number | null;
+  yearMonth?: number | null;
   monthWeek?: number | null;
   intervalWeeks?: number | null;
   daysOfWeek?: number[] | null;
@@ -30590,10 +30672,12 @@ export interface UpdateTaskTemplateOutput {
   priority: "low" | "normal" | "high" | "urgent";
   assigneeUserId: string | null;
   assigneeName: string | null;
+  assigneeOnCall: boolean;
   queue: string | null;
-  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays";
+  frequency: "daily" | "weekdays" | "weekly" | "every_other_week" | "monthly" | "last_weekday_of_month" | "nth_weekday_of_month" | "every_n_weeks" | "chosen_weekdays" | "yearly";
   weekday: number | null;
   monthDay: number | null;
+  yearMonth: number | null;
   monthWeek: number | null;
   intervalWeeks: number | null;
   daysOfWeek: number[] | null;
@@ -32945,6 +33029,13 @@ export interface GetKpiRecordsInput {
 }
 
 export interface GetKpiScorecardInput {
+  from: string;
+  to: string;
+}
+
+export interface GetKpiSeriesInput {
+  key: string;
+  by: string;
   from: string;
   to: string;
 }
@@ -36257,6 +36348,7 @@ export interface OperationTypes {
   getKpiBreakdown: { input: GetKpiBreakdownInput; output: GetKpiBreakdownOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
   getKpiScorecard: { input: GetKpiScorecardInput; output: GetKpiScorecardOutput };
+  getKpiSeries: { input: GetKpiSeriesInput; output: GetKpiSeriesOutput };
   getLeadInbox: { input: GetLeadInboxInput; output: GetLeadInboxOutput };
   getLeadOffer: { input: GetLeadOfferInput; output: GetLeadOfferOutput };
   getLivePositions: { input: GetLivePositionsInput; output: GetLivePositionsOutput };
@@ -36962,6 +37054,7 @@ export interface OperationTypes {
   setMyNoticeSettings: { input: SetMyNoticeSettingsInput; output: SetMyNoticeSettingsOutput };
   setMyNoticeTexts: { input: SetMyNoticeTextsInput; output: SetMyNoticeTextsOutput };
   setMyOnboardingLine: { input: SetMyOnboardingLineParams & SetMyOnboardingLineInput; output: SetMyOnboardingLineOutput };
+  setMySecondEmail: { input: SetMySecondEmailInput; output: SetMySecondEmailOutput };
   setNoticeDefaults: { input: SetNoticeDefaultsInput; output: SetNoticeDefaultsOutput };
   setNumberHours: { input: SetNumberHoursParams & SetNumberHoursInput; output: SetNumberHoursOutput };
   setNumberRouting: { input: SetNumberRoutingParams & SetNumberRoutingInput; output: SetNumberRoutingOutput };
@@ -37521,6 +37614,7 @@ export const OPERATIONS = {
   getKpiBreakdown: { method: "GET", path: "/v1/kpi-breakdown", pathParams: [], queryParams: ["key","by","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to","page","perPage","by","group"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiScorecard: { method: "GET", path: "/v1/kpis", pathParams: [], queryParams: ["from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
+  getKpiSeries: { method: "GET", path: "/v1/kpi-series", pathParams: [], queryParams: ["key","by","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getLeadInbox: { method: "GET", path: "/v1/lead-inbox", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getLeadOffer: { method: "GET", path: "/v1/lead-offers/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getLivePositions: { method: "GET", path: "/v1/dispatch/positions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
@@ -38226,6 +38320,7 @@ export const OPERATIONS = {
   setMyNoticeSettings: { method: "POST", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyNoticeTexts: { method: "POST", path: "/v1/me/notice-texts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setMyOnboardingLine: { method: "POST", path: "/v1/me/onboarding-lines/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
+  setMySecondEmail: { method: "POST", path: "/v1/me/second-email", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   setNoticeDefaults: { method: "PATCH", path: "/v1/notice-defaults", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberHours: { method: "PUT", path: "/v1/phone-numbers/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setNumberRouting: { method: "PATCH", path: "/v1/marketing/tracking-numbers/{id}/routing", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -41688,6 +41783,15 @@ export abstract class GeneratedOperations {
    */
   getKpiScorecard(input: GetKpiScorecardInput, options?: CallOptions): Promise<GetKpiScorecardOutput> {
     return this.call("getKpiScorecard", input, options);
+  }
+
+  /**
+   * One KPI month by month, broken down by a grouping its records carry.
+   *
+   * GET /v1/kpi-series. Needs report:read.
+   */
+  getKpiSeries(input: GetKpiSeriesInput, options?: CallOptions): Promise<GetKpiSeriesOutput> {
+    return this.call("getKpiSeries", input, options);
   }
 
   /**
@@ -48033,6 +48137,15 @@ export abstract class GeneratedOperations {
    */
   setMyOnboardingLine(input: SetMyOnboardingLineParams & SetMyOnboardingLineInput, options?: CallOptions): Promise<SetMyOnboardingLineOutput> {
     return this.call("setMyOnboardingLine", input, options);
+  }
+
+  /**
+   * Keep a second email address for your licence and skill expiry emails.
+   *
+   * POST /v1/me/second-email. Needs profile:own.
+   */
+  setMySecondEmail(input: SetMySecondEmailInput = {} as SetMySecondEmailInput, options?: CallOptions): Promise<SetMySecondEmailOutput> {
+    return this.call("setMySecondEmail", input, options);
   }
 
   /**

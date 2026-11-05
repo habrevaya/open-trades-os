@@ -183,12 +183,16 @@ export function holdNudgeDays(saved: unknown): number | null {
  *               the person who put it on hold is the one who knows what it is
  *               waiting for
  *   person      a named colleague
+ *   on_call     whoever is on the office rota today (M34), read on the day the
+ *               nudge is raised: one person on it is given the task, two or more
+ *               are each told of one task in the office queue, and nobody on it
+ *               leaves it in the office queue and says so on the task
  */
 export const HOLD_NUDGE_MOST_DUE_DAYS = 30;
 export const HOLD_NUDGE_MOST_REPEAT_DAYS = 90;
 
-export type HoldNudgeAssign = "nobody" | "placed_by" | "person" | "role" | "branch_manager";
-export const HOLD_NUDGE_ASSIGN: HoldNudgeAssign[] = ["nobody", "placed_by", "person", "role", "branch_manager"];
+export type HoldNudgeAssign = "nobody" | "placed_by" | "person" | "role" | "branch_manager" | "on_call";
+export const HOLD_NUDGE_ASSIGN: HoldNudgeAssign[] = ["nobody", "placed_by", "person", "role", "branch_manager", "on_call"];
 
 /**
  * The roles a nudge can be given to. Every one is a role that works in the
@@ -413,6 +417,7 @@ export function holdNudgeAssignWords(
     case "person": return who.personName ?? "a person who has left";
     case "role": return who.role ? HOLD_NUDGE_ROLE_WORDS[who.role] : "a role";
     case "branch_manager": return "the manager of the job's branch";
+    case "on_call": return "whoever is on the office rota today";
   }
 }
 

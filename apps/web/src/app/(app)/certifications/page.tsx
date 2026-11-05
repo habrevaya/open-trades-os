@@ -165,7 +165,7 @@ export default async function CertificationsPage() {
       )}
 
       <h2 className="mt-8 text-base font-semibold">Who holds what</h2>
-      {writes && certifications.some((h) => h.expiresOn && h.status !== "revoked") ? <BulkRenewalDays /> : null}
+      {writes && certifications.some((h) => h.expiresOn && h.status !== "revoked") ? <BulkRenewalDays most={people.MAX_BULK_HOLDINGS} /> : null}
       <HoldingsByPerson
         rows={certifications}
         controls={writes ? (h) => (

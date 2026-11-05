@@ -265,6 +265,13 @@ changes only the days. They apply to tasks raised from then on.
   branch, or the branch has no manager, the task stays in the office queue and its first line says
   why ("This was to go to the dispatchers, but nobody holds that role now, so it stays in the
   office queue."). The audit row for the nudge names who was told.
+  A last choice is **whoever is on the office rota today** (`on_call`, M34's "Office on call"
+  rota), read on the day the nudge is raised. With one person on the rota who can open tasks, the task is
+  assigned to them and starts "Given to Olive, who is on the office rota today." With two or more, the
+  task stays one unassigned task in the office queue, starts "Sent to whoever is on the office rota today:
+  Olive and Otto." and each is told on the bell. With nobody, or nobody who can open tasks, it stays in the
+  office queue and says so ("This was to go to whoever is on the office rota today, but nobody is on it
+  today, so it stays in the office queue."). The audit row names who was told.
 
 **The nudge by reason and by branch.** Under the company's numbers on `/settings`, the section
 "Different for some jobs on hold" adds rules. A rule names a reason (waiting on a part, an
@@ -556,11 +563,17 @@ waiting on two orders names the one the work is waiting for. The nudge for a job
 left on hold can differ by the reason it is held and by branch (rules under the company's
 numbers), and a trade or a customer cannot have their own. A task given to a role goes to the
 office queue as one task and every person who holds the role is told: it is not assigned to any
-one of them, there is no "the dispatcher on duty" (nothing says who is on a rota), and a person
-whose role cannot open tasks is not told. "The manager of the job's branch" is whoever holds the
+one of them, and a person
+whose role cannot open tasks is not told. "Whoever is on the office rota today" (M34, `/settings/office-on-call`)
+is a choice for who gets the task, in the company's setting and in each rule (`on_call`): it is read on the day the
+nudge is raised, one person on the rota is given the task, two or more are each told of the one task that stays in
+the office queue, and nobody on it, or nobody on it who can open tasks, leaves the task in the office queue with a
+line at the top saying so. A person on the rota who cannot open tasks (a dispatcher, by default) is not counted. It is
+the office's rota, not the technicians' after hours rota for customers' calls (M09), and it is the day's rota, not an
+hour's; a nudge already raised is not moved when the rota changes. "The manager of the job's branch" is whoever holds the
 Branch manager preset in that branch, not a person named on the branch, and a company's own role
-that is based on it is not counted. Who put the job on hold, a named colleague, a role or the
-branch's manager are the choices: there is no list of named people. A rule cannot be moved to
+that is based on it is not counted. Who put the job on hold, a named colleague, a role, the
+branch's manager or whoever is on the office rota are the choices: there is no list of named people. A rule cannot be moved to
 another reason or branch (make another), and there is no rule for every reason in every branch
 because that is the company's own setting. A reminder is
 never raised on top of a nudge that is still open. A job's crew hour budget is added up from its estimate only

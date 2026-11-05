@@ -1,6 +1,7 @@
 import type { taskRules } from "@opentradesos/api/services";
 import { TextField, TextArea, Select } from "@/components/ActionForm";
 import { TASK_PRIORITY } from "@/lib/labels";
+import { taskRules as taskWords } from "@opentradesos/core";
 
 /**
  * THE BOXES OF A RECURRING TASK
@@ -38,12 +39,17 @@ export function TemplateFields({
           { value: "monthly", label: "Every month, on a date" },
           { value: "nth_weekday_of_month", label: "The first, second, third, fourth or fifth one of the month" },
           { value: "last_weekday_of_month", label: "The last one of every month" },
+          { value: "yearly", label: "Every year, on a month and a day" },
         ]} />
         <Select label="Day of the week (weekly, every few weeks, one of the month)" name="weekday"
                 defaultValue={String(template?.weekday ?? 1)}
                 options={WEEK_ORDER.map((i) => ({ value: String(i), label: WEEKDAYS[i]! }))} />
-        <TextField label="Date of the month (every month, on a date)" name="monthDay" type="number" min={1} max={31}
+        <TextField label="Date of the month (every month, or every year)" name="monthDay" type="number" min={1} max={31}
                    defaultValue={String(template?.monthDay ?? 1)} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Select label="Month (every year)" name="yearMonth" defaultValue={String(template?.yearMonth ?? 1)}
+                options={taskWords.MONTH_NAMES.map((name, i) => ({ value: String(i + 1), label: name }))} />
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <Select label="Which one in the month (first to fifth)" name="monthWeek" defaultValue={String(template?.monthWeek ?? 1)} options={[
@@ -82,15 +88,20 @@ export function TemplateFields({
         every month is the last Friday, say, whether that is the fourth or the fifth. The fifth Monday, say, is
         only in the months that have five Mondays: a month with only four is skipped, and the task is not
         moved to another day. Every few weeks can be as many as 260 weeks (five years) apart, counted in
-        weeks from the first one, so it slips a day against the calendar across a leap year.
+        weeks from the first one, so it slips a day against the calendar across a leap year. For the same date
+        every year, say the renewal of a licence on March 1, choose every year and give the month and the
+        date in the boxes above: a date that falls on a day you are closed is skipped if you ticked
+        "Not on a holiday", and a task is never made up for a year that has gone by. February 29 is raised
+        on February 28 in a year that has no February 29.
       </p>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="skipHolidays" value="yes" defaultChecked={template?.skipHolidays ?? false} />
         Not on a holiday: skip a day your holiday list says you are closed
       </label>
-      <Select label="For" name="assigneeUserId" defaultValue={template?.assigneeUserId ?? ""}
+      <Select label="For" name="assigneeUserId" defaultValue={template?.assigneeOnCall ? "on_call" : template?.assigneeUserId ?? ""}
               options={[
                 { value: "", label: "Nobody yet (the queue)" },
+                { value: "on_call", label: "Whoever is on the office rota today" },
                 ...people.map((p) => ({ value: p.userId, label: p.name })),
                 // Kept in the list so saving does not quietly hand the work to nobody: the service says why not.
                 ...(template?.assigneeUserId && !people.some((p) => p.userId === template.assigneeUserId)

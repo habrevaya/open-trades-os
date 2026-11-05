@@ -238,6 +238,23 @@ export const personContact = pgTable("person_contact", {
   personIdx: index("person_contact_person_idx").on(t.organizationId, t.membershipId, t.createdAt),
 }));
 
+/**
+ * A SECOND MAILBOX FOR THE LICENCE AND SKILL EXPIRY EMAILS.
+ *
+ * One current row per person (the membership is the key), kept by the person
+ * themselves and read by the office. It is not a version history like
+ * `person_contact`: every change is in the audit log. Only the person's own
+ * licence and skill expiry emails also go to it; the address they sign in with
+ * still gets them.
+ */
+export const personSecondEmail = pgTable("person_second_email", {
+  membershipId: uuid("membership_id").primaryKey().references(() => membership.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  changedByUserId: uuid("changed_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /* -------------------------------------------------------- employment record */
 
 export const employmentType = pgEnum("employment_type", [
