@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { marketing as mk } from "@opentradesos/core";
 import { useKeptAction } from "@/lib/use-kept-action";
 import { saveForm } from "../actions";
 
@@ -33,6 +34,7 @@ interface Field {
   options?: { value: string; label: string }[] | undefined;
   consentFor?: { channel: "sms" | "email"; purpose: "marketing" | "transactional" } | undefined;
   page?: number | undefined;
+  rule?: mk.ShowRule | undefined;
 }
 
 /** The kinds a confirmation may repeat, as core's `CONFIRMATION_FIELD_TYPES` lists them. */
@@ -55,6 +57,114 @@ interface Form {
 interface Page {
   title: string;
   showWhen?: { field: string; oneOf: string[] } | undefined;
+  rule?: mk.ShowRule | undefined;
+}
+
+/** A question a rule can wait for: a pick one, pick several, number or typed answer. */
+const ruleable = (f: Field) => (mk.RULE_OPERATORS_FOR[f.type as mk.FieldType] ?? []).length > 0;
+
+/** A fresh condition on a question, with the comparison that kind of question usually wants. */
+function conditionFor(f: Field): mk.RuleCondition {
+  if (f.type === "choice" || f.type === "multi_choice") return { field: f.key, op: "one_of", values: [] };
+  if (f.type === "number") return { field: f.key, op: "greater_than", value: 0 };
+  return { field: f.key, op: "contains", value: "" };
+}
+
+/** A condition moved to another comparison, with a value that comparison reads. */
+function withOp(c: mk.RuleCondition, op: mk.RuleOperator, f: Field | undefined): mk.RuleCondition {
+  if (op === "one_of") return { field: c.field, op, values: [] };
+  if (f?.type === "number" || op === "greater_than" || op === "less_than") return { field: c.field, op, value: 0 };
+  if (f?.type === "choice" || f?.type === "multi_choice") return { field: c.field, op, value: f.options?.[0]?.value ?? "" };
+  return { field: c.field, op, value: "" };
+}
+
+/**
+ * A RULE OVER SEVERAL EARLIER ANSWERS, for a page or one question: show it or
+ * hide it, when all of the conditions hold or any one, each naming an earlier
+ * question and what its answer is. Nothing here decides whether the rule is
+ * sound: core does when the form is saved, and says why in words.
+ */
+function RuleEditor({ name, rule, candidates, onChange }: {
+  name: string; rule: mk.ShowRule; candidates: Field[]; onChange: (rule: mk.ShowRule) => void;
+}) {
+  const setCondition = (k: number, next: mk.RuleCondition) =>
+    onChange({ ...rule, conditions: rule.conditions.map((c, j) => (j === k ? next : c)) });
+  return (
+    <div className="basis-full space-y-2 rounded border border-steel-200 p-2 text-xs text-ink-500">
+      <div className="flex flex-wrap items-center gap-2">
+        <select aria-label={`${name} show or hide`} value={rule.action} className={FIELD}
+                onChange={(e) => onChange({ ...rule, action: e.target.value === "hide" ? "hide" : "show" })}>
+          <option value="show">Show it</option>
+          <option value="hide">Hide it</option>
+        </select>
+        <span>when</span>
+        <select aria-label={`${name} all or any`} value={rule.match} className={FIELD}
+                onChange={(e) => onChange({ ...rule, match: e.target.value === "any" ? "any" : "all" })}>
+          <option value="all">all of these are true</option>
+          <option value="any">any one of these is true</option>
+        </select>
+      </div>
+      <ol className="space-y-2">
+        {rule.conditions.map((c, k) => {
+          const source = candidates.find((f) => f.key === c.field);
+          const ops = source ? mk.RULE_OPERATORS_FOR[source.type as mk.FieldType] ?? [] : [];
+          const label = `${name} condition ${k + 1}`;
+          return (
+            <li key={k} className="flex flex-wrap items-center gap-2">
+              <select aria-label={`${label} question`} value={c.field} className={FIELD}
+                      onChange={(e) => {
+                        const next = candidates.find((f) => f.key === e.target.value);
+                        if (next) setCondition(k, conditionFor(next));
+                      }}>
+                {source ? null : <option value={c.field}>{c.field} (no longer on the form)</option>}
+                {candidates.map((f) => <option key={f.key} value={f.key}>{f.label || f.key}</option>)}
+              </select>
+              <select aria-label={`${label} test`} value={c.op} className={FIELD}
+                      onChange={(e) => setCondition(k, withOp(c, e.target.value as mk.RuleOperator, source))}>
+                {ops.map((op) => <option key={op} value={op}>{mk.RULE_OPERATOR_WORDS[op]}</option>)}
+              </select>
+              {c.op === "one_of" ? (
+                <span className="flex flex-wrap gap-3">
+                  {(source?.options ?? []).map((o) => (
+                    <label key={o.value} className="flex items-center gap-1 text-sm text-ink-700">
+                      <input type="checkbox" aria-label={`${label} ${o.label}`} checked={(c.values ?? []).includes(o.value)}
+                             onChange={(e) => setCondition(k, {
+                               ...c, values: e.target.checked ? [...(c.values ?? []), o.value] : (c.values ?? []).filter((v) => v !== o.value),
+                             })} />
+                      {o.label}
+                    </label>
+                  ))}
+                </span>
+              ) : source?.type === "choice" || source?.type === "multi_choice" ? (
+                <select aria-label={`${label} answer`} value={String(c.value ?? "")} className={FIELD}
+                        onChange={(e) => setCondition(k, { ...c, value: e.target.value })}>
+                  {(source.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : source?.type === "number" ? (
+                <input type="number" aria-label={`${label} answer`} className={`w-24 ${FIELD}`}
+                       value={typeof c.value === "number" ? c.value : ""}
+                       onChange={(e) => setCondition(k, { ...c, value: e.target.value === "" ? undefined : Number(e.target.value) })} />
+              ) : (
+                <input aria-label={`${label} answer`} className={`w-56 ${FIELD}`} maxLength={mk.MAX_RULE_TEXT}
+                       value={typeof c.value === "string" ? c.value : ""}
+                       onChange={(e) => setCondition(k, { ...c, value: e.target.value })} />
+              )}
+              {rule.conditions.length > 1 ? (
+                <button type="button" className={BUTTON} aria-label={`Remove ${label}`}
+                        onClick={() => onChange({ ...rule, conditions: rule.conditions.filter((_, j) => j !== k) })}>Remove</button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      {rule.conditions.length < mk.MAX_RULE_CONDITIONS && candidates.length > 0 ? (
+        <button type="button" className={BUTTON} aria-label={`${name} add a condition`}
+                onClick={() => onChange({ ...rule, conditions: [...rule.conditions, conditionFor(candidates[0]!)] })}>
+          Add a condition
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -102,8 +212,16 @@ export function FormBuilder({ form, sources, writes }: {
   const setRule = (at: number, showWhen: Page["showWhen"]) =>
     setPages((all) => all.map((x, j) => {
       if (j !== at) return x;
-      const { showWhen: _before, ...rest } = x;
+      const { showWhen: _before, rule: _rule, ...rest } = x;
       return showWhen ? { ...rest, showWhen } : rest;
+    }));
+  /** The questions a page's rule over several answers can wait for: any that a rule reads, on pages before it. */
+  const ruleableBefore = (at: number) => fields.filter((f) => ruleable(f) && (f.page ?? 0) < at);
+  const setPageRule = (at: number, rule: mk.ShowRule | undefined) =>
+    setPages((all) => all.map((x, j) => {
+      if (j !== at) return x;
+      const { showWhen: _before, rule: _rule, ...rest } = x;
+      return rule ? { ...rest, rule } : rest;
     }));
 
   const set = (i: number, patch: Partial<Field>) =>
@@ -152,18 +270,28 @@ export function FormBuilder({ form, sources, writes }: {
                   </label>
                   {at > 0 ? (
                     <label className="text-xs text-ink-500">Who sees page {at + 1}
-                      <select aria-label={`Who sees page ${at + 1}`} value={p.showWhen ? "when" : "all"}
+                      <select aria-label={`Who sees page ${at + 1}`} value={p.rule ? "rule" : p.showWhen ? "when" : "all"}
                               onChange={(e) => {
+                                if (e.target.value === "rule") {
+                                  const first = ruleableBefore(at)[0];
+                                  setPageRule(at, first ? { action: "show", match: "all", conditions: [conditionFor(first)] } : undefined);
+                                  return;
+                                }
                                 const first = askedBefore(at)[0];
                                 setRule(at, e.target.value === "when" && first ? { field: first.key, oneOf: [] } : undefined);
                               }}
                               className={`mt-1 block ${FIELD}`}>
                         <option value="all">Everybody</option>
                         <option value="when" disabled={askedBefore(at).length === 0}>Only some answers</option>
+                        <option value="rule" disabled={ruleableBefore(at).length === 0}>Answers that match a rule</option>
                       </select>
                     </label>
                   ) : null}
                   <button type="button" className={BUTTON} onClick={() => removePage(at)} aria-label={`Remove page ${at + 1}`}>Remove</button>
+                  {p.rule ? (
+                    <RuleEditor name={`Page ${at + 1}`} rule={p.rule} candidates={ruleableBefore(at)}
+                                onChange={(rule) => setPageRule(at, rule)} />
+                  ) : null}
                   {p.showWhen ? (
                     <div className="basis-full space-y-1 pl-2 text-xs text-ink-500">
                       <label>Shown when the answer to
@@ -230,6 +358,26 @@ export function FormBuilder({ form, sources, writes }: {
               <button type="button" className={BUTTON} onClick={() => move(i, 1)} aria-label={`Move field ${i + 1} down`}>Down</button>
               <button type="button" className={BUTTON} onClick={() => setFields((all) => all.filter((_, j) => j !== i))} aria-label={`Remove field ${i + 1}`}>Remove</button>
             </div>
+            {f.type !== "hidden" && f.type !== "honeypot" ? (
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <label className="text-xs text-ink-500">Who is asked
+                  <select aria-label={`Who is asked field ${i + 1}`} value={f.rule ? "rule" : "all"} className={`mt-1 block ${FIELD}`}
+                          onChange={(e) => {
+                            const first = fields.slice(0, i).filter(ruleable)[0];
+                            const { rule: _rule, ...rest } = f;
+                            setFields((all) => all.map((x, j) => (j !== i ? x
+                              : e.target.value === "rule" && first ? { ...rest, rule: { action: "show", match: "all", conditions: [conditionFor(first)] } } : rest)));
+                          }}>
+                    <option value="all">Everybody who reaches it</option>
+                    <option value="rule" disabled={fields.slice(0, i).filter(ruleable).length === 0}>Answers that match a rule</option>
+                  </select>
+                </label>
+                {f.rule ? (
+                  <RuleEditor name={`Field ${i + 1}`} rule={f.rule} candidates={fields.slice(0, i).filter(ruleable)}
+                              onChange={(rule) => set(i, { rule })} />
+                ) : null}
+              </div>
+            ) : null}
             <label className="mt-2 block text-xs text-ink-500">Help shown under it
               <input value={f.help ?? ""} onChange={(e) => set(i, { help: e.target.value || undefined })} className={`mt-1 block w-full ${FIELD}`} />
             </label>

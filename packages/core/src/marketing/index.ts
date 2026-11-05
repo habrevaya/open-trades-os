@@ -1155,6 +1155,12 @@ export interface FormField {
    * trap have no page: they go with whichever page is posted.
    */
   page?: number | undefined;
+  /**
+   * Show or hide this one question by a rule over earlier answers. Absent,
+   * it is shown whenever its page is. A question hidden by its rule is not
+   * asked: never required, and whatever was sent for it is dropped.
+   */
+  rule?: ShowRule | undefined;
 }
 
 /** The exact words a consent box showed, as the consent row keeps them. */
@@ -1194,7 +1200,71 @@ export interface FormPage {
    * dropped by the server rather than required or kept.
    */
   showWhen?: PageCondition | undefined;
+  /**
+   * Show or hide the page by a rule over several earlier answers (`ShowRule`).
+   * A page has this or `showWhen`, never both.
+   */
+  rule?: ShowRule | undefined;
 }
+
+/* --------------------------------------- rules over several earlier answers */
+
+/** How one condition compares an earlier answer. */
+export const RULE_OPERATORS = ["equals", "one_of", "greater_than", "less_than", "contains"] as const;
+export type RuleOperator = (typeof RULE_OPERATORS)[number];
+
+/** Each operator in a trades owner's words, for the builder. */
+export const RULE_OPERATOR_WORDS: Record<RuleOperator, string> = {
+  equals: "is",
+  one_of: "is one of",
+  greater_than: "is more than",
+  less_than: "is less than",
+  contains: "has the words",
+};
+
+/**
+ * Which questions a rule can wait for, and how each can be compared. A pick
+ * one or pick several by its options, a number by its value, and a typed
+ * answer by what it says or holds. Nothing else: an address, a date, a file
+ * or a tick box is not something a rule here reads.
+ */
+export const RULE_OPERATORS_FOR: Partial<Record<FieldType, readonly RuleOperator[]>> = {
+  choice: ["equals", "one_of"],
+  multi_choice: ["equals", "one_of"],
+  number: ["equals", "greater_than", "less_than"],
+  text: ["equals", "contains"],
+  long_text: ["contains"],
+};
+
+export interface RuleCondition {
+  /** The key of an earlier question. */
+  field: string;
+  op: RuleOperator;
+  /**
+   * What it is compared with: an option's value (`equals` on a pick
+   * question), a number (`equals`, `greater_than`, `less_than` on a number),
+   * or words (`equals`, `contains` on a typed answer, without regard to
+   * capitals or spacing).
+   */
+  value?: string | number | undefined;
+  /** For `one_of`: the option values, any one of which is enough. */
+  values?: string[] | undefined;
+}
+
+/**
+ * A RULE OVER SEVERAL EARLIER ANSWERS: show (or hide) a page or a question
+ * when all of its conditions hold, or any one of them. A condition on a
+ * question nobody answered, or one its own rule or page hid, never holds.
+ */
+export interface ShowRule {
+  action: "show" | "hide";
+  match: "all" | "any";
+  conditions: RuleCondition[];
+}
+
+/** Eight conditions at most: a rule longer than that is a second form. */
+export const MAX_RULE_CONDITIONS = 8;
+export const MAX_RULE_TEXT = 200;
 
 export interface PageCondition {
   /** The key of a `choice` or `multi_choice` question on an earlier page. */
@@ -1700,7 +1770,7 @@ export function checkForm(form: FormDefinition): FormVerdict {
   const reachable = form.fields.some((f) => (f.type === "phone" || f.type === "email") && f.required && alwaysShown(form, f));
   if (form.fields.length > 0 && !reachable) {
     problems.push(
-      (form.pages ?? []).some((p) => p.showWhen)
+      (form.pages ?? []).some((p) => p.showWhen || p.rule) || form.fields.some((f) => f.rule)
         ? "No required phone number or email on a page everybody sees: a lead nobody can ring back is not a lead, and a page shown only for some answers may be skipped."
         : "No required phone number and no required email: a lead nobody can ring back is not a lead.",
     );
@@ -1756,6 +1826,7 @@ function pageProblems(form: FormDefinition): string[] {
     }
   }
   if (pages.length > 1) pages.forEach((page, i) => problems.push(...conditionProblems(form, page, i)));
+  problems.push(...fieldRuleProblems(form));
   return problems;
 }
 
@@ -1776,9 +1847,14 @@ export function pagesOf(form: FormDefinition): { title: string | null; keys: str
 
 /** What is wrong with the rule that shows one page only for some answers, as sentences. */
 function conditionProblems(form: FormDefinition, page: FormPage, i: number): string[] {
+  const n = i + 1;
+  if (page.rule) {
+    if (i === 0) return ["Page 1 is always shown, so it cannot wait for an answer."];
+    if (page.showWhen) return [`Page ${n} has two rules. Keep one.`];
+    return ruleProblems(form, page.rule, `Page ${n}`, (source) => pageIndex(source) < i);
+  }
   const when = page.showWhen;
   if (!when) return [];
-  const n = i + 1;
   if (i === 0) return ["Page 1 is always shown, so it cannot wait for an answer."];
   const source = form.fields.find((f) => f.key === when.field);
   if (!source || !onAPage(source)) {
@@ -1803,10 +1879,172 @@ function conditionProblems(form: FormDefinition, page: FormPage, i: number): str
     : [];
 }
 
-/** Whether a field is on a page everybody sees: one with no rule, or any field of a form that is not split. */
+/** Whether a field is asked of everybody: no rule of its own, on a page with none (or a form that is not split). */
 function alwaysShown(form: FormDefinition, field: FormField): boolean {
+  if (field.rule) return false;
   const pages = form.pages ?? [];
-  return pages.length <= 1 || !pages[pageIndex(field)]?.showWhen;
+  const page = pages[pageIndex(field)];
+  return pages.length <= 1 || (!page?.showWhen && !page?.rule);
+}
+
+/** Words compared without regard to capitals, accents or spacing. */
+const plainWords = (text: string): string => text.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+
+/** A number answer, from the number the page sends or the digits a post typed; null for anything else. */
+function numberOf(raw: unknown): number | null {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw.trim())) return Number(raw.trim());
+  return null;
+}
+
+/** Whether one condition holds for the answer given to its question. */
+function conditionHolds(condition: RuleCondition, source: FormField, raw: unknown): boolean {
+  if (blank(raw)) return false;
+  switch (condition.op) {
+    case "equals":
+      if (source.type === "number") {
+        const n = numberOf(raw);
+        return n !== null && typeof condition.value === "number" && n === condition.value;
+      }
+      if (source.type === "choice" || source.type === "multi_choice") return chosen(raw).includes(String(condition.value ?? ""));
+      return typeof raw === "string" && plainWords(raw) === plainWords(String(condition.value ?? ""));
+    case "one_of":
+      return chosen(raw).some((v) => (condition.values ?? []).includes(v));
+    case "greater_than":
+    case "less_than": {
+      const n = numberOf(raw);
+      if (n === null || typeof condition.value !== "number") return false;
+      return condition.op === "greater_than" ? n > condition.value : n < condition.value;
+    }
+    case "contains": {
+      const words = plainWords(String(condition.value ?? ""));
+      return typeof raw === "string" && words !== "" && plainWords(raw).includes(words);
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * Whether a rule lets its page or question be shown, given which questions
+ * have been asked so far (`asked`): a condition on a question not asked
+ * counts as no answer, so a stale answer on a skipped page opens nothing.
+ */
+function ruleShows(form: FormDefinition, rule: ShowRule, values: Record<string, unknown>, asked: ReadonlySet<string>): boolean {
+  const results = rule.conditions.map((condition) => {
+    const source = form.fields.find((f) => f.key === condition.field);
+    return source !== undefined && asked.has(source.key) && conditionHolds(condition, source, values[source.key]);
+  });
+  const holds = rule.match === "any" ? results.some(Boolean) : results.length > 0 && results.every(Boolean);
+  return rule.action === "show" ? holds : !holds;
+}
+
+/**
+ * WHAT THESE ANSWERS LEAD TO: which pages are shown, and which questions
+ * are asked, in the form's own order.
+ *
+ * A page is shown when its rule (the single question `showWhen`, or a rule
+ * over several answers) holds for questions asked on earlier pages. A
+ * question is asked when its page is shown and its own rule, if it has one,
+ * holds for questions asked before it. Decided in order, once, so the hosted
+ * page and the server always agree, and an answer to a question that was not
+ * asked counts as no answer at all.
+ */
+export function visibility(form: FormDefinition, values: Record<string, unknown>): { pages: boolean[]; asked: Set<string> } {
+  const pages = form.pages ?? [];
+  const split = pages.length > 1;
+  const count = split ? pages.length : 1;
+  const asked = new Set<string>();
+  const shown: boolean[] = [];
+  for (let i = 0; i < count; i++) {
+    const page = split ? pages[i] : undefined;
+    let on = true;
+    if (page?.showWhen) {
+      const when = page.showWhen;
+      const source = form.fields.find((f) => f.key === when.field);
+      on = source !== undefined && onAPage(source) && pageIndex(source) < i && asked.has(source.key)
+        && chosen(values[when.field]).some((v) => when.oneOf.includes(v));
+    }
+    if (on && page?.rule) {
+      const earlier = new Set([...asked].filter((key) => {
+        const f = form.fields.find((x) => x.key === key);
+        return f !== undefined && pageIndex(f) < i;
+      }));
+      on = ruleShows(form, page.rule, values, earlier);
+    }
+    shown.push(on);
+    for (const field of form.fields.filter((f) => onAPage(f) && (split ? pageIndex(f) : 0) === i)) {
+      if (on && (!field.rule || ruleShows(form, field.rule, values, asked))) asked.add(field.key);
+    }
+  }
+  return { pages: shown, asked };
+}
+
+/** What is wrong with one rule over several answers, as sentences. `where` names its page or question. */
+function ruleProblems(form: FormDefinition, rule: ShowRule, where: string, isEarlier: (source: FormField) => boolean): string[] {
+  if (rule.action !== "show" && rule.action !== "hide") return [`${where} needs to say whether the rule shows it or hides it.`];
+  if (rule.match !== "all" && rule.match !== "any") return [`${where} needs to say whether all of its conditions must hold, or any one.`];
+  if (rule.conditions.length === 0) return [`${where} has a rule with no conditions. Add one, or take the rule off.`];
+  if (rule.conditions.length > MAX_RULE_CONDITIONS) {
+    return [`${where} has a rule with more than ${MAX_RULE_CONDITIONS} conditions. Keep it to the few that matter.`];
+  }
+  const problems: string[] = [];
+  for (const condition of rule.conditions) {
+    const source = form.fields.find((f) => f.key === condition.field);
+    if (!source || !onAPage(source)) {
+      problems.push(`${where} waits for "${condition.field}", and this form has no such question.`);
+      continue;
+    }
+    const name = `"${source.label.trim() || source.key}"`;
+    if (!isEarlier(source)) {
+      problems.push(`${where} waits for ${name}, which is not asked before it. A rule can only wait for an earlier question.`);
+      continue;
+    }
+    const allowed = RULE_OPERATORS_FOR[source.type] ?? [];
+    if (allowed.length === 0) {
+      problems.push(`${where} waits for ${name}. A rule can wait for a pick one, pick several, number or typed answer, and this is none of those.`);
+      continue;
+    }
+    if (!allowed.includes(condition.op)) {
+      problems.push(`${where} asks whether ${name} ${RULE_OPERATOR_WORDS[condition.op] ?? condition.op}, which does not work for that kind of question.`);
+      continue;
+    }
+    const offered = new Set((source.options ?? []).map((o) => o.value));
+    if (condition.op === "one_of") {
+      const values = condition.values ?? [];
+      if (values.length === 0) problems.push(`${where} waits for ${name} with no options ticked. Tick at least one.`);
+      else if (values.length > MAX_CONDITION_VALUES) problems.push(`${where} names more than ${MAX_CONDITION_VALUES} answers to ${name}.`);
+      const unknown = values.filter((v) => !offered.has(v));
+      if (unknown.length > 0) problems.push(`${where} waits for ${unknown.map((v) => `"${v}"`).join(", ")}, which ${name} does not offer.`);
+    } else if (source.type === "number" || condition.op === "greater_than" || condition.op === "less_than") {
+      if (typeof condition.value !== "number" || !Number.isFinite(condition.value)) {
+        problems.push(`${where} compares ${name} with something that is not a number.`);
+      }
+    } else if (source.type === "choice" || source.type === "multi_choice") {
+      if (typeof condition.value !== "string" || !offered.has(condition.value)) {
+        problems.push(`${where} waits for an answer ${name} does not offer.`);
+      }
+    } else if (typeof condition.value !== "string" || condition.value.trim() === "" || condition.value.length > MAX_RULE_TEXT) {
+      problems.push(`${where} compares ${name} with no words. Say what the answer is, or holds, in up to ${MAX_RULE_TEXT} characters.`);
+    }
+  }
+  return problems;
+}
+
+/** What is wrong with the rules on single questions, as sentences. */
+function fieldRuleProblems(form: FormDefinition): string[] {
+  const problems: string[] = [];
+  form.fields.forEach((field, index) => {
+    if (!field.rule) return;
+    const where = `The question "${field.label.trim() || field.key}"`;
+    if (!onAPage(field)) {
+      problems.push(`${where} is never shown on the page, so it cannot have a rule.`);
+      return;
+    }
+    const before = new Set(form.fields.slice(0, index).map((f) => f.key));
+    problems.push(...ruleProblems(form, field.rule, where, (source) => before.has(source.key) && source.key !== field.key));
+  });
+  return problems;
 }
 
 /** The option values an answer to a pick question holds: one, several, or none. */
@@ -1824,28 +2062,18 @@ const chosen = (raw: unknown): string[] =>
  * stale answer. A form that is not split is one page, always shown.
  */
 export function shownPages(form: FormDefinition, values: Record<string, unknown>): boolean[] {
-  const pages = form.pages ?? [];
-  if (pages.length <= 1) return [true];
-  const shown: boolean[] = [];
-  pages.forEach((page, i) => {
-    const when = page.showWhen;
-    if (!when) { shown.push(true); return; }
-    const source = form.fields.find((f) => f.key === when.field);
-    const at = source && onAPage(source) ? pageIndex(source) : -1;
-    if (at < 0 || at >= i || shown[at] !== true) { shown.push(false); return; }
-    shown.push(chosen(values[when.field]).some((v) => when.oneOf.includes(v)));
-  });
-  return shown;
+  return visibility(form, values).pages;
 }
 
 /**
- * The keys of the questions on pages these answers do not lead to. Their
- * answers are dropped, never required and never kept, by the submit check and
- * by the hosted page before it posts.
+ * The keys of the questions these answers do not lead to: on a page that is
+ * not shown, or hidden by their own rule. Their answers are dropped, never
+ * required and never kept, by the submit check and by the hosted page before
+ * it posts.
  */
 export function hiddenFieldKeys(form: FormDefinition, values: Record<string, unknown>): Set<string> {
-  const shown = shownPages(form, values);
-  return new Set(form.fields.filter((f) => onAPage(f) && shown[pageIndex(f)] === false).map((f) => f.key));
+  const { asked } = visibility(form, values);
+  return new Set(form.fields.filter((f) => onAPage(f) && !asked.has(f.key)).map((f) => f.key));
 }
 
 /**
@@ -1857,8 +2085,9 @@ export function hiddenFieldKeys(form: FormDefinition, values: Record<string, unk
  * and `checkSubmission` decides, because a page in a browser can be skipped.
  */
 export function checkPage(form: FormDefinition, page: number, values: Record<string, unknown>): FieldRefusal[] {
-  if (shownPages(form, values)[page] === false) return [];
-  const keys = new Set(pagesOf(form)[page]?.keys ?? []);
+  const seen = visibility(form, values);
+  if (seen.pages[page] === false) return [];
+  const keys = new Set((pagesOf(form)[page]?.keys ?? []).filter((key) => seen.asked.has(key)));
   const refusals: FieldRefusal[] = [];
   for (const field of form.fields) {
     if (!keys.has(field.key)) continue;

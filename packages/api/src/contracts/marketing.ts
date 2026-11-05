@@ -271,6 +271,25 @@ export const FormFieldType = z.enum([
   "hidden", "honeypot", "file",
 ]);
 
+/**
+ * A rule over several earlier answers: show (or hide) a page or a single
+ * question when all of its conditions hold, or any one. Each condition names
+ * an earlier question and compares its answer: `equals` (a pick question's
+ * option, a number, or typed words), `one_of` (options, any one enough),
+ * `greater_than` and `less_than` (a number), `contains` (typed words, without
+ * regard to capitals). A question that was not asked counts as no answer.
+ */
+export const ShowRule = z.object({
+  action: z.enum(["show", "hide"]),
+  match: z.enum(["all", "any"]),
+  conditions: z.array(z.object({
+    field: z.string().min(1).max(60),
+    op: z.enum(mk.RULE_OPERATORS),
+    value: z.union([z.string().max(mk.MAX_RULE_TEXT), z.number()]).optional(),
+    values: z.array(z.string().min(1).max(200)).max(mk.MAX_CONDITION_VALUES).optional(),
+  })).min(1).max(mk.MAX_RULE_CONDITIONS),
+});
+
 export const FormField = z.object({
   key: z.string().min(1).max(60),
   label: z.string().min(1).max(200),
@@ -296,6 +315,8 @@ export const FormField = z.object({
   }).optional(),
   /** The page the field is on, from 0, when the form is split into pages. Absent is the first. */
   page: z.number().int().min(0).max(mk.MAX_FORM_PAGES - 1).optional(),
+  /** Show or hide this one question by a rule over earlier answers. Hidden, it is not asked: never required, and dropped. */
+  rule: ShowRule.optional(),
 });
 
 /**
@@ -311,6 +332,8 @@ export const FormPage = z.object({
     field: z.string().min(1).max(60),
     oneOf: z.array(z.string().min(1).max(200)).max(mk.MAX_CONDITION_VALUES),
   }).optional(),
+  /** Or a rule over several earlier answers on earlier pages. A page has one or the other. */
+  rule: ShowRule.optional(),
 });
 
 /**

@@ -9762,6 +9762,16 @@ export interface GetFormOutput {
       purpose: "marketing" | "transactional";
     };
     page?: number;
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
+    };
   }>;
   minimumFillSeconds: number | null;
   settings: {
@@ -9776,6 +9786,16 @@ export interface GetFormOutput {
     showWhen?: {
       field: string;
       oneOf: string[];
+    };
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
     };
   }>;
 }
@@ -9837,6 +9857,16 @@ export interface GetHostedFormOutput {
       purpose: "marketing" | "transactional";
     };
     page?: number;
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
+    };
   }>;
   thankYou: string | null;
   pages: Array<{
@@ -9844,6 +9874,16 @@ export interface GetHostedFormOutput {
     showWhen?: {
       field: string;
       oneOf: string[];
+    };
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
     };
   }>;
   uploads: {
@@ -25443,6 +25483,16 @@ export interface SaveFormInput {
       purpose: "marketing" | "transactional";
     };
     page?: number;
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
+    };
   }>;
   minimumFillSeconds?: number;
   settings?: {
@@ -25457,6 +25507,16 @@ export interface SaveFormInput {
     showWhen?: {
       field: string;
       oneOf: string[];
+    };
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
     };
   }>;
 }

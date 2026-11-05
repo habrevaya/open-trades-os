@@ -207543,6 +207543,79 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
+                  ]
                 }
               },
               "required": [
@@ -207614,6 +207687,79 @@
                   "required": [
                     "field",
                     "oneOf"
+                  ]
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
                   ]
                 }
               },
@@ -207928,6 +208074,79 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
+                  ]
                 }
               },
               "required": [
@@ -207974,6 +208193,79 @@
                   "required": [
                     "field",
                     "oneOf"
+                  ]
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
                   ]
                 }
               },
@@ -288481,6 +288773,79 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
+                  ]
                 }
               },
               "required": [
@@ -288553,6 +288918,79 @@
                   "required": [
                     "field",
                     "oneOf"
+                  ]
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
                   ]
                 }
               },

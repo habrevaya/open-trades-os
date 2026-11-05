@@ -56,6 +56,13 @@ function visitorId(): string | undefined {
  * rule (`shownPages` in core), so a post that includes a skipped page's
  * answers has them dropped there too.
  *
+ * SO CAN A QUESTION, AND BY SEVERAL ANSWERS. A page or a single question can
+ * wait for a rule over earlier answers (all of them or any one: a pick, a
+ * number more or less than something, words typed). A question its rule
+ * hides is taken off the page as the person answers, is not checked by Next,
+ * and is not sent; the server decides the same from the same rule
+ * (`visibility` in core).
+ *
  * FILES go in the same post. A photograph is made smaller first, the way the
  * technician's camera does it, and the size is checked here before anything
  * is sent, because a post too large for the server would fail with nothing
@@ -70,8 +77,9 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
   const arrival = useRef<{ visitorId?: string | undefined; landingQuery?: string | undefined; referrer?: string | undefined }>({});
   const top = useRef<HTMLFormElement>(null);
   const [page, setPage] = useState(0);
-  /** Which pages the answers so far lead to, kept live as the person answers. */
-  const [shown, setShown] = useState<boolean[]>(() => mk.shownPages(definition, {}));
+  /** Which pages and questions the answers so far lead to, kept live as the person answers. */
+  const [seen, setSeen] = useState(() => mk.visibility(definition, {}));
+  const shown = seen.pages;
   const [refusals, setRefusals] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string | null>(null);
   const [thanks, setThanks] = useState<string | null>(null);
@@ -170,7 +178,7 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
     const refused = refusals[field.key];
     const id = `f-${field.key}`;
     return (
-      <div key={field.key}>
+      <div key={field.key} hidden={!seen.asked.has(field.key)}>
         {field.type === "consent" ? (
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" name={field.key} value="yes" className="mt-1" />
@@ -230,7 +238,7 @@ export function HostedForm({ organizationSlug, formSlug, fields, pages, uploads 
       ref={top}
       noValidate
       className="space-y-4 rounded-md border border-steel-200 bg-canvas p-6"
-      onChange={(event) => setShown(mk.shownPages(definition, valuesOf(event.currentTarget)))}
+      onChange={(event) => setSeen(mk.visibility(definition, valuesOf(event.currentTarget)))}
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
