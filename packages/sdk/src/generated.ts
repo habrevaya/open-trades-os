@@ -16179,6 +16179,18 @@ export interface ListDisposalFacilitiesOutput {
   }>;
 }
 
+export interface ListDisposalMarkupsOutput {
+  facilityMarkups: Array<{
+    facilityId: string;
+    facilityName: string;
+    markup: string;
+  }>;
+  materialMarkups: Array<{
+    material: string;
+    markup: string;
+  }>;
+}
+
 export interface ListDoNotMailOutput {
   entries: Array<{
     id: string;
@@ -26542,6 +26554,24 @@ export interface SetDisposalBillingOutput {
   addWithoutAsking: boolean;
 }
 
+export interface SetDisposalMarkupInput {
+  facilityId?: string;
+  material?: string;
+  markup: string | null;
+}
+
+export interface SetDisposalMarkupOutput {
+  facilityMarkups: Array<{
+    facilityId: string;
+    facilityName: string;
+    markup: string;
+  }>;
+  materialMarkups: Array<{
+    material: string;
+    markup: string;
+  }>;
+}
+
 export interface SetEmploymentRecordInput {
   jobTitle?: string | null;
   startedOn: string;
@@ -34370,6 +34400,8 @@ export interface ListDisposalFacilitiesInput {
   includeClosed?: boolean;
 }
 
+export type ListDisposalMarkupsInput = Record<string, never>;
+
 export interface ListDoNotMailInput {
   customerId?: string;
 }
@@ -37137,6 +37169,7 @@ export interface OperationTypes {
   listDevices: { input: ListDevicesInput; output: ListDevicesOutput };
   listDispatchPlans: { input: ListDispatchPlansInput; output: ListDispatchPlansOutput };
   listDisposalFacilities: { input: ListDisposalFacilitiesInput; output: ListDisposalFacilitiesOutput };
+  listDisposalMarkups: { input: ListDisposalMarkupsInput; output: ListDisposalMarkupsOutput };
   listDoNotMail: { input: ListDoNotMailInput; output: ListDoNotMailOutput };
   listDueRequests: { input: ListDueRequestsInput; output: ListDueRequestsOutput };
   listEmailMessages: { input: ListEmailMessagesInput; output: ListEmailMessagesOutput };
@@ -37620,6 +37653,7 @@ export interface OperationTypes {
   setDeficiencyStatus: { input: SetDeficiencyStatusParams & SetDeficiencyStatusInput; output: SetDeficiencyStatusOutput };
   setDiscountPolicy: { input: SetDiscountPolicyInput; output: SetDiscountPolicyOutput };
   setDisposalBilling: { input: SetDisposalBillingInput; output: SetDisposalBillingOutput };
+  setDisposalMarkup: { input: SetDisposalMarkupInput; output: SetDisposalMarkupOutput };
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
@@ -38415,6 +38449,7 @@ export const OPERATIONS = {
   listDevices: { method: "GET", path: "/v1/field/devices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listDispatchPlans: { method: "GET", path: "/v1/ai/dispatch/plans", pathParams: [], queryParams: ["date","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listDisposalFacilities: { method: "GET", path: "/v1/disposal-facilities", pathParams: [], queryParams: ["includeClosed"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  listDisposalMarkups: { method: "GET", path: "/v1/disposal-billing/markups", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listDoNotMail: { method: "GET", path: "/v1/marketing/do-not-mail", pathParams: [], queryParams: ["customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   listDueRequests: { method: "GET", path: "/v1/reviews/requests/due", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -38898,6 +38933,7 @@ export const OPERATIONS = {
   setDeficiencyStatus: { method: "POST", path: "/v1/inspection-deficiencies/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setDiscountPolicy: { method: "PUT", path: "/v1/estimates/discount-policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setDisposalBilling: { method: "PUT", path: "/v1/disposal-billing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setDisposalMarkup: { method: "PUT", path: "/v1/disposal-billing/markups", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
@@ -44255,6 +44291,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The markups of one facility's or one material's own on a passed on disposal fee.
+   *
+   * GET /v1/disposal-billing/markups. Needs asset:read.
+   */
+  listDisposalMarkups(input: ListDisposalMarkupsInput = {} as ListDisposalMarkupsInput, options?: CallOptions): Promise<ListDisposalMarkupsOutput> {
+    return this.call("listDisposalMarkups", input, options);
+  }
+
+  /**
    * The do not mail list.
    *
    * GET /v1/marketing/do-not-mail. Needs campaign:read.
@@ -48599,6 +48644,15 @@ export abstract class GeneratedOperations {
    */
   setDisposalBilling(input: SetDisposalBillingInput = {} as SetDisposalBillingInput, options?: CallOptions): Promise<SetDisposalBillingOutput> {
     return this.call("setDisposalBilling", input, options);
+  }
+
+  /**
+   * Set or take off the markup for one facility or one material.
+   *
+   * PUT /v1/disposal-billing/markups. Needs settings:write.
+   */
+  setDisposalMarkup(input: SetDisposalMarkupInput, options?: CallOptions): Promise<SetDisposalMarkupOutput> {
+    return this.call("setDisposalMarkup", input, options);
   }
 
   /**

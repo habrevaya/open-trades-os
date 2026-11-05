@@ -1,4 +1,4 @@
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { money as m, rental as rt, time } from "@opentradesos/core";
 import {
@@ -314,6 +314,10 @@ export interface FeeFigure {
   source: "recorded" | "worked_out";
   why: string;
   facility: string | null;
+  /** The recorded facility the haul names, for a markup set for it. Null when the haul names one only in words, or none. */
+  facilityId: string | null;
+  /** The haul's material as written, for a markup set for it. */
+  material: string | null;
 }
 
 /**
@@ -340,7 +344,10 @@ export async function feeFigure(
   if (hire.disposalFee !== null) {
     return {
       ok: true,
-      figure: { amount: hire.disposalFee, source: "recorded", why: "the fee recorded on the haul", facility: hire.disposalFacility },
+      figure: {
+        amount: hire.disposalFee, source: "recorded", why: "the fee recorded on the haul", facility: hire.disposalFacility,
+        facilityId: hire.disposalFacilityId, material: hire.materialType ?? null,
+      },
     };
   }
   if (!hire.disposalFacilityId) {
@@ -350,7 +357,13 @@ export async function feeFigure(
   /** A material the facility prices on its own is charged at that rate, as the facility's invoice will be. */
   const verdict = rt.disposalFee(rt.rateForMaterial(facility.materials, rateOf(facility), hire.materialType ?? null), hire.weightTons);
   if (!verdict.ok) return { ok: false, why: verdict.why };
-  return { ok: true, figure: { amount: verdict.fee, source: "worked_out", why: verdict.why, facility: facility.name } };
+  return {
+    ok: true,
+    figure: {
+      amount: verdict.fee, source: "worked_out", why: verdict.why, facility: facility.name,
+      facilityId: hire.disposalFacilityId, material: hire.materialType ?? null,
+    },
+  };
 }
 
 /* ------------------------------------- what the customer is charged for a fee */
@@ -370,19 +383,65 @@ export async function feeFigure(
 export interface DisposalBillingSettings {
   markup: string | null;
   addWithoutAsking: boolean;
+  /**
+   * A markup of one facility's own, by the facility's id, and of one
+   * material's own, by its key (`rental.materialKey`) with the name as it was
+   * typed. Either may be "0", which passes that fee on at cost. Read before
+   * the company's markup (`rental.disposalMarkupFor`); empty by default.
+   */
+  facilityMarkups: Record<string, string>;
+  materialMarkups: Record<string, { material: string; markup: string }>;
 }
+
+const sane = (value: unknown): value is string => typeof value === "string" && rt.disposalMarkupProblem(value) === null;
 
 export async function disposalBillingOf(tx: Database, organizationId: string): Promise<DisposalBillingSettings> {
   const [row] = await tx.select({ settings: schema.organization.settings })
     .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
   const held = ((row?.settings ?? {}) as Record<string, unknown>)["disposalBilling"] as Partial<DisposalBillingSettings> | undefined;
-  const markup = typeof held?.markup === "string" && rt.disposalMarkupProblem(held.markup) === null && Number(held.markup) > 0
-    ? held.markup : null;
-  return { markup, addWithoutAsking: held?.addWithoutAsking === true };
+  const markup = sane(held?.markup) && Number(held.markup) > 0 ? held.markup : null;
+  /** Anything hand edited into nonsense is left out, which falls back to the company's markup. */
+  const facilityMarkups = Object.fromEntries(Object.entries(held?.facilityMarkups ?? {}).filter(([, v]) => sane(v)));
+  const materialMarkups = Object.fromEntries(Object.entries(held?.materialMarkups ?? {})
+    .filter(([, v]) => v && typeof v.material === "string" && sane(v.markup)));
+  return { markup, addWithoutAsking: held?.addWithoutAsking === true, facilityMarkups, materialMarkups };
 }
 
-export function disposalBilling(ctx: ServiceContext): Promise<DisposalBillingSettings> {
-  return guardedRead(ctx, "asset:read", (tx) => disposalBillingOf(tx, ctx.actor.organizationId));
+/** The company's markup and whether the fee is added without asking, as `GET /v1/disposal-billing` answers. */
+export interface DisposalBillingView {
+  markup: string | null;
+  addWithoutAsking: boolean;
+}
+
+/** The markups of one facility's or one material's own, as `GET /v1/disposal-billing/markups` answers. */
+export interface DisposalMarkupsView {
+  facilityMarkups: { facilityId: string; facilityName: string; markup: string }[];
+  materialMarkups: { material: string; markup: string }[];
+}
+
+/** The markups with each facility named, facilities and materials in alphabetical order. */
+async function markupsOf(tx: Database, organizationId: string, settings: DisposalBillingSettings): Promise<DisposalMarkupsView> {
+  const ids = Object.keys(settings.facilityMarkups);
+  const names = ids.length === 0 ? [] : await tx.select({ id: schema.disposalFacility.id, name: schema.disposalFacility.name })
+    .from(schema.disposalFacility)
+    .where(and(eq(schema.disposalFacility.organizationId, organizationId), inArray(schema.disposalFacility.id, ids)));
+  return {
+    facilityMarkups: names.map((n) => ({ facilityId: n.id, facilityName: n.name, markup: settings.facilityMarkups[n.id]! }))
+      .sort((a, b) => a.facilityName.localeCompare(b.facilityName)),
+    materialMarkups: Object.values(settings.materialMarkups).sort((a, b) => a.material.localeCompare(b.material)),
+  };
+}
+
+export function disposalBilling(ctx: ServiceContext): Promise<DisposalBillingView> {
+  return guardedRead(ctx, "asset:read", async (tx) => {
+    const settings = await disposalBillingOf(tx, ctx.actor.organizationId);
+    return { markup: settings.markup, addWithoutAsking: settings.addWithoutAsking };
+  });
+}
+
+/** Every facility's and material's own markup. Read like the company's, under `asset:read`. */
+export function disposalMarkups(ctx: ServiceContext): Promise<DisposalMarkupsView> {
+  return guardedRead(ctx, "asset:read", async (tx) => markupsOf(tx, ctx.actor.organizationId, await disposalBillingOf(tx, ctx.actor.organizationId)));
 }
 
 /**
@@ -392,29 +451,95 @@ export function disposalBilling(ctx: ServiceContext): Promise<DisposalBillingSet
  */
 export function setDisposalBilling(
   ctx: ServiceContext, input: { markup?: string | null | undefined; addWithoutAsking?: boolean | undefined },
-): Promise<DisposalBillingSettings> {
+): Promise<DisposalBillingView> {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const before = await disposalBillingOf(tx, ctx.actor.organizationId);
     const typed = input.markup === undefined ? before.markup : input.markup;
     const problem = rt.disposalMarkupProblem(typed);
     if (problem) throw new ConflictError(problem);
     const after: DisposalBillingSettings = {
+      ...before,
       markup: typed !== null && Number(typed) > 0 ? String(Number(typed)) : null,
       addWithoutAsking: input.addWithoutAsking ?? before.addWithoutAsking,
     };
-    await tx.update(schema.organization).set({
-      settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ disposalBilling: after })}::jsonb`,
-      updatedAt: new Date(),
-    }).where(eq(schema.organization.id, ctx.actor.organizationId));
-    await audit(tx, ctx, "rental.disposal_billing_set", "organization", ctx.actor.organizationId, before, after);
-    return after;
+    await save(tx, ctx, before, after);
+    return { markup: after.markup, addWithoutAsking: after.addWithoutAsking };
   });
 }
 
-/** A haul's fee as the customer would be charged it: the figure, marked up when the company says, and the words for the line. */
+async function save(tx: Database, ctx: ServiceContext, before: DisposalBillingSettings, after: DisposalBillingSettings): Promise<void> {
+  await tx.update(schema.organization).set({
+    settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ disposalBilling: after })}::jsonb`,
+    updatedAt: new Date(),
+  }).where(eq(schema.organization.id, ctx.actor.organizationId));
+  await audit(tx, ctx, "rental.disposal_billing_set", "organization", ctx.actor.organizationId, before, after);
+}
+
+/**
+ * A MARKUP FOR ONE FACILITY OR ONE MATERIAL, or taken off with `markup: null`.
+ * Exactly one of `facilityId` (a facility of this company's, open or closed)
+ * and `material` (as it is written on a haul; case and spacing ignored, as
+ * everywhere materials are matched). "0" is allowed and passes that fee on at
+ * cost. A company setting, so `settings:write`, with the before and after on
+ * the audit line; the same markup sent again changes nothing. Applies to
+ * invoices raised from then on: a hire already invoiced keeps what it was
+ * charged.
+ */
+export function setDisposalMarkup(
+  ctx: ServiceContext, input: { facilityId?: string | undefined; material?: string | undefined; markup: string | null },
+): Promise<DisposalMarkupsView> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    const material = input.material?.trim().replace(/\s+/g, " ") || undefined;
+    if (!!input.facilityId === !!material) {
+      throw new ConflictError("Say which facility or which material the markup is for: one of them, not both.");
+    }
+    const problem = rt.disposalMarkupProblem(input.markup);
+    if (problem) throw new ConflictError(problem);
+    const before = await disposalBillingOf(tx, ctx.actor.organizationId);
+    const after: DisposalBillingSettings = {
+      ...before, facilityMarkups: { ...before.facilityMarkups }, materialMarkups: { ...before.materialMarkups },
+    };
+    const markup = input.markup === null ? null : String(Number(input.markup));
+    if (input.facilityId) {
+      const [facility] = await tx.select({ id: schema.disposalFacility.id }).from(schema.disposalFacility)
+        .where(and(eq(schema.disposalFacility.id, input.facilityId), eq(schema.disposalFacility.organizationId, ctx.actor.organizationId)))
+        .limit(1);
+      if (!facility) throw new NotFoundError("Disposal facility");
+      if (markup === null) delete after.facilityMarkups[facility.id];
+      else after.facilityMarkups[facility.id] = markup;
+    } else {
+      const key = rt.materialKey(material!);
+      if (markup === null) delete after.materialMarkups[key];
+      /** The same markup for the same material written another way keeps the name it was first given. */
+      else if (before.materialMarkups[key]?.markup !== markup) after.materialMarkups[key] = { material: material!, markup };
+    }
+    if (JSON.stringify(before) !== JSON.stringify(after)) await save(tx, ctx, before, after);
+    return markupsOf(tx, ctx.actor.organizationId, after);
+  });
+}
+
+/**
+ * A haul's fee as the customer would be charged it: the figure, marked up by
+ * its facility's or its material's own markup, else the company's
+ * (`rental.disposalMarkupFor`), and the words for the line, which say whose
+ * markup it was when it was not the company's.
+ */
 export function chargedFee(figure: FeeFigure, settings: DisposalBillingSettings) {
-  const passed = rt.passedOnFee({ cost: figure.amount, markup: settings.markup });
-  return { cost: m.toString(m.money(figure.amount)), amount: passed.amount, markup: settings.markup, words: passed.words };
+  const chosen = rt.disposalMarkupFor({
+    company: settings.markup,
+    facility: figure.facilityId ? settings.facilityMarkups[figure.facilityId] ?? null : null,
+    material: figure.material ? settings.materialMarkups[rt.materialKey(figure.material)]?.markup ?? null : null,
+  });
+  const markup = chosen.markup !== null && Number(chosen.markup) > 0 ? chosen.markup : null;
+  const passed = rt.passedOnFee({ cost: figure.amount, markup });
+  const whose = chosen.from === "facility" ? ` set for ${figure.facility ?? "this facility"}`
+    : chosen.from === "material" ? ` set for ${settings.materialMarkups[rt.materialKey(figure.material!)]?.material ?? figure.material}`
+      : "";
+  const words = whose === "" ? passed.words : markup === null ? `at cost, as${whose}` : `${passed.words}${whose}`;
+  return {
+    cost: m.toString(m.money(figure.amount)), amount: passed.amount, markup,
+    markupFrom: chosen.from, words,
+  };
 }
 
 /**
@@ -451,4 +576,7 @@ export const handlers = {
   getDisposalBilling: (ctx: ServiceContext) => disposalBilling(ctx),
   setDisposalBilling: (ctx: ServiceContext, input: { markup?: string | null | undefined; addWithoutAsking?: boolean | undefined }) =>
     setDisposalBilling(ctx, input),
+  listDisposalMarkups: (ctx: ServiceContext) => disposalMarkups(ctx),
+  setDisposalMarkup: (ctx: ServiceContext, input: { facilityId?: string | undefined; material?: string | undefined; markup: string | null }) =>
+    setDisposalMarkup(ctx, input),
 } as const;

@@ -50555,6 +50555,228 @@
         ]
       }
     },
+    "/v1/disposal-billing/markups": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "listDisposalMarkups",
+        "summary": "The markups of one facility's or one material's own on a passed on disposal fee",
+        "description": "A haul's fee takes the markup set for its facility or for its material; when both have one the smaller is used, so two settings that overlap never charge more than either says (a tie goes to the facility); with neither, the company's markup on `/v1/disposal-billing`, which may be none. A markup of 0 for a facility or a material passes that fee on at cost whatever the company's markup is. The invoice line says whose markup it was.\n\nRequires a session holding: asset:read.",
+        "tags": [
+          "M22"
+        ],
+        "responses": {
+          "200": {
+            "description": "The markups of one facility's or one material's own on a passed on disposal fee",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListDisposalMarkupsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "asset:read"
+        ]
+      },
+      "put": {
+        "operationId": "setDisposalMarkup",
+        "summary": "Set or take off the markup for one facility or one material",
+        "description": "Exactly one of `facilityId` and `material` (matched as hauls write it, case and spacing ignored). `markup` is a fraction from 0 to 1, or null to take it off and fall back. Applies to invoices raised from then on: a hire already invoiced keeps what it was charged. The same markup sent again changes nothing. A company setting, so `settings:write`, with the before and after on the audit line. A haul's fee takes the markup set for its facility or for its material; when both have one the smaller is used, so two settings that overlap never charge more than either says (a tie goes to the facility); with neither, the company's markup on `/v1/disposal-billing`, which may be none. A markup of 0 for a facility or a material passes that fee on at cost whatever the company's markup is. The invoice line says whose markup it was.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M22"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDisposalMarkupInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set or take off the markup for one facility or one material",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDisposalMarkupOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/disposal-facilities": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -241298,6 +241520,58 @@
           "facilities"
         ]
       },
+      "ListDisposalMarkupsOutput": {
+        "type": "object",
+        "properties": {
+          "facilityMarkups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "facilityId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "facilityName": {
+                  "type": "string"
+                },
+                "markup": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                }
+              },
+              "required": [
+                "facilityId",
+                "facilityName",
+                "markup"
+              ]
+            }
+          },
+          "materialMarkups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "material": {
+                  "type": "string"
+                },
+                "markup": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                }
+              },
+              "required": [
+                "material",
+                "markup"
+              ]
+            }
+          }
+        },
+        "required": [
+          "facilityMarkups",
+          "materialMarkups"
+        ]
+      },
       "ListDoNotMailOutput": {
         "type": "object",
         "properties": {
@@ -293437,6 +293711,82 @@
         "required": [
           "markup",
           "addWithoutAsking"
+        ]
+      },
+      "SetDisposalMarkupInput": {
+        "type": "object",
+        "properties": {
+          "facilityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "material": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "markup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+          }
+        },
+        "required": [
+          "markup"
+        ]
+      },
+      "SetDisposalMarkupOutput": {
+        "type": "object",
+        "properties": {
+          "facilityMarkups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "facilityId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "facilityName": {
+                  "type": "string"
+                },
+                "markup": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                }
+              },
+              "required": [
+                "facilityId",
+                "facilityName",
+                "markup"
+              ]
+            }
+          },
+          "materialMarkups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "material": {
+                  "type": "string"
+                },
+                "markup": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                }
+              },
+              "required": [
+                "material",
+                "markup"
+              ]
+            }
+          }
+        },
+        "required": [
+          "facilityMarkups",
+          "materialMarkups"
         ]
       },
       "SetEmploymentRecordInput": {

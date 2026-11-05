@@ -830,8 +830,10 @@ async function offerOf(tx: Database, ctx: ServiceContext, row: typeof schema.ren
   if (!fee.ok) return { amount: null, cost: null, markup: null, source: null, why: fee.why, facility: row.disposalFacility, automatic: false };
   const passing = await disposalBillingOf(tx, ctx.actor.organizationId);
   const charged = chargedFee(fee.figure, passing);
+  /** The facility's id and the material only choose the markup; the offer says the facility by name, as before. */
+  const { facilityId: _facilityId, material: _material, ...figure } = fee.figure;
   return {
-    ...fee.figure, amount: charged.amount, cost: charged.cost, markup: charged.markup,
+    ...figure, amount: charged.amount, cost: charged.cost, markup: charged.markup,
     /** The company adds it without asking: raising the invoice puts it on. */
     automatic: passing.addWithoutAsking,
   };

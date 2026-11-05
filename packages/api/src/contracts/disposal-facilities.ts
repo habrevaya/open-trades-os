@@ -220,7 +220,46 @@ export const setDisposalBilling = defineRoute({
   output: DisposalBilling,
 });
 
+const DisposalMarkups = z.object({
+  /** A markup of one facility's own, as a fraction; "0" passes that facility's fee on at cost. */
+  facilityMarkups: z.array(z.object({ facilityId: Uuid, facilityName: z.string(), markup: RateString })),
+  /** A markup of one material's own, by the material as it was typed; "0" passes that material's fee on at cost. */
+  materialMarkups: z.array(z.object({ material: z.string(), markup: RateString })),
+});
+
+const MARKUP_ORDER =
+  "A haul's fee takes the markup set for its facility or for its material; when both have one the smaller is used, so two settings that overlap never charge more than either says (a tie goes to the facility); with neither, the company's markup on `/v1/disposal-billing`, which may be none. A markup of 0 for a facility or a material passes that fee on at cost whatever the company's markup is. The invoice line says whose markup it was.";
+
+export const listDisposalMarkups = defineRoute({
+  method: "get",
+  path: "/v1/disposal-billing/markups",
+  summary: "The markups of one facility's or one material's own on a passed on disposal fee",
+  description: MARKUP_ORDER,
+  module: "M22",
+  permissions: ["asset:read"],
+  input: z.object({}),
+  output: DisposalMarkups,
+});
+
+export const setDisposalMarkup = defineRoute({
+  method: "put",
+  path: "/v1/disposal-billing/markups",
+  summary: "Set or take off the markup for one facility or one material",
+  description:
+    `Exactly one of \`facilityId\` and \`material\` (matched as hauls write it, case and spacing ignored). \`markup\` is a fraction from 0 to 1, or null to take it off and fall back. Applies to invoices raised from then on: a hire already invoiced keeps what it was charged. The same markup sent again changes nothing. A company setting, so \`settings:write\`, with the before and after on the audit line. ${MARKUP_ORDER}`,
+  module: "M22",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({
+    facilityId: Uuid.optional(),
+    material: z.string().min(1).max(80).optional(),
+    markup: RateString.nullable(),
+  }),
+  output: DisposalMarkups,
+});
+
 export const disposalFacilityRoutes = {
   listDisposalFacilities, createDisposalFacility, updateDisposalFacility, closeDisposalFacility,
   getDisposalFacilityOpen, pinDisposalFacility, unpinDisposalFacility, getDisposalBilling, setDisposalBilling,
+  listDisposalMarkups, setDisposalMarkup,
 } as const;

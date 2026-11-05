@@ -11,7 +11,7 @@ import { ActionForm } from "./ActionForm";
 import { ActionForm as SaidForm, Select, TextField } from "@/components/ActionForm";
 import { Money } from "@opentradesos/ui";
 import {
-  billingTermsAction, collectionTimeAction, disposalBillingAction, invoiceHireAction, recordChargeAction, removeChargeAction, rentalDispatchAction, scheduleCollectionsAction,
+  billingTermsAction, collectionTimeAction, disposalBillingAction, disposalMarkupAction, invoiceHireAction, recordChargeAction, removeChargeAction, rentalDispatchAction, scheduleCollectionsAction,
 } from "./billing-actions";
 
 const CHARGE_KINDS = [
@@ -127,6 +127,8 @@ export default async function ContainersPage(
   const schedules = writes && can(user.actor, "job:write");
   const dispatching = await rentalBilling.rentalDispatch(ctx);
   const passing = await disposalFacilities.disposalBilling(ctx);
+  const ownMarkups = await disposalFacilities.disposalMarkups(ctx);
+  const percent = (markup: string) => `${Number((Number(markup) * 100).toFixed(4))}%`;
   const tipping = (await disposalFacilities.listFacilities(ctx)).facilities;
   /** Where the load went, offered when the company has recorded any facility. */
   const facilityPick = (label: string) => tipping.length > 0 ? (
@@ -463,6 +465,46 @@ export default async function ContainersPage(
               <input type="checkbox" name="addWithoutAsking" defaultChecked={passing.addWithoutAsking} />
               Add the fee to the invoice without asking
             </label>
+          </SaidForm>
+        ) : null}
+
+        <h3 className="mt-5 text-sm font-semibold">A markup for one facility or one material</h3>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          A facility or a material can have its own markup instead of the company&apos;s, or 0 to pass it on at
+          cost. If a haul&apos;s facility and its material both have one, the smaller is used, so the customer is
+          never charged more because two settings overlap. The invoice line says whose markup it was. A hire
+          already invoiced keeps what it was charged.
+        </p>
+        {ownMarkups.facilityMarkups.length + ownMarkups.materialMarkups.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-sm" aria-label="Markups of their own">
+            {ownMarkups.facilityMarkups.map((f) => (
+              <li key={f.facilityId} className="flex flex-wrap items-center gap-3">
+                <span>{f.facilityName}: {Number(f.markup) === 0 ? "at cost" : percent(f.markup)}</span>
+                {settingsWrite ? (
+                  <SaidForm action={disposalMarkupAction} submit={`Take off the markup for ${f.facilityName}`} tone="quiet"
+                            hidden={{ facilityId: f.facilityId, off: "1" }} className="flex items-center" />
+                ) : null}
+              </li>
+            ))}
+            {ownMarkups.materialMarkups.map((m) => (
+              <li key={m.material} className="flex flex-wrap items-center gap-3">
+                <span>{m.material}: {Number(m.markup) === 0 ? "at cost" : percent(m.markup)}</span>
+                {settingsWrite ? (
+                  <SaidForm action={disposalMarkupAction} submit={`Take off the markup for ${m.material}`} tone="quiet"
+                            hidden={{ material: m.material, off: "1" }} className="flex items-center" />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-ink-500">None, so every fee takes the company&apos;s markup.</p>
+        )}
+        {settingsWrite ? (
+          <SaidForm action={disposalMarkupAction} submit="Save this markup" className="mt-2 flex flex-wrap items-end gap-3">
+            <Select label="For this facility" name="facilityId" className="block w-56"
+                    options={[{ value: "", label: "None, a material instead" }, ...tipping.map((f) => ({ value: f.id, label: f.name }))]} />
+            <TextField label="Or this material" name="material" list="materials" placeholder="Concrete" className="w-48" />
+            <TextField label="Its markup, per cent" name="markupPercent" inputMode="decimal" placeholder="10" className="w-44" />
           </SaidForm>
         ) : null}
       </section>

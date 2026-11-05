@@ -486,6 +486,30 @@ fee on; `leave_off` still leaves it off; and when a fee cannot be worked out the
 invoice is still refused until somebody says `leave_off`, so nobody loses a
 fee without knowing.
 
+**A markup for one facility or one material.** Under the company's markup on
+`/fleet/containers`, "A markup for one facility or one material" gives one
+facility (a landfill the company pays more to reach) or one material (concrete
+it charges more to handle) a markup of its own, typed as a per cent, or 0 to
+pass that fee on at cost whatever the company's markup is, and takes it off
+again (`PUT /v1/disposal-billing/markups` with exactly one of `facilityId` and
+`material` and a `markup`, null to take it off; `GET /v1/disposal-billing/markups`
+under `asset:read`; `settings:write`, with the before and after on the same audit
+line as the company's markup, and the same markup sent again changes nothing). A
+material is matched as hauls write it, case and spacing ignored, as everywhere
+materials are matched, and keeps the spelling it was first given. A haul's fee
+takes its facility's markup or its material's, falling back to the company's
+(`rental.disposalMarkupFor` in core, unit tested). **The conservative reading
+taken:** when a haul's facility and its material both have one, the smaller is
+used, so two settings that overlap never charge a customer more than either one
+says; a tie goes to the facility. The invoice line says whose markup it was ("the
+facility's fee of 150.00 plus a 25% handling markup set for Mesa Landfill", "at
+cost, as set for Ridge Transfer"), and the offer on the hire's row and the
+preview give the amount, the cost and the markup used, as before. A facility is
+read by the facility recorded on the haul: a fee recorded with only the
+facility's name in words takes the material's or the company's markup. It
+applies to invoices raised from then on: a hire already invoiced keeps what it
+was charged.
+
 ### A facility's scale tickets
 
 `POST /v1/scale-tickets/preview` reads the file a landfill or transfer station
@@ -707,9 +731,19 @@ this product's own board first.
   on the haul. Holidays are the lists the company types, one facility at a
   time. The load in the morning is not recorded; for a day already under way it is
   worked out from the stops done. The rebalance across people leaves a driver's
-  day with containers on it alone (M09).
-- **One markup for every disposal fee.** The company's markup is one per cent
-  for every facility, material and customer, on the facility's fee alone (never
+  day with containers on it alone (M09). **A load is not split between two
+  facilities**, and no part of one becomes a draft line: a haul (a can) records
+  one facility, one material, one ticket and one fee, so splitting a load would
+  need a haul to carry two tips, two tickets and two fees, the planner to plan
+  two tip stops for one truck, and the invoice to raise a line for each, each
+  of which reads the one facility a haul has today. That is a change to what a
+  haul is, not to billing, and it was left rather than half built: a load with
+  two materials still goes to one facility that takes both, or is refused, and
+  the office records two cans when the materials went to two gates.
+- **A markup per facility or material, and no more.** A markup is the company's,
+  or one facility's or one material's own (the smaller when both apply). There
+  is no markup per customer, per hire or per facility and material together,
+  it is on the facility's fee alone (never
   on a by the ton charge over the included tonnage, which is the hire's own
   price), and it is a markup, never a flat handling charge. Whether a markup on
   a pass through is allowed, and how it is taxed, depends on the state and the
