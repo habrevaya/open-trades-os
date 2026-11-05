@@ -142,6 +142,12 @@ export function inspectionPayload(input: {
   return {
     visitId: input.visitId,
     programId: input.program.id,
+    /**
+     * The version the technician was shown. Filed after the office published
+     * a newer one, the server judges it against this one, the checkpoints
+     * that were actually answered.
+     */
+    programVersion: input.program.version,
     /** For the day screen to name it before the server has answered. */
     programName: input.program.name,
     answers: input.built.answers,

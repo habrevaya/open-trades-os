@@ -126,7 +126,18 @@ export const NAV: NavGroup[] = [
        * list of jobs that have not been booked yet. Filing it as a report
        * would make it something somebody reads rather than works.
        */
-      { href: "/inspections", label: "Inspections", permission: "compliance:read", icon: "inspections" },
+      {
+        href: "/inspections", label: "Inspections", permission: "compliance:read", icon: "inspections",
+        children: [
+          { href: "/inspections", label: "The backlog" },
+          /**
+           * The checklists inspections are done against, the company's own
+           * and its trade packs', each with every version it has had. Read
+           * with `compliance:read`; written with `compliance:write`.
+           */
+          { href: "/inspections/programmes", label: "Programmes" },
+        ],
+      },
       /**
        * Beside inspections, because both answer "may this work go ahead":
        * one about the equipment, this one about the person sent to it.

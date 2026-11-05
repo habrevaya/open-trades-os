@@ -1,6 +1,6 @@
-import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, boolean, jsonb, integer, index, uniqueIndex, timestamp, date } from "drizzle-orm/pg-core";
 import { pk, timestamps, sourceRef, money } from "./_shared";
-import { organization } from "./tenancy";
+import { organization, user } from "./tenancy";
 import { customer, property, equipment } from "./crm";
 import { job, visit } from "./work";
 import { serviceContract } from "./commercial";
@@ -67,9 +67,65 @@ export const inspectionProgram = pgTable("inspection_program", {
    */
   checkpoints: jsonb("checkpoints").$type<InspectionCheckpoint[]>().notNull().default([]),
   version: integer("version").notNull().default(1),
+  /** Offered to technicians. A programme nobody offers is kept, with every version, for the inspections done under it. */
   active: boolean("active").notNull().default(true),
+  /**
+   * WHERE A COMPANY'S OWN PROGRAMME STARTED, when it started as a copy: a
+   * trade pack's programme (by the pack's code for it, and the pack version it
+   * was copied from) or another of the company's programmes (and the version
+   * of it). Null for one written from nothing, and for a programme a pack set
+   * up, whose `trade_pack_id` already says where it came from. Kept so
+   * somebody reading a programme in two years can see what it was based on.
+   */
+  copiedFrom: jsonb("copied_from").$type<InspectionProgramCopiedFrom | null>(),
   ...timestamps,
 }, (t) => ({ orgIdx: index("inspection_program_org_idx").on(t.organizationId) }));
+
+export type InspectionProgramCopiedFrom =
+  | { kind: "trade_pack"; packId: string; packVersion: number; code: string; name: string }
+  | { kind: "program"; programId: string; version: number; name: string };
+
+/**
+ * EVERY VERSION OF A PROGRAMME, AS IT WAS PUBLISHED.
+ *
+ * `inspection_program` holds the version in force. Revising it used to write
+ * the new checkpoints over the old ones on the same row, so the version number
+ * an inspection was stamped with pointed at a list that no longer existed,
+ * and the report header (the name, the standard, the authority) was read from
+ * whatever the programme said today. Each version is kept here, whole, the
+ * moment it is published, and never changed afterwards.
+ *
+ * It is what an inspection done offline against version 3 is judged against
+ * when it reaches the server after version 4 was published, and what its
+ * report prints at the top.
+ *
+ * A programme published before this table existed has no row for the version
+ * it is on until it is next revised; readers fall back to the programme row
+ * when the version asked for is the one in force.
+ */
+export const inspectionProgramVersion = pgTable("inspection_program_version", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  programId: uuid("program_id").notNull().references(() => inspectionProgram.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  name: text("name").notNull(),
+  standard: text("standard"),
+  reportAudience: text("report_audience").notNull().default("customer"),
+  authorityName: text("authority_name"),
+  frequencyMonths: integer("frequency_months"),
+  checkpoints: jsonb("checkpoints").$type<InspectionCheckpoint[]>().notNull().default([]),
+  /** Which parts differ from the version before, by name: `checkpoints`, `standard`. Empty for the first. */
+  changed: jsonb("changed").$type<string[]>().notNull().default([]),
+  /** What the person publishing it said changed, in their words. */
+  note: text("note"),
+  /** The trade pack version that wrote it, for one a pack set up or upgraded. */
+  tradePackId: text("trade_pack_id"),
+  publishedByUserId: uuid("published_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  programVersionIdx: uniqueIndex("inspection_program_version_idx").on(t.programId, t.version),
+  orgIdx: index("inspection_program_version_org_idx").on(t.organizationId),
+}));
 
 /** One checkpoint, as a trade pack declares it. Ordered, shipped with the pack and versioned with it. */
 export type InspectionCheckpoint = {

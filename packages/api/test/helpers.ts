@@ -132,7 +132,9 @@ const ORDER = [
   "app_plugin_version", "app_plugin",
   "job_type",
   // Then the things work points at.
-  "deficiency", "inspection", "inspection_program",
+  "deficiency", "inspection",
+  /** Every published version of a programme points at the programme. */
+  "inspection_program_version", "inspection_program",
   "equipment_move", "equipment",
   "customer_not_duplicate",
   /**

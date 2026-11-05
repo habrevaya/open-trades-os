@@ -73,27 +73,218 @@ export const RecordedAnswer = z.object({
   equipmentId: Uuid.optional(),
 });
 
+/**
+ * ONE CHECKPOINT, AS A COMPANY WRITES IT.
+ *
+ * The same shape a trade pack declares, without the pack's defaults: what a
+ * fail means has to be said for anything whose fail is a finding, because a
+ * person who left the box empty has not decided that a fail is wear.
+ */
+export const Checkpoint = z.object({
+  /** Stays the same from one version to the next, so answers and findings keep meaning the same checkpoint. */
+  key: z.string().min(1).max(60).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, "Letters, numbers, dashes and underscores only."),
+  /** The question the technician is asked, printed on the report. */
+  label: z.string().min(1).max(200),
+  /** The kind of equipment it is about, such as backflow-assembly. Left out for one about the whole property. */
+  assetCategory: z.string().max(60).optional(),
+  /** A reading rather than a pass or fail. A reading needs a unit and a range to be judged against. */
+  requiresReading: z.boolean().optional(),
+  unit: z.string().max(20).optional(),
+  range: z.object({
+    min: z.number().nullable(),
+    max: z.number().nullable(),
+    /** How close to either end is said to be close, which is never a fail. */
+    borderlineWithin: z.number().positive().optional(),
+  }).optional(),
+  /** The repairs a fail suggests quoting, as codes in your own price book. Never a price. */
+  remedies: z.array(z.object({
+    priceBookItemKey: z.string().min(1).max(60),
+    label: z.string().min(1).max(200),
+    quantity: z.number().positive(),
+    rationale: z.string().min(1).max(500),
+  })).max(10).optional(),
+  /** False for a checkpoint recorded for the record and never a finding. */
+  failIsDeficiency: z.boolean().optional(),
+  /** How serious a fail is, which sets the finding's deadline: critical today, major 30 days, minor 180, advisory none. */
+  severityOnFail: Severity.optional(),
+});
+
+const ReportAudience = z.enum(["customer", "authority", "both"]);
+
+const CopiedFrom = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("trade_pack"), packId: z.string(), packVersion: z.number().int(), code: z.string(), name: z.string() }),
+  z.object({ kind: z.literal("program"), programId: Uuid, version: z.number().int(), name: z.string() }),
+]);
+
+const ProgramSummary = z.object({
+  id: Uuid,
+  name: z.string(),
+  standard: z.string().nullable(),
+  reportAudience: z.string(),
+  authorityName: z.string().nullable(),
+  frequencyMonths: z.number().int().nullable(),
+  version: z.number().int(),
+  checkpointCount: z.number().int(),
+  /** Offered to technicians. */
+  active: z.boolean(),
+  /** `plumbing@2` for a programme a trade pack set up; null for the company's own. */
+  tradePackId: z.string().nullable(),
+  /** What the company's own programme was copied from, when it was. */
+  copiedFrom: CopiedFrom.nullable(),
+  /** Whether an inspection can be filed against it. */
+  ready: z.boolean(),
+  /** What stops one being filed, in words. Empty when it is ready. */
+  problems: z.array(z.string()),
+});
+
+const ProgramDefinition = {
+  name: z.string().min(1).max(160),
+  /** The standard it is performed under, as text. Never read as a rule. */
+  standard: z.string().max(200).nullish(),
+  reportAudience: ReportAudience.optional(),
+  authorityName: z.string().max(160).nullish(),
+  frequencyMonths: z.number().int().min(1).max(120).nullish(),
+  checkpoints: z.array(Checkpoint).min(1).max(200),
+  /** What changed, in the words of whoever publishes it. Kept with the version. */
+  note: z.string().max(1000).nullish(),
+};
+
 export const listInspectionPrograms = defineRoute({
   method: "get",
   path: "/v1/inspection-programs",
   summary: "The inspection programmes this company runs",
   description:
-    "Each with the standard it is performed under as text that is never interpreted as a rule, who receives the report, how often, and its version. An inspection records the version it was performed under, because a report in a compliance file has to keep meaning what it meant.",
+    "Each with the standard it is performed under as text that is never interpreted as a rule, who receives the report, how often, and its version. An inspection records the version it was performed under, because a report in a compliance file has to keep meaning what it meant. Only those offered to technicians unless `includeRetired` is set. `ready` is false for one an inspection cannot be filed against as it stands, with `problems` saying why.",
+  module: "M33",
+  permissions: ["compliance:read"],
+  input: z.object({ includeRetired: z.boolean().optional() }),
+  output: z.object({ programs: z.array(ProgramSummary) }),
+});
+
+export const getInspectionProgram = defineRoute({
+  method: "get",
+  path: "/v1/inspection-programs/{id}",
+  summary: "One programme, its checkpoints and every version it has had",
+  description:
+    "The version in force with its checkpoints, and the versions before it, newest first, each with what changed and who published it. A programme published before versions were kept lists only the version it is on.",
+  module: "M33",
+  permissions: ["compliance:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    program: ProgramSummary.extend({ checkpoints: z.array(Checkpoint) }),
+    versions: z.array(z.object({
+      version: z.number().int(),
+      name: z.string(),
+      /** The parts that differ from the version before: name, standard, reportAudience, authorityName, frequencyMonths, checkpoints. */
+      changed: z.array(z.string()),
+      note: z.string().nullable(),
+      /** The trade pack version that wrote it, for one a pack set up or upgraded. */
+      tradePackId: z.string().nullable(),
+      publishedAt: z.string().datetime(),
+      publishedBy: z.string().nullable(),
+    })),
+    /** How many inspections have been filed under any version of it. */
+    inspections: z.number().int(),
+  }),
+});
+
+export const getInspectionProgramVersion = defineRoute({
+  method: "get",
+  path: "/v1/inspection-programs/{id}/versions/{version}",
+  summary: "One version of a programme, as it was published",
+  module: "M33",
+  permissions: ["compliance:read"],
+  input: z.object({ id: Uuid, version: z.coerce.number().int().min(1) }),
+  output: z.object({
+    id: Uuid,
+    version: z.number().int(),
+    current: z.boolean(),
+    name: z.string(),
+    standard: z.string().nullable(),
+    reportAudience: z.string(),
+    authorityName: z.string().nullable(),
+    frequencyMonths: z.number().int().nullable(),
+    checkpoints: z.array(Checkpoint),
+    problems: z.array(z.string()),
+  }),
+});
+
+export const listTradePackInspectionPrograms = defineRoute({
+  method: "get",
+  path: "/v1/trade-packs/inspection-programs",
+  summary: "The programmes trade packs declare, to start your own from",
+  description:
+    "Every trade pack's programmes, the company's own trades first, each whole with its checkpoints and what has to be fixed before an inspection could be filed against it. Copy one by sending it, changed as you need, to `POST /v1/inspection-programs` with `copiedFrom`. `inCompany` names the company's own row of it, set up by the pack, which `replaces` can stop offering in the same step.",
   module: "M33",
   permissions: ["compliance:read"],
   input: z.object({}),
   output: z.object({
     programs: z.array(z.object({
-      id: Uuid,
+      packId: z.string(),
+      packName: z.string(),
+      packVersion: z.number().int(),
+      yourTrade: z.boolean(),
+      code: z.string(),
       name: z.string(),
       standard: z.string().nullable(),
       reportAudience: z.string(),
-      authorityName: z.string().nullable(),
       frequencyMonths: z.number().int().nullable(),
-      version: z.number().int(),
-      checkpointCount: z.number().int(),
+      checkpoints: z.array(Checkpoint),
+      problems: z.array(z.string()),
+      inCompany: z.object({ id: Uuid, offered: z.boolean() }).nullable(),
     })),
   }),
+});
+
+export const defineInspectionProgram = defineRoute({
+  method: "post",
+  path: "/v1/inspection-programs",
+  summary: "Write a programme of your own",
+  description:
+    "From nothing, or from a copy of a trade pack's programme or one of your own, named in `copiedFrom` and kept with it. Refused, in words, when an inspection could not be filed against it: no checkpoints, a reading with no unit or no range, a checkpoint whose fail is a finding that does not say how serious it is. Refused when technicians are already offered a programme of the same name, unless `replaces` names that one, which then stops being offered in the same step. Version 1, offered to technicians at once.",
+  module: "M33",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({
+    ...ProgramDefinition,
+    copiedFrom: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("trade_pack"), packId: z.string().min(1).max(60), code: z.string().min(1).max(60) }),
+      z.object({ kind: z.literal("program"), programId: Uuid }),
+    ]).optional(),
+    /** A programme this one takes the place of: it stops being offered as this one starts. */
+    replaces: Uuid.optional(),
+  }),
+  output: ProgramSummary.extend({ checkpoints: z.array(Checkpoint) }),
+});
+
+export const reviseInspectionProgram = defineRoute({
+  method: "post",
+  path: "/v1/inspection-programs/{id}/versions",
+  summary: "Publish a new version of a programme",
+  description:
+    "The whole programme as it should now read; what is left out is left out of the new version. Inspections already filed keep the version they were done under, with its checkpoints, and a phone that ran the old version offline files against it. `baseVersion` is the version you changed: if somebody published another since, it is refused rather than written over theirs. A programme a trade pack set up keeps its name. Sending what the version in force already says publishes nothing.",
+  module: "M33",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    baseVersion: z.number().int().min(1),
+    ...ProgramDefinition,
+  }),
+  output: ProgramSummary.extend({ checkpoints: z.array(Checkpoint) }),
+});
+
+export const setInspectionProgramOffered = defineRoute({
+  method: "put",
+  path: "/v1/inspection-programs/{id}/offered",
+  summary: "Offer a programme to technicians, or stop",
+  description:
+    "Stopping keeps the programme and every version, because the inspections done under it point at them. Offering it again is refused when an inspection could not be filed against it as it stands, or when another programme technicians are offered has its name.",
+  module: "M33",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, offered: z.boolean() }),
+  output: z.object({ id: Uuid, offered: z.boolean(), version: z.number().int() }),
 });
 
 export const recordInspection = defineRoute({
@@ -107,6 +298,12 @@ export const recordInspection = defineRoute({
   idempotent: true,
   input: z.object({
     programId: Uuid,
+    /**
+     * The version the answers were given against, when the caller held one.
+     * Left out, the version in force. An inspection run offline against an
+     * older version is judged against that version's checkpoints and keeps it.
+     */
+    programVersion: z.number().int().min(1).optional(),
     propertyId: Uuid,
     customerId: Uuid,
     answers: z.array(RecordedAnswer).min(1),
@@ -306,6 +503,7 @@ export const quoteDeficiency = defineRoute({
 });
 
 export const inspectionRoutes = {
-  listInspectionPrograms, recordInspection, listDeficiencies, setDeficiencyStatus,
+  listInspectionPrograms, getInspectionProgram, getInspectionProgramVersion, listTradePackInspectionPrograms,
+  defineInspectionProgram, reviseInspectionProgram, setInspectionProgramOffered, recordInspection, listDeficiencies, setDeficiencyStatus,
   listInspections, getInspectionReport, quoteDeficiency,
 } as const;
