@@ -205,7 +205,11 @@ export class OpenTradesOS extends GeneratedOperations {
    * doubling, capped at ten, or what the server said with `retry` or
    * `Retry-After`), with the same idempotency key and `Last-Event-ID` set to
    * the last id the server sent, so the server answers the same question
-   * rather than a new one. A 429 or a 5xx is asked again the same way. An
+   * rather than a new one. The server's ids say how much of the answer the
+   * client has: asked again while the first answer is still being written,
+   * it joins that answer, sends only the sentences after the id, then the
+   * same whole answer, and asks its model once. A 429 or a 5xx is asked
+   * again the same way. An
    * abort `signal` stops the wait and closes the connection, and so does
    * leaving the loop early. A server that answers JSON instead of events is
    * read as one `answer`.

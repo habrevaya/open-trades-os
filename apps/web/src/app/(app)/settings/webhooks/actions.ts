@@ -52,6 +52,13 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
         };
       }
 
+      case "keep": {
+        const keepDays = Number(field(form, "keepDays") ?? "");
+        const keepPerEndpoint = Number(field(form, "keepPerEndpoint") ?? "");
+        await webhooks.setHistoryKeeping(ctx, { keepDays, keepPerEndpoint });
+        return { message: `Saved. Each address keeps ${keepDays === 1 ? "a day" : `${keepDays} days`} of history, and no more than ${keepPerEndpoint} attempts.` };
+      }
+
       case "on":
         await webhooks.update(ctx, { id, active: true });
         return { message: "Switched on. It carries on from where it stopped." };

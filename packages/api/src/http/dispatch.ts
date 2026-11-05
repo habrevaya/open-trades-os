@@ -152,7 +152,7 @@ export async function dispatch(request: Request, deps: DispatchDeps): Promise<Re
 const corsHeaders = (methods: string[]): Record<string, string> => ({
   "access-control-allow-origin": "*",
   "access-control-allow-methods": methods.join(", "),
-  "access-control-allow-headers": "content-type, idempotency-key",
+  "access-control-allow-headers": "content-type, idempotency-key, last-event-id",
   "access-control-max-age": "86400",
 });
 
@@ -317,14 +317,18 @@ async function route(request: Request, deps: DispatchDeps, url: URL, path: strin
         return json(await dryRun(ctx, (inner) => handler(inner, parsed.data)), 200);
       }
 
-      if (streaming) return await eventStream((show: Show) => streaming(ctx, parsed.data, show), success);
+      if (streaming) {
+        return await eventStream((show: Show) => streaming(ctx, parsed.data, show), success, request.headers.get("last-event-id"));
+      }
       const result = await handler(ctx, parsed.data);
       return json(result, success);
     }
 
     // grant and public both reach the database directly: there is no session
     // to resolve, and the handler checks the token itself where there is one.
-    if (streaming) return await eventStream((show: Show) => streaming(deps.db, parsed.data, meta, show), success);
+    if (streaming) {
+      return await eventStream((show: Show) => streaming(deps.db, parsed.data, meta, show), success, request.headers.get("last-event-id"));
+    }
     const result = await handler(deps.db, parsed.data, meta);
     return json(result, success);
   } catch (error) {

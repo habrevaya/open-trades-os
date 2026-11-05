@@ -223,7 +223,7 @@ export const listWebhookDeliveries = defineRoute({
   path: "/v1/webhooks/endpoints/{id}/deliveries",
   summary: "What was sent to this endpoint and what it answered",
   description:
-    "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for thirty days and at most a thousand attempts per endpoint, whichever is shorter. Filter by status or by one event.",
+    "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for as long as the company chose (`PUT /v1/webhooks/history`), thirty days and at most a thousand attempts per endpoint unless it chose otherwise, whichever is shorter. Filter by status or by one event.",
   module: "M26",
   permissions: ["integration:read"],
   input: PageRequest.extend({
@@ -292,7 +292,39 @@ export const cancelWebhookReplay = defineRoute({
   output: WebhookReplay,
 });
 
+const HistoryKeep = z.object({
+  keepDays: z.number().int(),
+  keepPerEndpoint: z.number().int(),
+  /** What a company that chose nothing keeps: thirty days and a thousand attempts. */
+  defaults: z.object({ keepDays: z.number().int(), keepPerEndpoint: z.number().int() }),
+});
+
+export const getWebhookHistoryKeeping = defineRoute({
+  method: "get",
+  path: "/v1/webhooks/history",
+  summary: "How long webhook delivery history is kept",
+  description:
+    "Days and attempts per endpoint, whichever cuts first, and the defaults: thirty days and a thousand attempts for a company that chose nothing.",
+  module: "M26",
+  permissions: ["integration:read"],
+  input: z.object({}),
+  output: HistoryKeep,
+});
+
+export const setWebhookHistoryKeeping = defineRoute({
+  method: "put",
+  path: "/v1/webhooks/history",
+  summary: "Keep webhook delivery history longer or shorter",
+  description:
+    "Between 1 and 365 days and between 100 and 10000 attempts per endpoint, whichever cuts first. The next delivery pass trims to it. A shorter choice never brings back what a longer one removed. Audited.",
+  module: "M26",
+  permissions: ["integration:write"],
+  input: z.object({ keepDays: z.number().int(), keepPerEndpoint: z.number().int() }),
+  output: HistoryKeep,
+});
+
 export const webhookRoutes = {
+  getWebhookHistoryKeeping, setWebhookHistoryKeeping,
   registerWebhookEndpoint, listWebhookEndpoints, updateWebhookEndpoint, rotateWebhookSecret,
   deleteWebhookEndpoint, getWebhookPosition, listWebhookEvents,
   listWebhookDeliveries, listWebhookEventDeliveries, replayWebhookDeliveries, listWebhookReplays,

@@ -6,6 +6,7 @@ import {
 } from "./context";
 import * as base from "./agents";
 import * as knowledge from "./knowledge";
+import * as answering from "./answering";
 import { companyOf } from "./agent-facts";
 import { inForceAt } from "./pricebook";
 import type { AiDeps } from "./ai";
@@ -245,9 +246,57 @@ export async function ask(
   show?: (text: string) => void,
 ): Promise<FieldAnswer> {
   assertCan(ctx.actor, "field:sync");
-  const replay = await inTenant(ctx, (tx) => base.proposalByKey(tx, ctx.idempotencyKey));
-  if (replay) return replay.draft as unknown as FieldAnswer;
+  const key = ctx.idempotencyKey;
+  const fromRecord = async (tx: Database): Promise<FieldAnswer | null> => {
+    const row = await base.proposalByKey(tx, key);
+    return row ? row.draft as unknown as FieldAnswer : null;
+  };
+  const replay = await inTenant(ctx, fromRecord);
+  if (replay) return replay;
+  if (!key) return answerFresh(ctx, input, deps, show);
 
+  /**
+   * A RESUME DURING AN ANSWER JOINS IT (`answering.ts`). The key's record is
+   * marked as being written before the model is asked; a second request
+   * with the same key while it is joins the answer so far and gets the same
+   * whole answer, and the model is asked once.
+   */
+  let claimed = await answering.claim(ctx, FIELD_MARK, key);
+  if (claimed.kind === "joining") {
+    const joined = await answering.join(ctx, claimed.markId, fromRecord, show);
+    if (joined) return joined;
+    claimed = await answering.claim(ctx, FIELD_MARK, key);
+  }
+  if (claimed.kind === "done") {
+    const kept = await inTenant(ctx, fromRecord);
+    if (kept) return kept;
+    throw new ConflictError("That question was answered, and the answer could not be read back. Ask it again.");
+  }
+  if (claimed.kind === "joining") {
+    throw new ConflictError("That question is still being answered. Wait a moment and ask again with the same key.");
+  }
+  const progress = answering.progressWriter(ctx, claimed.markId);
+  const tracked = show ? (text: string) => { show(text); progress.write(text); } : undefined;
+  try {
+    const answer = await answerFresh(ctx, input, deps, tracked);
+    await progress.flush();
+    await answering.finish(ctx, claimed.markId, true);
+    return answer;
+  } catch (error) {
+    await progress.flush();
+    await answering.finish(ctx, claimed.markId, false, error instanceof Error ? error.message : undefined).catch(() => {});
+    throw error;
+  }
+}
+
+/** Where a field assistant answer is marked as being written, under the request's key. */
+const FIELD_MARK = "ai-field";
+
+/** The question asked of the model, for a key nobody is already answering. */
+async function answerFresh(
+  ctx: ServiceContext, input: { question: string; visitId?: string | undefined }, deps: AiDeps,
+  show?: (text: string) => void,
+): Promise<FieldAnswer> {
   const acting = await base.actingAs(ctx.db, ctx.actor.organizationId, "field", ctx);
   if (!acting.ok) throw new ConflictError(acting.reason);
   if (!acting.settings.enabled) {

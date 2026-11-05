@@ -38,7 +38,7 @@ describe("the stream", () => {
     }, 201);
     expect(response.status).toBe(201);
     expect(await response.text()).toBe(
-      eventText("writing", { text: "First." }) + eventText("problem", { error: "The model could not be reached.", status: 409 }),
+      eventText("writing", { text: "First." }, "6") + eventText("problem", { error: "The model could not be reached.", status: 409 }),
     );
   });
 
@@ -61,6 +61,6 @@ describe("the stream", () => {
   it("sends only the answer when it came before any sentence", async () => {
     const response = await eventStream(async () => ({ answered: true, text: "Yes." }), 201);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
-    expect(await response.text()).toBe(eventText("answer", { answered: true, text: "Yes." }));
+    expect(await response.text()).toBe(eventText("answer", { answered: true, text: "Yes." }, "answer"));
   });
 });

@@ -13914,6 +13914,15 @@ export interface GetWarrantyWatchOutput {
   }>;
 }
 
+export interface GetWebhookHistoryKeepingOutput {
+  keepDays: number;
+  keepPerEndpoint: number;
+  defaults: {
+    keepDays: number;
+    keepPerEndpoint: number;
+  };
+}
+
 export interface GetWebhookPositionOutput {
   id: string;
   deliveredThrough: number;
@@ -28402,6 +28411,20 @@ export interface SetWageClassificationOutput {
   classification: string | null;
 }
 
+export interface SetWebhookHistoryKeepingInput {
+  keepDays: number;
+  keepPerEndpoint: number;
+}
+
+export interface SetWebhookHistoryKeepingOutput {
+  keepDays: number;
+  keepPerEndpoint: number;
+  defaults: {
+    keepDays: number;
+    keepPerEndpoint: number;
+  };
+}
+
 export interface SetWebsiteTrackingInput {
   idleMinutes: number;
 }
@@ -34074,6 +34097,8 @@ export interface GetWarrantyWatchInput {
   to?: string;
 }
 
+export type GetWebhookHistoryKeepingInput = Record<string, never>;
+
 export interface GetWebhookPositionInput {
   id: string;
 }
@@ -37157,6 +37182,7 @@ export interface OperationTypes {
   getVisitUnits: { input: GetVisitUnitsInput; output: GetVisitUnitsOutput };
   getVisitorNumber: { input: GetVisitorNumberInput; output: GetVisitorNumberOutput };
   getWarrantyWatch: { input: GetWarrantyWatchInput; output: GetWarrantyWatchOutput };
+  getWebhookHistoryKeeping: { input: GetWebhookHistoryKeepingInput; output: GetWebhookHistoryKeepingOutput };
   getWebhookPosition: { input: GetWebhookPositionInput; output: GetWebhookPositionOutput };
   getWebsiteTracking: { input: GetWebsiteTrackingInput; output: GetWebsiteTrackingOutput };
   getWorkdaySettings: { input: GetWorkdaySettingsInput; output: GetWorkdaySettingsOutput };
@@ -37831,6 +37857,7 @@ export interface OperationTypes {
   setVisitCustomFields: { input: SetVisitCustomFieldsParams & SetVisitCustomFieldsInput; output: SetVisitCustomFieldsOutput };
   setVisitMovable: { input: SetVisitMovableParams & SetVisitMovableInput; output: SetVisitMovableOutput };
   setWageClassification: { input: SetWageClassificationInput; output: SetWageClassificationOutput };
+  setWebhookHistoryKeeping: { input: SetWebhookHistoryKeepingInput; output: SetWebhookHistoryKeepingOutput };
   setWebsiteTracking: { input: SetWebsiteTrackingInput; output: SetWebsiteTrackingOutput };
   setWorkdaySettings: { input: SetWorkdaySettingsInput; output: SetWorkdaySettingsOutput };
   setWorkflowEnabled: { input: SetWorkflowEnabledParams & SetWorkflowEnabledInput; output: SetWorkflowEnabledOutput };
@@ -38437,6 +38464,7 @@ export const OPERATIONS = {
   getVisitUnits: { method: "GET", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getVisitorNumber: { method: "GET", path: "/v1/public/dni", pathParams: [], queryParams: ["companyKey","visitorId","page","query","referrer"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getWarrantyWatch: { method: "GET", path: "/v1/equipment-warranties", pathParams: [], queryParams: ["withinDays","on","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
+  getWebhookHistoryKeeping: { method: "GET", path: "/v1/webhooks/history", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getWebhookPosition: { method: "GET", path: "/v1/webhooks/endpoints/{id}/position", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getWebsiteTracking: { method: "GET", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getWorkdaySettings: { method: "GET", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -39111,6 +39139,7 @@ export const OPERATIONS = {
   setVisitCustomFields: { method: "PUT", path: "/v1/visits/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read","visit:write"] },
   setVisitMovable: { method: "PUT", path: "/v1/visits/{id}/movable", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   setWageClassification: { method: "POST", path: "/v1/payroll/classifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
+  setWebhookHistoryKeeping: { method: "PUT", path: "/v1/webhooks/history", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   setWebsiteTracking: { method: "PATCH", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setWorkdaySettings: { method: "PUT", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setWorkflowEnabled: { method: "POST", path: "/v1/workflows/{id}/enabled", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:write"] },
@@ -43444,6 +43473,15 @@ export abstract class GeneratedOperations {
    */
   getWarrantyWatch(input: GetWarrantyWatchInput = {} as GetWarrantyWatchInput, options?: CallOptions): Promise<GetWarrantyWatchOutput> {
     return this.call("getWarrantyWatch", input, options);
+  }
+
+  /**
+   * How long webhook delivery history is kept.
+   *
+   * GET /v1/webhooks/history. Needs integration:read.
+   */
+  getWebhookHistoryKeeping(input: GetWebhookHistoryKeepingInput = {} as GetWebhookHistoryKeepingInput, options?: CallOptions): Promise<GetWebhookHistoryKeepingOutput> {
+    return this.call("getWebhookHistoryKeeping", input, options);
   }
 
   /**
@@ -49510,6 +49548,15 @@ export abstract class GeneratedOperations {
    */
   setWageClassification(input: SetWageClassificationInput, options?: CallOptions): Promise<SetWageClassificationOutput> {
     return this.call("setWageClassification", input, options);
+  }
+
+  /**
+   * Keep webhook delivery history longer or shorter.
+   *
+   * PUT /v1/webhooks/history. Needs integration:write.
+   */
+  setWebhookHistoryKeeping(input: SetWebhookHistoryKeepingInput, options?: CallOptions): Promise<SetWebhookHistoryKeepingOutput> {
+    return this.call("setWebhookHistoryKeeping", input, options);
   }
 
   /**

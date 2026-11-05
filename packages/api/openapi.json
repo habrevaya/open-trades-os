@@ -155001,7 +155001,7 @@
       "get": {
         "operationId": "listWebhookDeliveries",
         "summary": "What was sent to this endpoint and what it answered",
-        "description": "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for thirty days and at most a thousand attempts per endpoint, whichever is shorter. Filter by status or by one event.\n\nRequires a session holding: integration:read.",
+        "description": "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for as long as the company chose (`PUT /v1/webhooks/history`), thirty days and at most a thousand attempts per endpoint unless it chose otherwise, whichever is shorter. Filter by status or by one event.\n\nRequires a session holding: integration:read.",
         "tags": [
           "M26"
         ],
@@ -155874,6 +155874,217 @@
         "x-authorization": "session",
         "x-permissions": [
           "integration:read"
+        ]
+      }
+    },
+    "/v1/webhooks/history": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getWebhookHistoryKeeping",
+        "summary": "How long webhook delivery history is kept",
+        "description": "Days and attempts per endpoint, whichever cuts first, and the defaults: thirty days and a thousand attempts for a company that chose nothing.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "responses": {
+          "200": {
+            "description": "How long webhook delivery history is kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetWebhookHistoryKeepingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      },
+      "put": {
+        "operationId": "setWebhookHistoryKeeping",
+        "summary": "Keep webhook delivery history longer or shorter",
+        "description": "Between 1 and 365 days and between 100 and 10000 attempts per endpoint, whichever cuts first. The next delivery pass trims to it. A shorter choice never brings back what a longer one removed. Audited.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWebhookHistoryKeepingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Keep webhook delivery history longer or shorter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetWebhookHistoryKeepingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
         ]
       }
     },
@@ -229783,6 +229994,37 @@
           "units"
         ]
       },
+      "GetWebhookHistoryKeepingOutput": {
+        "type": "object",
+        "properties": {
+          "keepDays": {
+            "type": "integer"
+          },
+          "keepPerEndpoint": {
+            "type": "integer"
+          },
+          "defaults": {
+            "type": "object",
+            "properties": {
+              "keepDays": {
+                "type": "integer"
+              },
+              "keepPerEndpoint": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "keepDays",
+              "keepPerEndpoint"
+            ]
+          }
+        },
+        "required": [
+          "keepDays",
+          "keepPerEndpoint",
+          "defaults"
+        ]
+      },
       "GetWebhookPositionOutput": {
         "type": "object",
         "properties": {
@@ -303059,6 +303301,52 @@
           "id",
           "displayName",
           "classification"
+        ]
+      },
+      "SetWebhookHistoryKeepingInput": {
+        "type": "object",
+        "properties": {
+          "keepDays": {
+            "type": "integer"
+          },
+          "keepPerEndpoint": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "keepDays",
+          "keepPerEndpoint"
+        ]
+      },
+      "SetWebhookHistoryKeepingOutput": {
+        "type": "object",
+        "properties": {
+          "keepDays": {
+            "type": "integer"
+          },
+          "keepPerEndpoint": {
+            "type": "integer"
+          },
+          "defaults": {
+            "type": "object",
+            "properties": {
+              "keepDays": {
+                "type": "integer"
+              },
+              "keepPerEndpoint": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "keepDays",
+              "keepPerEndpoint"
+            ]
+          }
+        },
+        "required": [
+          "keepDays",
+          "keepPerEndpoint",
+          "defaults"
         ]
       },
       "SetWebsiteTrackingInput": {

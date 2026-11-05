@@ -78,6 +78,9 @@ export default async function WebhooksPage({
     })
     : null;
   const replays = chosen ? await webhooks.replays(ctx, { id: chosen.id }) : [];
+  const keeping = await webhooks.historyKeeping(ctx);
+  /** In words: the default reads as it always has. */
+  const keptFor = keeping.keepDays === 1 ? "a day" : keeping.keepDays === 30 ? "thirty days" : `${keeping.keepDays} days`;
 
   const linkTo = (endpointId: string, next?: { status?: string | undefined; cursor?: string | undefined }) => {
     const query = new URLSearchParams({ endpoint: endpointId });
@@ -92,7 +95,8 @@ export default async function WebhooksPage({
       <p className="mt-2 max-w-2xl text-sm text-ink-700">
         Your own systems hear about what happens here without asking: a job completed, an invoice
         paid. Each address gets the events it signed up for, in order, signed so it can tell they
-        came from us. Every attempt and what the other end answered is kept for thirty days.
+        came from us. Every attempt and what the other end answered is kept for {keptFor}, and no
+        more than {keeping.keepPerEndpoint} attempts for each address.
       </p>
 
       {endpoints.length === 0 ? (
@@ -165,7 +169,7 @@ export default async function WebhooksPage({
           </nav>
 
           {history.data.length === 0 ? (
-            <Empty title={status ? "Nothing like that in the last thirty days" : "Nothing sent yet"}>
+            <Empty title={status ? `Nothing like that in the last ${keptFor}` : "Nothing sent yet"}>
               {status
                 ? "Try another filter, or everything."
                 : "The first event this address signed up for goes on the next pass after it happens."}
@@ -328,6 +332,24 @@ export default async function WebhooksPage({
           </ActionForm>
         </section>
       ) : null}
+
+      <section className="mt-10" aria-labelledby="keep">
+        <h2 id="keep" className="text-base font-semibold">How long we keep what was sent</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          Each address keeps {keptFor} of attempts and what the other end answered, and no more than{" "}
+          {keeping.keepPerEndpoint} attempts. Whichever runs out first wins. Out of the box it is{" "}
+          {keeping.defaults.keepDays} days and {keeping.defaults.keepPerEndpoint} attempts. Keeping less clears older
+          attempts on the next send, and they do not come back.
+        </p>
+        {writes ? (
+          <ActionForm action={act} submit="Save how long" hidden={{ op: "keep" }} className="mt-3 flex flex-wrap items-end gap-3">
+            <TextField label="Days to keep" name="keepDays" type="number" min={1} max={365}
+                       defaultValue={String(keeping.keepDays)} required />
+            <TextField label="Attempts to keep for each address" name="keepPerEndpoint" type="number" min={100} max={10000}
+                       defaultValue={String(keeping.keepPerEndpoint)} required />
+          </ActionForm>
+        ) : null}
+      </section>
     </div>
   );
 }
