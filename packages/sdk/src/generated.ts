@@ -5570,6 +5570,8 @@ export interface DecideExpenseOutput {
   mileageRate: string | null;
   mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
   mileageVehicle: string | null;
+  mileageVehicleFrom: "picked" | "checked_out" | null;
+  mileageCheckedOut: string | null;
   mileageWork: string | null;
   spentOn: string;
   description: string;
@@ -9608,6 +9610,10 @@ export interface GetFieldSnapshotOutput {
       rateToday: string | null;
     }>;
     mileageWork: boolean;
+    mileageCheckedOut: {
+      id: string;
+      label: string;
+    } | null;
   };
   expenses: Array<{
     id: string;
@@ -10248,6 +10254,8 @@ export interface GetJobExpensesOutput {
     mileageRate: string | null;
     mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageVehicleFrom: "picked" | "checked_out" | null;
+    mileageCheckedOut: string | null;
     mileageWork: string | null;
     spentOn: string;
     description: string;
@@ -16337,6 +16345,8 @@ export interface ListExpensesOutput {
     mileageRate: string | null;
     mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageVehicleFrom: "picked" | "checked_out" | null;
+    mileageCheckedOut: string | null;
     mileageWork: string | null;
     spentOn: string;
     description: string;
@@ -17337,6 +17347,8 @@ export interface ListMyExpensesOutput {
     mileageRate: string | null;
     mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageVehicleFrom: "picked" | "checked_out" | null;
+    mileageCheckedOut: string | null;
     mileageWork: string | null;
     spentOn: string;
     description: string;
@@ -17379,6 +17391,11 @@ export interface ListMyExpensesOutput {
     name: string;
     rateToday: string | null;
   }>;
+  checkedOutToday: {
+    id: string;
+    label: string;
+    rateToday: string | null;
+  } | null;
 }
 
 export interface ListMyNoticesOutput {
@@ -22255,6 +22272,7 @@ export interface RecordExpenseInput {
   amount?: string;
   miles?: string;
   vehicleId?: string;
+  ownVehicle?: boolean;
   spentOn: string;
   description: string;
   receipt?: {
@@ -22275,6 +22293,8 @@ export interface RecordExpenseOutput {
   mileageRate: string | null;
   mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
   mileageVehicle: string | null;
+  mileageVehicleFrom: "picked" | "checked_out" | null;
+  mileageCheckedOut: string | null;
   mileageWork: string | null;
   spentOn: string;
   description: string;

@@ -95,7 +95,7 @@ export function ExpensesScreen({ nav }: { nav: Navigate }) {
                   <Text style={[type.label, { marginTop: space.md }]}>Which vehicle</Text>
                   <View style={styles.chips}>
                     {vehicles.map((v) => (
-                      <Button key={v.value || "own"} label={v.label}
+                      <Button key={v.value || "first"} label={v.label}
                               kind={vehicleId === v.value ? "primary" : "secondary"} onPress={() => setVehicleId(v.value)} />
                     ))}
                   </View>

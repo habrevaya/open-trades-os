@@ -44,8 +44,12 @@ export const ExpenseView = z.object({
   mileageRate: z.string().nullable(),
   /** For a claim in miles: whose rate it was worked out at, the vehicle's, the kind of work's, the person's or the company's. Null for an amount paid. */
   mileageRateSource: z.enum(["company", "person", "vehicle", "work"]).nullable(),
-  /** For a claim in miles that named a vehicle: the vehicle's name as it was. */
+  /** For a claim in miles driven in a company vehicle: the vehicle's name as it was. */
   mileageVehicle: z.string().nullable(),
+  /** How that vehicle came to be on the claim: `picked` by the person, or `checked_out` to them on the day of the drive when they named none. Null with no vehicle. */
+  mileageVehicleFrom: z.enum(["picked", "checked_out"]).nullable(),
+  /** The vehicle with a rate of its own checked out to them that day, by name, when the claim was not worked out at it (they picked another or said it was their own). */
+  mileageCheckedOut: z.string().nullable(),
   /** For a claim in miles worked out at a kind of work's line: the kind of work's name as it was. */
   mileageWork: z.string().nullable(),
   spentOn: IsoDate,
@@ -80,7 +84,7 @@ export const recordExpense = defineRoute({
   path: "/v1/me/expenses",
   summary: "Record what you paid for the company",
   description:
-    "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the rate in force on `spentOn`, to the cent: the line of the vehicle named in `vehicleId` first (`POST /v1/payroll/mileage-overrides`), then the line for the kind of work (job type) of the job in `jobId`, then the person's own line, then the company's (`POST /v1/payroll/mileage-rates`), and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
+    "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the rate in force on `spentOn`, to the cent: the line of the vehicle named in `vehicleId` first (`POST /v1/payroll/mileage-overrides`), or, when none is named and `ownVehicle` is not true, the line of the vehicle with a rate of its own checked out to the person on that day by the fleet's custody record (the one handed over most recently when two were out; `mileageVehicleFrom` says `checked_out`), then the line for the kind of work (job type) of the job in `jobId`, then the person's own line, then the company's (`POST /v1/payroll/mileage-rates`), and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
   module: "M17",
   permissions: ["expense:own"],
   idempotent: true,
@@ -95,6 +99,8 @@ export const recordExpense = defineRoute({
     miles: z.string().max(10).optional(),
     /** A vehicle with a rate of its own that the miles were driven in (listed as `vehicles` by `GET /v1/me/expenses`). Only with `miles`. */
     vehicleId: Uuid.optional(),
+    /** True when the miles were driven in the person's own vehicle although one was checked out to them that day. Only with `miles`, never with `vehicleId`. */
+    ownVehicle: z.boolean().optional(),
     spentOn: IsoDate,
     description: z.string().min(1).max(300),
     receipt: Receipt.optional(),
@@ -135,6 +141,8 @@ export const listMyExpenses = defineRoute({
     vehicles: z.array(z.object({ id: Uuid, label: z.string(), rateToday: z.string().nullable() })),
     /** Kinds of work with a rate of their own: a claim in miles for a job of that kind is paid at it, unless a vehicle with its own rate was named. */
     work: z.array(z.object({ id: Uuid, name: z.string(), rateToday: z.string().nullable() })),
+    /** The vehicle with a rate of its own checked out to them today, which a claim in miles for today uses unless another is picked or `ownVehicle` is sent. */
+    checkedOutToday: z.object({ id: Uuid, label: z.string(), rateToday: z.string().nullable() }).nullable(),
   }),
 });
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { payExtras as px, time } from "@opentradesos/core";
 import {
@@ -287,6 +287,35 @@ export async function vehicleForClaim(
     throw new ConflictError("That vehicle is not on the list. Pick one from the list, or leave it empty for your own.");
   }
   return vehicle;
+}
+
+/**
+ * THE VEHICLE CHECKED OUT TO A PERSON ON A DAY, for a claim in miles that names none: the vehicle with a rate of
+ * its own in their custody that day, the same custody record that says who has the van (held from a day on or
+ * before it and not handed back until after it, so on the day it is handed back it is the next person's). Not one
+ * retired by then. Holding two, the one handed over most recently, as a truck is chosen for a driver. Null when
+ * they had none with a rate of its own: a vehicle with no rate has nothing to pick, and the claim is worked out
+ * as it always was.
+ */
+export async function vehicleCheckedOutOn(
+  tx: Database, organizationId: string, technicianId: string, day: string,
+): Promise<{ id: string; label: string } | null> {
+  const [held] = await tx.select({ id: schema.companyAsset.id, label: schema.companyAsset.label })
+    .from(schema.assetCustody)
+    .innerJoin(schema.companyAsset, eq(schema.companyAsset.id, schema.assetCustody.assetId))
+    .where(and(
+      eq(schema.assetCustody.organizationId, organizationId),
+      eq(schema.assetCustody.custodianKind, "technician"),
+      eq(schema.assetCustody.custodianId, technicianId),
+      lte(schema.assetCustody.heldFrom, day),
+      or(isNull(schema.assetCustody.heldUntil), gt(schema.assetCustody.heldUntil, day)),
+      eq(schema.companyAsset.kind, "vehicle"),
+      or(isNull(schema.companyAsset.retiredOn), gt(schema.companyAsset.retiredOn, day)),
+      sql`exists (select 1 from public.mileage_rate_override o where o.asset_id = ${schema.companyAsset.id})`,
+    ))
+    .orderBy(desc(schema.assetCustody.heldFrom), asc(schema.companyAsset.id))
+    .limit(1);
+  return held ?? null;
 }
 
 export const handlers = {

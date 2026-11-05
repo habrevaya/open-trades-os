@@ -567,6 +567,36 @@ does for `/me/expenses`. The choices and the check are field-client's (`vehicleC
 device. The rate is the company's own choice: nothing here knows or checks the tax authority's rate, and
 the screen says so, as it does for the company's rate.
 
+**The vehicle checked out that day picks the rate.** A claim in miles that names no vehicle, for a
+day the person had a company vehicle with a rate of its own checked out to them, is worked out at
+that vehicle's rate, read from the fleet's custody record (M22) for the day of the drive: held from
+a day on or before it and not handed back until after it, so on the day it is handed back it is the
+next person's, and not retired by then. Holding two such vehicles, the one handed over most recently
+is used, as a driver's truck is chosen. A vehicle checked out with no rate of its own changes
+nothing: it has no rate to pick, and the claim is worked out as it always was. The person can still
+override it: picking another vehicle uses that vehicle's rate, and saying it was their own vehicle
+(`ownVehicle: true` on `POST /v1/me/expenses`, "My own vehicle" in the pick on `/me/expenses`,
+`/my-day` and the phone, sent as `ownVehicle` on `expense.record`) uses the kind of work's, their
+own or the company's. **It is said in words on the claim.** The claim keeps how the vehicle came to
+be on it (`expense.mileage_vehicle_from`, `mileageVehicleFrom`: `picked` or `checked_out`) and, when
+the claim was not worked out at the vehicle checked out that day, that vehicle's name
+(`expense.mileage_checked_out_label`, `mileageCheckedOut`). It reads "the rate for Van 14, which was
+checked out to you that day" on `/me/expenses`, "which was checked out to Ray Ortiz that day" on
+`/timesheets/expenses`, ", checked out to them that day" on the line the payroll bureau gets, and
+"Van 14 was checked out to you that day but was not what the claim says was driven" when the person
+picked another or said it was their own, so the office deciding it sees that. The audit row of the
+claim keeps the same. A claim made before this has no `mileage_vehicle_from`, and a vehicle on one
+reads as picked, because a pick was then the only way a vehicle got on a claim; nothing was
+backfilled. `GET /v1/me/expenses` says the vehicle checked out to them today (`checkedOutToday`), and
+`/me/expenses` says "You have Van 14 checked out today." The phone and `/my-day` are told it as
+`abilities.mileageCheckedOut` (null with none); a server that sends it leads the pick with "The
+vehicle checked out to me that day (Van 14 today)" and offers "My own vehicle" as a choice of its
+own, and a phone talking to an older server shows the pick as it was (field-client's
+`vehicleChoices`, unit tested). **The conservative reading taken:** the default is the vehicle the
+custody record says they held, never a guess from the job, the visit or the phone, and a person who
+says they drove their own car is believed and the claim names the van they had out, for the office
+to judge, rather than the claim being refused.
+
 A per diem is the company's rate for one day away. `POST /v1/payroll/pay-extras`
 (`payroll:configure`) sets it, on `/payroll/pay-rules` under "A day away", and
 `GET /v1/payroll/pay-extras` reads it (`timesheet:read`). No standard rate and no place
@@ -904,8 +934,11 @@ the board, and a decision on a reimbursement cannot be taken back. A mileage rat
 company's from a day, or a person's, a vehicle's or a kind of work's (job type's) own from a day. A
 kind of work's rate follows the job's type when the claim is made; there is no rate per job, per
 customer or per branch, and a claim not for a job never gets a kind of work's rate. A vehicle is
-chosen on `/me/expenses`, `/my-day` and the phone only from the vehicles with a rate of their own;
-there is no vehicle tied to a person by custody so that driving it picks its rate by itself, no odometer or trip log behind the miles (they are what the person types, and the office
+chosen on `/me/expenses`, `/my-day` and the phone only from the vehicles with a rate of their own,
+and a claim naming none is worked out at the vehicle with a rate of its own checked out to them that
+day by the fleet's custody record; a vehicle with no rate of its own checked out to them changes
+nothing, and nothing knows which vehicle was driven beyond the custody record and what the person
+says. There is no odometer or trip log behind the miles (they are what the person types, and the office
 decides), no distance worked out from the addresses, and nothing checks the rate or the miles against the
 tax authority's rate. A claim in miles is not repriced when its rate is wrong: it is refused by the
 office and entered again. A per diem does not vary by meal, and nothing checks a per diem against the tax
