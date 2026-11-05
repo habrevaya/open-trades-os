@@ -406,6 +406,11 @@ export interface Forecast {
   /** For a blend, what each of the three would make the months to come on its own. */
   parts?: { budget: m.Money; runRate: m.Money; seasonal: m.Money };
   /**
+   * The run rate weighed recent months more and was used: the method was the run rate, or a blend giving it
+   * weight, with a month over. False whenever the weighting changed nothing about this forecast.
+   */
+  recentWeighted: boolean;
+  /**
    * The seasonal shape was asked for (on its own, or weighed in a blend), some
    * months are over and some to come, and the past year gave this line none,
    * so that part is at its budget.
@@ -416,11 +421,25 @@ export interface Forecast {
   variance: Variance;
 }
 
+/**
+ * HOW MANY TIMES EACH MONTH OVER COUNTS in a run rate that weighs recent
+ * months more: the first once, the second twice, and the latest as many times
+ * as there are months over. A straight line rather than anything steeper, so
+ * the rule can be said in one sentence and one odd month last month cannot
+ * swing the year: with ten months over, October is a little under a fifth of
+ * the average, not all of it.
+ */
+export function recencyWeights(closed: number): number[] {
+  return Array.from({ length: Math.max(0, Math.trunc(closed)) }, (_, i) => i + 1);
+}
+
 /** The months to come by one of the three single methods, with its fallback. */
 function toComeBy(
   method: "budget" | "run_rate" | "seasonal",
   remaining: readonly { month: number; budget: m.Money | null }[],
   closedActual: m.Money, closed: number, lastYear: readonly m.Money[] | undefined, currency: string,
+  /** The months over, January first, when the run rate weighs recent months more; otherwise left out. */
+  recent?: readonly m.Money[] | undefined,
 ): {
   method: "budget" | "run_rate" | "seasonal"; fellBack: boolean; total: m.Money; months: m.Money[]; unbudgeted: number;
   /** Seasonal, with months over and to come, and last year gave no shape. */
@@ -439,8 +458,18 @@ function toComeBy(
     };
   }
   if (used === "run_rate") {
-    /** Multiplied before it is divided, so the average is not rounded on its way in. */
-    const total = m.round(m.divide(m.multiply(closedActual, String(remaining.length)), String(closed)));
+    /**
+     * Multiplied before it is divided, so the average is not rounded on its way in. Weighing recent months
+     * more, each month over counts `recencyWeights` times, and the average is over the weights' sum.
+     */
+    const weights = recent ? recencyWeights(closed) : null;
+    const total = weights
+      ? m.round(m.divide(
+        m.multiply(recent!.slice(0, closed).reduce((sum, month, i) => m.add(sum, m.multiply(month, String(weights[i]))), m.zero(currency)),
+          String(remaining.length)),
+        String(weights.reduce((a, w) => a + w, 0)),
+      ))
+      : m.round(m.divide(m.multiply(closedActual, String(remaining.length)), String(closed)));
     return { method: used, fellBack, total, months: spread(total, remaining.map(() => m.money("1", currency))), unbudgeted: 0, noShape };
   }
   let total = m.zero(currency);
@@ -470,6 +499,11 @@ export function forecastLine(input: {
   lastYear?: readonly m.Money[] | undefined;
   /** For `blend`: the weights. Left out, a blend is all budget. */
   weights?: ForecastWeights | undefined;
+  /**
+   * The run rate weighs recent months more (`recencyWeights`): a choice, off when left out, so every month
+   * over counts the same as it always did.
+   */
+  recentWeighted?: boolean | undefined;
   currency?: string;
 }): Forecast {
   const currency = input.currency ?? "USD";
@@ -481,8 +515,9 @@ export function forecastLine(input: {
     if (month.month <= closed) closedActual = m.add(closedActual, month.actual);
   }
   const remaining = input.months.filter((month) => month.month > closed);
+  const recent = input.recentWeighted ? input.months.filter((month) => month.month <= closed).map((month) => month.actual) : undefined;
   const by = (method: "budget" | "run_rate" | "seasonal") =>
-    toComeBy(method, remaining, closedActual, closed, input.lastYear, currency);
+    toComeBy(method, remaining, closedActual, closed, input.lastYear, currency, recent);
 
   let method: ForecastMethod;
   let fellBack: boolean;
@@ -520,8 +555,10 @@ export function forecastLine(input: {
     ? month.actual
     : toComeMonths[remaining.findIndex((r) => r.month === month.month)] ?? m.zero(currency)));
   const forecast = m.add(closedActual, toCome);
+  const recentWeighted = input.recentWeighted === true && closed > 0 && closed < 12
+    && (method === "run_rate" || (method === "blend" && (input.weights?.runRate ?? 0) > 0));
   return {
-    forecast, closedActual, toCome, months, closed, method, fellBack, unbudgetedMonths, noShape,
+    forecast, closedActual, toCome, months, closed, method, fellBack, unbudgetedMonths, noShape, recentWeighted,
     ...(parts ? { parts } : {}),
     yearBudget, variance: variance(input.key, yearBudget, forecast),
   };

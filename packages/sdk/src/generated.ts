@@ -7620,6 +7620,11 @@ export interface GetBudgetReportOutput {
         runRate: string;
         seasonal: string;
       };
+      ownBlend?: {
+        budget: number;
+        runRate: number;
+        seasonal: number;
+      };
     };
   }>;
   net: {
@@ -7651,6 +7656,16 @@ export interface GetBudgetReportOutput {
       seasonal: number;
     } | null;
     seasonalYears: number;
+    recentWeighted: boolean;
+    lineBlends: Array<{
+      line: string;
+      label: string;
+      weights: {
+        budget: number;
+        runRate: number;
+        seasonal: number;
+      };
+    }>;
     assumption: string;
     net: {
       forecast: string;
@@ -26101,6 +26116,7 @@ export interface SetBudgetForecastMethodInput {
     seasonal: number;
   };
   seasonalYears?: number;
+  recentWeighted?: boolean;
 }
 
 export interface SetBudgetForecastMethodOutput {
@@ -26112,6 +26128,26 @@ export interface SetBudgetForecastMethodOutput {
     seasonal: number;
   };
   seasonalYears?: number;
+  recentWeighted?: true;
+}
+
+export interface SetBudgetLineBlendInput {
+  line: string;
+  weights: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  } | null;
+}
+
+export interface SetBudgetLineBlendOutput {
+  year: number;
+  line: string;
+  weights: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  } | null;
 }
 
 export interface SetBudgetLineInput {
@@ -35853,6 +35889,10 @@ export interface SetBudgetLineParams {
   year: number;
 }
 
+export interface SetBudgetLineBlendParams {
+  year: number;
+}
+
 export interface SetCertificationRenewalDaysParams {
   id: string;
 }
@@ -37558,6 +37598,7 @@ export interface OperationTypes {
   setBranchNumbering: { input: SetBranchNumberingInput; output: SetBranchNumberingOutput };
   setBudgetForecastMethod: { input: SetBudgetForecastMethodParams & SetBudgetForecastMethodInput; output: SetBudgetForecastMethodOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
+  setBudgetLineBlend: { input: SetBudgetLineBlendParams & SetBudgetLineBlendInput; output: SetBudgetLineBlendOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCancellationNotice: { input: SetCancellationNoticeInput; output: SetCancellationNoticeOutput };
   setCertificationRenewalDays: { input: SetCertificationRenewalDaysParams & SetCertificationRenewalDaysInput; output: SetCertificationRenewalDaysOutput };
@@ -38835,6 +38876,7 @@ export const OPERATIONS = {
   setBranchNumbering: { method: "PUT", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setBudgetForecastMethod: { method: "PUT", path: "/v1/budgets/{year}/forecast", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
+  setBudgetLineBlend: { method: "PUT", path: "/v1/budgets/{year}/forecast/lines", pathParams: ["year"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCancellationNotice: { method: "PATCH", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setCertificationRenewalDays: { method: "POST", path: "/v1/certifications/{id}/renewal-days", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -48359,6 +48401,15 @@ export abstract class GeneratedOperations {
    */
   setBudgetLine(input: SetBudgetLineParams & SetBudgetLineInput, options?: CallOptions): Promise<SetBudgetLineOutput> {
     return this.call("setBudgetLine", input, options);
+  }
+
+  /**
+   * Give one budget line a forecast blend of its own, or take it off.
+   *
+   * PUT /v1/budgets/{year}/forecast/lines. Needs finance:configure.
+   */
+  setBudgetLineBlend(input: SetBudgetLineBlendParams & SetBudgetLineBlendInput, options?: CallOptions): Promise<SetBudgetLineBlendOutput> {
+    return this.call("setBudgetLineBlend", input, options);
   }
 
   /**

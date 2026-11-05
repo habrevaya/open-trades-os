@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { journals, budgets, UnprocessableError } from "@opentradesos/api/services";
-import { createJournalEntry, importBudget, setBudgetForecastMethod, setBudgetLine } from "@opentradesos/api/contracts";
+import { createJournalEntry, importBudget, setBudgetForecastMethod, setBudgetLine, setBudgetLineBlend } from "@opentradesos/api/contracts";
 import { attempt, field, parsed, type FormState } from "@/lib/actions";
 import { JOURNAL_ROWS } from "./rows";
 
@@ -106,6 +106,30 @@ export async function importBudgetFile(_previous: FormState, form: FormData): Pr
   return result;
 }
 
+/**
+ * A blend of its own for one line, or taken off with "Take off". Through
+ * `budgets.setLineBlend`, which refuses a line not in the year's budget and
+ * weights that do not add up to 100, in words.
+ */
+export async function chooseLineBlend(_previous: FormState, form: FormData): Promise<FormState> {
+  const result = await attempt(form, async () => {
+    const part = (name: string) => {
+      const typed = (field(form, name) ?? "0").replace(/%/g, "").trim();
+      return /^\d+$/.test(typed) ? Number(typed) : typed;
+    };
+    const off = field(form, "off") === "1";
+    const input = parsed(setBudgetLineBlend.input, {
+      year: field(form, "year"),
+      line: field(form, "line") ?? "",
+      weights: off ? null : { budget: part("weightBudget"), runRate: part("weightRunRate"), seasonal: part("weightSeasonal") },
+    });
+    const done = await budgets.setLineBlend(await ctx(), input);
+    return { message: done.weights ? "That line now has a blend of its own." : "Taken off. That line follows the year's choice again." };
+  });
+  revalidatePath("/books/budget");
+  return result;
+}
+
 /** How the year end forecast takes the months to come, for the whole year. */
 export async function chooseForecast(_previous: FormState, form: FormData): Promise<FormState> {
   const result = await attempt(form, async () => {
@@ -121,6 +145,8 @@ export async function chooseForecast(_previous: FormState, form: FormData): Prom
       method,
       ...(method === "blend" ? { weights: { budget: part("weightBudget"), runRate: part("weightRunRate"), seasonal: part("weightSeasonal") } } : {}),
       ...(years ? { seasonalYears: Number(years) } : {}),
+      /** A box not ticked is not sent at all by the browser, which is "off": the form always says which. */
+      recentWeighted: form.get("recentWeighted") === "on",
     });
     await budgets.setForecastMethod(await ctx(), input);
     return {

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, uuid, text, integer, jsonb, index, uniqueIndex, timestamp, date, check } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, boolean, jsonb, index, uniqueIndex, timestamp, date, check } from "drizzle-orm/pg-core";
 import { pk, money, currency } from "./_shared";
 import { organization, user, businessUnit } from "./tenancy";
 import { customer } from "./crm";
@@ -190,6 +190,22 @@ export const budget = pgTable("budget", {
    * alone, as it always was. Read by `seasonal` and by a blend that weighs it.
    */
   seasonalYears: integer("seasonal_years").notNull().default(1),
+  /**
+   * The run rate weighs recent months more: each month over counts as many
+   * times as its place in the year so far, the latest most
+   * (`budget.recencyWeights` in core). Off by default, so every month counts
+   * the same as it always did. Read by `run_rate` and by a blend that gives
+   * the run rate weight.
+   */
+  runRateRecent: boolean("run_rate_recent").notNull().default(false),
+  /**
+   * A blend of its own for some lines, by line key (`category:revenue`,
+   * `account:6100`): whole percentages of the budget, the run rate and the
+   * seasonal shape adding up to 100. A line here is forecast by its own blend
+   * whatever the year's method, in the company's report and every branch's
+   * and job type's; every other line keeps the year's choice.
+   */
+  lineBlends: jsonb("line_blends").$type<Record<string, { budget: number; runRate: number; seasonal: number }>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
