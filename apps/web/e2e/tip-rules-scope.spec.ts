@@ -71,7 +71,8 @@ test("a job is given its own tip rule from its page, and a kind of work's rule s
 
   await owner.goto(`/jobs/${job.id}`);
   await panel.getByRole("button", { name: "Take this job's rule off" }).click();
-  await expect(panel.getByRole("status")).toContainText("Taken off.");
+  /** The page itself says it: the button goes with the rule. */
+  await expect(panel).toContainText("This job has no rule of its own.");
   await owner.reload();
   await expect(panel).toContainText("This job has no rule of its own.");
   await expect(panel).toContainText("A tip that arrived today: By the hours each person worked on the job.");
