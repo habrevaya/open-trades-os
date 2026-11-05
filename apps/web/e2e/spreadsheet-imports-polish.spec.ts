@@ -20,7 +20,11 @@ test("Bring in invoice lines with an item and a discount, a note with a time, an
   const code = `PLT-${run}`.toUpperCase();
   const invoice = `PI-${run}`;
   const badInvoice = `PB-${run}`;
-  const estimate = String(Number.parseInt(run, 36) % 900_000 + 100_000);
+  /**
+   * Its own estimate number: the whole estimates spec takes the run's number
+   * between 100000 and 999999, so this one sits above that, where it cannot meet it.
+   */
+  const estimate = String(Number.parseInt(run, 36) % 900_000 + 1_100_000);
 
   async function upload(kind: RegExp, name: string, rows: string[][]) {
     await owner.goto("/settings/imports");

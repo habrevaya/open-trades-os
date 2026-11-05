@@ -26,7 +26,8 @@ const week = (open: number[], opens: string, closes: string) => [0, 1, 2, 3, 4, 
 type Seasons = { seasons: { id: string; name: string; businessUnitId: string | null }[] };
 
 test("a branch given summer hours, an overlap refused, and the board on a summer Saturday", async ({ owner }) => {
-  const name = `Gulf ${run}`;
+  /** Its own name: the moving holidays spec makes a branch called Gulf in the same run. */
+  const name = `Summer shop ${run}`;
   const season = `Summer hours ${run}`;
   const branch = await api<{ id: string }>(owner, "post", "/v1/business-units", { name });
   /** The company's own season, far ahead, open Sundays too: 2040-06-17 is a Sunday. */
