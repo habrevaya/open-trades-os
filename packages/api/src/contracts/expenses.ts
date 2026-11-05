@@ -309,24 +309,32 @@ export const setPayExtras = defineRoute({
 
 const TipRule = z.object({
   id: Uuid,
-  kind: z.enum(["job", "technician"]),
+  kind: z.enum(["job", "job_type", "crew", "technician"]),
   jobId: Uuid.nullable(),
   jobNumber: z.number().int().nullable(),
   jobSummary: z.string().nullable(),
+  jobTypeId: Uuid.nullable(),
+  jobTypeName: z.string().nullable(),
+  crewId: Uuid.nullable(),
+  crewName: z.string().nullable(),
   technicianId: Uuid.nullable(),
   technicianName: z.string().nullable(),
   rule: TipSplitRule,
   ruleLabel: z.string(),
+  startsOn: IsoDate.nullable(),
+  endsOn: IsoDate.nullable(),
   note: z.string().nullable(),
   setAt: z.string().datetime(),
 });
 
+const TIP_RULE_ORDER =
+  "When a tip is shared the rules are read in this order: the job's own; the rule of the job's kind of work (its job type); a crew's, when everybody the tip is shared between is on that crew (an active one) and every such crew with a rule has the same one (crews that differ are passed over and the tip says so); a person's own that covers the company day the money arrived, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.";
+
 export const listTipRules = defineRoute({
   method: "get",
   path: "/v1/payroll/tip-rules",
-  summary: "The jobs and people with a tip rule of their own",
-  description:
-    "A job's own rule is read first when a tip on it is shared; then a person's own, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.",
+  summary: "The jobs, kinds of work, crews and people with a tip rule of their own",
+  description: TIP_RULE_ORDER,
   module: "M17",
   permissions: ["timesheet:read"],
   input: z.object({}),
@@ -336,16 +344,20 @@ export const listTipRules = defineRoute({
 export const setTipRule = defineRoute({
   method: "post",
   path: "/v1/payroll/tip-rules",
-  summary: "Give one job, or one person, a tip rule of its own",
+  summary: "Give one job, kind of work, crew or person a tip rule of its own",
   description:
-    "Exactly one of `jobId` and `technicianId`. A job or person that has one already has it changed, and the audit log keeps what it was. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so `payroll:configure`. Audited.",
+    `Exactly one of \`jobId\`, \`jobTypeId\`, \`crewId\` and \`technicianId\`. A job, kind of work or crew that has one already has it changed, and the audit log keeps what it was. A person's own rule can have a first and last day (\`startsOn\`, \`endsOn\`, both kept, either left out for open); one with the same days as a rule they have changes it, and one whose days overlap another rule of theirs is refused, so on any day a person has at most one. Only a person's rule has days. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so \`payroll:configure\`. Audited. ${TIP_RULE_ORDER}`,
   module: "M17",
   permissions: ["payroll:configure"],
   idempotent: true,
   input: z.object({
     jobId: Uuid.optional(),
+    jobTypeId: Uuid.optional(),
+    crewId: Uuid.optional(),
     technicianId: Uuid.optional(),
     rule: TipSplitRule,
+    startsOn: IsoDate.nullable().optional(),
+    endsOn: IsoDate.nullable().optional(),
     note: z.string().max(500).optional(),
   }),
   output: TipRule,
@@ -354,13 +366,35 @@ export const setTipRule = defineRoute({
 export const removeTipRule = defineRoute({
   method: "delete",
   path: "/v1/payroll/tip-rules/{id}",
-  summary: "Take a job's or a person's own tip rule off",
-  description: "The job or person goes back to the company's rule from the next tip. Tips already shared keep theirs. Audited.",
+  summary: "Take a job's, kind of work's, crew's or person's own tip rule off",
+  description: "Whoever it was for goes back to the next rule in the order from the next tip. Tips already shared keep theirs. Audited.",
   module: "M17",
   permissions: ["payroll:configure"],
   idempotent: true,
   input: z.object({ id: Uuid }),
   output: z.object({ id: Uuid, removed: z.literal(true) }),
+});
+
+export const getJobTipRule = defineRoute({
+  method: "get",
+  path: "/v1/jobs/{jobId}/tip-rule",
+  summary: "The job's own tip rule, and the rule a tip on it today would be shared by",
+  description:
+    `\`own\` is the job's own rule or null. \`today\` is worked out exactly as a tip arriving today is shared, with the people on the job's visits now: the rule, where it comes from and anything passed over. Set the job's own rule with \`POST /v1/payroll/tip-rules\` and a \`jobId\`. A job outside the reader's branch reads as missing. ${TIP_RULE_ORDER}`,
+  module: "M17",
+  permissions: ["timesheet:read"],
+  input: z.object({ jobId: Uuid }),
+  output: z.object({
+    own: TipRule.nullable(),
+    today: z.object({
+      rule: TipSplitRule,
+      ruleLabel: z.string(),
+      source: z.enum(["company", "job", "job_type", "crew", "technician"]),
+      sourceLabel: z.string(),
+      note: z.string(),
+      people: z.array(z.string()),
+    }),
+  }),
 });
 
 export const addMileageRate = defineRoute({
@@ -587,7 +621,7 @@ export const listMyCashTips = defineRoute({
 });
 
 export const expenseRoutes = {
-  listTipRules, setTipRule, removeTipRule,
+  listTipRules, setTipRule, removeTipRule, getJobTipRule,
   recordExpense, addExpenseReceipt, listMyExpenses, listExpenses, decideExpense,
   recordPerDiem, listPerDiem, removePerDiem, getJobExpenses, getPayExtras, setPayExtras,
   addMileageRate, removeMileageRate, listMileageOverrides, addMileageOverride, removeMileageOverride, addPerDiemPlace, addPerDiemPlaceRate, removePerDiemPlaceRate, retirePerDiemPlace,

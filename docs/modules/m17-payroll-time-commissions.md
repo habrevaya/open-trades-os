@@ -682,22 +682,57 @@ kept on each share, and a change never re-splits one already shared. The arithme
 is core's (`payExtras.splitTipByRule`), with unit tests, and the portal, the
 phone's cash payment and the office's card and cash screens all go through it.
 
-**A rule for one job, or for one person.** On `/payroll/pay-rules`, under "Tips on
-one job, or for one person", whoever holds `payroll:configure` gives a job (by its
-number) or a technician a rule of their own, with a reason, and takes it off again
-(`GET /v1/payroll/tip-rules`, `timesheet:read`; `POST /v1/payroll/tip-rules` with a
-`jobId` or a `technicianId`, and `DELETE /v1/payroll/tip-rules/{id}`, both
-`payroll:configure`, idempotent and audited). A job or a person has one at most, and
-setting it again changes it in place, with the audit row keeping what it was. When a
-tip is shared, the job's own rule is read first; then the people's own, when
-everybody on the job who has one has the same one; then the company's. **The
-conservative reading taken:** when two people on a job have different rules of their
-own, neither can be followed without going against the other, so the company's rule
-is used and the tip says so on the share. Each share keeps the rule it was shared by
-and where it came from (`ruleSource`: `company`, `job` or `technician`), and the
-invoice's tips say "this job's own rule" or "their own rule". Setting, changing or
-taking off a rule applies from the next tip: a tip already shared is never shared
-again. The choice is core's (`payExtras.chooseTipRule`), with unit tests.
+**A rule for one job, one kind of work, one crew or one person.** On `/payroll/pay-rules`,
+under "Tips on one job, or for one person", whoever holds `payroll:configure` gives a job (by
+its number) or a technician a rule of their own, with a reason; under "Tips by kind of work, or
+by crew" they give a kind of work (a job type) or a crew one; and they take any of them off
+again (`GET /v1/payroll/tip-rules`, `timesheet:read`; `POST /v1/payroll/tip-rules` with exactly
+one of `jobId`, `jobTypeId`, `crewId` and `technicianId`, and `DELETE /v1/payroll/tip-rules/{id}`,
+both `payroll:configure`, idempotent and audited). A job, a kind of work or a crew has one at
+most, and setting it again changes it in place, with the audit row keeping what it was.
+
+**A person's own rule can have a first and a last day** (`startsOn`, `endsOn`, both kept, either
+left out for open), so an apprentice can share by the hours they put in until their term ends.
+It is read against the company day the tip's money arrived, in the company's time zone, so a
+tip paid at nine on the last evening in Texas is still inside it. A person can have several
+rules whose days do not overlap: setting one with the same days as a rule they have changes
+that one, and one whose days overlap another of theirs is refused in words naming the days it
+overlaps, because on any day a person has at most one rule of their own. Only a person's rule
+has days: a job, a kind of work and a crew keep theirs until it is taken off. The table on Pay
+rules shows each person's days.
+
+**The order the rules are read in** when a tip is shared, decided in core
+(`payExtras.chooseTipRule`, with unit tests):
+
+1. the job's own rule;
+2. the rule of the job's kind of work (its job type);
+3. a crew's rule, when everybody the tip is shared between is a member of that crew and the
+   crew is in use; when they are all on more than one crew with a rule and those rules differ,
+   the crews are passed over and the tip says so;
+4. a person's own rule covering the day, when everybody on the job who has one has the same one;
+5. the company's.
+
+Rules about the work come before rules about the people, as the job's own always came before a
+person's, and the narrower before the wider: the job before its kind of work. A crew comes
+before a person on it because a crew's rule is what its people agreed between them. **The
+conservative readings taken:** when two people on a job have different rules of their own,
+neither can be followed without going against the other, so the company's rule is used and the
+tip says so; a crew's rule is read only when every person sharing the tip is on that crew, so a
+helper from elsewhere is never pulled into a crew's arrangement; and a crew taken out of use
+stops being read. A tip on a crew's visit is still shared between the people assigned to the
+job's visits, as before: who a tip is for has not changed, only how it is shared. Each share
+keeps the rule it was shared by and where it came from (`ruleSource`: `company`, `job`,
+`job_type`, `crew` or `technician`), and the invoice's tips say "this job's own rule", "the rule
+for this kind of work", "the crew's rule" or "their own rule". Setting, changing or taking off a
+rule applies from the next tip: a tip already shared is never shared again.
+
+**On the job's own page.** "How a tip on this job is shared" says the rule a tip arriving today
+would be shared by, where it comes from in the order above, anything passed over, and who it
+would be shared between, worked out exactly as a tip is shared (`GET /v1/jobs/{jobId}/tip-rule`,
+`timesheet:read`; a job outside the reader's branch reads as missing). Whoever holds
+`payroll:configure` gives the job its own rule there with a reason, changes it, or takes it off,
+through the same `POST /v1/payroll/tip-rules` and `DELETE /v1/payroll/tip-rules/{id}`, so the
+office no longer needs the job's number and Pay rules to do it.
 
 **The office and a cash tip.** A tip the technician kept normally comes from their
 phone. When they did not record it, or got the amount wrong, whoever holds `tip:record`
@@ -795,6 +830,7 @@ administrator preset deliberately excludes `payroll:read`, `payroll:export` and
 | `GET /v1/payroll/tip-rules` | `timesheet:read` |
 | `POST /v1/payroll/tip-rules` | `payroll:configure` |
 | `DELETE /v1/payroll/tip-rules/{id}` | `payroll:configure` |
+| `GET /v1/jobs/{jobId}/tip-rule` | `timesheet:read` |
 | `GET /v1/payroll/overtime-policies` | `timesheet:read` |
 | `POST /v1/payroll/overtime-policies` | `payroll:configure` |
 | `GET /v1/payroll/wage-scales` | `timesheet:read` |
@@ -852,10 +888,13 @@ the right one loaded. Tips given through the portal or with a payment on site ar
 payroll; a cash tip a technician kept is recorded on the phone and on `/my-day` by
 the technician, and by the office when they did not or got it wrong, on
 `/timesheets/tips`. A tip is shared evenly, by hours on the job, by hours on the visit
-it was for, or to the lead, by the company's rule, a job's own or a person's own. A
-person's own rule is not dated: it applies from when it is set until it is taken off,
-and there is no rule per job type or per crew. A job's rule is set from Pay rules by
-the job's number, not from the job's own page. A tip from the portal or the office
+it was for, or to the lead, by the company's rule or a job's, a kind of work's, a crew's
+or a person's own. Only a person's own rule has a first and a last day; a kind of work's
+or a crew's applies until it is taken off. A crew's rule is read only when everybody
+sharing the tip is on the crew, and a tip on a visit sent to a crew is still shared
+between the people assigned to the job's visits, not the crew's members: who a tip is
+for is a pay decision this change does not make. There is no rule per customer or per
+branch. A tip from the portal or the office
 names no visit, so sharing by the hours on the visit reads the job's visit finished
 most recently, which can be the wrong one when the customer is thanking the crew of
 an earlier day; the office can give that job a rule of its own before the tip

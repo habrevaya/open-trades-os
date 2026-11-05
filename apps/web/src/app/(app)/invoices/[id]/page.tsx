@@ -429,7 +429,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                 <Td>{formatIn(t.receivedAt, tz, { dateStyle: "medium" })}</Td>
                 <Td>{share.technicianName}</Td>
                 <Td className="text-ink-700">{t.splitRule === "hours" ? "By hours" : t.splitRule === "visit_hours" ? "By hours on the visit" : t.splitRule === "lead" ? "To the lead" : "Evenly"}
-                  {t.ruleSource === "job" ? ", this job's own rule" : t.ruleSource === "technician" ? ", their own rule" : ""}</Td>
+                  {t.ruleSource === "job" ? ", this job's own rule" : t.ruleSource === "technician" ? ", their own rule"
+                    : t.ruleSource === "job_type" ? ", the rule for this kind of work" : t.ruleSource === "crew" ? ", the crew's rule" : ""}</Td>
                 <Td className="text-ink-700">{share.paidAt ? formatIn(share.paidAt, tz, { dateStyle: "medium" }) : "Not yet"}</Td>
                 <Td className="text-right"><Money value={share.amount} /></Td>
               </tr>

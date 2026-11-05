@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, index, uniqueIndex, timestamp, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, index, uniqueIndex, timestamp, date, check } from "drizzle-orm/pg-core";
 import { pk, money } from "./_shared";
 import { organization, technician, user } from "./tenancy";
 import { invoice, payment } from "./billing";
-import { job, visit } from "./work";
+import { job, jobType, visit } from "./work";
+import { crew } from "./scheduling";
 import { payPeriod } from "./workforce";
 
 /**
@@ -122,27 +123,45 @@ export const cashTipCorrection = pgTable("cash_tip_correction", {
 }));
 
 /**
- * HOW A TIP IS SHARED ON ONE JOB, OR FOR ONE PERSON, INSTEAD OF THE COMPANY'S RULE.
+ * HOW A TIP IS SHARED ON ONE JOB, FOR ONE KIND OF WORK, FOR ONE CREW OR FOR
+ * ONE PERSON, INSTEAD OF THE COMPANY'S RULE.
  *
  * The company's rule is on Pay rules. A job can have its own (a crew job
  * where the lead did the selling, a two day install where the second day's
- * crew did the work the customer saw), and so can a person (an apprentice
- * who shares by the hours they put in). Read when a tip is shared: the job's
- * own first, then the people's own when everybody on the job who has one
- * agrees, then the company's (`payExtras.chooseTipRule` in core).
+ * crew did the work the customer saw), so can a kind of work (installs go to
+ * the lead), a crew (the tree crew shares by hours) and a person (an
+ * apprentice who shares by the hours they put in, until they finish). Read
+ * when a tip is shared, in this order: the job's own, the kind of work's,
+ * the crew's when everybody sharing the tip is on it, the people's own that
+ * cover the day when everybody on the job who has one agrees, then the
+ * company's (`payExtras.chooseTipRule` in core).
  *
- * Exactly one of a job and a person, held by a check. One per job and one per
- * person, held by the indexes, because "which rule does this job use" must
- * have one answer. Changing one never re-splits a tip already shared: each
- * share keeps the rule it was shared by and where it came from.
+ * Exactly one of a job, a kind of work, a crew and a person, held by a check.
+ * One per job, per kind of work and per crew, held by the indexes, because
+ * "which rule does this job use" must have one answer. A person's own rule
+ * can have a first and a last day, and a person can have several whose days
+ * do not overlap (the service refuses an overlap; the index holds one per
+ * first day). Changing one never re-splits a tip already shared: each share
+ * keeps the rule it was shared by and where it came from.
  */
 export const tipSplitOverride = pgTable("tip_split_override", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   jobId: uuid("job_id").references(() => job.id, { onDelete: "cascade" }),
+  /** A kind of work: every job of this type, unless the job has its own. */
+  jobTypeId: uuid("job_type_id").references(() => jobType.id, { onDelete: "cascade" }),
+  /** A crew: a tip shared only between people on this crew. */
+  crewId: uuid("crew_id").references(() => crew.id, { onDelete: "cascade" }),
   technicianId: uuid("technician_id").references(() => technician.id, { onDelete: "cascade" }),
   /** One of `payExtras.TIP_SPLIT_RULES`, which the service checks. */
   rule: text("rule").notNull(),
+  /**
+   * The first and last company day a person's own rule covers, both kept.
+   * Null at either end is open. Read against the day the tip's money
+   * arrived. Only a person's own rule has them.
+   */
+  startsOn: date("starts_on"),
+  endsOn: date("ends_on"),
   /** Why, in the office's words. */
   note: text("note"),
   setByUserId: uuid("set_by_user_id").references(() => user.id, { onDelete: "set null" }),
@@ -151,7 +170,17 @@ export const tipSplitOverride = pgTable("tip_split_override", {
 }, (t) => ({
   jobIdx: uniqueIndex("tip_split_override_job_idx").on(t.organizationId, t.jobId)
     .where(sql`${t.jobId} is not null`),
-  technicianIdx: uniqueIndex("tip_split_override_technician_idx").on(t.organizationId, t.technicianId)
+  jobTypeIdx: uniqueIndex("tip_split_override_job_type_idx").on(t.organizationId, t.jobTypeId)
+    .where(sql`${t.jobTypeId} is not null`),
+  crewIdx: uniqueIndex("tip_split_override_crew_idx").on(t.organizationId, t.crewId)
+    .where(sql`${t.crewId} is not null`),
+  technicianIdx: uniqueIndex("tip_split_override_technician_idx")
+    .on(t.organizationId, t.technicianId, sql`coalesce(${t.startsOn}, '-infinity'::date)`)
     .where(sql`${t.technicianId} is not null`),
-  subject: check("tip_split_override_subject", sql`(${t.jobId} is not null) <> (${t.technicianId} is not null)`),
+  subject: check("tip_split_override_subject", sql`(
+    (${t.jobId} is not null)::int + (${t.jobTypeId} is not null)::int
+    + (${t.crewId} is not null)::int + (${t.technicianId} is not null)::int
+  ) = 1`),
+  dates: check("tip_split_override_dates", sql`(${t.startsOn} is null and ${t.endsOn} is null) or ${t.technicianId} is not null`),
+  order: check("tip_split_override_date_order", sql`${t.startsOn} is null or ${t.endsOn} is null or ${t.startsOn} <= ${t.endsOn}`),
 }));

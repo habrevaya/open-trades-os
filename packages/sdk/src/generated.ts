@@ -10548,6 +10548,36 @@ export interface GetJobStagesOutput {
   }>;
 }
 
+export interface GetJobTipRuleOutput {
+  own: {
+    id: string;
+    kind: "job" | "job_type" | "crew" | "technician";
+    jobId: string | null;
+    jobNumber: number | null;
+    jobSummary: string | null;
+    jobTypeId: string | null;
+    jobTypeName: string | null;
+    crewId: string | null;
+    crewName: string | null;
+    technicianId: string | null;
+    technicianName: string | null;
+    rule: "even" | "hours" | "lead" | "visit_hours";
+    ruleLabel: string;
+    startsOn: string | null;
+    endsOn: string | null;
+    note: string | null;
+    setAt: string;
+  } | null;
+  today: {
+    rule: "even" | "hours" | "lead" | "visit_hours";
+    ruleLabel: string;
+    source: "company" | "job" | "job_type" | "crew" | "technician";
+    sourceLabel: string;
+    note: string;
+    people: string[];
+  };
+}
+
 export interface GetJournalEntryOutput {
   id: string;
   number: number;
@@ -19253,14 +19283,20 @@ export interface ListTimeOffOutput {
 export interface ListTipRulesOutput {
   rules: Array<{
     id: string;
-    kind: "job" | "technician";
+    kind: "job" | "job_type" | "crew" | "technician";
     jobId: string | null;
     jobNumber: number | null;
     jobSummary: string | null;
+    jobTypeId: string | null;
+    jobTypeName: string | null;
+    crewId: string | null;
+    crewName: string | null;
     technicianId: string | null;
     technicianName: string | null;
     rule: "even" | "hours" | "lead" | "visit_hours";
     ruleLabel: string;
+    startsOn: string | null;
+    endsOn: string | null;
     note: string | null;
     setAt: string;
   }>;
@@ -28034,21 +28070,31 @@ export interface SetTechnicianSkillExpiryOutput {
 
 export interface SetTipRuleInput {
   jobId?: string;
+  jobTypeId?: string;
+  crewId?: string;
   technicianId?: string;
   rule: "even" | "hours" | "lead" | "visit_hours";
+  startsOn?: string | null;
+  endsOn?: string | null;
   note?: string;
 }
 
 export interface SetTipRuleOutput {
   id: string;
-  kind: "job" | "technician";
+  kind: "job" | "job_type" | "crew" | "technician";
   jobId: string | null;
   jobNumber: number | null;
   jobSummary: string | null;
+  jobTypeId: string | null;
+  jobTypeName: string | null;
+  crewId: string | null;
+  crewName: string | null;
   technicianId: string | null;
   technicianName: string | null;
   rule: "even" | "hours" | "lead" | "visit_hours";
   ruleLabel: string;
+  startsOn: string | null;
+  endsOn: string | null;
   note: string | null;
   setAt: string;
 }
@@ -33460,6 +33506,10 @@ export interface GetJobStagesInput {
   id: string;
 }
 
+export interface GetJobTipRuleInput {
+  jobId: string;
+}
+
 export interface GetJournalEntryInput {
   id: string;
 }
@@ -36821,6 +36871,7 @@ export interface OperationTypes {
   getJobRateOffers: { input: GetJobRateOffersInput; output: GetJobRateOffersOutput };
   getJobSkills: { input: GetJobSkillsInput; output: GetJobSkillsOutput };
   getJobStages: { input: GetJobStagesInput; output: GetJobStagesOutput };
+  getJobTipRule: { input: GetJobTipRuleInput; output: GetJobTipRuleOutput };
   getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
   getKpiBreakdown: { input: GetKpiBreakdownInput; output: GetKpiBreakdownOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
@@ -38097,6 +38148,7 @@ export const OPERATIONS = {
   getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["for","exceptInvoiceId","exceptEstimateId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobStages: { method: "GET", path: "/v1/jobs/{id}/stages", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getJobTipRule: { method: "GET", path: "/v1/jobs/{jobId}/tip-rule", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getKpiBreakdown: { method: "GET", path: "/v1/kpi-breakdown", pathParams: [], queryParams: ["key","by","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to","page","perPage","by","group"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
@@ -42287,6 +42339,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The job's own tip rule, and the rule a tip on it today would be shared by.
+   *
+   * GET /v1/jobs/{jobId}/tip-rule. Needs timesheet:read.
+   */
+  getJobTipRule(input: GetJobTipRuleInput, options?: CallOptions): Promise<GetJobTipRuleOutput> {
+    return this.call("getJobTipRule", input, options);
+  }
+
+  /**
    * One manual journal entry and its lines.
    *
    * GET /v1/ledger/journal-entries/{id}. Needs ledger:read.
@@ -45455,7 +45516,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The jobs and people with a tip rule of their own.
+   * The jobs, kinds of work, crews and people with a tip rule of their own.
    *
    * GET /v1/payroll/tip-rules. Needs timesheet:read.
    */
@@ -47309,7 +47370,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Take a job's or a person's own tip rule off.
+   * Take a job's, kind of work's, crew's or person's own tip rule off.
    *
    * DELETE /v1/payroll/tip-rules/{id}. Needs payroll:configure.
    */
@@ -49163,7 +49224,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Give one job, or one person, a tip rule of its own.
+   * Give one job, kind of work, crew or person a tip rule of its own.
    *
    * POST /v1/payroll/tip-rules. Needs payroll:configure.
    */

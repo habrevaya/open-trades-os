@@ -72444,6 +72444,115 @@
         ]
       }
     },
+    "/v1/jobs/{jobId}/tip-rule": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "getJobTipRule",
+        "summary": "The job's own tip rule, and the rule a tip on it today would be shared by",
+        "description": "`own` is the job's own rule or null. `today` is worked out exactly as a tip arriving today is shared, with the people on the job's visits now: the rule, where it comes from and anything passed over. Set the job's own rule with `POST /v1/payroll/tip-rules` and a `jobId`. A job outside the reader's branch reads as missing. When a tip is shared the rules are read in this order: the job's own; the rule of the job's kind of work (its job type); a crew's, when everybody the tip is shared between is on that crew (an active one) and every such crew with a rule has the same one (crews that differ are passed over and the tip says so); a person's own that covers the company day the money arrived, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.\n\nRequires a session holding: timesheet:read.",
+        "tags": [
+          "M17"
+        ],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job's own tip rule, and the rule a tip on it today would be shared by",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetJobTipRuleOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "timesheet:read"
+        ]
+      }
+    },
     "/v1/knowledge-notes": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -96437,14 +96546,14 @@
       ],
       "get": {
         "operationId": "listTipRules",
-        "summary": "The jobs and people with a tip rule of their own",
-        "description": "A job's own rule is read first when a tip on it is shared; then a person's own, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.\n\nRequires a session holding: timesheet:read.",
+        "summary": "The jobs, kinds of work, crews and people with a tip rule of their own",
+        "description": "When a tip is shared the rules are read in this order: the job's own; the rule of the job's kind of work (its job type); a crew's, when everybody the tip is shared between is on that crew (an active one) and every such crew with a rule has the same one (crews that differ are passed over and the tip says so); a person's own that covers the company day the money arrived, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.\n\nRequires a session holding: timesheet:read.",
         "tags": [
           "M17"
         ],
         "responses": {
           "200": {
-            "description": "The jobs and people with a tip rule of their own",
+            "description": "The jobs, kinds of work, crews and people with a tip rule of their own",
             "content": {
               "application/json": {
                 "schema": {
@@ -96529,8 +96638,8 @@
       },
       "post": {
         "operationId": "setTipRule",
-        "summary": "Give one job, or one person, a tip rule of its own",
-        "description": "Exactly one of `jobId` and `technicianId`. A job or person that has one already has it changed, and the audit log keeps what it was. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so `payroll:configure`. Audited.\n\nRequires a session holding: payroll:configure.",
+        "summary": "Give one job, kind of work, crew or person a tip rule of its own",
+        "description": "Exactly one of `jobId`, `jobTypeId`, `crewId` and `technicianId`. A job, kind of work or crew that has one already has it changed, and the audit log keeps what it was. A person's own rule can have a first and last day (`startsOn`, `endsOn`, both kept, either left out for open); one with the same days as a rule they have changes it, and one whose days overlap another rule of theirs is refused, so on any day a person has at most one. Only a person's rule has days. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so `payroll:configure`. Audited. When a tip is shared the rules are read in this order: the job's own; the rule of the job's kind of work (its job type); a crew's, when everybody the tip is shared between is on that crew (an active one) and every such crew with a rule has the same one (crews that differ are passed over and the tip says so); a person's own that covers the company day the money arrived, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.\n\nRequires a session holding: payroll:configure.",
         "tags": [
           "M17"
         ],
@@ -96557,7 +96666,7 @@
         },
         "responses": {
           "201": {
-            "description": "Give one job, or one person, a tip rule of its own",
+            "description": "Give one job, kind of work, crew or person a tip rule of its own",
             "content": {
               "application/json": {
                 "schema": {
@@ -96658,8 +96767,8 @@
       ],
       "delete": {
         "operationId": "removeTipRule",
-        "summary": "Take a job's or a person's own tip rule off",
-        "description": "The job or person goes back to the company's rule from the next tip. Tips already shared keep theirs. Audited.\n\nRequires a session holding: payroll:configure.",
+        "summary": "Take a job's, kind of work's, crew's or person's own tip rule off",
+        "description": "Whoever it was for goes back to the next rule in the order from the next tip. Tips already shared keep theirs. Audited.\n\nRequires a session holding: payroll:configure.",
         "tags": [
           "M17"
         ],
@@ -96695,7 +96804,7 @@
         },
         "responses": {
           "200": {
-            "description": "Take a job's or a person's own tip rule off",
+            "description": "Take a job's, kind of work's, crew's or person's own tip rule off",
             "content": {
               "application/json": {
                 "schema": {
@@ -211255,6 +211364,196 @@
           "stages"
         ]
       },
+      "GetJobTipRuleOutput": {
+        "type": "object",
+        "properties": {
+          "own": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "job",
+                  "job_type",
+                  "crew",
+                  "technician"
+                ]
+              },
+              "jobId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "jobNumber": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "jobSummary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "jobTypeId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "jobTypeName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "crewId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "crewName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "technicianId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "technicianName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rule": {
+                "type": "string",
+                "enum": [
+                  "even",
+                  "hours",
+                  "lead",
+                  "visit_hours"
+                ]
+              },
+              "ruleLabel": {
+                "type": "string"
+              },
+              "startsOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "endsOn": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "setAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "jobId",
+              "jobNumber",
+              "jobSummary",
+              "jobTypeId",
+              "jobTypeName",
+              "crewId",
+              "crewName",
+              "technicianId",
+              "technicianName",
+              "rule",
+              "ruleLabel",
+              "startsOn",
+              "endsOn",
+              "note",
+              "setAt"
+            ]
+          },
+          "today": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string",
+                "enum": [
+                  "even",
+                  "hours",
+                  "lead",
+                  "visit_hours"
+                ]
+              },
+              "ruleLabel": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "company",
+                  "job",
+                  "job_type",
+                  "crew",
+                  "technician"
+                ]
+              },
+              "sourceLabel": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "rule",
+              "ruleLabel",
+              "source",
+              "sourceLabel",
+              "note",
+              "people"
+            ]
+          }
+        },
+        "required": [
+          "own",
+          "today"
+        ]
+      },
       "GetJournalEntryOutput": {
         "type": "object",
         "properties": {
@@ -257388,6 +257687,8 @@
                   "type": "string",
                   "enum": [
                     "job",
+                    "job_type",
+                    "crew",
                     "technician"
                   ]
                 },
@@ -257405,6 +257706,32 @@
                   ]
                 },
                 "jobSummary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "jobTypeId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "jobTypeName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "crewId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "crewName": {
                   "type": [
                     "string",
                     "null"
@@ -257435,6 +257762,20 @@
                 "ruleLabel": {
                   "type": "string"
                 },
+                "startsOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "endsOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
                 "note": {
                   "type": [
                     "string",
@@ -257452,10 +257793,16 @@
                 "jobId",
                 "jobNumber",
                 "jobSummary",
+                "jobTypeId",
+                "jobTypeName",
+                "crewId",
+                "crewName",
                 "technicianId",
                 "technicianName",
                 "rule",
                 "ruleLabel",
+                "startsOn",
+                "endsOn",
                 "note",
                 "setAt"
               ]
@@ -300429,6 +300776,14 @@
             "type": "string",
             "format": "uuid"
           },
+          "jobTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "crewId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "technicianId": {
             "type": "string",
             "format": "uuid"
@@ -300441,6 +300796,20 @@
               "lead",
               "visit_hours"
             ]
+          },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
           "note": {
             "type": "string",
@@ -300462,6 +300831,8 @@
             "type": "string",
             "enum": [
               "job",
+              "job_type",
+              "crew",
               "technician"
             ]
           },
@@ -300479,6 +300850,32 @@
             ]
           },
           "jobSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "jobTypeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "jobTypeName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "crewName": {
             "type": [
               "string",
               "null"
@@ -300509,6 +300906,20 @@
           "ruleLabel": {
             "type": "string"
           },
+          "startsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "endsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
           "note": {
             "type": [
               "string",
@@ -300526,10 +300937,16 @@
           "jobId",
           "jobNumber",
           "jobSummary",
+          "jobTypeId",
+          "jobTypeName",
+          "crewId",
+          "crewName",
           "technicianId",
           "technicianName",
           "rule",
           "ruleLabel",
+          "startsOn",
+          "endsOn",
           "note",
           "setAt"
         ]

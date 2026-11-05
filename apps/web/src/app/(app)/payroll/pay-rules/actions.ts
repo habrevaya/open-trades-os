@@ -106,9 +106,25 @@ export async function act(_previous: FormState, form: FormData): Promise<FormSta
           note: field(form, "note"),
           ...(number !== undefined ? { jobNumber: Number(number) } : {}),
           ...(technicianId !== undefined ? { technicianId } : {}),
+          startsOn: field(form, "startsOn") ?? null,
+          endsOn: field(form, "endsOn") ?? null,
         });
         return {
           message: `Set. Tips ${set.kind === "job" ? `on job ${set.jobNumber}` : `for ${set.technicianName}`} are shared this way from the next one. Tips already shared keep theirs.`,
+        };
+      }
+
+      case "tipRuleScope": {
+        const jobTypeId = field(form, "jobTypeId");
+        const crewId = field(form, "crewId");
+        const set = await tipRules.set(ctx, {
+          rule: field(form, "rule") ?? "",
+          note: field(form, "note"),
+          ...(jobTypeId !== undefined ? { jobTypeId } : {}),
+          ...(crewId !== undefined ? { crewId } : {}),
+        });
+        return {
+          message: `Set. Tips ${set.kind === "job_type" ? `on ${set.jobTypeName} work` : `shared by ${set.crewName}`} are shared this way from the next one. Tips already shared keep theirs.`,
         };
       }
 

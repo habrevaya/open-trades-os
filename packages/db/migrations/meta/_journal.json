@@ -1275,6 +1275,13 @@
       "when": 1793912088383,
       "tag": "0181_freezing_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1793916356108,
+      "tag": "0182_awesome_warpath",
+      "breakpoints": true
     }
   ]
 }
